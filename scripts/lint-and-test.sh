@@ -433,6 +433,14 @@ else
     echo -e "${YELLOW}[WARN] Test database cleanup failed (continuing anyway)${NC}"
 fi
 
+# Ensure data directory exists for SQLite databases
+echo -e "${BLUE}==== Ensuring test infrastructure... ====${NC}"
+if mkdir -p data; then
+    echo -e "${GREEN}[OK] Data directory ensured${NC}"
+else
+    echo -e "${YELLOW}[WARN] Could not create data directory (continuing anyway)${NC}"
+fi
+
 # Run Rust tests
 echo -e "${BLUE}==== Running Rust tests... ====${NC}"
 if cargo test --all-targets; then
