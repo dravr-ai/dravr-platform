@@ -274,7 +274,7 @@ impl UniversalToolExecutor {
     }
 
     /// Provide real activity intelligence analysis using the `ActivityIntelligence` engine
-    fn get_real_activity_intelligence(
+    pub fn get_real_activity_intelligence(
         &self,
         request: &UniversalRequest,
     ) -> Result<serde_json::Value, String> {
@@ -314,7 +314,7 @@ impl UniversalToolExecutor {
     }
 
     /// Get valid token for a provider, automatically refreshing if needed
-    async fn get_valid_token(
+    pub async fn get_valid_token(
         &self,
         user_id: uuid::Uuid,
         provider: &str,

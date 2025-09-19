@@ -13,6 +13,7 @@
 
 pub mod converter;
 pub mod universal;
+pub mod universal_old;
 
 pub use converter::{ProtocolConverter, ProtocolType};
 pub use universal::{UniversalRequest, UniversalResponse, UniversalTool, UniversalToolExecutor};
@@ -58,4 +59,10 @@ pub enum ProtocolError {
 
     #[error("Rate limit exceeded: {0}")]
     RateLimitExceeded(String),
+
+    #[error("Invalid request: {0}")]
+    InvalidRequest(String),
+
+    #[error("Internal error: {0}")]
+    InternalError(String),
 }
