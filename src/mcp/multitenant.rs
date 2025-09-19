@@ -13,6 +13,7 @@
 
 use super::{
     http_setup::HttpSetup,
+    mcp_request_processor::McpRequestProcessor,
     oauth_flow_manager::{OAuthFlowManager, OAuthTemplateRenderer},
     protocol::ProtocolHandler,
     resources::ServerResources,
@@ -2391,112 +2392,8 @@ impl MultiTenantMcpServer {
         request: McpRequest,
         resources: &Arc<ServerResources>,
     ) -> Option<McpResponse> {
-        let start_time = std::time::Instant::now();
-
-        // Log request (with optional truncation)
-        let should_truncate = std::env::var("MCP_LOG_TRUNCATE")
-            .map(|v| v != "false" && v != "0")
-            .unwrap_or(true);
-
-        if should_truncate {
-            let request_summary = format!("{}(id={:?})", request.method, request.id);
-            tracing::debug!(
-                mcp_method = %request.method,
-                mcp_id = ?request.id,
-                mcp_params_preview = ?request.params.as_ref().map(|p| {
-                    let s = p.to_string();
-                    if s.len() > 100 { format!("{}...[truncated]", &s[..100]) } else { s }
-                }),
-                auth_present = request.auth_token.is_some(),
-                "Received MCP request: {}",
-                request_summary
-            );
-        } else {
-            tracing::debug!(
-                mcp_request = ?request,
-                "Received MCP request (full)"
-            );
-        }
-
-        // Handle notifications (no response needed)
-        if request.method.starts_with("notifications/") {
-            Self::handle_notification(&request);
-            let duration = start_time.elapsed();
-            tracing::debug!(
-                // Safe: duration will be much less than u64::MAX milliseconds for request processing
-                duration_ms = {
-                    {
-                        u64::try_from(duration.as_millis()).unwrap_or(0)
-                    }
-                },
-                "MCP notification processed"
-            );
-            return None;
-        }
-
-        // Handle regular requests (response needed)
-        let response = match request.method.as_str() {
-            "initialize" => {
-                // Use OAuth-aware initialization if authentication is provided
-                if request.auth_token.is_some() {
-                    ProtocolHandler::handle_initialize_with_oauth(request, resources).await
-                } else {
-                    ProtocolHandler::handle_initialize_with_resources(request, resources)
-                }
-            }
-            "ping" => ProtocolHandler::handle_ping(request),
-            "tools/list" => ProtocolHandler::handle_tools_list(request),
-            "prompts/list" => ProtocolHandler::handle_prompts_list(request),
-            "resources/list" => ProtocolHandler::handle_resources_list(request, resources),
-            "resources/read" => ProtocolHandler::handle_resources_read(request, resources).await,
-            "authenticate" => {
-                ProtocolHandler::handle_authenticate(request, &resources.auth_manager)
-            }
-            "tools/call" => {
-                ToolHandlers::handle_tools_call_with_resources(request, resources).await
-            }
-            _ => ProtocolHandler::handle_unknown_method(request),
-        };
-
-        let duration = start_time.elapsed();
-        let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
-
-        // Log response (with optional truncation)
-        let should_truncate = std::env::var("MCP_LOG_TRUNCATE")
-            .map(|v| v != "false" && v != "0")
-            .unwrap_or(true);
-
-        if should_truncate {
-            let response_preview = response.result.as_ref().map(|r| {
-                let s = r.to_string();
-                if s.len() > 150 {
-                    format!("{}...[truncated]", &s[..150])
-                } else {
-                    s
-                }
-            });
-            tracing::debug!(
-                mcp_id = ?response.id,
-                duration_ms = duration_ms,
-                success = response.error.is_none(),
-                result_preview = ?response_preview,
-                error = ?response.error.as_ref().map(|e| &e.message),
-                "Sending MCP response"
-            );
-        } else {
-            tracing::debug!(
-                mcp_response = ?response,
-                duration_ms = duration_ms,
-                "Sending MCP response (full)"
-            );
-        }
-
-        // Record metrics in span
-        tracing::Span::current()
-            .record("duration_ms", duration_ms)
-            .record("response_status", response.error.is_none());
-
-        Some(response)
+        let processor = McpRequestProcessor::new(resources.clone());
+        processor.handle_request(request).await
     }
 
     /// Extract tenant context from MCP request headers

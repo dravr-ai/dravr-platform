@@ -2,6 +2,7 @@
 // ABOUTME: Multi-tenant MCP server functionality for MCP clients and AI assistants
 
 pub mod http_setup;
+pub mod mcp_request_processor;
 pub mod multitenant;
 pub mod oauth_flow_manager;
 pub mod progress;
