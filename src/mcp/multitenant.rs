@@ -17,6 +17,7 @@ use super::{
     oauth_flow_manager::{OAuthFlowManager, OAuthTemplateRenderer},
     protocol::ProtocolHandler,
     resources::ServerResources,
+    server_lifecycle::ServerLifecycle,
     sse_transport,
     tenant_isolation::{TenantIsolation, validate_jwt_token_for_mcp, extract_tenant_context_internal},
     tool_handlers::{McpOAuthCredentials, ToolHandlers, ToolRoutingContext},
@@ -1821,8 +1822,8 @@ impl MultiTenantMcpServer {
 
     /// Run unified server with both stdio and HTTP transports on single port
     async fn run_unified_server(self, port: u16) -> Result<()> {
-        let transport_manager = TransportManager::new(self.resources);
-        transport_manager.start_all_transports(port).await
+        let lifecycle = ServerLifecycle::new(self.resources);
+        lifecycle.run_unified_server(port).await
     }
 
     /// Run MCP server with only HTTP transport (for testing)
@@ -1831,14 +1832,8 @@ impl MultiTenantMcpServer {
     ///
     /// Returns an error if the HTTP server fails to start or bind to the specified port
     pub async fn run_http_only(self, port: u16) -> Result<()> {
-        info!(
-            "Starting MCP server with HTTP transport only on port {}",
-            port
-        );
-
-        // Use unified server approach with all routes on single port
-        // This eliminates the dual-server problem that causes port conflicts
-        Self::run_http_server_with_resources(port, self.resources).await
+        let lifecycle = ServerLifecycle::new(self.resources);
+        lifecycle.run_http_only(port).await
     }
 
     /// Spawn background task to handle OAuth notifications via stdio

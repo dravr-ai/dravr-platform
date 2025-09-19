@@ -9,6 +9,7 @@ pub mod progress;
 pub mod protocol;
 pub mod resources;
 pub mod schema;
+pub mod server_lifecycle;
 pub mod sse_transport;
 pub mod tenant_isolation;
 pub mod tool_handlers;
