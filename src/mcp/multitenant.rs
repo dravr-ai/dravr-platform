@@ -13,6 +13,7 @@
 
 use super::{
     http_setup::HttpSetup,
+    oauth_flow_manager::{OAuthFlowManager, OAuthTemplateRenderer},
     protocol::ProtocolHandler,
     resources::ServerResources,
     sse_transport,
@@ -355,43 +356,12 @@ impl MultiTenantMcpServer {
         provider: String,
         user_id_str: String,
         headers: warp::http::HeaderMap,
-        database: Arc<Database>,
-        tenant_oauth_client: Arc<TenantOAuthClient>,
+        resources: Arc<ServerResources>,
     ) -> Result<impl warp::Reply, warp::Rejection> {
-        let user_id = Uuid::parse_str(&user_id_str)
-            .map_err(|_| warp::reject::custom(ApiError(api_error("Invalid user ID format"))))?;
-
-        let user = Self::get_user_with_tenant(&database, user_id).await?;
-        let tenant_id = Self::extract_tenant_id(&user)?;
-
-        Self::process_oauth_credentials(
-            &headers,
-            &provider,
-            tenant_id,
-            user_id,
-            &tenant_oauth_client,
-        )
-        .await?;
-
-        let tenant_name = Self::get_tenant_name(&database, tenant_id).await;
-        let tenant_context = TenantContext {
-            tenant_id,
-            user_id,
-            tenant_name,
-            user_role: TenantRole::Member,
-        };
-
-        let state = format!("{user_id}:{}", Uuid::new_v4());
-
-        Self::generate_authorization_redirect(
-            &tenant_oauth_client,
-            &tenant_context,
-            &provider,
-            &state,
-            &database,
-            user_id,
-        )
-        .await
+        let oauth_manager = OAuthFlowManager::new(resources);
+        oauth_manager
+            .handle_authorization_request(provider, user_id_str, headers)
+            .await
     }
 
     /// Get user with validation and error handling
@@ -571,10 +541,10 @@ impl MultiTenantMcpServer {
                     async move {
                         let Some(code) = params.get("code").cloned() else {
                                 tracing::error!("Missing OAuth code parameter in callback");
-                                let html_content = match Self::render_oauth_error_template(
+                                let html_content = match OAuthTemplateRenderer::render_error_template(
+                                    &provider,
                                     "Authorization Failed",
-                                    "Missing OAuth code parameter. Please try connecting again.",
-                                    None
+                                    Some("Missing OAuth code parameter. Please try connecting again.")
                                 ) {
                                     Ok(html) => html,
                                     Err(e) => {
@@ -589,10 +559,10 @@ impl MultiTenantMcpServer {
                             };
                         let Some(state) = params.get("state").cloned() else {
                                 tracing::error!("Missing OAuth state parameter in callback");
-                                let html_content = match Self::render_oauth_error_template(
+                                let html_content = match OAuthTemplateRenderer::render_error_template(
+                                    &provider,
                                     "Authorization Failed",
-                                    "Missing OAuth state parameter. Please try connecting again.",
-                                    None
+                                    Some("Missing OAuth state parameter. Please try connecting again.")
                                 ) {
                                     Ok(html) => html,
                                     Err(e) => {
@@ -620,7 +590,7 @@ impl MultiTenantMcpServer {
 
                         match oauth_routes.handle_callback(&code, &state, &provider).await {
                             Ok(callback_response) => {
-                                let html_content = match Self::render_oauth_success_template(&provider, &callback_response) {
+                                let html_content = match OAuthTemplateRenderer::render_success_template(&provider, &callback_response) {
                                     Ok(html) => html,
                                     Err(e) => {
                                         tracing::error!("Failed to render success template: {}", e);
@@ -634,10 +604,10 @@ impl MultiTenantMcpServer {
                                 ).into_response())
                             }
                             Err(e) => {
-                                let html_content = match Self::render_oauth_error_template(
+                                let html_content = match OAuthTemplateRenderer::render_error_template(
+                                    &provider,
                                     "Connection Failed",
-                                    &format!("There was an error connecting your {} account to Pierre Fitness.", provider.to_uppercase()),
-                                    Some(&e.to_string())
+                                    Some(&format!("There was an error connecting your {} account to Pierre Fitness: {}", provider.to_uppercase(), e))
                                 ) {
                                     Ok(html) => html,
                                     Err(template_err) => {

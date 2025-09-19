@@ -3,6 +3,7 @@
 
 pub mod http_setup;
 pub mod multitenant;
+pub mod oauth_flow_manager;
 pub mod progress;
 pub mod protocol;
 pub mod resources;
