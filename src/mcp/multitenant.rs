@@ -18,6 +18,7 @@ use super::{
     protocol::ProtocolHandler,
     resources::ServerResources,
     sse_transport,
+    tenant_isolation::{TenantIsolation, validate_jwt_token_for_mcp, extract_tenant_context_internal},
     tool_handlers::{McpOAuthCredentials, ToolHandlers, ToolRoutingContext},
     transport_manager::TransportManager,
 };
@@ -365,34 +366,6 @@ impl MultiTenantMcpServer {
             .await
     }
 
-    /// Get user with validation and error handling
-    async fn get_user_with_tenant(
-        database: &Arc<Database>,
-        user_id: Uuid,
-    ) -> Result<crate::models::User, warp::Rejection> {
-        match database.get_user(user_id).await {
-            Ok(Some(user)) => Ok(user),
-            Ok(None) => {
-                let error = api_error("User not found");
-                Err(warp::reject::custom(ApiError(error)))
-            }
-            Err(e) => {
-                let error = api_error(&format!("Database error: {e}"));
-                Err(warp::reject::custom(ApiError(error)))
-            }
-        }
-    }
-
-    /// Extract tenant ID from user with validation
-    fn extract_tenant_id(user: &crate::models::User) -> Result<Uuid, warp::Rejection> {
-        user.tenant_id
-            .as_ref()
-            .and_then(|id| Uuid::parse_str(id).ok())
-            .ok_or_else(|| {
-                let error = api_error("User has no valid tenant");
-                warp::reject::custom(ApiError(error))
-            })
-    }
 
     /// Process and store OAuth credentials from headers
     async fn process_oauth_credentials(
@@ -483,13 +456,6 @@ impl MultiTenantMcpServer {
         }
     }
 
-    /// Get tenant name from database with fallback
-    async fn get_tenant_name(database: &Arc<Database>, tenant_id: Uuid) -> String {
-        match database.get_tenant_by_id(tenant_id).await {
-            Ok(tenant) => tenant.name,
-            Err(_) => "Organization".to_string(),
-        }
-    }
 
     /// Generate OAuth authorization redirect response
     async fn generate_authorization_redirect(
@@ -2110,46 +2076,6 @@ impl MultiTenantMcpServer {
         }
     }
 
-    /// Helper function to handle JWT token validation for MCP requests
-    async fn validate_jwt_token_for_mcp(
-        token: &str,
-        ctx: &HttpRequestContext,
-    ) -> Result<String, warp::Rejection> {
-        Self::log_token_validation_start(token);
-
-        // Use the auth_middleware path instead of direct auth_manager (aligns with tool handlers)
-        // Check if token already has Bearer prefix to avoid double-prefixing
-        let auth_header = if token.starts_with("Bearer ") {
-            token.to_string()
-        } else {
-            format!("Bearer {token}")
-        };
-
-        // Call the auth middleware with the full Bearer token
-        tracing::debug!(
-            "About to call authenticate_request with header: '{}'",
-            &auth_header[..std::cmp::min(50, auth_header.len())]
-        );
-
-        match ctx
-            .resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_header))
-            .await
-        {
-            Ok(auth_result) => {
-                tracing::debug!("Successfully authenticated user with auth_middleware");
-                Ok(auth_result.user_id.to_string())
-            }
-            Err(auth_error) => {
-                tracing::error!("Authentication failed via auth_middleware: {auth_error}");
-                Err(warp::reject::custom(crate::errors::AppError::new(
-                    crate::errors::ErrorCode::AuthRequired,
-                    format!("Invalid or expired JWT token: {auth_error}"),
-                )))
-            }
-        }
-    }
 
     /// Log the start of JWT token validation
     fn log_token_validation_start(token: &str) {
@@ -2221,7 +2147,9 @@ impl MultiTenantMcpServer {
                 };
 
                 // Use helper function to validate JWT token
-                let _user_id = Self::validate_jwt_token_for_mcp(token, ctx).await?;
+                let _user_id = validate_jwt_token_for_mcp(token, &ctx.resources.auth_manager, &ctx.resources.database).await.map_err(|e| {
+                    warp::reject::custom(ApiError(api_error(&format!("JWT validation failed: {}", e))))
+                })?;
                 tracing::debug!("Proceeding to handle_mcp_http_request with user context");
 
                 // Pass the original auth header, not the user_id
@@ -2401,222 +2329,10 @@ impl MultiTenantMcpServer {
     /// # Errors
     ///
     /// Returns an error if tenant context extraction fails
-    /// Get user's role in a tenant - returns error if user not found in tenant
-    async fn get_user_role_for_tenant(
-        database: &Arc<Database>,
-        user_id: uuid::Uuid,
-        tenant_id: uuid::Uuid,
-    ) -> Result<TenantRole, String> {
-        match database.get_user_tenant_role(user_id, tenant_id).await {
-            Ok(Some(role_str)) => Ok(TenantRole::from_db_string(&role_str)),
-            Ok(None) => {
-                tracing::error!(
-                    "User {} not found in tenant {} - access denied",
-                    user_id,
-                    tenant_id
-                );
-                Err("User has no valid tenant".to_string())
-            }
-            Err(e) => {
-                tracing::error!("Failed to get user role for tenant {}: {}", tenant_id, e);
-                Err(format!("Database error checking tenant membership: {e}"))
-            }
-        }
-    }
 
-    /// Extract tenant context from explicit header
-    async fn extract_tenant_from_header(
-        request: &McpRequest,
-        auth_result: &AuthResult,
-        database: &Arc<Database>,
-    ) -> Result<Option<TenantContext>, String> {
-        let Some(tenant_id_str) = request
-            .headers
-            .as_ref()
-            .and_then(|h| h.get("X-Tenant-ID"))
-            .and_then(|v| v.as_str())
-        else {
-            return Ok(None);
-        };
-
-        let tenant_id = uuid::Uuid::parse_str(tenant_id_str)
-            .map_err(|e| format!("Invalid tenant ID format: {e}"))?;
-
-        match database.get_tenant_by_id(tenant_id).await {
-            Ok(tenant) => {
-                tracing::debug!("Using explicit tenant from header: {}", tenant.name);
-                let role =
-                    match Self::get_user_role_for_tenant(database, auth_result.user_id, tenant_id)
-                        .await
-                    {
-                        Ok(role) => role,
-                        Err(e) => {
-                            tracing::error!("Access denied for tenant {}: {}", tenant_id, e);
-                            return Err(e);
-                        }
-                    };
-                Ok(Some(TenantContext::new(
-                    tenant_id,
-                    tenant.name,
-                    auth_result.user_id,
-                    role,
-                )))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch explicit tenant {}: {}", tenant_id, e);
-                Err(format!("Tenant not found: {tenant_id}"))
-            }
-        }
-    }
-
-    /// Extract tenant context from user's tenant association
-    async fn extract_tenant_from_user(
-        auth_result: &AuthResult,
-        database: &Arc<Database>,
-    ) -> Result<Option<TenantContext>, String> {
-        eprintln!(
-            "DEBUG: Extracting tenant context for user {}",
-            auth_result.user_id
-        );
-        let user = match database.get_user(auth_result.user_id).await {
-            Ok(Some(user)) => {
-                eprintln!(
-                    "DEBUG: Found user {} with tenant_id: {:?}",
-                    user.email, user.tenant_id
-                );
-                user
-            }
-            Ok(None) => {
-                tracing::warn!("User not found: {}", auth_result.user_id);
-                return Err("User not found".to_string());
-            }
-            Err(e) => {
-                tracing::warn!("Failed to fetch user {}: {}", auth_result.user_id, e);
-                return Err(format!("User lookup failed: {e}"));
-            }
-        };
-
-        let Some(user_tenant_id) = user.tenant_id else {
-            eprintln!(
-                "DEBUG: User {user_id} has no tenant_id",
-                user_id = auth_result.user_id
-            );
-            return Ok(None);
-        };
-
-        eprintln!("DEBUG: Attempting to parse tenant_id as UUID: {user_tenant_id}");
-        // Try parsing as UUID first
-        if let Ok(tenant_uuid) = uuid::Uuid::parse_str(&user_tenant_id) {
-            eprintln!("DEBUG: Successfully parsed UUID: {tenant_uuid}");
-            match database.get_tenant_by_id(tenant_uuid).await {
-                Ok(tenant) => {
-                    eprintln!("DEBUG: Found tenant by ID: {name}", name = tenant.name);
-                    tracing::debug!("Using user's tenant: {}", tenant.name);
-                    eprintln!("DEBUG: Getting user role for tenant");
-                    let role = match Self::get_user_role_for_tenant(
-                        database,
-                        auth_result.user_id,
-                        tenant_uuid,
-                    )
-                    .await
-                    {
-                        Ok(role) => {
-                            eprintln!("DEBUG: Got user role: {role:?}");
-                            role
-                        }
-                        Err(e) => {
-                            eprintln!("DEBUG: Failed to get user role: {e}");
-                            tracing::error!("Access denied for user tenant {}: {}", tenant_uuid, e);
-                            return Err(e);
-                        }
-                    };
-                    let context =
-                        TenantContext::new(tenant_uuid, tenant.name, auth_result.user_id, role);
-                    tracing::debug!("Created tenant context: {:?}", context);
-                    return Ok(Some(context));
-                }
-                Err(e) => {
-                    eprintln!("DEBUG: Failed to get tenant by ID {tenant_uuid}: {e}");
-                }
-            }
-        } else {
-            eprintln!("DEBUG: Failed to parse tenant_id as UUID: {user_tenant_id}");
-        }
-
-        // Try as slug if UUID parsing failed
-        if let Ok(tenant) = database.get_tenant_by_slug(&user_tenant_id).await {
-            tracing::debug!("Using user's tenant slug: {}", tenant.name);
-            let role = match Self::get_user_role_for_tenant(
-                database,
-                auth_result.user_id,
-                tenant.id,
-            )
-            .await
-            {
-                Ok(role) => role,
-                Err(e) => {
-                    tracing::error!(
-                        "Access denied for user tenant slug '{}': {}",
-                        user_tenant_id,
-                        e
-                    );
-                    return Err(e);
-                }
-            };
-            return Ok(Some(TenantContext::new(
-                tenant.id,
-                tenant.name,
-                auth_result.user_id,
-                role,
-            )));
-        }
-
-        tracing::warn!("Failed to resolve user's tenant: {}", user_tenant_id);
-        Ok(None)
-    }
 
     /// Extract tenant context from request and auth result
     ///
-    /// # Errors
-    ///
-    /// Returns an error if tenant context extraction fails
-    pub async fn extract_tenant_context_internal(
-        request: &McpRequest,
-        auth_result: &AuthResult,
-        database: &Arc<Database>,
-    ) -> Result<Option<TenantContext>, String> {
-        eprintln!(
-            "DEBUG: Starting tenant context extraction for user {}",
-            auth_result.user_id
-        );
-
-        // 1. Try explicit tenant from header
-        if let Some(context) =
-            Self::extract_tenant_from_header(request, auth_result, database).await?
-        {
-            eprintln!(
-                "DEBUG: Found tenant from header: {name}",
-                name = context.tenant_name
-            );
-            return Ok(Some(context));
-        }
-
-        // 2. Try user's tenant association
-        if let Some(context) = Self::extract_tenant_from_user(auth_result, database).await? {
-            eprintln!(
-                "DEBUG: Found tenant from user association: {}",
-                context.tenant_name
-            );
-            return Ok(Some(context));
-        }
-
-        // 3. No tenant found - return None for proper error handling
-        eprintln!(
-            "DEBUG: No tenant context found for user {}",
-            auth_result.user_id
-        );
-        Ok(None)
-    }
 
     /// Handle notifications/initialized - no response needed for notifications
     /// Handle notification messages (no response needed)

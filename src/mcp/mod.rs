@@ -10,5 +10,6 @@ pub mod protocol;
 pub mod resources;
 pub mod schema;
 pub mod sse_transport;
+pub mod tenant_isolation;
 pub mod tool_handlers;
 pub mod transport_manager;
