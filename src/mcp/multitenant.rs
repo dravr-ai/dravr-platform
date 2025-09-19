@@ -17,6 +17,7 @@ use super::{
     resources::ServerResources,
     sse_transport,
     tool_handlers::{McpOAuthCredentials, ToolHandlers, ToolRoutingContext},
+    transport_manager::TransportManager,
 };
 use crate::a2a_routes::A2ARoutes;
 use crate::api_key_routes::ApiKeyRoutes;
@@ -1883,90 +1884,8 @@ impl MultiTenantMcpServer {
 
     /// Run unified server with both stdio and HTTP transports on single port
     async fn run_unified_server(self, port: u16) -> Result<()> {
-        info!("Starting MCP server with stdio and HTTP transports");
-
-        // Create notification channels for both transports using broadcast for multiple receivers
-        let (notification_sender, _): (
-            tokio::sync::broadcast::Sender<crate::mcp::schema::OAuthCompletedNotification>,
-            tokio::sync::broadcast::Receiver<crate::mcp::schema::OAuthCompletedNotification>,
-        ) = tokio::sync::broadcast::channel(100); // Buffer up to 100 notifications
-
-        // Create separate receivers for stdio and SSE
-        let notification_receiver = notification_sender.subscribe();
-        let sse_notification_receiver = notification_sender.subscribe();
-
-        // Set up notification sender in resources for OAuth callbacks
-        let mut resources_clone = (*self.resources).clone();
-        resources_clone.set_oauth_notification_sender(notification_sender);
-        let shared_resources = Arc::new(resources_clone);
-
-        // Clone server for both transports with shared notification resources
-        let mut server_for_stdio = self.clone();
-        server_for_stdio.resources = shared_resources.clone();
-
-        let mut server_for_http = self.clone();
-        server_for_http.resources = shared_resources.clone();
-
-        let mut server_for_sse = self.clone();
-        server_for_sse.resources = shared_resources.clone();
-
-        // Single-port architecture: unified server handles all routes
-        info!(
-            "Unified server on port {} handles all MCP and HTTP routes",
-            port
-        );
-
-        // Start stdio transport in background - don't wait for it to complete
-        let stdio_handle = tokio::spawn(async move {
-            match server_for_stdio
-                .run_stdio_transport(notification_receiver)
-                .await
-            {
-                Ok(()) => info!("stdio transport completed successfully"),
-                Err(e) => warn!("stdio transport failed: {}", e),
-            }
-        });
-
-        // Monitor stdio transport in background but don't exit server when it completes
-        tokio::spawn(async move {
-            match stdio_handle.await {
-                Ok(()) => info!("stdio transport task completed"),
-                Err(e) => warn!("stdio transport task failed: {}", e),
-            }
-        });
-
-        // Start SSE notification forwarder task
-        let sse_manager_for_notifications = server_for_sse.resources.sse_manager.clone();
-        tokio::spawn(async move {
-            if let Err(e) = server_for_sse
-                .run_sse_notification_forwarder(
-                    sse_notification_receiver,
-                    sse_manager_for_notifications,
-                )
-                .await
-            {
-                error!("SSE notification forwarder failed: {}", e);
-            }
-        });
-
-        // Run unified HTTP server with all routes (OAuth2, MCP, etc.) - this should run indefinitely
-        loop {
-            info!("Starting unified HTTP server on port {}", port);
-
-            // Clone shared resources for each iteration since run_http_server_with_resources takes ownership
-            match Self::run_http_server_with_resources(port, shared_resources.clone()).await {
-                Ok(()) => {
-                    error!("HTTP server unexpectedly completed - this should never happen");
-                    error!("HTTP server should run indefinitely. Restarting in 5 seconds...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                }
-                Err(e) => {
-                    error!("HTTP server failed: {}", e);
-                    error!("Restarting HTTP server in 10 seconds...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-                }
-            }
-        }
+        let transport_manager = TransportManager::new(self.resources);
+        transport_manager.start_all_transports(port).await
     }
 
     /// Run MCP server with only HTTP transport (for testing)

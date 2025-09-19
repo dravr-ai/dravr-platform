@@ -9,3 +9,4 @@ pub mod resources;
 pub mod schema;
 pub mod sse_transport;
 pub mod tool_handlers;
+pub mod transport_manager;
