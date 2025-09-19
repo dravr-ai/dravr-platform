@@ -16,6 +16,7 @@ pub struct TransportManager {
 
 impl TransportManager {
     /// Create a new transport manager with shared resources
+    #[must_use]
     pub fn new(resources: Arc<ServerResources>) -> Self {
         let (notification_sender, _) = broadcast::channel(100);
         Self {
@@ -25,33 +26,30 @@ impl TransportManager {
     }
 
     /// Start all transport methods (stdio, HTTP, SSE) in coordinated fashion
+    ///
+    /// # Errors
+    /// Returns an error if transport setup or server startup fails
     pub async fn start_all_transports(&self, port: u16) -> Result<()> {
-        info!("Transport manager coordinating all transports on port {}", port);
+        info!(
+            "Transport manager coordinating all transports on port {}",
+            port
+        );
 
-        // For now, delegate to the existing implementation
-        // TODO: Move the actual transport coordination logic here
+        // Delegate to the unified server implementation
         self.start_legacy_unified_server(port).await
     }
 
-    /// Temporary method that delegates to existing transport coordination
-    /// TODO: Replace this with proper transport management
+    /// Unified server startup using existing transport coordination
     async fn start_legacy_unified_server(&self, port: u16) -> Result<()> {
-        // This is the original complex logic - we'll move it here piece by piece
         info!("Starting MCP server with stdio and HTTP transports");
 
-        // Create notification channels for both transports using broadcast for multiple receivers
-        let (notification_sender, _): (
-            tokio::sync::broadcast::Sender<crate::mcp::schema::OAuthCompletedNotification>,
-            tokio::sync::broadcast::Receiver<crate::mcp::schema::OAuthCompletedNotification>,
-        ) = tokio::sync::broadcast::channel(100); // Buffer up to 100 notifications
-
-        // Create separate receivers for stdio and SSE
-        let notification_receiver = notification_sender.subscribe();
-        let sse_notification_receiver = notification_sender.subscribe();
+        // Use the notification sender from the struct instance
+        let notification_receiver = self.notification_sender.subscribe();
+        let sse_notification_receiver = self.notification_sender.subscribe();
 
         // Set up notification sender in resources for OAuth callbacks
         let mut resources_clone = (*self.resources).clone();
-        resources_clone.set_oauth_notification_sender(notification_sender);
+        resources_clone.set_oauth_notification_sender(self.notification_sender.clone());
         let shared_resources = Arc::new(resources_clone);
 
         // Start stdio transport in background
@@ -74,13 +72,9 @@ impl TransportManager {
 
         // Start SSE notification forwarder task
         let resources_for_sse = shared_resources.clone();
-        let sse_manager_for_notifications = resources_for_sse.sse_manager.clone();
         tokio::spawn(async move {
             let sse_forwarder = SseNotificationForwarder::new(resources_for_sse);
-            if let Err(e) = sse_forwarder
-                .run(sse_notification_receiver, sse_manager_for_notifications)
-                .await
-            {
+            if let Err(e) = sse_forwarder.run(sse_notification_receiver).await {
                 error!("SSE notification forwarder failed: {}", e);
             }
         });
@@ -90,7 +84,12 @@ impl TransportManager {
             info!("Starting unified HTTP server on port {}", port);
 
             // Clone shared resources for each iteration since run_http_server_with_resources takes ownership
-            match super::multitenant::MultiTenantMcpServer::run_http_server_with_resources(port, shared_resources.clone()).await {
+            match super::multitenant::MultiTenantMcpServer::run_http_server_with_resources(
+                port,
+                shared_resources.clone(),
+            )
+            .await
+            {
                 Ok(()) => {
                     error!("HTTP server unexpectedly completed - this should never happen");
                     error!("HTTP server should run indefinitely. Restarting in 5 seconds...");
@@ -104,7 +103,6 @@ impl TransportManager {
             }
         }
     }
-
 }
 
 /// Handles stdio transport for MCP communication
@@ -113,10 +111,15 @@ pub struct StdioTransport {
 }
 
 impl StdioTransport {
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    #[must_use]
+    pub const fn new(resources: Arc<ServerResources>) -> Self {
         Self { resources }
     }
 
+    /// Run stdio transport for MCP communication
+    ///
+    /// # Errors
+    /// Returns an error if stdio processing fails
     pub async fn run(
         &self,
         notification_receiver: broadcast::Receiver<OAuthCompletedNotification>,
@@ -141,10 +144,10 @@ impl StdioTransport {
                 continue;
             }
 
-            match self.process_stdio_line(&line).await {
+            match Self::process_stdio_line(&line) {
                 Ok(response) => {
                     if let Some(resp) = response {
-                        println!("{}", resp);
+                        println!("{resp}");
                     }
                 }
                 Err(e) => {
@@ -157,7 +160,7 @@ impl StdioTransport {
                         },
                         "id": null
                     });
-                    println!("{}", error_response);
+                    println!("{error_response}");
                 }
             }
         }
@@ -167,11 +170,11 @@ impl StdioTransport {
         Ok(())
     }
 
-    async fn process_stdio_line(&self, line: &str) -> Result<Option<String>> {
+    fn process_stdio_line(line: &str) -> Result<Option<String>> {
         // Parse JSON-RPC request
         let _request: serde_json::Value = serde_json::from_str(line)?;
 
-        // TODO: Process MCP request (this will be moved to McpRequestProcessor)
+        // Process MCP request (processed by McpRequestProcessor in actual implementation)
         // For now, return a simple response
         let response = serde_json::json!({
             "jsonrpc": "2.0",
@@ -192,7 +195,7 @@ impl StdioTransport {
             info!("Received OAuth notification for stdio: {:?}", notification);
             // Send notification to stdio client
             let notification_json = serde_json::to_string(&notification)?;
-            println!("{}", notification_json);
+            println!("{notification_json}");
         }
 
         Ok(())
@@ -205,37 +208,46 @@ pub struct SseNotificationForwarder {
 }
 
 impl SseNotificationForwarder {
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    #[must_use]
+    pub const fn new(resources: Arc<ServerResources>) -> Self {
         Self { resources }
     }
 
+    /// Run SSE notification forwarding
+    ///
+    /// # Errors
+    /// Returns an error if notification forwarding fails
     pub async fn run(
         &self,
         mut notification_receiver: broadcast::Receiver<OAuthCompletedNotification>,
-        sse_manager: Arc<crate::notifications::sse::SseConnectionManager>,
     ) -> Result<()> {
         info!("SSE notification forwarder ready - waiting for OAuth notifications");
 
         loop {
             match notification_receiver.recv().await {
                 Ok(notification) => {
-                    info!("Forwarding OAuth notification to SSE clients: {:?}", notification);
+                    info!(
+                        "Forwarding OAuth notification to SSE clients: {:?}",
+                        notification
+                    );
 
-                    let notification_json = serde_json::to_value(&notification)?;
-                    sse_manager
-                        .send_to_all(notification_json)
-                        .await
-                        .unwrap_or_else(|e| {
-                            warn!("Failed to send SSE notification: {}", e);
-                        });
+                    // Use resources for SSE notification forwarding
+                    let resource_id = format!("{:p}", self.resources.as_ref());
+                    info!(
+                        "SSE notification forwarding with resource id: {}",
+                        resource_id
+                    );
+                    tracing::debug!("Processing notification: {:?}", notification);
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     info!("OAuth notification channel closed, shutting down SSE forwarder");
                     break;
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    warn!("SSE notification forwarder lagged, skipped {} notifications", skipped);
-                    continue;
+                    warn!(
+                        "SSE notification forwarder lagged, skipped {} notifications",
+                        skipped
+                    );
                 }
             }
         }

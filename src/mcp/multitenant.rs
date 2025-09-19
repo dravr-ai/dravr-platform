@@ -15,13 +15,11 @@ use super::{
     http_setup::HttpSetup,
     mcp_request_processor::McpRequestProcessor,
     oauth_flow_manager::{OAuthFlowManager, OAuthTemplateRenderer},
-    protocol::ProtocolHandler,
     resources::ServerResources,
     server_lifecycle::ServerLifecycle,
     sse_transport,
-    tenant_isolation::{TenantIsolation, validate_jwt_token_for_mcp, extract_tenant_context_internal},
-    tool_handlers::{McpOAuthCredentials, ToolHandlers, ToolRoutingContext},
-    transport_manager::TransportManager,
+    tenant_isolation::validate_jwt_token_for_mcp,
+    tool_handlers::{McpOAuthCredentials, ToolRoutingContext},
 };
 use crate::a2a_routes::A2ARoutes;
 use crate::api_key_routes::ApiKeyRoutes;
@@ -30,7 +28,7 @@ use crate::configuration_routes::ConfigurationRoutes;
 use crate::constants::{
     errors::{ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND},
     json_fields::{GOAL_ID, PROVIDER},
-    oauth_providers, protocol,
+    protocol,
     protocol::JSONRPC_VERSION,
     service_names,
     tools::{
@@ -46,7 +44,7 @@ use crate::oauth2::routes::oauth2_routes;
 use crate::providers::ProviderRegistry;
 use crate::routes::{AuthRoutes, LoginRequest, OAuthRoutes, RefreshTokenRequest, RegisterRequest};
 use crate::security::headers::SecurityConfig;
-use crate::tenant::{TenantContext, TenantOAuthClient, TenantRole};
+use crate::tenant::{TenantContext, TenantOAuthClient};
 use crate::utils::json_responses::{api_error, invalid_format_error, oauth_error};
 
 use anyhow::Result;
@@ -56,7 +54,7 @@ use serde_json::Value;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::info;
 use uuid::Uuid;
 use warp::Reply;
 
@@ -105,7 +103,10 @@ impl MultiTenantMcpServer {
     }
 
     /// Run HTTP server with centralized resources (eliminates parameter passing anti-pattern)
-    async fn run_http_server_with_resources(
+    ///
+    /// # Errors
+    /// Returns an error if server setup or routing configuration fails
+    pub async fn run_http_server_with_resources(
         port: u16,
         resources: Arc<ServerResources>,
     ) -> Result<()> {
@@ -150,11 +151,7 @@ impl MultiTenantMcpServer {
 
         // Create all route groups using helper functions
         let auth_route_filter = Self::create_auth_routes(&auth_routes);
-        let oauth_route_filter = Self::create_oauth_routes(
-            &oauth_routes,
-            &resources.database,
-            &resources.tenant_oauth_client,
-        );
+        let oauth_route_filter = Self::create_oauth_routes(&oauth_routes, &resources);
 
         // Create OAuth 2.0 server routes for mcp-remote compatibility
         let oauth2_server_routes = oauth2_routes(
@@ -324,8 +321,7 @@ impl MultiTenantMcpServer {
 
     /// Create OAuth authorization endpoint
     fn create_oauth_auth_route(
-        database: &Arc<Database>,
-        tenant_oauth_client: &Arc<TenantOAuthClient>,
+        resources: &Arc<ServerResources>,
     ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         use warp::Filter;
 
@@ -335,20 +331,12 @@ impl MultiTenantMcpServer {
             .and(warp::get())
             .and(warp::header::headers_cloned())
             .and_then({
-                let database = database.clone();
-                let tenant_oauth_client = tenant_oauth_client.clone();
+                let resources = resources.clone();
                 move |provider: String, user_id_str: String, headers: warp::http::HeaderMap| {
-                    let database = database.clone();
-                    let tenant_oauth_client = tenant_oauth_client.clone();
+                    let resources = resources.clone();
                     async move {
-                        Self::handle_oauth_auth_request(
-                            provider,
-                            user_id_str,
-                            headers,
-                            database,
-                            tenant_oauth_client,
-                        )
-                        .await
+                        Self::handle_oauth_auth_request(provider, user_id_str, headers, resources)
+                            .await
                     }
                 }
             })
@@ -365,129 +353,6 @@ impl MultiTenantMcpServer {
         oauth_manager
             .handle_authorization_request(provider, user_id_str, headers)
             .await
-    }
-
-
-    /// Process and store OAuth credentials from headers
-    async fn process_oauth_credentials(
-        headers: &warp::http::HeaderMap,
-        provider: &str,
-        tenant_id: Uuid,
-        user_id: Uuid,
-        tenant_oauth_client: &Arc<TenantOAuthClient>,
-    ) -> Result<(), warp::Rejection> {
-        let user_client_id = headers
-            .get(format!("x-{}-client-id", provider.to_lowercase()))
-            .and_then(|h| h.to_str().ok())
-            .map(std::string::ToString::to_string);
-
-        let user_client_secret = headers
-            .get(format!("x-{}-client-secret", provider.to_lowercase()))
-            .and_then(|h| h.to_str().ok())
-            .map(std::string::ToString::to_string);
-
-        if let (Some(client_id), Some(client_secret)) = (user_client_id, user_client_secret) {
-            tracing::info!(
-                "Using user-provided OAuth credentials for tenant {} and provider {}",
-                tenant_id,
-                provider
-            );
-
-            let redirect_uri = Self::get_provider_redirect_uri(provider)?;
-            let scopes = Self::get_provider_scopes(provider);
-
-            let request = crate::tenant::oauth_client::StoreCredentialsRequest {
-                client_id,
-                client_secret,
-                redirect_uri,
-                scopes,
-                configured_by: user_id,
-            };
-
-            tenant_oauth_client
-                .store_credentials(tenant_id, provider, request)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        "Failed to store user OAuth credentials for tenant {} and provider {}: {}",
-                        tenant_id,
-                        provider,
-                        e
-                    );
-                    let error = api_error(&format!("Failed to store OAuth credentials: {e}"));
-                    warp::reject::custom(ApiError(error))
-                })?;
-        }
-
-        Ok(())
-    }
-
-    /// Get redirect URI for OAuth provider
-    fn get_provider_redirect_uri(provider: &str) -> Result<String, warp::Rejection> {
-        let redirect_uri = match provider {
-            oauth_providers::STRAVA => crate::constants::env_config::strava_redirect_uri(),
-            oauth_providers::FITBIT => crate::constants::env_config::fitbit_redirect_uri(),
-            _ => {
-                let error = api_error(&format!("Unsupported OAuth provider: {provider}"));
-                return Err(warp::reject::custom(ApiError(error)));
-            }
-        };
-        Ok(redirect_uri)
-    }
-
-    /// Get default scopes for OAuth provider
-    fn get_provider_scopes(provider: &str) -> Vec<String> {
-        match provider {
-            oauth_providers::STRAVA => crate::constants::oauth::STRAVA_DEFAULT_SCOPES
-                .split(',')
-                .map(str::to_string)
-                .collect(),
-            oauth_providers::FITBIT => vec![
-                "activity".to_string(),
-                "heartrate".to_string(),
-                "location".to_string(),
-                "nutrition".to_string(),
-                "profile".to_string(),
-                "settings".to_string(),
-                "sleep".to_string(),
-                "social".to_string(),
-                "weight".to_string(),
-            ],
-            _ => vec!["read".to_string()],
-        }
-    }
-
-
-    /// Generate OAuth authorization redirect response
-    async fn generate_authorization_redirect(
-        tenant_oauth_client: &Arc<TenantOAuthClient>,
-        tenant_context: &TenantContext,
-        provider: &str,
-        state: &str,
-        database: &Arc<Database>,
-        user_id: Uuid,
-    ) -> Result<impl warp::Reply, warp::Rejection> {
-        match tenant_oauth_client
-            .get_authorization_url(tenant_context, provider, state, database.as_ref())
-            .await
-        {
-            Ok(auth_url) => {
-                tracing::info!(
-                    "Redirecting user {} to {} OAuth authorization URL",
-                    user_id,
-                    provider
-                );
-                Ok(warp::reply::with_status(
-                    warp::reply::with_header(warp::reply(), "location", auth_url),
-                    warp::http::StatusCode::FOUND,
-                ))
-            }
-            Err(e) => {
-                tracing::error!("Failed to get OAuth authorization URL: {}", e);
-                let error = serde_json::json!({"error": e.to_string()});
-                Err(warp::reject::custom(ApiError(error)))
-            }
-        }
     }
 
     /// Create OAuth callback endpoint
@@ -598,12 +463,11 @@ impl MultiTenantMcpServer {
     /// Create OAuth endpoint routes
     fn create_oauth_routes(
         oauth_routes: &OAuthRoutes,
-        database: &Arc<Database>,
-        tenant_oauth_client: &Arc<TenantOAuthClient>,
+        resources: &Arc<ServerResources>,
     ) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone {
         use warp::Filter;
 
-        let oauth_auth = Self::create_oauth_auth_route(database, tenant_oauth_client);
+        let oauth_auth = Self::create_oauth_auth_route(resources);
         let oauth_callback = Self::create_oauth_callback_route(oauth_routes);
         oauth_auth.or(oauth_callback)
     }
@@ -1836,229 +1700,6 @@ impl MultiTenantMcpServer {
         lifecycle.run_http_only(port).await
     }
 
-    /// Spawn background task to handle OAuth notifications via stdio
-    fn spawn_oauth_notification_handler(
-        mut notification_receiver: tokio::sync::broadcast::Receiver<
-            crate::mcp::schema::OAuthCompletedNotification,
-        >,
-        stdout: Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
-    ) {
-        tokio::spawn(async move {
-            loop {
-                match notification_receiver.recv().await {
-                    Ok(notification) => {
-                        Self::handle_oauth_notification(notification, &stdout).await;
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                        tracing::warn!(
-                            "Stdio notification handler lagged, skipped {} notifications",
-                            skipped
-                        );
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        tracing::info!("Stdio notification channel closed, ending handler");
-                        break;
-                    }
-                }
-            }
-        });
-    }
-
-    /// Handle a single OAuth notification by writing it to stdout
-    async fn handle_oauth_notification(
-        notification: crate::mcp::schema::OAuthCompletedNotification,
-        stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
-    ) {
-        use tokio::io::AsyncWriteExt;
-
-        tracing::info!(
-            "Received OAuth notification for MCP client: {}",
-            notification.params.provider
-        );
-
-        let notification_json = match serde_json::to_string(&notification) {
-            Ok(json) => json,
-            Err(e) => {
-                tracing::error!("Failed to serialize OAuth notification: {}", e);
-                return;
-            }
-        };
-
-        {
-            let mut stdout_guard = stdout.lock().await;
-            if let Err(e) = stdout_guard.write_all(notification_json.as_bytes()).await {
-                tracing::error!("Failed to write OAuth notification to stdout: {}", e);
-                return;
-            }
-            if let Err(e) = stdout_guard.write_all(b"\n").await {
-                tracing::error!("Failed to write newline after OAuth notification: {}", e);
-                return;
-            }
-            if let Err(e) = stdout_guard.flush().await {
-                tracing::error!("Failed to flush OAuth notification to stdout: {}", e);
-                return;
-            }
-        } // stdout_guard is dropped here, releasing the mutex
-
-        tracing::info!("Successfully sent OAuth notification to MCP client via stdout");
-    }
-
-    /// Write MCP response to stdout
-    async fn write_response_to_stdout(
-        response: &McpResponse,
-        stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
-    ) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
-
-        let response_str = serde_json::to_string(response)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize response: {}", e))?;
-
-        {
-            let mut stdout_guard = stdout.lock().await;
-            stdout_guard
-                .write_all(response_str.as_bytes())
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to write to stdout: {}", e))?;
-            stdout_guard
-                .write_all(b"\n")
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to write newline to stdout: {}", e))?;
-            stdout_guard
-                .flush()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to flush stdout: {}", e))?;
-            drop(stdout_guard);
-        }
-
-        Ok(())
-    }
-
-    /// Process a single MCP request and send response
-    async fn process_mcp_request(
-        request: McpRequest,
-        resources: &Arc<ServerResources>,
-        stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
-    ) -> Result<()> {
-        tracing::debug!(
-            transport = "stdio",
-            mcp_method = %request.method,
-            "Processing MCP request via stdio transport"
-        );
-
-        if let Some(response) = Self::handle_request(request, resources).await {
-            Self::write_response_to_stdout(&response, stdout).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Run MCP server using stdio transport (MCP specification compliant)
-    async fn run_stdio_transport(
-        self,
-        notification_receiver: tokio::sync::broadcast::Receiver<
-            crate::mcp::schema::OAuthCompletedNotification,
-        >,
-    ) -> Result<()> {
-        use tokio::io::{AsyncBufReadExt, BufReader};
-
-        info!("MCP stdio transport ready - listening on stdin/stdout");
-
-        let stdin = tokio::io::stdin();
-        let stdout = Arc::new(tokio::sync::Mutex::new(tokio::io::stdout()));
-        let mut reader = BufReader::new(stdin);
-        let mut line = String::new();
-
-        // Spawn background task to handle OAuth notifications
-        Self::spawn_oauth_notification_handler(notification_receiver, stdout.clone());
-
-        while reader.read_line(&mut line).await.unwrap_or(0) > 0 {
-            let trimmed_line = line.trim();
-            if trimmed_line.is_empty() {
-                line.clear();
-                continue;
-            }
-
-            if let Ok(request) = serde_json::from_str::<McpRequest>(trimmed_line) {
-                if let Err(e) = Self::process_mcp_request(request, &self.resources, &stdout).await {
-                    tracing::error!("Failed to process MCP request: {}", e);
-                    break;
-                }
-            }
-            line.clear();
-        }
-
-        info!("MCP stdio transport ended");
-        Ok(())
-    }
-
-    /// Run SSE notification forwarder for OAuth notifications
-    async fn run_sse_notification_forwarder(
-        &self,
-        mut notification_receiver: tokio::sync::broadcast::Receiver<
-            crate::mcp::schema::OAuthCompletedNotification,
-        >,
-        sse_manager: Arc<crate::notifications::sse::SseConnectionManager>,
-    ) -> Result<()> {
-        info!("SSE notification forwarder ready - waiting for OAuth notifications");
-
-        loop {
-            match notification_receiver.recv().await {
-                Ok(notification) => {
-                    tracing::info!(
-                        "Received OAuth notification for SSE delivery: {}",
-                        notification.params.provider
-                    );
-
-                    // Convert OAuth notification to database format for SSE
-                    let oauth_notification =
-                        crate::database::oauth_notifications::OAuthNotification {
-                            id: format!(
-                                "oauth-{}-{}",
-                                notification.params.provider,
-                                chrono::Utc::now().timestamp()
-                            ),
-                            user_id: notification
-                                .params
-                                .user_id
-                                .unwrap_or_else(|| "unknown".to_string()),
-                            provider: notification.params.provider.clone(),
-                            success: notification.params.success,
-                            message: notification.params.message.clone(),
-                            expires_at: None,
-                            created_at: chrono::Utc::now(),
-                            read_at: None,
-                        };
-
-                    // Send to all connected SSE clients for this user
-                    if let Err(e) = sse_manager
-                        .send_notification(&oauth_notification.user_id, &oauth_notification)
-                        .await
-                    {
-                        tracing::warn!("Failed to send OAuth notification via SSE: {}", e);
-                    } else {
-                        tracing::info!(
-                            "Successfully sent OAuth notification via SSE for user: {}",
-                            oauth_notification.user_id
-                        );
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(
-                        "SSE notification forwarder lagged, skipped {} notifications",
-                        skipped
-                    );
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    tracing::info!("SSE notification channel closed, ending forwarder");
-                    break;
-                }
-            }
-        }
-
-        info!("SSE notification forwarder ended");
-        Ok(())
-    }
-
     /// Handle MCP HTTP request (Streamable HTTP transport)
     // Handle MCP HTTP request with authentication result
     /// Determine if an MCP method requires authentication
@@ -2071,15 +1712,7 @@ impl MultiTenantMcpServer {
         }
     }
 
-
-    /// Log the start of JWT token validation
-    fn log_token_validation_start(token: &str) {
-        tracing::debug!(
-            "Token being validated: {} (first 50 chars)",
-            &token[..std::cmp::min(50, token.len())]
-        );
-    }
-
+    /// Handle MCP HTTP request with conditional authentication
     async fn handle_mcp_http_request_with_conditional_auth(
         method: warp::http::Method,
         auth_header: Option<String>,
@@ -2142,8 +1775,16 @@ impl MultiTenantMcpServer {
                 };
 
                 // Use helper function to validate JWT token
-                let _user_id = validate_jwt_token_for_mcp(token, &ctx.resources.auth_manager, &ctx.resources.database).await.map_err(|e| {
-                    warp::reject::custom(ApiError(api_error(&format!("JWT validation failed: {}", e))))
+                let _user_id = validate_jwt_token_for_mcp(
+                    token,
+                    &ctx.resources.auth_manager,
+                    &ctx.resources.database,
+                )
+                .await
+                .map_err(|e| {
+                    warp::reject::custom(ApiError(api_error(&format!(
+                        "JWT validation failed: {e}"
+                    ))))
                 })?;
                 tracing::debug!("Proceeding to handle_mcp_http_request with user context");
 
@@ -2320,25 +1961,10 @@ impl MultiTenantMcpServer {
     }
 
     /// Extract tenant context from MCP request headers
+    /// Route disconnect tool request to appropriate provider handler
     ///
     /// # Errors
-    ///
-    /// Returns an error if tenant context extraction fails
-
-
-    /// Extract tenant context from request and auth result
-    ///
-
-    /// Handle notifications/initialized - no response needed for notifications
-    /// Handle notification messages (no response needed)
-    fn handle_notification(request: &McpRequest) {
-        if request.method.as_str() == "notifications/initialized" {
-            // Client has finished initialization - we can log this but no response needed
-        } else {
-            // Unknown notification - log but don't respond
-        }
-    }
-
+    /// Returns an error if the provider is not supported or the operation fails
     #[must_use]
     pub fn route_disconnect_tool(
         provider_name: &str,
@@ -3129,52 +2755,6 @@ pub struct McpResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<McpError>,
     pub id: Value,
-}
-
-impl MultiTenantMcpServer {
-    /// Render OAuth success template
-    fn render_oauth_success_template(
-        provider: &str,
-        callback_response: &crate::routes::OAuthCallbackResponse,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let template_content = std::fs::read_to_string("templates/oauth_success.html")?;
-
-        let html = template_content
-            .replace("{{provider}}", &provider.to_uppercase())
-            .replace("{{user_id}}", &callback_response.user_id)
-            .replace("{{expires_at}}", &callback_response.expires_at);
-
-        Ok(html)
-    }
-
-    /// Render OAuth error template
-    fn render_oauth_error_template(
-        title: &str,
-        message: &str,
-        error: Option<&str>,
-    ) -> Result<String, Box<dyn std::error::Error>> {
-        let template_content = std::fs::read_to_string("templates/oauth_error.html")?;
-
-        let html = template_content
-            .replace("{{title}}", title)
-            .replace("{{message}}", message);
-
-        let html = error.map_or_else(
-            || {
-                // Remove the error details section if no error
-                let start = html.find("{{#if error}}").unwrap_or(0);
-                let end = html.find("{{/if}}").map_or(html.len(), |i| i + 7);
-                format!("{}{}", &html[..start], &html[end..])
-            },
-            |error_msg| {
-                html.replace("{{#if error}}", "")
-                    .replace("{{/if}}", "")
-                    .replace("{{error}}", error_msg)
-            },
-        );
-
-        Ok(html)
-    }
 }
 
 /// MCP error

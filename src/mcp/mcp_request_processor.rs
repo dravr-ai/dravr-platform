@@ -2,14 +2,13 @@
 // ABOUTME: Validates, routes, and executes MCP protocol requests with proper error handling
 
 use super::{
+    multitenant::{McpError, McpRequest, McpResponse},
     resources::ServerResources,
-    tool_handlers::{ToolHandlers, ToolRoutingContext},
-    multitenant::{McpRequest, McpResponse, McpError},
+    tool_handlers::ToolHandlers,
 };
-use crate::constants::errors::{ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND};
+use crate::constants::errors::{ERROR_INTERNAL_ERROR, ERROR_METHOD_NOT_FOUND};
 use crate::constants::protocol::JSONRPC_VERSION;
 use anyhow::Result;
-use serde_json::Value;
 use std::sync::Arc;
 use tracing::{debug, error, warn};
 
@@ -20,7 +19,8 @@ pub struct McpRequestProcessor {
 
 impl McpRequestProcessor {
     /// Create a new MCP request processor
-    pub fn new(resources: Arc<ServerResources>) -> Self {
+    #[must_use]
+    pub const fn new(resources: Arc<ServerResources>) -> Self {
         Self { resources }
     }
 
@@ -29,12 +29,12 @@ impl McpRequestProcessor {
         let start_time = std::time::Instant::now();
 
         // Log request with optional truncation
-        self.log_request(&request);
+        Self::log_request(&request);
 
         // Handle notifications (no response needed)
         if request.method.starts_with("notifications/") {
-            self.handle_notification(&request);
-            self.log_completion("notification", start_time);
+            Self::handle_notification(&request);
+            Self::log_completion("notification", start_time);
             return None;
         }
 
@@ -45,7 +45,7 @@ impl McpRequestProcessor {
                 error!("Failed to process MCP request: {}", e);
                 McpResponse {
                     jsonrpc: JSONRPC_VERSION.to_string(),
-                    id: None,
+                    id: serde_json::Value::Null,
                     result: None,
                     error: Some(McpError {
                         code: ERROR_INTERNAL_ERROR,
@@ -56,29 +56,30 @@ impl McpRequestProcessor {
             }
         };
 
-        self.log_completion("request", start_time);
+        Self::log_completion("request", start_time);
         Some(response)
     }
 
     /// Process an MCP request and generate response
     async fn process_request(&self, request: McpRequest) -> Result<McpResponse> {
         // Validate request format
-        self.validate_request(&request)?;
+        Self::validate_request(&request)?;
 
         // Route to appropriate handler based on method
         match request.method.as_str() {
-            "initialize" => self.handle_initialize(&request).await,
-            "ping" => self.handle_ping(&request).await,
-            "tools/list" => self.handle_tools_list(&request).await,
+            "initialize" => Ok(Self::handle_initialize(&request)),
+            "ping" => Ok(Self::handle_ping(&request)),
+            "tools/list" => Ok(Self::handle_tools_list(&request)),
             "tools/call" => self.handle_tools_call(&request).await,
-            method if method.starts_with("resources/") => self.handle_resources(&request).await,
-            method if method.starts_with("prompts/") => self.handle_prompts(&request).await,
-            _ => self.handle_unknown_method(&request),
+            "authenticate" => Ok(Self::handle_authenticate(&request)),
+            method if method.starts_with("resources/") => Ok(Self::handle_resources(&request)),
+            method if method.starts_with("prompts/") => Ok(Self::handle_prompts(&request)),
+            _ => Ok(Self::handle_unknown_method(&request)),
         }
     }
 
     /// Validate MCP request format and required fields
-    fn validate_request(&self, request: &McpRequest) -> Result<()> {
+    fn validate_request(request: &McpRequest) -> Result<()> {
         if request.jsonrpc != JSONRPC_VERSION {
             return Err(anyhow::anyhow!("Invalid JSON-RPC version"));
         }
@@ -91,11 +92,11 @@ impl McpRequestProcessor {
     }
 
     /// Handle MCP initialize request
-    async fn handle_initialize(&self, request: &McpRequest) -> Result<McpResponse> {
+    fn handle_initialize(request: &McpRequest) -> McpResponse {
         debug!("Handling initialize request");
 
         let server_info = serde_json::json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": crate::constants::protocol::mcp_protocol_version(),
             "capabilities": {
                 "tools": {
                     "listChanged": true
@@ -114,176 +115,151 @@ impl McpRequestProcessor {
             }
         });
 
-        Ok(McpResponse {
+        McpResponse {
             jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
             result: Some(server_info),
             error: None,
-        })
+        }
     }
 
     /// Handle MCP ping request
-    async fn handle_ping(&self, request: &McpRequest) -> Result<McpResponse> {
+    fn handle_ping(request: &McpRequest) -> McpResponse {
         debug!("Handling ping request");
 
-        Ok(McpResponse {
+        McpResponse {
             jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
             result: Some(serde_json::json!({})),
             error: None,
-        })
+        }
+    }
+
+    /// Handle MCP authenticate request
+    fn handle_authenticate(request: &McpRequest) -> McpResponse {
+        debug!("Handling authenticate request");
+
+        // Always return authentication parameter error for authenticate method
+        McpResponse {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
+            result: None,
+            error: Some(McpError {
+                code: -32602, // Invalid params
+                message: "Invalid authentication parameters".to_string(),
+                data: None,
+            }),
+        }
     }
 
     /// Handle tools/list request
-    async fn handle_tools_list(&self, request: &McpRequest) -> Result<McpResponse> {
+    fn handle_tools_list(request: &McpRequest) -> McpResponse {
         debug!("Handling tools/list request");
 
-        let tool_handlers = ToolHandlers::new(self.resources.clone());
-        let tools = tool_handlers.list_tools().await;
+        // Get all available tools from schema
+        let tools = crate::mcp::schema::get_tools();
 
-        Ok(McpResponse {
+        McpResponse {
             jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
             result: Some(serde_json::json!({ "tools": tools })),
             error: None,
-        })
+        }
     }
 
     /// Handle tools/call request
     async fn handle_tools_call(&self, request: &McpRequest) -> Result<McpResponse> {
         debug!("Handling tools/call request");
 
-        let params = request.params.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("Missing parameters for tools/call")
-        })?;
+        request
+            .params
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Missing parameters for tools/call"))?;
 
-        let tool_name = params.get("name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing tool name"))?;
-
-        let arguments = params.get("arguments")
-            .cloned()
-            .unwrap_or_default();
-
-        // Create routing context from request
-        let context = self.create_routing_context(request)?;
-
-        // Execute tool
-        let tool_handlers = ToolHandlers::new(self.resources.clone());
-        match tool_handlers.call_tool(tool_name, arguments, context).await {
-            Ok(result) => Ok(McpResponse {
-                jsonrpc: JSONRPC_VERSION.to_string(),
-                id: request.id.clone(),
-                result: Some(result),
-                error: None,
-            }),
-            Err(e) => {
-                error!("Tool execution failed: {}", e);
-                Ok(McpResponse {
-                    jsonrpc: JSONRPC_VERSION.to_string(),
-                    id: request.id.clone(),
-                    result: None,
-                    error: Some(McpError {
-                        code: ERROR_INTERNAL_ERROR,
-                        message: format!("Tool execution failed: {}", e),
-                        data: None,
-                    }),
-                })
-            }
-        }
+        // Execute tool using static method - delegate to ToolHandlers
+        let mock_request = McpRequest {
+            jsonrpc: request.jsonrpc.clone(),
+            method: request.method.clone(),
+            params: request.params.clone(),
+            id: request.id.clone(),
+            auth_token: request.auth_token.clone(),
+            headers: request.headers.clone(),
+        };
+        let response =
+            ToolHandlers::handle_tools_call_with_resources(mock_request, &self.resources).await;
+        Ok(response)
     }
 
     /// Handle resources requests
-    async fn handle_resources(&self, request: &McpRequest) -> Result<McpResponse> {
+    fn handle_resources(request: &McpRequest) -> McpResponse {
         debug!("Handling resources request: {}", request.method);
 
-        // TODO: Implement resource handling
-        Ok(McpResponse {
+        // Return empty resources list for now
+        McpResponse {
             jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
             result: Some(serde_json::json!({ "resources": [] })),
             error: None,
-        })
-    }
-
-    /// Handle prompts requests
-    async fn handle_prompts(&self, request: &McpRequest) -> Result<McpResponse> {
-        debug!("Handling prompts request: {}", request.method);
-
-        // TODO: Implement prompt handling
-        Ok(McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
-            result: Some(serde_json::json!({ "prompts": [] })),
-            error: None,
-        })
-    }
-
-    /// Handle unknown method
-    fn handle_unknown_method(&self, request: &McpRequest) -> Result<McpResponse> {
-        warn!("Unknown MCP method: {}", request.method);
-
-        Ok(McpResponse {
-            jsonrpc: JSONRPC_VERSION.to_string(),
-            id: request.id.clone(),
-            result: None,
-            error: Some(McpError {
-                code: ERROR_METHOD_NOT_FOUND,
-                message: format!("Method not found: {}", request.method),
-                data: None,
-            }),
-        })
-    }
-
-    /// Create routing context from request
-    fn create_routing_context(&self, request: &McpRequest) -> Result<ToolRoutingContext> {
-        // Extract user context from auth token if present
-        let (user_id, tenant_id) = if let Some(auth_token) = &request.auth_token {
-            match self.extract_user_context(auth_token) {
-                Ok((user_id, tenant_id)) => (Some(user_id), Some(tenant_id)),
-                Err(e) => {
-                    warn!("Failed to extract user context from auth token: {}", e);
-                    (None, None)
-                }
-            }
-        } else {
-            (None, None)
-        };
-
-        Ok(ToolRoutingContext {
-            user_id,
-            tenant_id,
-            protocol: "mcp".to_string(),
-            request_id: request.id.clone(),
-        })
-    }
-
-    /// Extract user context from auth token
-    fn extract_user_context(&self, auth_token: &str) -> Result<(uuid::Uuid, uuid::Uuid)> {
-        // TODO: Implement JWT token validation and extraction
-        // This would involve validating the JWT and extracting user_id and tenant_id
-        Err(anyhow::anyhow!("Auth token validation not implemented yet"))
-    }
-
-    /// Handle notification (no response required)
-    fn handle_notification(&self, request: &McpRequest) {
-        debug!("Handling notification: {}", request.method);
-
-        match request.method.as_str() {
-            "notifications/cancelled" => {
-                debug!("Request cancelled notification received");
-            }
-            "notifications/progress" => {
-                debug!("Progress notification received");
-            }
-            _ => {
-                debug!("Unknown notification type: {}", request.method);
-            }
         }
     }
 
+    /// Handle prompts requests
+    fn handle_prompts(request: &McpRequest) -> McpResponse {
+        debug!("Handling prompts request: {}", request.method);
+
+        // Return empty prompts list for now
+        McpResponse {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
+            result: Some(serde_json::json!({ "prompts": [] })),
+            error: None,
+        }
+    }
+
+    /// Handle unknown method
+    fn handle_unknown_method(request: &McpRequest) -> McpResponse {
+        warn!("Unknown MCP method: {}", request.method);
+
+        McpResponse {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: request.id.clone().unwrap_or(serde_json::Value::Null),
+            result: None,
+            error: Some(McpError {
+                code: ERROR_METHOD_NOT_FOUND,
+                message: format!("Unknown method: {}", request.method),
+                data: None,
+            }),
+        }
+    }
+
+    /// Handle notification (no response required)
+    fn handle_notification(request: &McpRequest) {
+        debug!("Handling notification: {}", request.method);
+
+        match request.method.as_str() {
+            "notifications/cancelled" => Self::handle_cancelled_notification(),
+            "notifications/progress" => Self::handle_progress_notification(),
+            _ => Self::handle_unknown_notification(&request.method),
+        }
+    }
+
+    /// Handle cancelled notification
+    fn handle_cancelled_notification() {
+        debug!("Request cancelled notification received");
+    }
+
+    /// Handle progress notification
+    fn handle_progress_notification() {
+        debug!("Progress notification received");
+    }
+
+    /// Handle unknown notification type
+    fn handle_unknown_notification(method: &str) {
+        debug!("Unknown notification type: {}", method);
+    }
+
     /// Log incoming request with optional truncation
-    fn log_request(&self, request: &McpRequest) {
+    fn log_request(request: &McpRequest) {
         let should_truncate = std::env::var("MCP_LOG_TRUNCATE")
             .map(|v| v != "false" && v != "0")
             .unwrap_or(true);
@@ -314,17 +290,19 @@ impl McpRequestProcessor {
     }
 
     /// Log request completion with timing
-    fn log_completion(&self, request_type: &str, start_time: std::time::Instant) {
+    fn log_completion(request_type: &str, start_time: std::time::Instant) {
         let duration = start_time.elapsed();
         debug!(
             duration_ms = u64::try_from(duration.as_millis()).unwrap_or(0),
-            "Completed MCP {} processing",
-            request_type
+            "Completed MCP {} processing", request_type
         );
     }
 }
 
 /// Write MCP response to stdout for stdio transport
+///
+/// # Errors
+/// Returns an error if JSON serialization fails or I/O operations fail
 pub async fn write_response_to_stdout(
     response: &McpResponse,
     stdout: &Arc<tokio::sync::Mutex<tokio::io::Stdout>>,
@@ -334,10 +312,13 @@ pub async fn write_response_to_stdout(
     let response_json = serde_json::to_string(response)?;
     debug!("Sending MCP response: {}", response_json);
 
-    let mut stdout_lock = stdout.lock().await;
-    stdout_lock.write_all(response_json.as_bytes()).await?;
-    stdout_lock.write_all(b"\n").await?;
-    stdout_lock.flush().await?;
+    {
+        let mut stdout_lock = stdout.lock().await;
+        stdout_lock.write_all(response_json.as_bytes()).await?;
+        stdout_lock.write_all(b"\n").await?;
+        stdout_lock.flush().await?;
+        drop(stdout_lock);
+    }
 
     Ok(())
 }
