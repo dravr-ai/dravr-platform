@@ -27,6 +27,7 @@ use crate::database::{
     DatabaseError, MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };
 use crate::database_plugins::DatabaseProvider;
+use crate::errors::ErrorCode;
 use crate::models::{
     AuthorizationCode, ConnectionType, OAuthApp, OAuthNotification, ProviderConnection, Tenant,
     TenantPlan, TenantToolOverride, ToolCatalogEntry, ToolCategory, User, UserOAuthApp,
@@ -1888,8 +1889,17 @@ impl<T: DatabaseProvider> PasswordResetRepository for T {
     async fn consume_token(&self, token_hash: &str) -> Result<Uuid, DatabaseError> {
         DatabaseProvider::consume_password_reset_token(self, token_hash)
             .await
-            .map_err(|e| DatabaseError::QueryError {
-                context: e.to_string(),
+            .map_err(|e| {
+                if e.code == ErrorCode::ResourceNotFound {
+                    DatabaseError::NotFound {
+                        entity_type: "password_reset_token",
+                        entity_id: "redacted".to_owned(),
+                    }
+                } else {
+                    DatabaseError::QueryError {
+                        context: e.to_string(),
+                    }
+                }
             })
     }
     async fn invalidate_tokens(&self, user_id: Uuid) -> Result<(), DatabaseError> {
