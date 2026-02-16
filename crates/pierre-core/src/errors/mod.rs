@@ -504,7 +504,13 @@ impl From<sqlx::Error> for AppError {
 /// Conversion from `DatabaseError` to `AppError`
 impl From<DatabaseError> for AppError {
     fn from(error: DatabaseError) -> Self {
-        Self::database(format!("Database error: {error}"))
+        match &error {
+            DatabaseError::NotFound {
+                entity_type,
+                entity_id,
+            } => Self::not_found(format!("{entity_type} {entity_id}")),
+            _ => Self::database(format!("Database error: {error}")),
+        }
     }
 }
 
