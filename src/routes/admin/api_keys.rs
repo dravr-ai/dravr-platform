@@ -24,7 +24,8 @@ use crate::{
         tiers,
         time_constants::{SECONDS_PER_DAY, SECONDS_PER_HOUR, SECONDS_PER_MONTH, SECONDS_PER_WEEK},
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database::repositories::{AdminRepository, ApiKeyRepository, UserRepository},
+    database_plugins::factory::Database,
     errors::{AppError, AppResult},
     models::User,
 };
@@ -72,7 +73,7 @@ fn validate_tier(tier_str: &str) -> Result<ApiKeyTier, String> {
 /// Get existing user for API key provisioning (no automatic creation)
 async fn get_existing_user(database: &Database, email: &str) -> AppResult<User> {
     database
-        .get_user_by_email(email)
+        .get_by_email(email)
         .await
         .map_err(|e| AppError::database(format!("Database error looking up user: {e}")))?
         .ok_or_else(|| {
@@ -127,7 +128,7 @@ pub(super) async fn create_and_store_api_key(
         }
     }
 
-    if let Err(e) = ctx.database.create_api_key(&final_api_key).await {
+    if let Err(e) = ApiKeyRepository::create(ctx.database.as_ref(), &final_api_key).await {
         return Err(format!("Failed to create API key: {e}"));
     }
 
@@ -236,7 +237,7 @@ async fn record_provisioning_audit(
     period_name: &str,
 ) {
     if let Err(e) = database
-        .record_admin_provisioned_key(
+        .record_provisioned_key(
             &admin_token.token_id,
             &api_key.id,
             user_email,
@@ -361,11 +362,7 @@ pub(super) async fn handle_revoke_api_key(
 
     let ctx = context.as_ref();
 
-    let api_key = match ctx
-        .database
-        .get_api_key_by_id(&request.api_key_id, None)
-        .await
-    {
+    let api_key = match ctx.database.get_by_id(&request.api_key_id, None).await {
         Ok(Some(key)) => key,
         Ok(None) => {
             return Ok(json_response(
@@ -391,7 +388,7 @@ pub(super) async fn handle_revoke_api_key(
 
     match ctx
         .database
-        .deactivate_api_key(&request.api_key_id, api_key.user_id)
+        .deactivate(&request.api_key_id, api_key.user_id)
         .await
     {
         Ok(()) => {
@@ -461,7 +458,7 @@ pub(super) async fn handle_list_api_keys(
 
     match ctx
         .database
-        .get_api_keys_filtered(user_email, active_only, limit, offset)
+        .get_filtered(user_email, active_only, limit, offset)
         .await
     {
         Ok(api_keys) => {

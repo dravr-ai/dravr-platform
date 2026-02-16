@@ -35,8 +35,8 @@
 //! ```
 
 use crate::auth::Claims;
+use crate::database::repositories::TenantRepository;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::security::cookies::get_cookie_value;
@@ -299,7 +299,7 @@ async fn verify_tenant_membership(
     tenant_id: TenantId,
     database: &Arc<Database>,
 ) -> Option<TenantId> {
-    match database.get_user_tenant_role(user_id, tenant_id).await {
+    match database.get_user_role(user_id, tenant_id).await {
         Ok(Some(_)) => Some(tenant_id),
         Ok(None) => {
             warn!(
@@ -338,7 +338,7 @@ async fn build_tenant_context(
 
 /// Fetch tenant name from database, with fallback to default
 async fn fetch_tenant_name(tenant_id: TenantId, database: &Arc<Database>) -> String {
-    match database.get_tenant_by_id(tenant_id).await {
+    match database.get_by_id(tenant_id).await {
         Ok(tenant) => tenant.name,
         Err(e) => {
             warn!(
@@ -357,7 +357,7 @@ async fn fetch_user_role(
     tenant_id: TenantId,
     database: &Arc<Database>,
 ) -> TenantRole {
-    match database.get_user_tenant_role(user_id, tenant_id).await {
+    match database.get_user_role(user_id, tenant_id).await {
         Ok(Some(role_str)) => TenantRole::from_db_string(&role_str),
         Ok(None) => {
             warn!(
@@ -379,7 +379,7 @@ async fn fetch_user_role(
 
 /// Get user's default tenant from the database
 async fn get_user_default_tenant(user_id: Uuid, database: &Arc<Database>) -> Option<TenantId> {
-    match database.list_tenants_for_user(user_id).await {
+    match database.list_for_user(user_id).await {
         Ok(tenants) => {
             if tenants.is_empty() {
                 debug!(user_id = %user_id, "User does not belong to any tenant");

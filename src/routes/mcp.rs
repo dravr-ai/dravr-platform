@@ -21,7 +21,7 @@ use tracing::{debug, error, field::Empty, info, info_span, warn, Instrument};
 
 use crate::{
     constants::mcp_transport::MAX_REQUEST_BODY_BYTES,
-    database_plugins::DatabaseProvider,
+    database::repositories::UserRepository,
     mcp::{
         multitenant::{McpRequest, MultiTenantMcpServer},
         resources::ServerResources,
@@ -314,7 +314,7 @@ impl McpRoutes {
         let Ok(Some(..)) = state
             .resources
             .database
-            .get_user_global(jwt_result.user_id)
+            .get_global(jwt_result.user_id)
             .await
         else {
             return;

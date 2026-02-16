@@ -19,8 +19,8 @@
 //! - `DELETE /api/users/oauth-apps/:provider` - Remove OAuth app
 
 use crate::{
-    database_plugins::DatabaseProvider, errors::AppError, mcp::resources::ServerResources,
-    security::cookies::get_cookie_value,
+    database::repositories::OAuthTokenRepository, errors::AppError,
+    mcp::resources::ServerResources, security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Path, State},

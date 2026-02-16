@@ -13,8 +13,8 @@ use crate::constants::limits::{
 use crate::constants::time_constants::{
     DAYS_PER_MONTH, DAYS_PER_QUARTER, DAYS_PER_WEEK, DAYS_PER_YEAR, SECONDS_PER_HOUR_F64,
 };
+use crate::database::repositories::ProfileRepository;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
 use crate::errors::JsonResultExt;
 use crate::intelligence::goal_engine::{AdvancedGoalEngine, GoalEngineTrait, GoalSuggestion};
 use crate::intelligence::physiological_constants::goal_feasibility::{
@@ -355,7 +355,7 @@ async fn load_user_profile(
     user_id: &str,
     activities: &[Activity],
 ) -> UserFitnessProfile {
-    match database.get_user_profile(user_uuid).await {
+    match database.get_profile(user_uuid).await {
         Ok(Some(profile_json)) => from_value(profile_json).unwrap_or_else(|e| {
             warn!(
                 user_id = %user_id,
@@ -1136,7 +1136,7 @@ async fn fetch_and_validate_goal(
     user_uuid: Uuid,
     goal_id: &str,
 ) -> Result<GoalDetails, UniversalResponse> {
-    let goals = match database.get_user_goals(user_uuid).await {
+    let goals = match database.get_goals(user_uuid).await {
         Ok(goals) => goals,
         Err(e) => {
             return Err(UniversalResponse {

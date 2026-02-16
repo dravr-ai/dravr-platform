@@ -12,7 +12,7 @@
 use crate::{
     a2a::{agent_card::AgentCard, client::ClientRegistrationRequest},
     auth::AuthResult,
-    database_plugins::DatabaseProvider,
+    database::repositories::A2ARepository,
     errors::AppError,
     mcp::resources::ServerResources,
     security::cookies::get_cookie_value,
@@ -190,7 +190,7 @@ impl A2ARoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let user_id = auth.user_id;
 
-        let clients = resources.database.list_a2a_clients(&user_id).await?;
+        let clients = resources.database.list_clients(&user_id).await?;
 
         let response: Vec<A2AClientResponse> = clients
             .into_iter()
@@ -273,7 +273,7 @@ impl A2ARoutes {
 
         let client = resources
             .database
-            .get_a2a_client(&client_id)
+            .get_client(&client_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("A2A client {client_id}")))?;
 
@@ -311,7 +311,7 @@ impl A2ARoutes {
         // Verify ownership
         let client = resources
             .database
-            .get_a2a_client(&client_id)
+            .get_client(&client_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("A2A client {client_id}")))?;
 
@@ -320,7 +320,7 @@ impl A2ARoutes {
         }
 
         // Deactivate client
-        resources.database.deactivate_a2a_client(&client_id).await?;
+        resources.database.deactivate_client(&client_id).await?;
 
         Ok((
             StatusCode::OK,
@@ -344,7 +344,7 @@ impl A2ARoutes {
         // Verify ownership
         let client = resources
             .database
-            .get_a2a_client(&client_id)
+            .get_client(&client_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("A2A client {client_id}")))?;
 
@@ -355,7 +355,7 @@ impl A2ARoutes {
         // Get current usage count
         let current_usage = resources
             .database
-            .get_a2a_client_current_usage(&client_id)
+            .get_client_current_usage(&client_id)
             .await
             .unwrap_or(0);
 
@@ -383,7 +383,7 @@ impl A2ARoutes {
         // Verify ownership and get client
         let client = resources
             .database
-            .get_a2a_client(&client_id)
+            .get_client(&client_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("A2A client {client_id}")))?;
 
@@ -393,7 +393,7 @@ impl A2ARoutes {
 
         let current_usage = resources
             .database
-            .get_a2a_client_current_usage(&client_id)
+            .get_client_current_usage(&client_id)
             .await
             .unwrap_or(0);
 
@@ -422,7 +422,7 @@ impl A2ARoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let user_id = auth.user_id;
 
-        let clients = resources.database.list_a2a_clients(&user_id).await?;
+        let clients = resources.database.list_clients(&user_id).await?;
         let active_count = clients.iter().filter(|c| c.is_active).count();
 
         Ok((

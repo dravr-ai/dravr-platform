@@ -21,7 +21,8 @@ use uuid::Uuid;
 
 use crate::{
     admin::{models::ValidatedAdminToken, AdminPermission as AdminPerm},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database::repositories::{PasswordResetRepository, UsageRepository, UserRepository},
+    database_plugins::factory::Database,
     errors::{AppError, AppResult},
     models::UserStatus,
     rate_limiting::UnifiedRateLimitCalculator,
@@ -98,7 +99,7 @@ pub(super) async fn handle_list_users(
 
     let users = ctx
         .database
-        .get_users_by_status(status, None)
+        .get_by_status(status, None)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch users from database");
@@ -163,7 +164,7 @@ pub(super) async fn handle_pending_users(
 
     let users = ctx
         .database
-        .get_users_by_status("pending", None)
+        .get_by_status("pending", None)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch pending users from database");
@@ -267,7 +268,7 @@ pub(super) async fn handle_approve_user(
 
     let user = ctx
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -291,7 +292,7 @@ pub(super) async fn handle_approve_user(
 
     let updated_user = ctx
         .database
-        .update_user_status(user_uuid, UserStatus::Active, None)
+        .update_status(user_uuid, UserStatus::Active, None)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to update user status in database");
@@ -365,7 +366,7 @@ pub(super) async fn handle_suspend_user(
 
     let user = ctx
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -389,7 +390,7 @@ pub(super) async fn handle_suspend_user(
 
     let updated_user = ctx
         .database
-        .update_user_status(user_uuid, UserStatus::Suspended, None)
+        .update_status(user_uuid, UserStatus::Suspended, None)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to update user status in database");
@@ -457,7 +458,7 @@ pub(super) async fn handle_delete_user(
 
     let user = ctx
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -470,7 +471,7 @@ pub(super) async fn handle_delete_user(
 
     let user_email = user.email.clone();
 
-    ctx.database.delete_user(user_uuid).await.map_err(|e| {
+    ctx.database.delete(user_uuid).await.map_err(|e| {
         error!(error = %e, "Failed to delete user from database");
         AppError::internal(format!("Failed to delete user: {e}"))
     })?;
@@ -538,7 +539,7 @@ pub(super) async fn handle_reset_user_password(
 
     let user = ctx
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -558,7 +559,7 @@ pub(super) async fn handle_reset_user_password(
     let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
 
     ctx.database
-        .store_password_reset_token(user_uuid, &token_hash, &admin_token.service_name)
+        .store_token(user_uuid, &token_hash, &admin_token.service_name)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to store password reset token");
@@ -614,7 +615,7 @@ pub(super) async fn handle_get_user_rate_limit(
 
     let user = ctx
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -708,7 +709,7 @@ pub(super) async fn handle_get_user_activity(
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
     ctx.database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;

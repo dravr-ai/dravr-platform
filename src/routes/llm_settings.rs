@@ -18,7 +18,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::auth::AuthResult;
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database::repositories::TenantRepository;
+use crate::database_plugins::factory::Database;
 use crate::errors::AppError;
 use crate::llm::ChatProvider;
 use crate::mcp::resources::ServerResources;
@@ -172,10 +173,7 @@ impl LlmSettingsRoutes {
             return Ok(TenantId::from(tenant_id));
         }
         // Fall back to user's first tenant (single-tenant users or tokens without active_tenant_id)
-        let tenants = resources
-            .database
-            .list_tenants_for_user(auth.user_id)
-            .await?;
+        let tenants = resources.database.list_for_user(auth.user_id).await?;
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(auth.user_id), |t| t.id))
@@ -320,7 +318,7 @@ impl LlmSettingsRoutes {
             if tenant_id.as_uuid() != user_id {
                 let role = resources
                     .database
-                    .get_user_tenant_role(user_id, tenant_id)
+                    .get_user_role(user_id, tenant_id)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to check tenant role: {e}")))?;
 

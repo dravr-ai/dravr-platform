@@ -9,7 +9,10 @@ use crate::api_keys::ApiKeyManager;
 use crate::auth::{AuthManager, AuthMethod, AuthResult};
 use crate::config::environment::RateLimitConfig;
 use crate::constants::key_prefixes;
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database::repositories::{
+    ApiKeyRepository, TenantRepository, UsageRepository, UserRepository,
+};
+use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, AppResult};
 use crate::providers::errors::ProviderError;
 use crate::rate_limiting::UnifiedRateLimitCalculator;
@@ -221,7 +224,7 @@ impl McpAuthMiddleware {
         // Look up the API key in database
         let db_key = self
             .database
-            .get_api_key_by_prefix(&key_prefix, &key_hash)
+            .get_by_prefix(&key_prefix, &key_hash)
             .await?
             .ok_or_else(|| {
                 AppError::auth_invalid(format!("API key not found or invalid: {key_prefix}"))
@@ -231,7 +234,7 @@ impl McpAuthMiddleware {
         self.api_key_manager.is_key_valid(&db_key)?;
 
         // Get current usage for rate limiting
-        let current_usage = self.database.get_api_key_current_usage(&db_key.id).await?;
+        let current_usage = self.database.get_api_key_current(&db_key.id).await?;
         let rate_limit = self
             .rate_limit_calculator
             .calculate_api_key_rate_limit(&db_key, current_usage);
@@ -258,12 +261,12 @@ impl McpAuthMiddleware {
         }
 
         // Update last used timestamp
-        self.database.update_api_key_last_used(&db_key.id).await?;
+        self.database.update_last_used(&db_key.id).await?;
 
         // Resolve user's default tenant — API keys are single-tenant by design
         let active_tenant_id = self
             .database
-            .list_tenants_for_user(db_key.user_id)
+            .list_for_user(db_key.user_id)
             .await
             .map_err(|e| {
                 AppError::database(format!(
@@ -311,7 +314,7 @@ impl McpAuthMiddleware {
         // SECURITY: Global lookup — JWT validation, no tenant context yet
         let user = self
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 

@@ -9,7 +9,7 @@ use std::hash::BuildHasher;
 
 use crate::coaches::CoachPrerequisites;
 use crate::database::coaches::CoachesManager;
-use crate::database_plugins::DatabaseProvider;
+use crate::database::repositories::TenantRepository;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 use uuid::Uuid;
@@ -93,7 +93,7 @@ pub struct BulkAssignmentResult {
 ///
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
-pub async fn bulk_assign_coach<DB: DatabaseProvider>(
+pub async fn bulk_assign_coach<DB: TenantRepository>(
     manager: &CoachesManager,
     database: &DB,
     coach_id: &str,
@@ -132,7 +132,7 @@ pub async fn bulk_assign_coach<DB: DatabaseProvider>(
 ///
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
-pub async fn bulk_unassign_coach<DB: DatabaseProvider>(
+pub async fn bulk_unassign_coach<DB: TenantRepository>(
     manager: &CoachesManager,
     database: &DB,
     coach_id: &str,
@@ -163,12 +163,12 @@ pub async fn bulk_unassign_coach<DB: DatabaseProvider>(
 /// # Errors
 ///
 /// Returns error if the user is not a member of the specified tenant
-async fn verify_tenant_membership<DB: DatabaseProvider>(
+async fn verify_tenant_membership<DB: TenantRepository>(
     database: &DB,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> AppResult<()> {
-    let user_tenants = database.list_tenants_for_user(user_id).await.map_err(|e| {
+    let user_tenants = database.list_for_user(user_id).await.map_err(|e| {
         AppError::database(format!(
             "Failed to verify tenant membership for user {user_id}: {e}"
         ))

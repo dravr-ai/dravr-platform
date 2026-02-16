@@ -13,8 +13,11 @@
 use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
     auth::AuthResult,
+    database::repositories::{
+        AdminRepository, PasswordResetRepository, TenantRepository, UsageRepository,
+        UserMcpTokenRepository, UserRepository,
+    },
     database::CreateUserMcpTokenRequest,
-    database_plugins::DatabaseProvider,
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     middleware::require_admin,
@@ -163,16 +166,16 @@ pub struct UserActivityQuery {
 
 /// Auto-create a default MCP token for a newly activated user.
 /// This is a non-fatal operation - failure is logged but does not propagate.
-async fn create_default_mcp_token_for_user(database: &impl DatabaseProvider, user_id: uuid::Uuid) {
+async fn create_default_mcp_token_for_user(
+    database: &impl UserMcpTokenRepository,
+    user_id: uuid::Uuid,
+) {
     let token_request = CreateUserMcpTokenRequest {
         name: "Default Token".to_owned(),
         expires_in_days: None, // Never expires
     };
 
-    match database
-        .create_user_mcp_token(user_id, &token_request)
-        .await
-    {
+    match database.create_token(user_id, &token_request).await {
         Ok(token_result) => {
             info!(
                 user_id = %user_id,
@@ -206,7 +209,7 @@ async fn assign_user_to_admin_tenant(
         // Update user's tenant_id in users table (kept in sync with tenant_users junction)
         resources
             .database
-            .update_user_tenant_id(target_user_id, tenant_id)
+            .update_tenant_id(target_user_id, tenant_id)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to assign user to admin's tenant");
@@ -234,7 +237,7 @@ async fn get_admin_tenant_scope(
     // SECURITY: Global lookup — resolving admin's own tenant scope
     let user = resources
         .database
-        .get_user_global(admin_user_id)
+        .get_global(admin_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
         .ok_or_else(|| AppError::not_found("Admin user not found"))?;
@@ -262,7 +265,7 @@ async fn verify_admin_tenant_access(
     // SECURITY: Global lookup — verifying admin's own tenant access
     let user = resources
         .database
-        .get_user_global(admin_user_id)
+        .get_global(admin_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
         .ok_or_else(|| AppError::not_found("Admin user not found"))?;
@@ -275,7 +278,7 @@ async fn verify_admin_tenant_access(
     // Regular admins must belong to the target tenant
     let admin_tenants = resources
         .database
-        .list_tenants_for_user(admin_user_id)
+        .list_for_user(admin_user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to get admin tenants: {e}")))?;
 
@@ -417,7 +420,7 @@ impl WebAdminRoutes {
         // Fetch users with Pending status
         let users = resources
             .database
-            .get_users_by_status("pending", admin_tenant_id)
+            .get_by_status("pending", admin_tenant_id)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to fetch pending users from database");
@@ -474,7 +477,7 @@ impl WebAdminRoutes {
         for status in ["active", "pending", "suspended"] {
             let users = resources
                 .database
-                .get_users_by_status(status, admin_tenant_id)
+                .get_by_status(status, admin_tenant_id)
                 .await
                 .map_err(|e| {
                     error!(error = %e, status = status, "Failed to fetch users from database");
@@ -530,9 +533,7 @@ impl WebAdminRoutes {
         );
 
         // Fetch admin tokens (include_inactive = false for active tokens only)
-        let tokens = resources
-            .database
-            .list_admin_tokens(false)
+        let tokens = AdminRepository::list_tokens(resources.database.as_ref(), false)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to fetch admin tokens from database");
@@ -595,9 +596,9 @@ impl WebAdminRoutes {
         let admin_tenant =
             get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
         let user = if let Some(tid) = admin_tenant {
-            resources.database.get_user(user_uuid, tid).await
+            resources.database.get(user_uuid, tid).await
         } else {
-            resources.database.get_user_global(user_uuid).await
+            resources.database.get_global(user_uuid).await
         }
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -622,7 +623,7 @@ impl WebAdminRoutes {
         // Use the admin user's UUID as the approver for proper audit trail
         let updated_user = resources
             .database
-            .update_user_status(user_uuid, UserStatus::Active, Some(auth.user_id))
+            .update_status(user_uuid, UserStatus::Active, Some(auth.user_id))
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to update user status in database");
@@ -679,9 +680,9 @@ impl WebAdminRoutes {
         let admin_tenant =
             get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
         let user = if let Some(tid) = admin_tenant {
-            resources.database.get_user(user_uuid, tid).await
+            resources.database.get(user_uuid, tid).await
         } else {
-            resources.database.get_user_global(user_uuid).await
+            resources.database.get_global(user_uuid).await
         }
         .map_err(|e| {
             error!(error = %e, "Failed to fetch user from database");
@@ -706,7 +707,7 @@ impl WebAdminRoutes {
         // Use the admin user's UUID for audit trail (Note: approved_by is used for both approve/suspend)
         let updated_user = resources
             .database
-            .update_user_status(user_uuid, UserStatus::Suspended, Some(auth.user_id))
+            .update_status(user_uuid, UserStatus::Suspended, Some(auth.user_id))
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to update user status in database");
@@ -742,7 +743,7 @@ impl WebAdminRoutes {
         // SECURITY: Global lookup — checking admin's own super-admin role
         let user = resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -800,18 +801,17 @@ impl WebAdminRoutes {
         let token_request = Self::build_admin_token_request(request);
 
         // Generate token using database method
-        let generated_token = resources
-            .database
-            .create_admin_token(
-                &token_request,
-                &resources.admin_jwt_secret,
-                &resources.jwks_manager,
-            )
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to create admin token");
-                AppError::internal(format!("Failed to create admin token: {e}"))
-            })?;
+        let generated_token = AdminRepository::create_token(
+            resources.database.as_ref(),
+            &token_request,
+            &resources.admin_jwt_secret,
+            &resources.jwks_manager,
+        )
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to create admin token");
+            AppError::internal(format!("Failed to create admin token: {e}"))
+        })?;
 
         info!(
             token_id = %generated_token.token_id,
@@ -849,7 +849,7 @@ impl WebAdminRoutes {
 
         let token = resources
             .database
-            .get_admin_token_by_id(&token_id)
+            .get_token_by_id(&token_id)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to fetch admin token from database");
@@ -890,7 +890,7 @@ impl WebAdminRoutes {
 
         resources
             .database
-            .deactivate_admin_token(&token_id)
+            .deactivate_token(&token_id)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to revoke admin token");
@@ -942,9 +942,9 @@ impl WebAdminRoutes {
         let admin_tenant =
             get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
         let user = if let Some(tid) = admin_tenant {
-            resources.database.get_user(user_uuid, tid).await
+            resources.database.get(user_uuid, tid).await
         } else {
-            resources.database.get_user_global(user_uuid).await
+            resources.database.get_global(user_uuid).await
         }
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -962,7 +962,7 @@ impl WebAdminRoutes {
         let admin_id_str = auth.user_id.to_string();
         resources
             .database
-            .store_password_reset_token(user_uuid, &token_hash, &admin_id_str)
+            .store_token(user_uuid, &token_hash, &admin_id_str)
             .await
             .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
 
@@ -1009,9 +1009,9 @@ impl WebAdminRoutes {
         let admin_tenant =
             get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
         let user = if let Some(tid) = admin_tenant {
-            resources.database.get_user(user_uuid, tid).await
+            resources.database.get(user_uuid, tid).await
         } else {
-            resources.database.get_user_global(user_uuid).await
+            resources.database.get_global(user_uuid).await
         }
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -1107,9 +1107,9 @@ impl WebAdminRoutes {
         let admin_tenant =
             get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
         if let Some(tid) = admin_tenant {
-            resources.database.get_user(user_uuid, tid).await
+            resources.database.get(user_uuid, tid).await
         } else {
-            resources.database.get_user_global(user_uuid).await
+            resources.database.get_global(user_uuid).await
         }
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;

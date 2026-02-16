@@ -53,7 +53,11 @@ use crate::{
     config::environment::get_oauth_config,
     constants::{error_messages, limits, tiers},
     context::{AuthContext, ConfigContext, DataContext, NotificationContext, ServerContext},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database::repositories::{
+        NotificationRepository, OAuthClientStateRepository, OAuthTokenRepository,
+        PasswordResetRepository, ProviderConnectionRepository, TenantRepository, UserRepository,
+    },
+    database_plugins::factory::Database,
     errors::{AppError, AppResult, ErrorCode},
     mcp::{resources::ServerResources, schema::OAuthCompletedNotification},
     models::{ConnectionType, Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier},
@@ -103,7 +107,7 @@ impl AuthService {
         }
 
         // Check if user already exists
-        if let Ok(Some(_)) = self.data.database().get_user_by_email(&request.email).await {
+        if let Ok(Some(_)) = self.data.database().get_by_email(&request.email).await {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
@@ -122,10 +126,7 @@ impl AuthService {
         }
 
         // Save user to database
-        let user_id = self
-            .data
-            .database()
-            .create_user(&user)
+        let user_id = UserRepository::create(self.data.database().as_ref(), &user)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
 
@@ -142,7 +143,7 @@ impl AuthService {
         // Assign user to their personal tenant
         self.data
             .database()
-            .update_user_tenant_id(user_id, tenant_id)
+            .update_tenant_id(user_id, tenant_id)
             .await
             .map_err(|e| {
                 error!("Failed to assign user to tenant: {}", e);
@@ -175,7 +176,7 @@ impl AuthService {
         let user = self
             .data
             .database()
-            .get_user_by_email_required(&request.email)
+            .get_by_email_required(&request.email)
             .await
             .map_err(|e| {
                 debug!(email = %request.email, error = %e, "Login failed: user lookup error");
@@ -287,7 +288,7 @@ impl AuthService {
         if let Some(user) = self
             .data
             .database()
-            .get_user_by_firebase_uid(&claims.sub)
+            .get_by_firebase_uid(&claims.sub)
             .await?
         {
             tracing::info!(user_id = %user.id, firebase_uid = %claims.sub, "Found user by Firebase UID");
@@ -295,11 +296,11 @@ impl AuthService {
         }
 
         // Check if user exists by email (might need linking)
-        if let Some(mut user) = self.data.database().get_user_by_email(email).await? {
+        if let Some(mut user) = self.data.database().get_by_email(email).await? {
             tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
             user.firebase_uid = Some(claims.sub.clone());
             user.auth_provider.clone_from(&claims.provider);
-            self.data.database().create_user(&user).await?;
+            UserRepository::create(self.data.database().as_ref(), &user).await?;
             return Ok(user);
         }
 
@@ -333,9 +334,7 @@ impl AuthService {
             updated_at: now,
         };
 
-        self.data
-            .database()
-            .create_tenant(&tenant)
+        TenantRepository::create(self.data.database().as_ref(), &tenant)
             .await
             .map_err(|e| {
                 error!(
@@ -361,7 +360,7 @@ impl AuthService {
         let tenants = self
             .data
             .database()
-            .list_tenants_for_user(user.id)
+            .list_for_user(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
@@ -381,7 +380,7 @@ impl AuthService {
 
         self.data
             .database()
-            .update_user_tenant_id(user.id, tenant_id)
+            .update_tenant_id(user.id, tenant_id)
             .await
             .map_err(|e| {
                 error!("Failed to assign user to tenant: {}", e);
@@ -464,7 +463,7 @@ impl AuthService {
             auth_provider: claims.provider.clone(),
         };
 
-        self.data.database().create_user(&new_user).await?;
+        UserRepository::create(self.data.database().as_ref(), &new_user).await?;
 
         // Step 2: Create personal tenant (adds user to tenant_users as owner)
         self.create_personal_tenant(user_id, display_name, tiers::STARTER)
@@ -551,7 +550,7 @@ impl AuthService {
         let user = self
             .data
             .database()
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
@@ -816,7 +815,7 @@ impl OAuthService {
     ) -> AppResult<(User, String)> {
         let database = self.data.database();
         let user = database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| {
@@ -832,7 +831,7 @@ impl OAuthService {
         // where the user has not yet established a JWT session with active_tenant_id.
         // The resulting token will carry this tenant_id as the default active_tenant_id.
         let tenants = database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
@@ -974,7 +973,7 @@ impl OAuthService {
             let tenant_creds = self
                 .data
                 .database()
-                .get_tenant_oauth_credentials(tid, provider)
+                .get_oauth_credentials(tid, provider)
                 .await
                 .map_err(|e| {
                     warn!(
@@ -1055,7 +1054,7 @@ impl OAuthService {
 
         self.data
             .database()
-            .upsert_user_oauth_token(&user_oauth_token)
+            .upsert_token(&user_oauth_token)
             .await
             .map_err(|e| AppError::database(format!("Failed to upsert OAuth token: {e}")))?;
 
@@ -1068,7 +1067,7 @@ impl OAuthService {
         })?;
         self.data
             .database()
-            .register_provider_connection(
+            .register_connection(
                 user_id,
                 connection_tenant_id,
                 provider,
@@ -1107,7 +1106,7 @@ impl OAuthService {
         let notification_id = self
             .data
             .database()
-            .store_oauth_notification(
+            .store(
                 user_id,
                 provider,
                 true,
@@ -1269,14 +1268,14 @@ impl OAuthService {
         // Delete OAuth tokens from database
         self.data
             .database()
-            .delete_user_oauth_token(user_id, tenant_id, provider)
+            .delete_token(user_id, tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to delete OAuth token: {e}")))?;
 
         // Remove provider connection record
         self.data
             .database()
-            .remove_provider_connection(user_id, tenant_id, provider)
+            .remove_connection(user_id, tenant_id, provider)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to remove provider connection: {e}"))
@@ -1325,7 +1324,7 @@ impl OAuthService {
         let tenant_creds = self
             .data
             .database()
-            .get_tenant_oauth_credentials(tenant_id, provider)
+            .get_oauth_credentials(tenant_id, provider)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to get tenant OAuth credentials: {e}"))
@@ -1450,7 +1449,7 @@ impl OAuthService {
         let connections = self
             .data
             .database()
-            .get_user_provider_connections(user_id, None)
+            .get_for_user(user_id, None)
             .await
             .map_err(|e| AppError::database(format!("Failed to get provider connections: {e}")))?;
 
@@ -1458,7 +1457,7 @@ impl OAuthService {
         let oauth_tokens = self
             .data
             .database()
-            .get_user_oauth_tokens(user_id, None)
+            .get_tokens(user_id, None)
             .await
             .unwrap_or_default();
 
@@ -1857,7 +1856,7 @@ impl AuthRoutes {
         // Look up user details from database
         let user = resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
@@ -1868,7 +1867,7 @@ impl AuthRoutes {
         } else {
             let tenants = resources
                 .database
-                .list_tenants_for_user(user_id)
+                .list_for_user(user_id)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
             tenants.first().map(|t| t.id.to_string())
@@ -1969,7 +1968,7 @@ impl AuthRoutes {
         // Update user in database
         let updated_user = resources
             .database
-            .update_user_display_name(user_id, display_name)
+            .update_display_name(user_id, display_name)
             .await?;
 
         // Build response
@@ -2030,7 +2029,7 @@ impl AuthRoutes {
         // Fetch user to get current password hash
         let user = resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
@@ -2063,7 +2062,7 @@ impl AuthRoutes {
         // Update password in database
         resources
             .database
-            .update_user_password(user_id, &password_hash)
+            .update_password(user_id, &password_hash)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to update user password");
@@ -2101,10 +2100,7 @@ impl AuthRoutes {
         let token_hash = format!("{:x}", Sha256::digest(request.reset_token.as_bytes()));
 
         // Atomically consume the token (validates existence, expiry, and single-use)
-        let user_id = resources
-            .database
-            .consume_password_reset_token(&token_hash)
-            .await?;
+        let user_id = resources.database.consume_token(&token_hash).await?;
 
         // Hash the new password using spawn_blocking to avoid blocking async executor
         let password_to_hash = request.new_password;
@@ -2117,7 +2113,7 @@ impl AuthRoutes {
         // Update the user's password
         resources
             .database
-            .update_user_password(user_id, &password_hash)
+            .update_password(user_id, &password_hash)
             .await
             .map_err(|e| {
                 error!(error = %e, "Failed to update user password during reset");
@@ -2127,7 +2123,7 @@ impl AuthRoutes {
         // Invalidate any other outstanding reset tokens for this user
         resources
             .database
-            .invalidate_user_reset_tokens(user_id)
+            .invalidate_tokens(user_id)
             .await
             .map_err(|e| {
                 warn!(error = %e, "Failed to invalidate remaining reset tokens");
@@ -2180,14 +2176,11 @@ impl AuthRoutes {
         Span::current().record("user_id", user_id.to_string());
 
         // Get connected providers count from OAuth tokens (cross-tenant view for user stats)
-        let oauth_tokens = resources
-            .database
-            .get_user_oauth_tokens(user_id, None)
-            .await?;
+        let oauth_tokens = resources.database.get_tokens(user_id, None).await?;
         let connected_providers = i64::try_from(oauth_tokens.len()).unwrap_or(0);
 
         // Get user creation date to calculate days active
-        let user = resources.database.get_user_global(user_id).await?;
+        let user = resources.database.get_global(user_id).await?;
         let days_active = match user {
             Some(u) => {
                 let now = chrono::Utc::now();
@@ -2469,7 +2462,7 @@ impl AuthRoutes {
         // Check OAuth provider connection status for the user (cross-tenant view)
         let provider_statuses = resources
             .database
-            .get_user_oauth_tokens(user_id, None)
+            .get_tokens(user_id, None)
             .await
             .map_or_else(
                 |_| {
@@ -2544,7 +2537,7 @@ impl AuthRoutes {
         // Get user's provider connections (cross-tenant view, single source of truth)
         let connections = resources
             .database
-            .get_user_provider_connections(user_id, None)
+            .get_for_user(user_id, None)
             .await
             .unwrap_or_default();
 
@@ -2614,7 +2607,7 @@ impl AuthRoutes {
         database: &Database,
         user_id: uuid::Uuid,
     ) -> Result<User, AppError> {
-        match database.get_user_global(user_id).await {
+        match database.get_global(user_id).await {
             Ok(Some(user)) => Ok(user),
             Ok(None) => {
                 error!("User {} not found in database", user_id);
@@ -2778,7 +2771,7 @@ impl AuthRoutes {
         // Generate OAuth URL using the state with embedded redirect URL
         let tenant_name = resources
             .database
-            .get_tenant_by_id(tenant_id)
+            .get_by_id(tenant_id)
             .await
             .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
 

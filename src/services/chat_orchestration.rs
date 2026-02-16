@@ -5,9 +5,9 @@
 // Copyright (c) 2025 Pierre Fitness Intelligence
 
 use crate::config::LlmProviderType;
+use crate::database::repositories::ChatRepository;
 use crate::database::{ConversationRecord, MessageRecord};
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
 
@@ -52,7 +52,7 @@ pub async fn create_conversation(
     };
 
     let conversation = database
-        .chat_create_conversation(user_id, tenant_id, title, &model, system_prompt)
+        .create_conversation(user_id, tenant_id, title, &model, system_prompt)
         .await?;
 
     Ok(CreateConversationResult { conversation })
@@ -78,13 +78,13 @@ pub async fn persist_user_message(
 ) -> AppResult<UserMessageResult> {
     // Verify ownership and get conversation details
     let conversation = database
-        .chat_get_conversation(conversation_id, user_id, tenant_id)
+        .get_conversation(conversation_id, user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
     // Persist user message before LLM dispatch
     let message = database
-        .chat_add_message(conversation_id, user_id, "user", content, None, None)
+        .add_message(conversation_id, user_id, "user", content, None, None)
         .await?;
 
     Ok(UserMessageResult {
@@ -105,7 +105,10 @@ pub async fn get_conversation_history(
     conversation_id: &str,
     user_id: &str,
 ) -> AppResult<Vec<MessageRecord>> {
-    database.chat_get_messages(conversation_id, user_id).await
+    database
+        .get_messages(conversation_id, user_id)
+        .await
+        .map_err(AppError::from)
 }
 
 /// Persist the assistant's response message.
@@ -127,7 +130,7 @@ pub async fn persist_assistant_response(
     finish_reason: Option<&str>,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
     let message = database
-        .chat_add_message(
+        .add_message(
             conversation_id,
             user_id,
             "assistant",
@@ -138,7 +141,7 @@ pub async fn persist_assistant_response(
         .await?;
 
     let conversation = database
-        .chat_get_conversation(conversation_id, user_id, tenant_id)
+        .get_conversation(conversation_id, user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::internal("Failed to get updated conversation"))?;
 

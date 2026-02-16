@@ -5,7 +5,9 @@
 // Copyright (c) 2025 Pierre Fitness Intelligence
 
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
-use crate::database_plugins::DatabaseProvider;
+use crate::database::repositories::{
+    OAuthClientStateRepository, OAuthTokenRepository, TenantRepository, UserRepository,
+};
 use crate::models::TenantId;
 use crate::oauth2_client::OAuthClientState;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -169,7 +171,7 @@ pub fn handle_disconnect_provider(
             let tenants = executor
                 .resources
                 .database
-                .list_tenants_for_user(user_uuid)
+                .list_for_user(user_uuid)
                 .await
                 .unwrap_or_default();
             match tenants.first() {
@@ -184,7 +186,7 @@ pub fn handle_disconnect_provider(
 
         // Disconnect by deleting the token
         match (*executor.resources.database)
-            .delete_user_oauth_token(user_uuid, tenant_id, provider)
+            .delete_token(user_uuid, tenant_id, provider)
             .await
         {
             Ok(()) => Ok(UniversalResponse {
@@ -363,7 +365,7 @@ pub fn handle_connect_provider(
         }
 
         // SECURITY: Global lookup — connection handler, tenant resolved from user's membership
-        match db.get_user_global(user_uuid).await {
+        match db.get_global(user_uuid).await {
             Ok(Some(_)) => {}
             Ok(None) => return Ok(connection_error(format!("User {user_uuid} not found"))),
             Err(e) => return Ok(connection_error(format!("Database error: {e}"))),
@@ -373,10 +375,7 @@ pub fn handle_connect_provider(
         // falling back to user's first tenant for clients without active_tenant_id.
         // Security: always verify membership before using request.tenant_id,
         // as it would allow a caller to use another tenant's OAuth credentials/rate limits.
-        let tenants = db
-            .list_tenants_for_user(user_uuid)
-            .await
-            .unwrap_or_default();
+        let tenants = db.list_for_user(user_uuid).await.unwrap_or_default();
         let tenant_id: TenantId = request
             .tenant_id
             .as_ref()
@@ -401,7 +400,7 @@ pub fn handle_connect_provider(
                 },
             );
         let tenant_name = db
-            .get_tenant_by_id(tenant_id)
+            .get_by_id(tenant_id)
             .await
             .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
         let ctx = TenantContext {

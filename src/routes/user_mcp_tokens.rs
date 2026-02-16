@@ -10,8 +10,9 @@
 //! for authenticated users. All handlers require valid JWT authentication.
 
 use crate::{
-    auth::AuthResult, database::CreateUserMcpTokenRequest, database_plugins::DatabaseProvider,
-    errors::AppError, mcp::resources::ServerResources, security::cookies::get_cookie_value,
+    auth::AuthResult, database::repositories::UserMcpTokenRepository,
+    database::CreateUserMcpTokenRequest, errors::AppError, mcp::resources::ServerResources,
+    security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Path, State},
@@ -135,7 +136,7 @@ impl UserMcpTokenRoutes {
 
         let result = resources
             .database
-            .create_user_mcp_token(auth.user_id, &db_request)
+            .create_token(auth.user_id, &db_request)
             .await?;
 
         let response = CreateTokenResponse {
@@ -159,10 +160,7 @@ impl UserMcpTokenRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
 
         // List tokens
-        let tokens = resources
-            .database
-            .list_user_mcp_tokens(auth.user_id)
-            .await?;
+        let tokens = resources.database.list_tokens(auth.user_id).await?;
 
         let response = TokenListResponse {
             tokens: tokens
@@ -195,7 +193,7 @@ impl UserMcpTokenRoutes {
         // Revoke token
         resources
             .database
-            .revoke_user_mcp_token(&token_id, auth.user_id)
+            .revoke_token(&token_id, auth.user_id)
             .await?;
 
         Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
