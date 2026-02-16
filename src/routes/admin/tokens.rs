@@ -22,7 +22,7 @@ use crate::{
         },
         AdminPermission as AdminPerm,
     },
-    database_plugins::DatabaseProvider,
+    database::repositories::AdminRepository,
     errors::{AppError, AppResult},
 };
 
@@ -121,7 +121,7 @@ pub(super) async fn handle_create_admin_token(
 
     let generated_token = ctx
         .database
-        .create_admin_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
+        .create_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to generate admin token");
@@ -174,7 +174,7 @@ pub(super) async fn handle_list_admin_tokens(
 
     let ctx = context.as_ref();
 
-    let tokens = ctx.database.list_admin_tokens(false).await.map_err(|e| {
+    let tokens = ctx.database.list_tokens(false).await.map_err(|e| {
         error!(error = %e, "Failed to list admin tokens");
         AppError::internal(format!("Failed to list admin tokens: {e}"))
     })?;
@@ -225,7 +225,7 @@ pub(super) async fn handle_get_admin_token(
 
     let ctx = context.as_ref();
 
-    let token = match ctx.database.get_admin_token_by_id(&token_id).await {
+    let token = match ctx.database.get_token_by_id(&token_id).await {
         Ok(Some(token)) => token,
         Ok(None) => {
             return Ok(json_response(
@@ -290,7 +290,7 @@ pub(super) async fn handle_revoke_admin_token(
     let ctx = context.as_ref();
 
     ctx.database
-        .deactivate_admin_token(&token_id)
+        .deactivate_token(&token_id)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to revoke admin token");
@@ -341,7 +341,7 @@ pub(super) async fn handle_rotate_admin_token(
 
     let existing_token = ctx
         .database
-        .get_admin_token_by_id(&token_id)
+        .get_token_by_id(&token_id)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to get admin token");
@@ -350,7 +350,7 @@ pub(super) async fn handle_rotate_admin_token(
         .ok_or_else(|| AppError::not_found("Admin token not found"))?;
 
     ctx.database
-        .deactivate_admin_token(&token_id)
+        .deactivate_token(&token_id)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to deactivate old token");
@@ -367,7 +367,7 @@ pub(super) async fn handle_rotate_admin_token(
 
     let new_token = ctx
         .database
-        .create_admin_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
+        .create_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
         .await
         .map_err(|e| {
             error!(error = %e, "Failed to generate new admin token");

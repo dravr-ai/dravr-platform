@@ -11,7 +11,7 @@
 
 use crate::{
     auth::AuthResult,
-    database_plugins::DatabaseProvider,
+    database::repositories::{ImpersonationRepository, TenantRepository, UserRepository},
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     models::User,
@@ -140,7 +140,7 @@ impl ImpersonationRoutes {
         let user = resources
             .database
             // SECURITY: Global lookup — impersonation is super-admin, cross-tenant by design
-            .get_user_global(auth.user_id)
+            .get_global(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -177,7 +177,7 @@ impl ImpersonationRoutes {
         let target_user = resources
             .database
             // SECURITY: Global lookup — impersonation target can be in any tenant
-            .get_user_global(target_user_id)
+            .get_global(target_user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get target user: {e}")))?
             .ok_or_else(|| AppError::not_found("Target user not found"))?;
@@ -193,7 +193,7 @@ impl ImpersonationRoutes {
         // End any existing active impersonation sessions for this impersonator
         resources
             .database
-            .end_all_impersonation_sessions(auth.user_id)
+            .end_all_sessions(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to end existing sessions: {e}")))?;
 
@@ -204,7 +204,7 @@ impl ImpersonationRoutes {
         // Store session in database
         resources
             .database
-            .create_impersonation_session(&session)
+            .create_session(&session)
             .await
             .map_err(|e| {
                 AppError::internal(format!("Failed to create impersonation session: {e}"))
@@ -217,7 +217,7 @@ impl ImpersonationRoutes {
         // 3. The impersonator can switch tenants after starting the session if needed
         let active_tenant_id = resources
             .database
-            .list_tenants_for_user(target_user.id)
+            .list_for_user(target_user.id)
             .await
             .ok()
             .and_then(|tenants| tenants.first().map(|t| t.id.to_string()));
@@ -291,7 +291,7 @@ impl ImpersonationRoutes {
         // impersonation token whose sub is the target_user_id).
         let session = resources
             .database
-            .get_active_impersonation_session(auth.user_id)
+            .get_active_session(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get session: {e}")))?;
 
@@ -302,7 +302,7 @@ impl ImpersonationRoutes {
         // End the session
         resources
             .database
-            .end_impersonation_session(&session.id)
+            .end_session(&session.id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to end session: {e}")))?;
 
@@ -344,7 +344,7 @@ impl ImpersonationRoutes {
         // Fetch all sessions (not just active)
         let sessions = resources
             .database
-            .list_impersonation_sessions(None, None, false, 100)
+            .list_sessions(None, None, false, 100)
             .await
             .map_err(|e| AppError::internal(format!("Failed to list sessions: {e}")))?;
 
@@ -353,14 +353,14 @@ impl ImpersonationRoutes {
         for session in &sessions {
             let impersonator_email = resources
                 .database
-                .get_user_global(session.impersonator_id)
+                .get_global(session.impersonator_id)
                 .await
                 .ok()
                 .flatten()
                 .map(|u| u.email);
             let target_email = resources
                 .database
-                .get_user_global(session.target_user_id)
+                .get_global(session.target_user_id)
                 .await
                 .ok()
                 .flatten()
@@ -404,7 +404,7 @@ impl ImpersonationRoutes {
         // Get the session
         let session = resources
             .database
-            .get_impersonation_session(&session_id)
+            .get_session(&session_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get session: {e}")))?
             .ok_or_else(|| AppError::not_found("Session not found"))?;
@@ -412,14 +412,14 @@ impl ImpersonationRoutes {
         // Get user details
         let impersonator_email = resources
             .database
-            .get_user_global(session.impersonator_id)
+            .get_global(session.impersonator_id)
             .await
             .ok()
             .flatten()
             .map(|u| u.email);
         let target_email = resources
             .database
-            .get_user_global(session.target_user_id)
+            .get_global(session.target_user_id)
             .await
             .ok()
             .flatten()

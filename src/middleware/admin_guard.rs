@@ -28,7 +28,8 @@
 //! }
 //! ```
 
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database::repositories::UserRepository;
+use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
 use std::sync::Arc;
@@ -66,7 +67,7 @@ use uuid::Uuid;
 pub async fn require_admin(user_id: Uuid, database: &Arc<Database>) -> Result<User, AppError> {
     // SECURITY: Global lookup — admin guard runs before tenant context is resolved
     let user = database
-        .get_user_global(user_id)
+        .get_global(user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;

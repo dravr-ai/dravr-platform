@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use crate::{
     auth::AuthResult,
     coaches::{parse_coach_content, to_markdown, CoachDefinition, CoachPrerequisites},
+    database::repositories::OAuthTokenRepository,
     database::{
         coaches::{
             Coach, CoachAssignment as DbCoachAssignment, CoachCategory, CoachListItem,
@@ -23,7 +24,6 @@ use crate::{
         },
         ChatManager,
     },
-    database_plugins::DatabaseProvider,
     errors::AppError,
     llm::{get_coach_generation_prompt, ChatMessage, ChatProvider, ChatRequest},
     mcp::resources::ServerResources,
@@ -559,7 +559,7 @@ impl CoachesRoutes {
         let user_providers = if check_prereqs {
             resources
                 .database
-                .get_user_oauth_tokens(auth.user_id, None)
+                .get_tokens(auth.user_id, None)
                 .await
                 .map(|tokens| {
                     tokens

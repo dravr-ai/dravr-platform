@@ -19,7 +19,8 @@ use crate::{
         models::{AdminPermission, CreateAdminTokenRequest},
     },
     auth::SetupStatusResponse,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database::repositories::{AdminRepository, UserRepository},
+    database_plugins::factory::Database,
     errors::AppResult,
     models::{User, UserStatus},
 };
@@ -34,7 +35,7 @@ use super::AdminApiContext;
 async fn check_no_admin_exists(
     database: &Database,
 ) -> AppResult<Option<(StatusCode, Json<AdminResponse>)>> {
-    match database.get_users_by_status("active", None).await {
+    match database.get_by_status("active", None).await {
         Ok(users) => {
             let admin_exists = users.iter().any(|u| u.is_admin);
             if admin_exists {
@@ -95,7 +96,7 @@ async fn create_admin_user_record(
     admin_user.is_admin = true;
     admin_user.user_status = UserStatus::Active;
 
-    match database.create_user(&admin_user).await {
+    match UserRepository::create(database, &admin_user).await {
         Ok(_) => {
             info!("Admin user created successfully: {}", request.email);
             Ok(user_id)
@@ -137,7 +138,7 @@ async fn generate_initial_admin_token(
     };
 
     match database
-        .create_admin_token(&token_request, admin_jwt_secret, jwks_manager)
+        .create_token(&token_request, admin_jwt_secret, jwks_manager)
         .await
     {
         Ok(generated_token) => Ok(generated_token.jwt_token),

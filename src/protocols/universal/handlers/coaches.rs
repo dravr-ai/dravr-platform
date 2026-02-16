@@ -8,7 +8,7 @@ use crate::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
     ListCoachesFilter, UpdateCoachRequest,
 };
-use crate::database_plugins::DatabaseProvider;
+use crate::database::repositories::{TenantRepository, UserRepository};
 use crate::models::TenantId;
 use crate::permissions::UserRole;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -1067,7 +1067,7 @@ async fn verify_user_tenant_membership(
     let user_tenants = executor
         .resources
         .database
-        .list_tenants_for_user(target_user_id)
+        .list_for_user(target_user_id)
         .await
         .map_err(|e| {
             ProtocolError::InternalError(format!(
@@ -1098,7 +1098,7 @@ async fn verify_admin_access(
     let user = executor
         .resources
         .database
-        .get_user_global(user_uuid)
+        .get_global(user_uuid)
         .await
         .map_err(|e| ProtocolError::InternalError(format!("Failed to get user: {e}")))?
         .ok_or_else(|| ProtocolError::InvalidRequest(format!("User {user_uuid} not found")))?;
@@ -1117,7 +1117,7 @@ async fn verify_admin_access(
             let tenants = executor
                 .resources
                 .database
-                .list_tenants_for_user(user_uuid)
+                .list_for_user(user_uuid)
                 .await
                 .map_err(|e| {
                     ProtocolError::InternalError(format!("Failed to get user tenants: {e}"))
@@ -1133,7 +1133,7 @@ async fn verify_admin_access(
     let tenants = executor
         .resources
         .database
-        .list_tenants_for_user(user_uuid)
+        .list_for_user(user_uuid)
         .await
         .map_err(|e| ProtocolError::InternalError(format!("Failed to get user tenants: {e}")))?;
 

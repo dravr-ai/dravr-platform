@@ -9,7 +9,8 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::constants::tiers;
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database::repositories::{TenantRepository, UserRepository};
+use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Tenant, TenantId};
 
@@ -95,7 +96,7 @@ pub async fn create_tenant_for_user(
     let slug = tenant_slug.trim().to_lowercase();
     validate_tenant_slug(&slug)?;
 
-    if database.get_tenant_by_slug(&slug).await.is_ok() {
+    if database.get_by_slug(&slug).await.is_ok() {
         return Err(AppError::invalid_input(format!(
             "Tenant slug '{slug}' is already in use",
         )));
@@ -112,8 +113,7 @@ pub async fn create_tenant_for_user(
         updated_at: Utc::now(),
     };
 
-    database
-        .create_tenant(&tenant_data)
+    TenantRepository::create(database, &tenant_data)
         .await
         .map_err(|e| AppError::database(format!("Failed to create tenant: {e}")))?;
 
@@ -162,7 +162,7 @@ pub async fn provision_tenant_for_approval(
     );
 
     database
-        .update_user_tenant_id(user_id, tenant.id)
+        .update_tenant_id(user_id, tenant.id)
         .await
         .map_err(|e| {
             error!(

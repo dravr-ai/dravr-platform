@@ -6,7 +6,7 @@
 
 use crate::config::environment::get_oauth_config;
 use crate::constants::oauth_providers;
-use crate::database_plugins::DatabaseProvider;
+use crate::database::repositories::{OAuthTokenRepository, TenantRepository};
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::models::{TenantId, UserOAuthToken};
@@ -99,9 +99,10 @@ impl AuthService {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
         let token_result = (*self.resources.database)
-            .get_user_oauth_token(user_id, tenant_id_parsed, provider)
+            .get_token(user_id, tenant_id_parsed, provider)
             .await;
 
+        let token_result = token_result.map_err(AppError::from);
         Self::log_token_lookup_result(&token_result, user_id, tenant_id_str, provider);
 
         let Ok(Some(oauth_token)) = token_result else {
@@ -124,10 +125,7 @@ impl AuthService {
             return;
         };
 
-        let Ok(tenant) = (*self.resources.database)
-            .get_tenant_by_id(tenant_uuid)
-            .await
-        else {
+        let Ok(tenant) = (*self.resources.database).get_by_id(tenant_uuid).await else {
             return;
         };
 
@@ -314,9 +312,25 @@ impl AuthService {
     ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
         // Get tenant-aware OAuth credentials or fall back to environment
         let (client_id, client_secret) = if let Some(tenant_id_str) = tenant_id {
-            self.get_tenant_oauth_credentials(tenant_id_str, provider_name)
+            let tid: TenantId = tenant_id_str.parse().map_err(|_| UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!("Invalid tenant_id: {tenant_id_str}")),
+                metadata: None,
+            })?;
+            let creds = (*self.resources.database)
+                .get_oauth_credentials(tid, provider_name)
                 .await
-                .map_err(|e| *e)?
+                .map_err(|e| UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!("Failed to get OAuth credentials: {e}")),
+                    metadata: None,
+                })?;
+            match creds {
+                Some(c) => (c.client_id, c.client_secret),
+                None => Self::get_default_oauth_credentials(provider_name).map_err(|e| *e)?,
+            }
         } else {
             Self::get_default_oauth_credentials(provider_name).map_err(|e| *e)?
         };
@@ -364,41 +378,6 @@ impl AuthService {
                 error: Some(format!("Failed to create provider: {e}")),
                 metadata: None,
             }),
-        }
-    }
-
-    /// Get OAuth credentials for a specific tenant and provider
-    async fn get_tenant_oauth_credentials(
-        &self,
-        tenant_id_str: &str,
-        provider_name: &str,
-    ) -> Result<(String, String), Box<UniversalResponse>> {
-        let tenant_uuid: TenantId = tenant_id_str.parse().map_err(|e| {
-            warn!(tenant_id = %tenant_id_str, error = %e, "Invalid tenant ID format in OAuth credentials request");
-            Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some("Invalid tenant ID format".to_owned()),
-                metadata: None,
-            })
-        })?;
-
-        // Get tenant OAuth credentials from database for the specific provider
-        match (*self.resources.database)
-            .get_tenant_oauth_credentials(tenant_uuid, provider_name)
-            .await
-        {
-            Ok(Some(creds)) => Ok((creds.client_id, creds.client_secret)),
-            Ok(None) => {
-                // Fall back to default credentials if tenant doesn't have custom ones
-                Self::get_default_oauth_credentials(provider_name)
-            }
-            Err(e) => Err(Box::new(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Failed to get tenant OAuth credentials: {e}")),
-                metadata: None,
-            })),
         }
     }
 
@@ -457,10 +436,21 @@ impl AuthService {
         // Get tenant-specific OAuth credentials, falling back to defaults
         let (client_id, client_secret) = if tenant_id.is_empty() {
             Self::get_default_oauth_credentials(provider)
+                .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?
         } else {
-            self.get_tenant_oauth_credentials(tenant_id, provider).await
-        }
-        .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?;
+            let tid: TenantId = tenant_id.parse().map_err(|_| {
+                OAuthError::TokenRefreshFailed(format!("Invalid tenant_id: {tenant_id}"))
+            })?;
+            let creds = (*self.resources.database)
+                .get_oauth_credentials(tid, provider)
+                .await
+                .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?;
+            match creds {
+                Some(c) => (c.client_id, c.client_secret),
+                None => Self::get_default_oauth_credentials(provider)
+                    .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?,
+            }
+        };
 
         // Call provider-specific token refresh
         let new_token = match provider.to_lowercase().as_str() {
@@ -493,7 +483,7 @@ impl AuthService {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
         })?;
         (*self.resources.database)
-            .refresh_user_oauth_token(
+            .refresh_token(
                 user_id,
                 tenant_id_parsed,
                 provider,
@@ -545,7 +535,7 @@ impl AuthService {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
         (*self.resources.database)
-            .delete_user_oauth_token(user_id, tenant_id_parsed, provider)
+            .delete_token(user_id, tenant_id_parsed, provider)
             .await
             .map_err(|e| OAuthError::DatabaseError(format!("Failed to delete token: {e}")))
     }

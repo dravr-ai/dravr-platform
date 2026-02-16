@@ -28,8 +28,8 @@ use uuid::Uuid;
 use crate::{
     auth::AuthResult,
     config::{environment::default_provider, SocialInsightsConfig},
+    database::repositories::UserRepository,
     database::social::SocialManager,
-    database_plugins::DatabaseProvider,
     errors::{AppError, ErrorCode},
     intelligence::{
         insight_adapter::UserTrainingContext,
@@ -895,7 +895,7 @@ impl SocialRoutes {
         // SECURITY: Global lookup — sharing policy check on authenticated user
         let user = resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
@@ -974,7 +974,7 @@ impl SocialRoutes {
             };
 
             // Fetch friend's user info (social connections enforce tenant scope)
-            let friend_user = resources.database.get_user_global(friend_id).await?;
+            let friend_user = resources.database.get_global(friend_id).await?;
             let (friend_display_name, friend_email) = match friend_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{friend_id}")),
@@ -1042,7 +1042,7 @@ impl SocialRoutes {
         let mut sent = Vec::with_capacity(sent_conns.len());
         for conn in sent_conns {
             let receiver_id_str = conn.receiver_id.to_string();
-            let receiver_user = resources.database.get_user_global(conn.receiver_id).await?;
+            let receiver_user = resources.database.get_global(conn.receiver_id).await?;
             let (user_display_name, user_email) = match receiver_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{receiver_id_str}")),
@@ -1066,10 +1066,7 @@ impl SocialRoutes {
         let mut received = Vec::with_capacity(received_conns.len());
         for conn in received_conns {
             let initiator_id_str = conn.initiator_id.to_string();
-            let initiator_user = resources
-                .database
-                .get_user_global(conn.initiator_id)
-                .await?;
+            let initiator_user = resources.database.get_global(conn.initiator_id).await?;
             let (user_display_name, user_email) = match initiator_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{initiator_id_str}")),

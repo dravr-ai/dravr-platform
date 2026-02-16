@@ -13,8 +13,8 @@ use crate::models::ConnectionType;
 use crate::models::TenantId;
 use crate::{
     auth::AuthResult,
+    database::repositories::{ChatRepository, ProviderConnectionRepository, TenantRepository},
     database::{ConversationRecord, MessageRecord},
-    database_plugins::DatabaseProvider,
     errors::AppError,
     llm::{
         get_insight_generation_prompt, get_pierre_system_prompt, ChatMessage, ChatProvider,
@@ -341,7 +341,7 @@ impl ChatRoutes {
         user_id: Uuid,
         resources: &Arc<ServerResources>,
     ) -> Result<TenantId, AppError> {
-        let tenants = resources.database.list_tenants_for_user(user_id).await?;
+        let tenants = resources.database.list_for_user(user_id).await?;
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(user_id), |t| t.id))
@@ -363,11 +363,7 @@ impl ChatRoutes {
     /// are connected, so the LLM doesn't ask users to connect already-available providers.
     async fn build_provider_context(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
         // Get all provider connections (cross-tenant view, single source of truth)
-        let Ok(connections) = resources
-            .database
-            .get_user_provider_connections(user_id, None)
-            .await
-        else {
+        let Ok(connections) = resources.database.get_for_user(user_id, None).await else {
             return String::new();
         };
 
@@ -912,7 +908,7 @@ impl ChatRoutes {
 
         let conversations = resources
             .database
-            .chat_list_conversations(
+            .list_conversations(
                 &auth.user_id.to_string(),
                 tenant_id,
                 query.limit,
@@ -951,7 +947,7 @@ impl ChatRoutes {
 
         let conv = resources
             .database
-            .chat_get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
+            .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
@@ -980,7 +976,7 @@ impl ChatRoutes {
 
         let updated = resources
             .database
-            .chat_update_conversation_title(
+            .update_conversation_title(
                 &conversation_id,
                 &auth.user_id.to_string(),
                 tenant_id,
@@ -995,7 +991,7 @@ impl ChatRoutes {
         // Fetch and return the updated conversation (proper REST response)
         let conv = resources
             .database
-            .chat_get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
+            .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::internal("Conversation not found after update"))?;
 
@@ -1023,7 +1019,7 @@ impl ChatRoutes {
 
         let deleted = resources
             .database
-            .chat_delete_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
+            .delete_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?;
 
         if !deleted {
@@ -1049,13 +1045,13 @@ impl ChatRoutes {
         // Verify user owns this conversation
         resources
             .database
-            .chat_get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
+            .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
         let messages = resources
             .database
-            .chat_get_messages(&conversation_id, &auth.user_id.to_string())
+            .get_messages(&conversation_id, &auth.user_id.to_string())
             .await?;
 
         let messages_list: Vec<MessageResponse> = messages

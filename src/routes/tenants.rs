@@ -14,8 +14,12 @@
 //! Use the POST /tenants/switch endpoint to change the active tenant and receive a new JWT.
 
 use crate::{
-    auth::AuthResult, database_plugins::DatabaseProvider, errors::AppError,
-    mcp::resources::ServerResources, models::TenantId, tenant_routes,
+    auth::AuthResult,
+    database::repositories::{TenantRepository, UserRepository},
+    errors::AppError,
+    mcp::resources::ServerResources,
+    models::TenantId,
+    tenant_routes,
 };
 use axum::{
     extract::State,
@@ -157,7 +161,7 @@ impl TenantRoutes {
         // Verify user belongs to this tenant via tenant_users table
         let role_str = resources
             .database
-            .get_user_tenant_role(auth.user_id, tenant_id)
+            .get_user_role(auth.user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?
             .ok_or_else(|| {
@@ -172,14 +176,14 @@ impl TenantRoutes {
         // Get tenant details
         let tenant = resources
             .database
-            .get_tenant_by_id(tenant_id)
+            .get_by_id(tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenant: {e}")))?;
 
         // SECURITY: Global lookup — tenant JWT refresh, user verified via auth middleware
         let user = resources
             .database
-            .get_user_global(auth.user_id)
+            .get_global(auth.user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
@@ -226,7 +230,7 @@ impl TenantRoutes {
         // Get all tenants the user belongs to
         let tenants = resources
             .database
-            .list_tenants_for_user(auth.user_id)
+            .list_for_user(auth.user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to list user tenants: {e}")))?;
 
@@ -236,7 +240,7 @@ impl TenantRoutes {
             // Get user's role in this tenant
             let role = resources
                 .database
-                .get_user_tenant_role(auth.user_id, tenant.id)
+                .get_user_role(auth.user_id, tenant.id)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get tenant role: {e}")))?
                 .unwrap_or_else(|| "member".to_owned());

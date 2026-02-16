@@ -8,7 +8,7 @@ use crate::config::environment::TrainingZonesConfig;
 use crate::config::{catalog::CatalogBuilder, profiles::ProfileTemplates};
 use crate::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use crate::constants::limits::METERS_PER_KILOMETER;
-use crate::database_plugins::DatabaseProvider;
+use crate::database::repositories::ProfileRepository;
 use crate::intelligence::physiological_constants::configuration_validation;
 use crate::intelligence::physiological_constants::heart_rate_zones::{
     AEROBIC_THRESHOLD_PERMILLE, LACTATE_THRESHOLD_PERMILLE, PERMILLE_DIVISOR, ZONE_1_MAX_PERMILLE,
@@ -191,7 +191,7 @@ pub fn handle_get_user_configuration(
 
         // Get user configuration from database
         match (*executor.resources.database)
-            .get_user_configuration(&user_uuid.to_string())
+            .get_configuration(&user_uuid.to_string())
             .await
         {
             Ok(Some(config_str)) => {
@@ -288,7 +288,7 @@ pub fn handle_update_user_configuration(
         })?;
 
         match (*executor.resources.database)
-            .save_user_configuration(&user_uuid.to_string(), &config_json)
+            .save_configuration(&user_uuid.to_string(), &config_json)
             .await
         {
             Ok(()) => {

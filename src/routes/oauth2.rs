@@ -13,7 +13,8 @@ use crate::{
     admin::jwks::{JsonWebKeySet, JwksManager},
     auth::AuthManager,
     config::environment::ServerConfig,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database::repositories::{TenantRepository, UserRepository},
+    database_plugins::factory::Database,
     errors::{AppError, AppResult},
     oauth2_server::{
         client_registration::ClientRegistrationManager,
@@ -1152,7 +1153,7 @@ impl OAuth2Routes {
     ) -> AppResult<String> {
         // Look up user by email
         let user = database
-            .get_user_by_email(email)
+            .get_by_email(email)
             .await
             .map_err(|e| AppError::database(e.to_string()))?
             .ok_or_else(|| AppError::not_found("User not found"))?;
@@ -1164,7 +1165,7 @@ impl OAuth2Routes {
 
         // Look up user's default tenant to include in JWT as active_tenant_id
         let tenants = database
-            .list_tenants_for_user(user.id)
+            .list_for_user(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
         let active_tenant_id = tenants.first().map(|t| t.id.to_string());
