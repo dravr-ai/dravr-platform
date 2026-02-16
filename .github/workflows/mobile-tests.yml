@@ -9,7 +9,7 @@ on:
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'
-      - 'src/routes/auth.rs'
+      - 'src/routes/auth/**'
       - 'src/routes/coaches.rs'
       - 'src/routes/chat.rs'
       - 'src/models/**'
@@ -19,7 +19,7 @@ on:
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'
-      - 'src/routes/auth.rs'
+      - 'src/routes/auth/**'
       - 'src/routes/coaches.rs'
       - 'src/routes/chat.rs'
       - 'src/models/**'

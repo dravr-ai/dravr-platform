@@ -208,11 +208,12 @@ impl IntegrationTestServer {
             .update_user_tenant_id(user_id, tenant_id)
             .await?;
 
-        // Generate JWT token
-        let jwt_token = self
-            .resources
-            .auth_manager
-            .generate_token(&user, &self.resources.jwks_manager)?;
+        // Generate JWT token with active_tenant_id so route handlers can resolve tenant
+        let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
+            &user,
+            &self.resources.jwks_manager,
+            Some(tenant_id.to_string()),
+        )?;
 
         Ok((user_id, jwt_token))
     }
