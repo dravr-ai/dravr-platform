@@ -34,6 +34,8 @@ pub mod password_reset_tokens;
 pub mod provider_connections;
 /// Recipe storage and management for nutrition planning
 pub mod recipes;
+/// Repository trait definitions for focused database access
+pub mod repositories;
 /// System coaches seeding for server startup
 pub mod seed_coaches;
 /// Social features (friend connections, shared insights)
