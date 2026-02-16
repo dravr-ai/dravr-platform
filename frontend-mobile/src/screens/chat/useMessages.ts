@@ -31,6 +31,8 @@ export interface MessagesActions {
   handleThumbsUp: (messageId: string) => void;
   handleThumbsDown: (messageId: string) => void;
   clearMessages: () => void;
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  setIsSending: (sending: boolean) => void;
   scrollToBottom: () => void;
   flatListRef: React.RefObject<FlatList | null>;
 }
@@ -253,6 +255,8 @@ export function useMessages(): MessagesState & MessagesActions {
     handleThumbsUp,
     handleThumbsDown,
     clearMessages,
+    setMessages,
+    setIsSending,
     scrollToBottom,
     flatListRef,
   };
