@@ -212,11 +212,14 @@ impl AuthService {
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
 
-        // Generate JWT token using RS256
+        // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
+        let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
+
+        // Generate JWT token using RS256 with active_tenant_id
         let jwt_token = self
             .auth
             .auth_manager()
-            .generate_token(&user, self.auth.jwks_manager())
+            .generate_token_with_tenant(&user, self.auth.jwks_manager(), active_tenant_id)
             .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
         let expires_at =
             chrono::Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS); // Default 24h expiry
@@ -346,6 +349,50 @@ impl AuthService {
         Ok(tenant_id)
     }
 
+    /// Ensure user has at least one tenant, creating a personal tenant if needed.
+    ///
+    /// Returns the `tenant_id` to use as `active_tenant_id` in JWT claims.
+    /// Users created via admin setup or CLI may not have a tenant; this method
+    /// auto-creates one on first login so route handlers can rely on `active_tenant_id`.
+    ///
+    /// # Errors
+    /// Returns error if database operations fail
+    async fn ensure_user_has_tenant(&self, user: &User) -> AppResult<Option<String>> {
+        let tenants = self
+            .data
+            .database()
+            .list_tenants_for_user(user.id)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
+
+        if let Some(first) = tenants.first() {
+            return Ok(Some(first.id.to_string()));
+        }
+
+        // User has no tenant — create a personal one (handles admin setup, CLI users)
+        let display_name = user
+            .display_name
+            .as_deref()
+            .unwrap_or_else(|| user.email.split('@').next().unwrap_or("user"));
+
+        let tenant_id = self
+            .create_personal_tenant(user.id, display_name, tiers::STARTER)
+            .await?;
+
+        self.data
+            .database()
+            .update_user_tenant_id(user.id, tenant_id)
+            .await
+            .map_err(|e| {
+                error!("Failed to assign user to tenant: {}", e);
+                AppError::database(format!("Failed to assign tenant: {e}"))
+            })?;
+
+        info!(user_id = %user.id, tenant_id = %tenant_id, "Auto-created personal tenant on login");
+
+        Ok(Some(tenant_id.to_string()))
+    }
+
     /// Check if auto-approval is enabled
     ///
     /// Precedence order:
@@ -448,10 +495,13 @@ impl AuthService {
         user: &User,
         provider: &str,
     ) -> AppResult<LoginResponse> {
+        // Ensure user has a tenant (auto-creates one for users without a tenant)
+        let active_tenant_id = self.ensure_user_has_tenant(user).await?;
+
         let jwt_token = self
             .auth
             .auth_manager()
-            .generate_token(user, self.auth.jwks_manager())
+            .generate_token_with_tenant(user, self.auth.jwks_manager(), active_tenant_id)
             .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
 
         let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
@@ -506,11 +556,14 @@ impl AuthService {
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
-        // Generate new JWT token using RS256
+        // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
+        let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
+
+        // Generate new JWT token using RS256 with active_tenant_id
         let new_jwt_token = self
             .auth
             .auth_manager()
-            .generate_token(&user, self.auth.jwks_manager())
+            .generate_token_with_tenant(&user, self.auth.jwks_manager(), active_tenant_id)
             .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
         let expires_at =
             chrono::Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
@@ -1208,23 +1261,10 @@ impl OAuthService {
         // Validate provider is supported
         self.validate_provider(provider)?;
 
-        // Get tenant_id: prefer active_tenant_id (user's selected tenant) when available,
-        // falling back to user's first tenant for single-tenant users or tokens without active_tenant_id.
-        let tenant_id: TenantId = if let Some(tid) = active_tenant_id {
-            TenantId::from(tid)
-        } else {
-            let tenants = self
-                .data
-                .database()
-                .list_tenants_for_user(user_id)
-                .await
-                .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-            tenants.first().map(|t| t.id).ok_or_else(|| {
-                AppError::auth_invalid(
-                    "User has no tenant association — cannot disconnect provider",
-                )
-            })?
-        };
+        // Use active_tenant_id from JWT claims (user's selected tenant)
+        let tenant_id: TenantId = active_tenant_id.map(TenantId::from).ok_or_else(|| {
+            AppError::auth_invalid("No active tenant in session — cannot disconnect provider")
+        })?;
 
         // Delete OAuth tokens from database
         self.data
@@ -1822,12 +1862,28 @@ impl AuthRoutes {
             .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
-        // Generate a fresh JWT token for WebSocket authentication
+        // Preserve active_tenant_id from existing JWT, or look up user's default tenant
+        let active_tenant_id = if let Some(tid) = auth_result.active_tenant_id {
+            Some(tid.to_string())
+        } else {
+            let tenants = resources
+                .database
+                .list_tenants_for_user(user_id)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
+            tenants.first().map(|t| t.id.to_string())
+        };
+
+        // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
         let server_context = ServerContext::from(resources.as_ref());
         let jwt_token = server_context
             .auth()
             .auth_manager()
-            .generate_token(&user, server_context.auth().jwks_manager())
+            .generate_token_with_tenant(
+                &user,
+                server_context.auth().jwks_manager(),
+                active_tenant_id,
+            )
             .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
 
         // Generate fresh CSRF token
@@ -2573,29 +2629,12 @@ impl AuthRoutes {
         }
     }
 
-    /// Extract tenant ID for OAuth operations
+    /// Extract tenant ID for OAuth operations from JWT claims
     ///
-    /// Uses `active_tenant_id` when available (user's selected tenant from JWT),
-    /// falling back to user's first tenant for single-tenant users or tokens without `active_tenant_id`.
-    async fn extract_tenant_id_from_database(
-        database: &Database,
-        user_id: uuid::Uuid,
-        active_tenant_id: Option<TenantId>,
-    ) -> Result<TenantId, AppError> {
-        // Prefer active_tenant_id from JWT claims (user's selected tenant)
-        if let Some(tenant_id) = active_tenant_id {
-            return Ok(tenant_id);
-        }
-        // Fall back to user's first tenant (single-tenant users or tokens without active_tenant_id)
-        let tenants = database
-            .list_tenants_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
-
-        tenants.first().map(|t| t.id).ok_or_else(|| {
-            warn!(user_id = %user_id, "User has no tenant memberships for OAuth tenant resolution");
-            AppError::auth_invalid("User does not belong to any tenant")
-        })
+    /// Returns the `active_tenant_id` from the user's JWT session.
+    /// Returns an error if no active tenant is set in the session.
+    fn extract_tenant_id(active_tenant_id: Option<TenantId>) -> Result<TenantId, AppError> {
+        active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
     /// Handle OAuth authorization initiation (Axum)
@@ -2643,12 +2682,7 @@ impl AuthRoutes {
 
         // Verify user exists
         Self::get_user_for_oauth(&resources.database, user_id).await?;
-        let tenant_id = Self::extract_tenant_id_from_database(
-            &resources.database,
-            user_id,
-            auth_result.active_tenant_id.map(TenantId::from),
-        )
-        .await?;
+        let tenant_id = Self::extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
 
         let server_context = ServerContext::from(resources.as_ref());
         let oauth_service = OAuthService::new(
@@ -2730,12 +2764,7 @@ impl AuthRoutes {
 
         // Verify user exists
         Self::get_user_for_oauth(&resources.database, user_id).await?;
-        let tenant_id = Self::extract_tenant_id_from_database(
-            &resources.database,
-            user_id,
-            auth_result.active_tenant_id.map(TenantId::from),
-        )
-        .await?;
+        let tenant_id = Self::extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
 
         // Build OAuth state with optional redirect URL
         let state = redirect_url.map_or_else(
