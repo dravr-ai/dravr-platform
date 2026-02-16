@@ -1353,7 +1353,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
 
     // Disconnecting a provider that wasn't connected should succeed (idempotent)
     let result = oauth_routes
-        .disconnect_provider(user_id, "strava", None)
+        .disconnect_provider(user_id, "strava", Some(tenant.id.0))
         .await;
 
     assert!(result.is_ok());
