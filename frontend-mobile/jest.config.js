@@ -36,6 +36,7 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@pierre/api-client$': '<rootDir>/../packages/api-client/src/index.ts',
+    '^@pierre/chat-utils$': '<rootDir>/../packages/chat-utils/src/index.ts',
     '^@pierre/shared-types$': '<rootDir>/../packages/shared-types/src/index.ts',
     // Mock expo virtual modules for packages outside node_modules
     '^expo/virtual/(.*)$': '<rootDir>/jest.setup.js',

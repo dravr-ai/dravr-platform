@@ -121,7 +121,7 @@ export function createCoachesApi(axios: AxiosInstance) {
      */
     async recordUsage(coachId: string): Promise<void> {
       try {
-        await axios.post(ENDPOINTS.COACHES.USE(coachId));
+        await axios.post(ENDPOINTS.COACHES.USAGE(coachId));
       } catch {
         // Silent failure - usage tracking is non-critical
       }

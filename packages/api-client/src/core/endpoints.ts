@@ -45,8 +45,6 @@ export const ENDPOINTS = {
     FAVORITE: (id: string) => `/api/coaches/${id}/favorite`,
     /** Record coach usage */
     USAGE: (id: string) => `/api/coaches/${id}/usage`,
-    /** Record coach use (alias) */
-    USE: (id: string) => `/api/coaches/${id}/use`,
     /** Hide/show a coach */
     HIDE: (id: string) => `/api/coaches/${id}/hide`,
     /** List hidden coaches */

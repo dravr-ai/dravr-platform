@@ -202,13 +202,8 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
       startCoachConversation: async (coach) => {
         await coachSelection.startCoachConversation(coach, {
           createConversation: conversations.createConversation,
-          setMessages: (msgs) => {
-            // Handle both function and value updates
-            if (typeof msgs === 'function') {
-              messagesHook.clearMessages();
-            }
-          },
-          setIsSending: () => {},
+          setMessages: messagesHook.setMessages,
+          setIsSending: messagesHook.setIsSending,
           scrollToBottom: messagesHook.scrollToBottom,
         });
       },
@@ -219,8 +214,8 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
   const startCoachConversation = useCallback(async (coach: Coach) => {
     await coachSelection.startCoachConversation(coach, {
       createConversation: conversations.createConversation,
-      setMessages: () => messagesHook.clearMessages(),
-      setIsSending: () => {},
+      setMessages: messagesHook.setMessages,
+      setIsSending: messagesHook.setIsSending,
       scrollToBottom: messagesHook.scrollToBottom,
     });
   }, [coachSelection, conversations, messagesHook]);
