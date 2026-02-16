@@ -207,13 +207,10 @@ pub mod test_utils;
 
 // ── Internal modules ────────────────────────────────────────────────────
 // These modules are implementation details not referenced by binaries or tests.
-// They use `pub(crate)` to prevent external access.
-
-/// Plugin lifecycle management for deterministic initialization
-pub mod lifecycle;
+// All use `pub(crate)` to prevent external access.
 
 /// Domain service layer for protocol-agnostic business logic
 pub(crate) mod services;
 
 /// Multi-tenant management REST API routes
-pub mod tenant_routes;
+pub(crate) mod tenant_routes;
