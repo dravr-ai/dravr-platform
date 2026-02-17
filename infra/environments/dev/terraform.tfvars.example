@@ -1,0 +1,74 @@
+# ABOUTME: Example Terraform variables for the development environment
+# ABOUTME: Copy to terraform.tfvars and fill in real values before applying
+
+# -----------------------------------------------------------------------------
+# Required Variables (no defaults)
+# -----------------------------------------------------------------------------
+
+# GCP project ID for the dev environment (required)
+project_id = "dravr-dev"
+
+# Container image for the backend API (required)
+backend_image = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/server:latest"
+
+# GCP project ID of the centralized dravr-artifacts project (required)
+artifacts_project_id = "dravr-artifacts"
+
+# -----------------------------------------------------------------------------
+# Optional Variables (defaults shown, uncomment to override)
+# -----------------------------------------------------------------------------
+
+# environment  = "development"
+# region       = "northamerica-northeast1"
+# service_name = "pierre-mcp-server"
+
+# -----------------------------------------------------------------------------
+# Feature Toggles
+# -----------------------------------------------------------------------------
+
+# enable_database = false
+# enable_cache    = false
+# enable_frontend = true
+
+# -----------------------------------------------------------------------------
+# Backend Cloud Run
+# -----------------------------------------------------------------------------
+
+# backend_cpu           = "1"
+# backend_memory        = "512Mi"
+# backend_min_instances = 0
+# backend_max_instances = 1
+
+# -----------------------------------------------------------------------------
+# Database (Cloud SQL) — only used when enable_database = true
+# -----------------------------------------------------------------------------
+
+# database_tier                = "db-f1-micro"
+# database_deletion_protection = false
+# database_backup_enabled      = false
+# database_backup_start_time   = "03:00"
+
+# -----------------------------------------------------------------------------
+# Cache (Memorystore Redis) — only used when enable_cache = true
+# -----------------------------------------------------------------------------
+
+# redis_tier           = "BASIC"
+# redis_memory_size_gb = 1
+# redis_version        = "REDIS_7_0"
+
+# -----------------------------------------------------------------------------
+# Frontend Cloud Run — only used when enable_frontend = true
+# -----------------------------------------------------------------------------
+
+# frontend_min_instances = 0
+# frontend_max_instances = 5
+
+# -----------------------------------------------------------------------------
+# Labels
+# -----------------------------------------------------------------------------
+
+# labels = {
+#   app         = "dravr"
+#   managed_by  = "terraform"
+#   environment = "development"
+# }

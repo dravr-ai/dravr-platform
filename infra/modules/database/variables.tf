@@ -17,7 +17,7 @@ variable "service_name" {
 }
 
 variable "environment" {
-  description = "Environment (production, staging, development)"
+  description = "Environment (production or development)"
   type        = string
 }
 
