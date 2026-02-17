@@ -1,6 +1,6 @@
 environment = "production"
 
-# All optional features enabled
+# Database disabled until production migration from SQLite is ready
 enable_database = false
 enable_cache    = true
 enable_frontend = true

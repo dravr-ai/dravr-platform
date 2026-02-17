@@ -86,17 +86,10 @@ resource "google_project_iam_member" "deployer_cloudsql_client" {
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 
-# Service Account User (deploy as the app service account)
-resource "google_project_iam_member" "deployer_sa_user" {
+# Storage Object Viewer (for Cloud Build logs)
+resource "google_project_iam_member" "deployer_storage_viewer" {
   project = var.project_id
-  role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${google_service_account.deployer.email}"
-}
-
-# Storage Admin (for Cloud Build logs)
-resource "google_project_iam_member" "deployer_storage_admin" {
-  project = var.project_id
-  role    = "roles/storage.admin"
+  role    = "roles/storage.objectViewer"
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 

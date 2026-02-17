@@ -165,7 +165,9 @@ module "backend" {
       ENVIRONMENT = var.environment
     },
     var.enable_database ? {
-      DATABASE_URL = "postgresql://${module.database[0].database_user}:$${DB_PASSWORD}@/pierre?host=/cloudsql/${module.database[0].connection_name}"
+      DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
+      DATABASE_NAME = module.database[0].database_name
+      DATABASE_USER = module.database[0].database_user
     } : {},
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url

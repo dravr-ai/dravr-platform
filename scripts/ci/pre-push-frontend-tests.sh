@@ -51,7 +51,7 @@ else
     echo "TypeScript errors found:"
     bun run type-check 2>&1 | head -30
     echo ""
-    echo "Run 'cd frontend && npm run type-check' to see all errors."
+    echo "Run 'cd frontend && bun run type-check' to see all errors."
     exit 1
 fi
 
@@ -74,7 +74,7 @@ else
     echo "Lint errors found:"
     bun run lint 2>&1 | head -30
     echo ""
-    echo "Run 'cd frontend && npm run lint' to see all errors."
+    echo "Run 'cd frontend && bun run lint' to see all errors."
     exit 1
 fi
 
@@ -123,5 +123,5 @@ else
     echo "✅ All frontend checks passed!"
     echo ""
     echo "⚠️  Note: E2E tests run in CI (require browser)"
-    echo "   To run locally: cd frontend && npm run test:e2e"
+    echo "   To run locally: cd frontend && bun run test:e2e"
 fi

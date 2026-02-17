@@ -63,10 +63,10 @@ project_id = "pierrefitnessplatform"
 # -----------------------------------------------------------------------------
 
 # GitHub organization/user
-# github_org = "Async-IO"
+# github_org = "dravr-ai"
 
 # GitHub repository name
-# github_repo = "pierre_mcp_server"
+# github_repo = "dravr-platform"
 
 # -----------------------------------------------------------------------------
 # Artifact Registry

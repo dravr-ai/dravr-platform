@@ -145,13 +145,13 @@ variable "vpc_connector_cidr" {
 variable "github_org" {
   description = "GitHub organization or username"
   type        = string
-  default     = "Async-IO"
+  default     = "dravr-ai"
 }
 
 variable "github_repo" {
   description = "GitHub repository name"
   type        = string
-  default     = "pierre_mcp_server"
+  default     = "dravr-platform"
 }
 
 # -----------------------------------------------------------------------------
@@ -208,9 +208,9 @@ variable "enable_frontend" {
 }
 
 variable "frontend_image" {
-  description = "Container image for the admin frontend (e.g., region-docker.pkg.dev/project/repo/frontend:latest)"
+  description = "Container image for the admin frontend (required when enable_frontend is true)"
   type        = string
-  default     = ""
+  default     = null
 }
 
 variable "frontend_min_instances" {

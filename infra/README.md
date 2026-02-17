@@ -176,8 +176,8 @@ echo -n "your-openweather-api-key" | gcloud secrets versions add pierre-mcp-serv
 | `environment` | Environment name | `production` |
 | `service_name` | Cloud Run service name | `pierre-mcp-server` |
 | `database_tier` | Cloud SQL machine tier | `db-f1-micro` |
-| `github_org` | GitHub organization | `Async-IO` |
-| `github_repo` | GitHub repository | `pierre_mcp_server` |
+| `github_org` | GitHub organization | `dravr-ai` |
+| `github_repo` | GitHub repository | `dravr-platform` |
 
 See `variables.tf` for full list.
 

@@ -71,7 +71,7 @@ resource "google_vpc_access_connector" "connector" {
 # Firewall Rules
 # -----------------------------------------------------------------------------
 
-# Allow internal traffic within VPC
+# Allow internal traffic for known services within VPC
 resource "google_compute_firewall" "allow_internal" {
   name    = "${var.vpc_name}-allow-internal"
   project = var.project_id
@@ -79,12 +79,7 @@ resource "google_compute_firewall" "allow_internal" {
 
   allow {
     protocol = "tcp"
-    ports    = ["0-65535"]
-  }
-
-  allow {
-    protocol = "udp"
-    ports    = ["0-65535"]
+    ports    = ["5432", "6379"]
   }
 
   allow {
