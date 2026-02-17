@@ -15,6 +15,7 @@
         "@pierre/api-client": "*",
         "@pierre/chat-utils": "*",
         "@pierre/domain-utils": "*",
+        "@pierre/i18n": "workspace:*",
         "@pierre/shared-constants": "*",
         "@pierre/shared-types": "*",
         "@pierre/ui-logic": "workspace:*",
