@@ -2,7 +2,7 @@
 // ABOUTME: Defines admin permissions, token structures, and validation types for admin operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Admin Token Models
 //!
 //! Strong Rust types for the admin authentication system

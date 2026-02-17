@@ -2,7 +2,7 @@
 // ABOUTME: Core engine for fitness metrics calculation, training zone analysis, and performance insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 #![deny(unsafe_code)]
 

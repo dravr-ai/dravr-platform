@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Toast context and types for the notification system
 // ABOUTME: Separated from component to enable React Fast Refresh

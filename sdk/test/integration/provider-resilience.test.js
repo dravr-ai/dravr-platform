@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Provider resilience integration tests - verifies graceful handling of provider failures
 // ABOUTME: Tests 503 unavailable, timeouts, partial responses, and multi-provider degradation
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2025 Async-IO.org
+// Copyright (c) 2026 dravr.io
 
 const { ensureServerRunning } = require('../helpers/server');
 const { TestConfig } = require('../helpers/fixtures');

@@ -2,7 +2,7 @@
 // ABOUTME: Tests error scenarios, edge cases, and protocol handling in multitenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Comprehensive tests for MCP protocol handling to improve coverage
 //!
 //! This test suite focuses on the low-coverage areas in mcp/multitenant.rs

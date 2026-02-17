@@ -2,7 +2,7 @@
 // ABOUTME: Handles OAuth2 PKCE authentication and fitness data fetching with proper error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};

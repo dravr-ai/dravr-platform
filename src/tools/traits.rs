@@ -2,7 +2,7 @@
 // ABOUTME: Tools implement this trait to be registered and executed via the ToolRegistry.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # MCP Tool Trait and Capabilities
 //!

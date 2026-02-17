@@ -2,7 +2,7 @@
 // ABOUTME: Defines standard error codes and corresponding error messages
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Error codes for JSON-RPC and MCP protocols
 

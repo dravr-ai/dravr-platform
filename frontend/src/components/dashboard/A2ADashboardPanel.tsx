@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A2A (Agent-to-Agent) dashboard panel with protocol stats
 // ABOUTME: Owns its own useQuery call for A2A overview data

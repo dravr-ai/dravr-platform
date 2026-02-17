@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Copyright (c) 2025 Pierre Fitness Intelligence -->
+<!-- Copyright (c) 2026 dravr.io -->
 
 # Getting Started
 
@@ -12,7 +12,7 @@
 ## Installation
 
 ```bash
-git clone https://github.com/Async-IO/pierre_mcp_server.git
+git clone https://github.com/dravr-ai/dravr-platform.git
 cd pierre_mcp_server
 cargo build --release
 ```

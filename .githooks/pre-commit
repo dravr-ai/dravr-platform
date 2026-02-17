@@ -191,7 +191,7 @@ check_license_headers() {
         echo ""
         echo "All source files must have SPDX headers. Format:"
         echo "  // SPDX-License-Identifier: MIT OR Apache-2.0"
-        echo "  // Copyright (c) 2025 Pierre Fitness Intelligence"
+        echo "  // Copyright (c) 2026 dravr.io"
         echo ""
         echo "Run: ./scripts/setup/add-license-headers.sh to fix automatically"
         return 1

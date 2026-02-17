@@ -2,7 +2,7 @@
 // ABOUTME: Configures BMR calculation, macronutrient targets, meal timing, and USDA API settings
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Nutrition Analysis Configuration
 //!

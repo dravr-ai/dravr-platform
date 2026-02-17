@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Mobile platform adapter using SecureStore for tokens and AsyncStorage for non-sensitive data
 // ABOUTME: Provides platform-specific implementation for React Native environment with secure token storage

@@ -2,7 +2,7 @@
 // ABOUTME: Provides domain-specific errors with retry information and rate limit handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use thiserror::Error;
 

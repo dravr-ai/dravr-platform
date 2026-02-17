@@ -2,7 +2,7 @@
 // ABOUTME: Provides weather context, environmental adjustments, and performance correlations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Weather service integration for contextual activity analysis
 

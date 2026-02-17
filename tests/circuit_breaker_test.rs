@@ -2,7 +2,7 @@
 // ABOUTME: Tests state transitions, failure counting, and recovery behavior
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 #![allow(missing_docs)]
 
 use pierre_mcp_server::providers::circuit_breaker::{

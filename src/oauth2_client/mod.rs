@@ -2,7 +2,7 @@
 // ABOUTME: Provides OAuth flows for Strava, Fitbit, Garmin, WHOOP, and Terra with multi-tenant support
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # OAuth 2.0 Client Module
 //!

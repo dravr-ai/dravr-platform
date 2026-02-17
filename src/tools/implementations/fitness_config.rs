@@ -2,7 +2,7 @@
 // ABOUTME: Implements get_fitness_config, set_fitness_config, list_fitness_configs, delete_fitness_config.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # Fitness Configuration Tools
 //!

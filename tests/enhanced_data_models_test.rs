@@ -2,7 +2,7 @@
 // ABOUTME: Validates power metrics, performance data, and activity modeling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Tests for enhanced data models supporting advanced intelligence engines
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

@@ -2,7 +2,7 @@
 // ABOUTME: Pluggable backend support (in-memory, Redis) following DatabaseProvider pattern
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// Cache factory for creating cache providers
 pub mod factory;

@@ -1,11 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2025 Pierre Fitness Intelligence
+# Copyright (c) 2026 dravr.io
 # ABOUTME: MCP protocol compliance validation script
 # ABOUTME: Tests pierre-claude-bridge against Model Context Protocol specification
 #
 # Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-# Copyright ©2025 Async-IO.org
+# Copyright (c) 2026 dravr.io
 
 # Pierre MCP Compliance Validation Script
 # Tests the pierre-claude-bridge against the MCP (Model Context Protocol) specification

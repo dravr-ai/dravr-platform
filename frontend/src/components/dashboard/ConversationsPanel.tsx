@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Conversations panel for sidebar chat history display
 // ABOUTME: Owns its own useQuery and mutation calls for conversation management

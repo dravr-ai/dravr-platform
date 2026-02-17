@@ -2,7 +2,7 @@
 // ABOUTME: Validates correct handling of multi-event chunks, partial lines, and stream termination
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 #![allow(missing_docs)]
 

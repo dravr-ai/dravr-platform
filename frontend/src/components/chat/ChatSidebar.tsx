@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat sidebar component with navigation and conversation list
 // ABOUTME: Includes buttons for New Chat, My Coaches, Discover, and user profile

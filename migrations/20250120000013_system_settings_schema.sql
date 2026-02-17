@@ -2,7 +2,7 @@
 -- ABOUTME: Stores key-value pairs for system-wide configuration like auto-approval
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2025 Pierre Fitness Intelligence
+-- Copyright (c) 2026 dravr.io
 
 -- System Settings Table for admin-configurable options
 CREATE TABLE IF NOT EXISTS system_settings (

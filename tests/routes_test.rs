@@ -2,7 +2,7 @@
 // ABOUTME: Validates routes behavior, edge cases, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // Integration tests for routes.rs module
 // Tests for authentication routes, OAuth routes, and A2A routes

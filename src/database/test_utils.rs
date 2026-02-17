@@ -2,7 +2,7 @@
 // ABOUTME: Provides helper functions for creating isolated test database instances
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 #[cfg(feature = "postgresql")]
 use crate::config::environment::PostgresPoolConfig;
 use crate::database_plugins::factory::Database;

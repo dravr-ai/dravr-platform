@@ -2,7 +2,7 @@
 // ABOUTME: Verifies configuration tools are properly exposed through MCP schema
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Integration test for configuration system MCP protocol exposure
 //!
 //! Verifies that configuration tools are properly exposed through the MCP schema

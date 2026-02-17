@@ -131,5 +131,5 @@ Type `quit` or `exit` to stop.
 ## Support
 
 - Full documentation: [README.md](README.md)
-- Pierre issues: https://github.com/Async-IO/pierre_mcp_server/issues
+- Pierre issues: https://github.com/dravr-ai/dravr-platform/issues
 - Gemini API docs: https://ai.google.dev/gemini-api/docs

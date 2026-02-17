@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Re-exports shared types for the web frontend
 // ABOUTME: All types are now centralized in @pierre/shared-types

@@ -2,7 +2,7 @@
 // ABOUTME: Provides protocol-agnostic services reusable across REST, MCP, and A2A
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Domain service layer
 //!

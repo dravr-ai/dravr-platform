@@ -2,7 +2,7 @@
 // ABOUTME: Provides timeout wrappers for database, API, SSE, and OAuth operations
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::config::environment::RouteTimeoutConfig;
 use crate::errors::{AppError, AppResult};

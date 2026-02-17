@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Shared test helper functions for Playwright E2E tests.
 // ABOUTME: Provides reusable authentication mocks and login helpers.

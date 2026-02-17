@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Garmin Connect provider integration tests validating API data transformation
 // ABOUTME: Tests realistic Garmin Connect API responses and Pierre's data transformation logic
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright ©2025 Async-IO.org
+// Copyright (c) 2026 dravr.io
 
 const {
   mockGarminActivities,

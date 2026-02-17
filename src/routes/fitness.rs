@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for managing fitness configurations and training parameters
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Fitness configuration routes
 //!

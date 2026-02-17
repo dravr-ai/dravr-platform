@@ -3,12 +3,12 @@
   <h1>Pierre Fitness Platform</h1>
 </div>
 
-[![Backend CI](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/ci.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/ci.yml)
-[![Cross-Platform](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/cross-platform.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/cross-platform.yml)
-[![Frontend Tests](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/frontend-tests.yml)
-[![SDK Tests](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/sdk-tests.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/sdk-tests.yml)
-[![MCP Compliance](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/mcp-compliance.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/mcp-compliance.yml)
-[![Mobile Tests](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/mobile-tests.yml/badge.svg)](https://github.com/Async-IO/pierre_mcp_server/actions/workflows/mobile-tests.yml)
+[![Backend CI](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci.yml)
+[![Cross-Platform](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml)
+[![Frontend Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml)
+[![SDK Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml)
+[![MCP Compliance](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml)
+[![Mobile Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml)
 
 Pierre Fitness Platform connects AI assistants to fitness data from Strava, Garmin, Fitbit, WHOOP, COROS, and Terra (150+ wearables). Implements Model Context Protocol (MCP), A2A protocol, OAuth 2.0, and REST APIs for Claude, ChatGPT, and other AI assistants.
 
@@ -96,7 +96,7 @@ See [Tools Reference](https://async-io.github.io/pierre_mcp_server/tools-referen
 ## Quick Start
 
 ```bash
-git clone https://github.com/Async-IO/pierre_mcp_server.git
+git clone https://github.com/dravr-ai/dravr-platform.git
 cd pierre_mcp_server
 cp .envrc.example .envrc  # edit with your settings
 direnv allow              # or: source .envrc

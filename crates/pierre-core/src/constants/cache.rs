@@ -2,7 +2,7 @@
 // ABOUTME: Supports both in-memory and Redis cache backends with optimal defaults
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// Default maximum cache entries for in-memory cache
 pub const DEFAULT_CACHE_MAX_ENTRIES: usize = 10_000;

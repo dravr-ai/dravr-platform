@@ -2,7 +2,7 @@
 // ABOUTME: Matches Login.tsx design with Pierre brand aesthetic
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 import React, { useState } from 'react';
 import { authApi } from '../services/api';

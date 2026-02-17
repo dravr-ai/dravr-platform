@@ -2,7 +2,7 @@
 // ABOUTME: Validates PIERRE_DISABLED_TOOLS parsing and tool lookup functionality
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Tests for [`ToolSelectionConfig`] global tool disabling functionality.
 

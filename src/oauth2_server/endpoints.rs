@@ -2,7 +2,7 @@
 // ABOUTME: Handles OAuth 2.0 flow with JWT tokens as access tokens for MCP client compatibility
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - String ownership transfers to struct constructors (OAuth2AuthCode, TokenResponse)

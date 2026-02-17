@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: End-to-end OAuth flow tests - complete path from connect_provider to tool calls
 // ABOUTME: Tests the exact regression path: OAuth completion → token storage → tools/list refresh
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright ©2025 Async-IO.org
+// Copyright (c) 2026 dravr.io
 
 const { ensureServerRunning } = require('../helpers/server');
 const { MockMCPClient } = require('../helpers/mock-client');

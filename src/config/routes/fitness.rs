@@ -2,7 +2,7 @@
 // ABOUTME: Provides API access to tenant-specific fitness configurations with proper authentication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::auth::AuthResult;
 use crate::config::fitness::FitnessConfig;

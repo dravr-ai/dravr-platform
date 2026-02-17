@@ -2,7 +2,7 @@
 -- ABOUTME: Supports system-wide and per-tenant config overrides with full audit logging
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2025 Pierre Fitness Intelligence
+-- Copyright (c) 2026 dravr.io
 
 -- Admin Configuration Overrides Table
 -- Stores runtime configuration overrides that take precedence over environment defaults

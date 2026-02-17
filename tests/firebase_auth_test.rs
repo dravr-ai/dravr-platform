@@ -2,7 +2,7 @@
 // ABOUTME: Validates Firebase config and token parsing utilities
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 #![allow(missing_docs)]
 

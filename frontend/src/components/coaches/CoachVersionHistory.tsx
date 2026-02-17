@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 // ABOUTME: Coach version history component for viewing and reverting to previous versions
 // ABOUTME: Displays timeline of versions with diff view and revert functionality
 

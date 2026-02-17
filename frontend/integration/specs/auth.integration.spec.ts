@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Integration tests for authentication flows against the real backend server.
 // ABOUTME: Tests login, logout, session management, and error handling with actual API calls.

@@ -2,7 +2,7 @@
 // ABOUTME: Handles environment variables and configuration file parsing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

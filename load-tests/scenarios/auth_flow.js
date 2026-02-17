@@ -2,7 +2,7 @@
 // ABOUTME: Tests login, token refresh, and protected endpoint access patterns
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';

@@ -1,11 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2025 Pierre Fitness Intelligence
+# Copyright (c) 2026 dravr.io
 # ABOUTME: CI validation script to detect secret patterns that should never appear in logs or code
 # ABOUTME: Prevents PII leakage, credential exposure, and GDPR/CCPA violations
 #
 # Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-# Copyright ©2025 Async-IO.org
+# Copyright (c) 2026 dravr.io
 
 # Pierre MCP Server - Secret Pattern Detection
 # This script validates that sensitive data patterns are not present in source code or logs

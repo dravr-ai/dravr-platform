@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Modal for generating a coach from conversation history using LLM analysis
 // ABOUTME: Shows analysis state, pre-fills form with suggestions, allows editing and saving

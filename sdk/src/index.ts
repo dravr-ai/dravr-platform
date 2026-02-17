@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Main entry point for Pierre MCP Client TypeScript SDK
 // ABOUTME: Re-exports MCP client and configuration for programmatic integration
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright ©2025 Async-IO.org
+// Copyright (c) 2026 dravr.io
 
 /**
  * Pierre MCP Client SDK

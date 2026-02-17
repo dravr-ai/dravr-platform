@@ -2,7 +2,7 @@
 // ABOUTME: Displays fitness providers from server with connection status and OAuth initiation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';

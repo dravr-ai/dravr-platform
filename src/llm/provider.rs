@@ -2,7 +2,7 @@
 // ABOUTME: Abstracts over Gemini and Groq providers based on environment configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # LLM Provider Selector
 //!

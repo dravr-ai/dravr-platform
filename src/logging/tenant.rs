@@ -2,7 +2,7 @@
 // ABOUTME: Provides logging macros and utilities that automatically include tenant and user context
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::constants::network_config::HTTP_CLIENT_ERROR_THRESHOLD;
 use pierre_core::models::TenantId;

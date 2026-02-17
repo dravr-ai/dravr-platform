@@ -2,7 +2,7 @@
 // ABOUTME: Provider-agnostic single responsibility handlers that delegate auth to AuthService
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::cache::{factory::Cache, CacheKey, CacheResource};
 use crate::config::environment::default_provider;

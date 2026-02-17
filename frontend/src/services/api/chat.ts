@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat/Conversations API methods - create, list, update, delete conversations and messages
 // ABOUTME: Supports the AI chat interface with conversation history

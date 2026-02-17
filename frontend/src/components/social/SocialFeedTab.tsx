@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Social feed tab displaying shared coach insights from friends
 // ABOUTME: Includes reactions, adapt-to-my-training feature, and infinite scroll

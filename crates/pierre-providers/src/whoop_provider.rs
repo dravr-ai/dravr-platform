@@ -2,7 +2,7 @@
 // ABOUTME: Handles OAuth2 authentication and data fetching for sleep, recovery, workouts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - HTTP client Arc sharing across async operations (shared_client().clone())

@@ -2,7 +2,7 @@
 // ABOUTME: Measures serde_json performance for Activity, MCP messages, and API responses
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Criterion benchmarks for JSON serialization and deserialization.
 //!

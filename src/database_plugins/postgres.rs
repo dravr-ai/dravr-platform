@@ -2,7 +2,7 @@
 // ABOUTME: Provides enterprise-grade database support with connection pooling and scalability
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! `PostgreSQL` database implementation
 //!
 //! This module provides `PostgreSQL` support for cloud deployments,

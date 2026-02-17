@@ -15,8 +15,8 @@ create-missing = false
 [output.html]
 default-theme = "rust"
 preferred-dark-theme = "coal"
-git-repository-url = "https://github.com/Async-IO/pierre_mcp_server"
-edit-url-template = "https://github.com/Async-IO/pierre_mcp_server/edit/main/book/src/{path}"
+git-repository-url = "https://github.com/dravr-ai/dravr-platform"
+edit-url-template = "https://github.com/dravr-ai/dravr-platform/edit/main/book/src/{path}"
 site-url = "/pierre_mcp_server/"
 no-section-label = false
 

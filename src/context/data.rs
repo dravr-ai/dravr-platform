@@ -2,7 +2,7 @@
 // ABOUTME: Contains database, cache, provider registry, and intelligence services for data operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::cache::factory::Cache;
 use crate::database_plugins::factory::Database;

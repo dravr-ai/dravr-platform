@@ -2,7 +2,7 @@
 // ABOUTME: Replaces monolithic universal.rs with composable services and type-safe routing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use super::auth_service::AuthService;
 use super::handlers::{

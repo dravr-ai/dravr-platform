@@ -2,7 +2,7 @@
 // ABOUTME: Enables users to configure their own OAuth app credentials to avoid rate limits
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! User OAuth App Routes
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Lists coaches sorted by submission date (FIFO) with click to open review drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';

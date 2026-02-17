@@ -2,7 +2,7 @@
 // ABOUTME: Targets handler methods with low coverage for improved testing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Additional specific tests for `MultiTenantMcpServer` handler methods
 //!
 //! This test suite targets specific handler methods that may have low coverage.

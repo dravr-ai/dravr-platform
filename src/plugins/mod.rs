@@ -2,7 +2,7 @@
 // ABOUTME: Type-safe plugin registration and execution with plugin lifecycle management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # Plugin System
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Consolidates provider extraction, configuration, and creation logic
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::config::environment::{default_provider, get_oauth_config, OAuthProviderConfig};
 use crate::database_plugins::factory::Database;

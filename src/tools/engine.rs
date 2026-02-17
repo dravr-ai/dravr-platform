@@ -2,7 +2,7 @@
 // ABOUTME: Handles tool routing, execution, error handling, and response formatting for all protocols
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Unified tool execution engine
 //!
 //! This engine provides a single implementation for tool execution that can be

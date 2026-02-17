@@ -584,5 +584,5 @@ This example is part of the Pierre MCP Server project and follows the same dual 
 ## Support
 
 For issues or questions:
-- Pierre Issues: https://github.com/Async-IO/pierre_mcp_server/issues
+- Pierre Issues: https://github.com/dravr-ai/dravr-platform/issues
 - Gemini Support: https://ai.google.dev/support

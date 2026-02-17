@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Re-exports query keys from shared-constants for backward compatibility
 // ABOUTME: Import from @pierre/shared-constants for new code

@@ -2,7 +2,7 @@
 // ABOUTME: AI-powered analysis tools that delegate to intelligence services
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use super::provider_helpers::{create_configured_provider_with_tenant, TenantCredentialContext};
 use crate::config::environment::default_provider;

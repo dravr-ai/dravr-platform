@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin API methods - user management, tokens, config, coach management, store moderation
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles

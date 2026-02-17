@@ -2,7 +2,7 @@
 // ABOUTME: Provides unified interface for SQLite and PostgreSQL with runtime database selection
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Database factory for creating database providers
 //!
 //! This module provides automatic database type detection and creation

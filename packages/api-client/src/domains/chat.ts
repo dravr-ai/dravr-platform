@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Chat domain API - conversations and messages
 // ABOUTME: Handles CRUD for chat conversations and sending/receiving messages

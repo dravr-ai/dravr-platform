@@ -2,7 +2,7 @@
 // ABOUTME: Filters headers, request bodies, and logs to prevent PII leakage and compliance violations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! PII-safe logging and redaction for compliance and security
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Tests tenant isolation, MCP protocol handling, and server operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Comprehensive tests for mcp/multitenant.rs
 //!
 //! This test suite aims to improve coverage from 38.56% by testing

@@ -2,7 +2,7 @@
 // ABOUTME: Provides unified interface for extracting specific metrics from activities with proper error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 #![allow(clippy::cast_precision_loss)] // Safe: fitness data conversions
 
 use std::cmp::Ordering;

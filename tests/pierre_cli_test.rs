@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 // ABOUTME: Integration tests for pierre-cli binary
 // ABOUTME: Tests CLI commands for user and token management
 

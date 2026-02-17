@@ -2,7 +2,7 @@
 // ABOUTME: Defines tenant tables, OAuth credentials storage, and tenant-user relationships
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;

@@ -2,7 +2,7 @@
 // ABOUTME: Provides RFC 7591 client registration and OAuth 2.0 endpoints for MCP client compatibility
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// RFC 7591 dynamic client registration implementation
 pub mod client_registration;

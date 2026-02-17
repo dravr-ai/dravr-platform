@@ -2,7 +2,7 @@
 // ABOUTME: Breaks down the monolithic DatabaseProvider into focused, cohesive repository traits
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::a2a::auth::A2AClient;
 use crate::a2a::client::A2ASession;

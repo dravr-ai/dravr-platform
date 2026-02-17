@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Zod runtime validation schemas for all MCP tool responses
 // ABOUTME: Provides type-safe response validation with detailed error messages
