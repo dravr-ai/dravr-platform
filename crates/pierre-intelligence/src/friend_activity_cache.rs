@@ -2,7 +2,7 @@
 // ABOUTME: Privacy-preserving cache that stores only aggregated activity data
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Friend Activity Cache
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Provides common test setup, client creation, and database utilities for A2A tests
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Test utilities for A2A module
 //!
 //! Common functions to reduce code duplication in A2A tests

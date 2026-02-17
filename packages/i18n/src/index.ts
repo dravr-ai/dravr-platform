@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Main export file for @pierre/i18n package
 // ABOUTME: Provides unified API for web and mobile i18n functionality

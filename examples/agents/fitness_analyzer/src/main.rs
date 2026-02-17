@@ -2,7 +2,7 @@
 // ABOUTME: Demonstrates autonomous A2A protocol usage for fitness data analysis
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use anyhow::Result;
 use tracing::{info, error};

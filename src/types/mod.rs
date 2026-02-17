@@ -2,7 +2,7 @@
 // ABOUTME: Prevents mixing up IDs and provides compile-time safety for tenant isolation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 pub mod json_schemas;
 /// OAuth response types shared across modules to avoid layering inversions

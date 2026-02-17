@@ -2,7 +2,7 @@
 // ABOUTME: Token metadata, creation request, and info types used by DatabaseProvider
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

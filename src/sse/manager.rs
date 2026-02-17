@@ -2,7 +2,7 @@
 // ABOUTME: Provides unified connection management with clean separation of stream types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::{
     a2a_task_stream::A2ATaskStream, notifications::NotificationStream, protocol::McpProtocolStream,

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Token management integration tests - validation, refresh, expiry, storage
 // ABOUTME: Tests token lifecycle including expiry during tool execution (critical regression)
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { ensureServerRunning } = require('../helpers/server');
 const { TestConfig } = require('../helpers/fixtures');

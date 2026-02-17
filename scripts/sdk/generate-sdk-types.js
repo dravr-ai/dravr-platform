@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Auto-generates TypeScript type definitions from Pierre server tool schemas
 // ABOUTME: Fetches MCP tool schemas and converts them to TypeScript interfaces for SDK usage

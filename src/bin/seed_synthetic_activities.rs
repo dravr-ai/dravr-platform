@@ -2,7 +2,7 @@
 // ABOUTME: Generates 100+ diverse activities (nordic ski, MTB, trail run, etc.) for any user
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Synthetic activity seeder for Pierre MCP Server.
 //!

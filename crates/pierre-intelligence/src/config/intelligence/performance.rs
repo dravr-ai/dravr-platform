@@ -2,7 +2,7 @@
 // ABOUTME: Configures thresholds for detecting improvements, declines, and statistical significance
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Performance Analyzer Configuration
 //!

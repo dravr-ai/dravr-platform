@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for CLI commands in the SDK.
 // ABOUTME: Tests all CLI operations including help, version, and main functionality.

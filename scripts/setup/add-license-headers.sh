@@ -5,7 +5,7 @@
 set -euo pipefail
 
 LICENSE_SPDX="SPDX-License-Identifier: MIT OR Apache-2.0"
-LICENSE_COPYRIGHT="Copyright (c) 2026 dravr.io"
+LICENSE_COPYRIGHT="Copyright (c) 2026 dravr.ai"
 
 # Counters (using files to work around subshell issues)
 MODIFIED_FILE=$(mktemp)
@@ -37,9 +37,9 @@ add_header_rust() {
         sed -i.bak \
             -e 's|// Licensed under either of Apache License, Version 2.0 or MIT License at your option.|// SPDX-License-Identifier: MIT OR Apache-2.0|' \
             -e 's|//! Licensed under either of Apache License, Version 2.0 or MIT License at your option.|// SPDX-License-Identifier: MIT OR Apache-2.0|' \
-            -e 's|// Copyright .*dravr.io|// Copyright (c) 2026 dravr.io|' \
-            -e 's|//! Copyright .*dravr.io|// Copyright (c) 2026 dravr.io|' \
-            -e 's|// Copyright .*Pierre Fitness Intelligence|// Copyright (c) 2026 dravr.io|' \
+            -e 's|// Copyright .*dravr.ai|// Copyright (c) 2026 dravr.ai|' \
+            -e 's|//! Copyright .*dravr.ai|// Copyright (c) 2026 dravr.ai|' \
+            -e 's|// Copyright .*Pierre Fitness Intelligence|// Copyright (c) 2026 dravr.ai|' \
             "$file"
         rm -f "${file}.bak"
         echo "  ↻ $file (updated old format)"

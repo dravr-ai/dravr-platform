@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Simplified validation orchestrator using native Cargo commands
 # ABOUTME: Delegates to cargo fmt, cargo clippy, cargo deny, and custom architectural validation
 

@@ -2,7 +2,7 @@
 // ABOUTME: Contains plugin executor, sampling peer, and progress notification channels for MCP extensions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::ProgressNotification;

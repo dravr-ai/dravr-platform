@@ -2,7 +2,7 @@
 // ABOUTME: Handles user listing, approval, suspension, deletion, password reset, rate limits, and activity
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::sync::Arc;
 

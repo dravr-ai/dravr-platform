@@ -2,7 +2,7 @@
 // ABOUTME: Measures performance of training load, metrics, and data processing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Criterion benchmarks for intelligence module algorithms.
 //!

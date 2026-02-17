@@ -2,7 +2,7 @@
 -- ABOUTME: Adds markdown-defined coach support with structured sections and relations.
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- ============================================================================
 -- Add new columns to coaches table for markdown-defined coaches

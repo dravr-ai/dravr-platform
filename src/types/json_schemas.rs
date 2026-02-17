@@ -2,7 +2,7 @@
 // ABOUTME: Replaces dynamic serde_json::Value usage with compile-time validated structs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # JSON Schema Types
 //!

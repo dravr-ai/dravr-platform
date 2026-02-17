@@ -2,7 +2,7 @@
 // ABOUTME: Provides geocoding, elevation data, route analysis, and location-based insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //
 // NOTE: All remaining `.clone()` calls in this file are Safe - they are necessary for:
 // - HTTP client Arc sharing for geocoding requests

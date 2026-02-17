@@ -2,7 +2,7 @@
 // ABOUTME: Enables admins to view, configure, and override tool availability per tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Tool selection admin routes for managing MCP tool availability per tenant.
 //!

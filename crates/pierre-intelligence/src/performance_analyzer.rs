@@ -2,7 +2,7 @@
 // ABOUTME: Tracks fitness improvements, identifies performance patterns, and provides trend analysis
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Performance trend analysis and historical comparison engine
 #![allow(clippy::cast_precision_loss)] // Safe: fitness data conversions
 #![allow(clippy::cast_possible_truncation)] // Safe: controlled ranges

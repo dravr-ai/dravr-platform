@@ -2,7 +2,7 @@
 // ABOUTME: Provides secure admin authentication for API key provisioning and user management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Admin Token System
 //!
 //! This module provides secure admin authentication for API key provisioning.

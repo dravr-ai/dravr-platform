@@ -2,7 +2,7 @@
 // ABOUTME: Handles Strava authentication, activity retrieval, and data transformation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::{ActivityQueryParams, AuthData, FitnessProvider};
 use crate::config::FitnessConfig;

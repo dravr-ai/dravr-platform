@@ -2,7 +2,7 @@
 // ABOUTME: Tests tool registration, database operations, and activity-based recommendations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Mobility Tool Handler Integration Tests
 //!

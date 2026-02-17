@@ -2,7 +2,7 @@
 // ABOUTME: Handles log redaction features with custom serialization for bitflags
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::middleware::redaction::RedactionFeatures;
 use serde::{Deserialize, Serialize};

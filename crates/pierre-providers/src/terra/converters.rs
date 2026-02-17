@@ -2,7 +2,7 @@
 // ABOUTME: Maps Terra's standardized JSON schemas to Activity, SleepSession, HealthMetrics, etc.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Terra to Pierre model converters
 //!

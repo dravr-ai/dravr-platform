@@ -2,7 +2,7 @@
 // ABOUTME: Tests BMR, TDEE, macros, nutrient timing with 46 test cases covering all scenarios
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Comprehensive algorithm tests for nutrition module
 //!
 //! This test suite thoroughly covers all nutrition calculation algorithms:

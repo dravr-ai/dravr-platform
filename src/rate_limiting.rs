@@ -2,7 +2,7 @@
 // ABOUTME: Implements token bucket algorithm with configurable limits per API key tier
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Unified Rate Limiting System
 //!

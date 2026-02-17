@@ -2,7 +2,7 @@
 // ABOUTME: Handles CRUD operations for coaches with tenant isolation and token counting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::coaches::CoachPrerequisites;
 use crate::errors::{AppError, AppResult};

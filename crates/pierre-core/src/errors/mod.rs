@@ -2,7 +2,7 @@
 // ABOUTME: Defines all error variants used across MCP, A2A, and REST protocols
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Unified Error Handling System
 //!

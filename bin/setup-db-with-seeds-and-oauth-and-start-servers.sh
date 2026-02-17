@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Complete development environment setup - database, seeds, OAuth users, all servers
 # ABOUTME: One command to go from zero to fully running dev environment with test data
 

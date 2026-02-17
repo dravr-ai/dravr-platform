@@ -2,7 +2,7 @@
 // ABOUTME: Contains sport science-based constants for heart rate zones, power calculations, and performance metrics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Physiological constants based on sports science research
 //!
 //! This module contains scientifically-established constants used throughout

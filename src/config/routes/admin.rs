@@ -2,7 +2,7 @@
 // ABOUTME: Provides endpoints for viewing, updating, and auditing runtime configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Admin Configuration Routes
 //!

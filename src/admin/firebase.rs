@@ -2,7 +2,7 @@
 // ABOUTME: Validates Firebase ID tokens using Google's public keys with automatic key caching
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Firebase Authentication Token Validation
 //!

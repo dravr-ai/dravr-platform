@@ -2,7 +2,7 @@
 // ABOUTME: Handles JWT tokens and API keys with rate limiting and user context extraction
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::admin::jwks::JwksManager;
 use crate::api_keys::ApiKeyManager;

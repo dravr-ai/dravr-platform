@@ -2,7 +2,7 @@
 // ABOUTME: Provides HTTP endpoints for dashboard UI, charts, and interactive fitness analytics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Dashboard routes for the API Key Management System frontend
 //!

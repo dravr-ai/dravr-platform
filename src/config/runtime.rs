@@ -2,7 +2,7 @@
 // ABOUTME: Handles configuration parsing, validation, and runtime updates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Runtime configuration management with session-scoped overrides
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Loads coach definitions from markdown files in coaches/ directory
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Coach Markdown Seeder
 //!

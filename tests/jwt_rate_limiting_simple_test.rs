@@ -2,7 +2,7 @@
 // ABOUTME: Tests critical security fix for JWT tokens having unlimited API access
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Simple test to verify JWT rate limiting works
 //!

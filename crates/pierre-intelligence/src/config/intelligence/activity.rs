@@ -2,7 +2,7 @@
 // ABOUTME: Configures heart rate zones, power zones, scoring weights, and insight generation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Activity Analyzer Configuration
 //!

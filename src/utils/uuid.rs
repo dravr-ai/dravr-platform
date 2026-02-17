@@ -2,7 +2,7 @@
 // ABOUTME: Provides safe UUID parsing with consistent error handling and format validation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use crate::protocols::ProtocolError;

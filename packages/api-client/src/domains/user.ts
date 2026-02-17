@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: User domain API - profile, stats, MCP tokens, OAuth apps
 // ABOUTME: Handles user account management and settings

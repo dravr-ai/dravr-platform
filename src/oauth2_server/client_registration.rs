@@ -2,7 +2,7 @@
 // ABOUTME: Handles client registration endpoint for MCP clients and other OAuth clients
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::models::{
     ClientRegistrationRequest, ClientRegistrationResponse, OAuth2Client, OAuth2Error,

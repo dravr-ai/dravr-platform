@@ -2,7 +2,7 @@
 // ABOUTME: Tests security header validation and configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Integration tests for security headers middleware
 

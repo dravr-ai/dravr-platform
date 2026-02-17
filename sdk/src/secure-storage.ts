@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Secure token storage using OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 // ABOUTME: Provides encrypted storage for OAuth tokens with automatic migration from plaintext files

@@ -2,7 +2,7 @@
 // ABOUTME: Defines DTOs for API key management, user administration, and coach review endpoints
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Admin request and response types
 //!

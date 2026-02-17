@@ -2,7 +2,7 @@
 // ABOUTME: Provides shared request, response, and error types eliminating duplication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # JSON-RPC 2.0 Foundation
 //!

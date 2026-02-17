@@ -2,7 +2,7 @@
 // ABOUTME: Re-exports configuration and fitness configuration route modules
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! HTTP routes for configuration management
 //!

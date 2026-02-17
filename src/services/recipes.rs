@@ -2,7 +2,7 @@
 // ABOUTME: Handles markdown conversion, filename generation, and diff computation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::coaches::{
     CoachDefinition, CoachFrontmatter, CoachPrerequisites, CoachSections, CoachStartup,

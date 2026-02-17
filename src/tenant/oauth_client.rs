@@ -2,7 +2,7 @@
 // ABOUTME: Provides OAuth flow integration with tenant-specific credentials and rate limiting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - OAuth credential string ownership transfers (client_id, client_secret, redirect_uri)
 // - Tenant context ownership for multi-tenant OAuth flows

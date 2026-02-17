@@ -2,7 +2,7 @@
 // ABOUTME: Validates, routes, and executes MCP protocol requests with proper error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Request/response ownership transfers across async boundaries

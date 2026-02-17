@@ -2,7 +2,7 @@
 // ABOUTME: Defines the foundational abstractions for all fitness data providers
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Pluggable Provider Architecture - Shared Request/Response Traits (Phase 1)
 //!

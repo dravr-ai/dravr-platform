@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: TypeScript type definitions for Pierre MCP tools
 // ABOUTME: Re-exports from @pierre/mcp-types shared package

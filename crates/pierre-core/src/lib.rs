@@ -2,7 +2,7 @@
 // ABOUTME: Foundation crate with error handling, pagination, formatters, and constants
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![deny(unsafe_code)]
 

@@ -2,7 +2,7 @@
 // ABOUTME: Provides RS256/ES256 key generation, rotation, and public key distribution via JWKS endpoint
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! JWKS (JSON Web Key Set) Management
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Handle configuration catalogs, profiles, and user settings
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::TrainingZonesConfig;
 use crate::config::{catalog::CatalogBuilder, profiles::ProfileTemplates};

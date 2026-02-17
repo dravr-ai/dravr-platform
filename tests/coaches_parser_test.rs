@@ -2,7 +2,7 @@
 // ABOUTME: Tests frontmatter parsing, section extraction, and token counting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Test modules don't need documentation
 #![allow(missing_docs)]

@@ -2,7 +2,7 @@
 // ABOUTME: Provides secure key generation, storage, and data encryption/decryption
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Cryptographic key management for A2A clients
 

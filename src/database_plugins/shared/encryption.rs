@@ -2,7 +2,7 @@
 // ABOUTME: Uses AES-256-GCM with AAD binding for secure data at rest across database backends.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Encryption/decryption utilities for OAuth tokens and sensitive data
 //!

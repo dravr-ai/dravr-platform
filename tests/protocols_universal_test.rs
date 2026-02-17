@@ -2,7 +2,7 @@
 // ABOUTME: Tests protocol-agnostic interfaces for MCP and A2A
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Universal Protocol Integration Tests
 //!
 //! Comprehensive tests for the universal tool execution layer

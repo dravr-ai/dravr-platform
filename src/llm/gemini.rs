@@ -2,7 +2,7 @@
 // ABOUTME: Supports Gemini Pro and Gemini Pro Vision models via the Generative AI API
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Gemini Provider
 //!

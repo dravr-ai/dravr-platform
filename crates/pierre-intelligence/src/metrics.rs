@@ -2,7 +2,7 @@
 // ABOUTME: Computes training load, power metrics, heart rate zones, and physiological indicators
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Advanced fitness metrics calculation and analysis
 #![allow(clippy::cast_possible_truncation)] // Safe: controlled ranges for fitness metrics
 

@@ -2,7 +2,7 @@
 // ABOUTME: Consolidates provider extraction, configuration, and creation logic
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::{default_provider, get_oauth_config, OAuthProviderConfig};
 use crate::database_plugins::factory::Database;

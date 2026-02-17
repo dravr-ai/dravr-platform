@@ -2,7 +2,7 @@
 // ABOUTME: Eliminates string literals and provides compile-time safety for tool dispatch
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::tools::{
     ACTIVATE_COACH, ADMIN_ASSIGN_COACH, ADMIN_CREATE_SYSTEM_COACH, ADMIN_DELETE_SYSTEM_COACH,

@@ -2,7 +2,7 @@
 // ABOUTME: Handles creation, retrieval, and tracking of admin authentication tokens
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::Database;
 use crate::admin::jwks::JwksManager;

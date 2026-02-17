@@ -2,7 +2,7 @@
 // ABOUTME: Tests admin tokens, JWT auth, API endpoints, and security features
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Comprehensive tests for admin functionality
 //!
 //! This module tests the complete admin system including:

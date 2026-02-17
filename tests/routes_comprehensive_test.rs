@@ -2,7 +2,7 @@
 // ABOUTME: Tests authentication, registration, and OAuth functionality
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Comprehensive tests for routes.rs - Authentication and OAuth flows
 //!
 //! This test suite aims to improve coverage from 55.09% to 80%+ by testing

@@ -2,7 +2,7 @@
 // ABOUTME: Contains CSRF protection, PII redaction, and rate limiting for secure operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::middleware::redaction::RedactionConfig;
 use crate::middleware::CsrfMiddleware;

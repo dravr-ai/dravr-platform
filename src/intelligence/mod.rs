@@ -2,7 +2,7 @@
 // ABOUTME: Preserves all existing import paths while delegating to the extracted crate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Intelligence Module
 //!

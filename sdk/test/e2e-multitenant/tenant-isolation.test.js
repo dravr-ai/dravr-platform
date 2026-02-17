@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests tenant isolation via SDK bridge
 // ABOUTME: Validates cross-tenant access is properly forbidden
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { setupMultiTenantClients, cleanupMultiTenantClients, verifyTenantIsolation } = require('../helpers/multitenant-setup');
 const { ensureServerRunning } = require('../helpers/server');

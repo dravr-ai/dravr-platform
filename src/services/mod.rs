@@ -2,7 +2,7 @@
 // ABOUTME: Provides protocol-agnostic services reusable across REST, MCP, and A2A
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Domain service layer
 //!

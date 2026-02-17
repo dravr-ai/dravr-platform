@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Rate limiting integration tests - verifies 429 handling, backoff, and tenant isolation
 // ABOUTME: Tests rate limit detection, retry behavior, and multi-tenant rate limit separation
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { ensureServerRunning } = require('../helpers/server');
 const { TestConfig } = require('../helpers/fixtures');

@@ -2,7 +2,7 @@
 // ABOUTME: Provides deterministic data generation for reproducible performance measurements
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Benchmark test fixtures for generating realistic fitness data.
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Provides centralized tool name constants organized by functional groups
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! MCP tool identifier constants
 

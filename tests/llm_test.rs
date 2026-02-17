@@ -2,7 +2,7 @@
 // ABOUTME: Tests capabilities, message handling, provider registry, and Gemini implementation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Test files don't require documentation - this is a rustc lint (not clippy)
 #![allow(missing_docs)]

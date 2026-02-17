@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Custom architectural validation that Cargo/Clippy cannot check
 # ABOUTME: Enforces project-specific patterns using validation-patterns.toml
 

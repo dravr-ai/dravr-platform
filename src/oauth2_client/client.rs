@@ -2,7 +2,7 @@
 // ABOUTME: Generic OAuth2 client supporting multiple fitness platform providers
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::network_config::OAUTH_CODE_VERIFIER_LENGTH;
 use crate::constants::time::DEFAULT_TOKEN_EXPIRY_SECONDS;

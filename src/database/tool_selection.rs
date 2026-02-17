@@ -2,7 +2,7 @@
 // ABOUTME: Handles CRUD for tool_catalog and tenant_tool_overrides tables
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use crate::models::{TenantPlan, TenantToolOverride, ToolCatalogEntry, ToolCategory};

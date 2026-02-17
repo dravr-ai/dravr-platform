@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Test helper to clean up OS keychain between tests
 // ABOUTME: Prevents test pollution by clearing shared keychain storage

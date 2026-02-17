@@ -2,7 +2,7 @@
 // ABOUTME: Contains auth manager, middleware, JWT secret, and Firebase auth for authentication operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::admin::jwks::JwksManager;
 use crate::admin::FirebaseAuth;

@@ -2,7 +2,7 @@
 // ABOUTME: Tests using synthetic providers to verify cross-provider data flow
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Cross-Provider Integration Tests
 //!
 //! Tests that verify the cross-provider feature works correctly when using

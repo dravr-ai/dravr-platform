@@ -2,7 +2,7 @@
 // ABOUTME: Handles encryption, storage, and retrieval of OAuth tokens
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Option<String> ownership for OAuth token scope fields
 

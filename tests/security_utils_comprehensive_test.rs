@@ -2,7 +2,7 @@
 // ABOUTME: Tests encryption, key management, and core utilities
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Comprehensive tests for security and utility modules
 //!
 //! This test suite provides comprehensive coverage for security utilities,

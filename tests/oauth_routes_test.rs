@@ -2,7 +2,7 @@
 // ABOUTME: Tests OAuth route handlers and endpoint functionality
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Unit tests for OAuth routes module
 

@@ -2,7 +2,7 @@
 // ABOUTME: Manages request correlation and response routing for bidirectional MCP sampling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::schema::{CreateMessageRequest, CreateMessageResult};
 use crate::errors::{AppError, AppResult};

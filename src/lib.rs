@@ -2,7 +2,7 @@
 // ABOUTME: Provides MCP, A2A, and REST API protocols for fitness data analysis
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Crate-level attributes:
 // - recursion_limit: Increased from default 128 to 256 for complex derive macros

@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Automated setup script for Claude Code sessions with Pierre MCP Server
 # ABOUTME: Validates/refreshes JWT token, starts server if needed, updates .envrc
 

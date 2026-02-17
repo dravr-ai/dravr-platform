@@ -2,7 +2,7 @@
 // ABOUTME: Provides structured result handling with support for side-effect notifications.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Tool Result Types
 //!

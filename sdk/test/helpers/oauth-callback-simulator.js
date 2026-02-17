@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: OAuth callback simulator for automated testing of complete OAuth flow
 // ABOUTME: Simulates browser OAuth approval and callback to bridge without user interaction
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const fetch = global.fetch;
 const { URL } = require('url');

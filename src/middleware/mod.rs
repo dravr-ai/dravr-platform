@@ -2,7 +2,7 @@
 // ABOUTME: Provides request ID generation, span creation, and tenant context for structured logging
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Admin authorization guard for routes requiring admin privileges
 pub mod admin_guard;

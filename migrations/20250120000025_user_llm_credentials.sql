@@ -2,7 +2,7 @@
 -- ABOUTME: Stores encrypted API keys for Gemini, Groq, and other LLM providers with user/tenant isolation
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- User LLM Credentials Table
 -- Stores per-user LLM provider API keys with encrypted secrets

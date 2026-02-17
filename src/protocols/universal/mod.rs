@@ -2,7 +2,7 @@
 // ABOUTME: Modular components for tool execution, authentication, and routing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Authentication service for protocol requests
 pub mod auth_service;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for Zod response schema validation
 // ABOUTME: Tests schema structure, validation logic, and type inference

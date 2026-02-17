@@ -2,7 +2,7 @@
 // ABOUTME: Verifies configuration tools are properly exposed through MCP schema
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Integration test for configuration system MCP protocol exposure
 //!
 //! Verifies that configuration tools are properly exposed through the MCP schema

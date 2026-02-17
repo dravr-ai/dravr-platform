@@ -2,7 +2,7 @@
 // ABOUTME: ApiKeyTier, ApiKey, usage tracking, and request/response DTOs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::fmt::{self, Display, Formatter};
 use std::result::Result;

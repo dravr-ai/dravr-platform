@@ -2,7 +2,7 @@
 // ABOUTME: Makes modules available for integration tests
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Allow some clippy lints for example code that would be too pedantic
 #![allow(clippy::missing_errors_doc)]

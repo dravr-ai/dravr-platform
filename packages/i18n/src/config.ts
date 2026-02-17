@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: i18next configuration for unified web and mobile internationalization
 // ABOUTME: Configures language detection, resource loading, and fallback behavior

@@ -2,7 +2,7 @@
 // ABOUTME: Validates template compilation, placeholder replacement, and HTML generation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Tests for OAuth template-based HTML rendering
 //!

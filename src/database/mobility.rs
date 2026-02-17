@@ -2,7 +2,7 @@
 // ABOUTME: Handles CRUD operations and activity-based recommendations for recovery training
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use chrono::{DateTime, Utc};

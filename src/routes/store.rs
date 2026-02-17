@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for Store discovery and installation operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Coach Store routes
 //!

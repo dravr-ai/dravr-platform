@@ -2,7 +2,7 @@
 // ABOUTME: Defines error variants for invalid ranges, missing fields, and validation failures
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Configuration error types for intelligence module validation.
 

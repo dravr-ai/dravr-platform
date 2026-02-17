@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Coaches domain API - CRUD, favorites, versions, fork operations
 // ABOUTME: Manages AI coaching personas with full version history support

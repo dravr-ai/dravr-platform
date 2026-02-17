@@ -2,7 +2,7 @@
 // ABOUTME: Implements validate_recipe, save_recipe, list_recipes, search_recipes, etc.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Recipe Management Tools
 //!

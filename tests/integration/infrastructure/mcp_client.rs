@@ -2,7 +2,7 @@
 // ABOUTME: Provides typed MCP protocol operations over HTTP transport
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // Allow dead code in test infrastructure - methods/fields designed for future test expansion

@@ -2,7 +2,7 @@
 // ABOUTME: Provides agent card with capabilities, endpoints, and protocol information for A2A discovery
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Agent Card Implementation
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Parses PIERRE_DISABLED_TOOLS for global tool filtering across all tenants
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::collections::HashSet;
 use std::env;

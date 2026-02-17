@@ -2,7 +2,7 @@
 // ABOUTME: Provides standardized response builders for consistent API responses and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use serde_json::{json, Value};
 

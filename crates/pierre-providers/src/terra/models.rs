@@ -2,7 +2,7 @@
 // ABOUTME: Maps Terra's standardized JSON schemas to Rust types for deserialization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Terra API data models
 //!

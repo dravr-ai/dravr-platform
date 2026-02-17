@@ -2,7 +2,7 @@
 // ABOUTME: Each impl maps the focused repository trait methods to DatabaseProvider god-trait methods
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, FitnessConfigRepository,

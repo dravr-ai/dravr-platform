@@ -2,7 +2,7 @@
 // ABOUTME: Manages notification channels and coordinates multiple transport methods
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Arc resource clones for parallel transport protocol handling

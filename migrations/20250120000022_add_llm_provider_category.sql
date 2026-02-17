@@ -2,7 +2,7 @@
 -- ABOUTME: Enables configuration of Groq, Gemini, and local LLM providers
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- Add LLM provider category for AI model configuration
 INSERT OR IGNORE INTO admin_config_categories (id, name, display_name, description, display_order, icon) VALUES

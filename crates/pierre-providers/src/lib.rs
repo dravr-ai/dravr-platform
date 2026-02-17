@@ -2,7 +2,7 @@
 // ABOUTME: Core provider traits, circuit breaker, retry utilities, and streaming activity iteration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Fitness data provider implementations and core abstractions.
 //!

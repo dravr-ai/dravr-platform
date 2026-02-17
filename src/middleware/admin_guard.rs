@@ -2,7 +2,7 @@
 // ABOUTME: Verifies user has admin role and returns 403 Forbidden if not authorized
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Admin Authorization Guard
 //!

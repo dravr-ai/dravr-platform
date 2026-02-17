@@ -2,7 +2,7 @@
 // ABOUTME: Implements 20-min, 8-min, ramp test, 60-min, and Critical Power models for FTP calculation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};

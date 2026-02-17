@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for MCP stdio bridge communication between Claude Desktop and Pierre server.
 // ABOUTME: Tests stdin/stdout messaging, JSON-RPC 2.0 protocol compliance, and connection lifecycle.

@@ -2,7 +2,7 @@
 // ABOUTME: Provides consistent display functions for tokens and user information
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use pierre_mcp_server::admin::models::GeneratedAdminToken;
 
