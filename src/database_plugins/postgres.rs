@@ -6716,7 +6716,7 @@ impl DatabaseProvider for PostgresDatabase {
         )
         .bind(&id)
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(title)
         .bind(model)
         .bind(system_prompt)
@@ -6753,7 +6753,7 @@ impl DatabaseProvider for PostgresDatabase {
         )
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get conversation: {e}")))?;
@@ -6797,7 +6797,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
@@ -6845,7 +6845,7 @@ impl DatabaseProvider for PostgresDatabase {
         .bind(now)
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update conversation title: {e}")))?;
@@ -6867,7 +6867,7 @@ impl DatabaseProvider for PostgresDatabase {
         )
         .bind(conversation_id)
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete conversation: {e}")))?;
@@ -7078,7 +7078,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(parse_uuid(user_id)?)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete user conversations: {e}")))?;
