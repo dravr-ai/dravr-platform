@@ -2,7 +2,7 @@
 // ABOUTME: Tests token creation, listing, revocation, and validation for user self-service token management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]

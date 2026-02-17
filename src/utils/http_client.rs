@@ -2,7 +2,7 @@
 // ABOUTME: Provides singleton and configurable HTTP clients to eliminate redundant client creation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::HttpClientConfig;
 use reqwest::{Client, ClientBuilder};

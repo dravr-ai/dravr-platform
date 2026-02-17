@@ -2,7 +2,7 @@
 // ABOUTME: Verifies self-service endpoints are disabled and admin-only access works
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //! Enterprise Security Tests
 //!
 //! Tests to verify that self-service API key creation endpoints

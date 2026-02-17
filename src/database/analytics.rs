@@ -2,7 +2,7 @@
 // ABOUTME: Stores and retrieves usage metrics and performance analytics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::Database;
 use crate::dashboard_routes::ToolUsage;

@@ -2,7 +2,7 @@
 // ABOUTME: Extracts friend-request validation, feed aggregation, and insight adaptation from routes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::database::social::SocialManager;
 use crate::errors::{AppError, AppResult};

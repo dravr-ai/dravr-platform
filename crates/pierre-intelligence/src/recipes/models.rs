@@ -2,7 +2,7 @@
 // ABOUTME: Defines Recipe, RecipeIngredient, MealTiming, and related types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::IntelligenceConfig;
 use chrono::{DateTime, Utc};

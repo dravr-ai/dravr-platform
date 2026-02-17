@@ -2,7 +2,7 @@
 // ABOUTME: Tests get_recipe_constraints, validate_recipe, save_recipe, list_recipes, get_recipe, delete_recipe, search_recipes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Recipe Tool Handler Integration Tests
 //!

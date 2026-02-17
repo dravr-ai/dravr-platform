@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Builds and installs the native Pierre app on the iOS Simulator via Xcode
 # ABOUTME: Required only for testing native modules (speech recognition, native MMKV)
 

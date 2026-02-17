@@ -1,6 +1,6 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 #
 # ABOUTME: Validates SDK response schemas against server tool definitions
 # ABOUTME: Detects schema drift by comparing tool counts and running schema tests

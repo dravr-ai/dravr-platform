@@ -2,7 +2,7 @@
 // ABOUTME: Handles VDOT and FTP zone percentage settings for training intensity
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::physiological_constants::training_zone_percentages::{ftp, vdot};
 use serde::{Deserialize, Serialize};

@@ -2,7 +2,7 @@
 // ABOUTME: Provides access to JWKS and display formatting utilities
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 pub mod display;
 pub mod jwks;

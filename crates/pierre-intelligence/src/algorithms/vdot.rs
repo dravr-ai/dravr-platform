@@ -2,7 +2,7 @@
 // ABOUTME: Implements Jack Daniels' VDOT methodology and Riegel's power-law race prediction formula
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};

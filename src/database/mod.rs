@@ -2,7 +2,7 @@
 // ABOUTME: Handles schema setup, user management, API keys, analytics, and A2A authentication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Agent-to-Agent (A2A) authentication and usage tracking
 pub mod a2a;

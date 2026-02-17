@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Mock MCP client for testing bridge stdio communication
 // ABOUTME: Simulates Claude Desktop's MCP Client behavior over stdin/stdout
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');

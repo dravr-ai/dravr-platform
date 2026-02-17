@@ -4,7 +4,7 @@
 // ABOUTME: Validates completion suggestions for tool arguments and resources
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use pierre_mcp_server::mcp::protocol::{McpRequest, ProtocolHandler};
 use serde_json::json;

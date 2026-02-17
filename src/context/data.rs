@@ -2,7 +2,7 @@
 // ABOUTME: Contains database, cache, provider registry, and intelligence services for data operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::cache::factory::Cache;
 use crate::database_plugins::factory::Database;

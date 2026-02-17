@@ -2,7 +2,7 @@
 // ABOUTME: Supports Bannister male/female formulas, Edwards zone-based, Lucia banded, and hybrid approaches
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};

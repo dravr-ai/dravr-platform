@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Snapshot tests for tools/list to catch silent tool disappearance
 // ABOUTME: Validates tool list consistency across HTTP and stdio transports
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');

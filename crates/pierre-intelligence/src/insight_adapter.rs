@@ -2,7 +2,7 @@
 // ABOUTME: Transforms friend insights into personalized recommendations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Insight Adapter
 //!

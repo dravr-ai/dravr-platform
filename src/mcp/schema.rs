@@ -2,7 +2,7 @@
 // ABOUTME: Defines JSON-RPC protocol schemas for Model Context Protocol communication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! MCP Protocol Schema Definitions
 //!

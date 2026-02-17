@@ -2,7 +2,7 @@
 // ABOUTME: Handles JWT auth, security headers, and system monitoring settings
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::network::{parse_origins, TlsConfig};
 use crate::config::types::Environment;

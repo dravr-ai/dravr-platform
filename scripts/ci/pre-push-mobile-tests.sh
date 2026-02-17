@@ -3,7 +3,7 @@
 # ABOUTME: Runs essential checks to catch issues before pushing (~5-10 seconds)
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 
 set -e
 

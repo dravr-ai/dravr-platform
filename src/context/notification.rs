@@ -2,7 +2,7 @@
 // ABOUTME: Contains WebSocket manager, SSE manager, and OAuth notification channels
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::mcp::schema::OAuthCompletedNotification;
 #[cfg(feature = "transport-sse")]

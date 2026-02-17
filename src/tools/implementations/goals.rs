@@ -2,7 +2,7 @@
 // ABOUTME: Implements set_goal, suggest_goals, track_progress, analyze_goal_feasibility.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Goal Management Tools
 //!

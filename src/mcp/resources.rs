@@ -2,7 +2,7 @@
 // ABOUTME: Manages expensive shared resources like database, auth, and OAuth managers
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Server Resources Module
 //!

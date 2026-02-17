@@ -2,7 +2,7 @@
 // ABOUTME: Handles timeouts, connection settings, and security transport options
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::{network_config, timeouts};
 use crate::errors::{AppError, AppResult};

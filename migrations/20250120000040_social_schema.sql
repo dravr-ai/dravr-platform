@@ -2,7 +2,7 @@
 -- ABOUTME: Creates friend_connections, user_social_settings, shared_insights, insight_reactions, adapted_insights tables.
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- ============================================================================
 -- Friend Connections table: bidirectional friend relationships

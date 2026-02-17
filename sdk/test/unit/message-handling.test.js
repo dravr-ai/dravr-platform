@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for message handling and validation
 // ABOUTME: Tests MCP message parsing, validation, and error handling
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { MCPMessages, MCPResponses } = require('../helpers/fixtures');
 

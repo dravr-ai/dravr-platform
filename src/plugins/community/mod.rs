@@ -2,7 +2,7 @@
 // ABOUTME: Example plugins demonstrating the plugin system and providing additional functionality
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Basic activity analysis plugin
 pub mod basic_analysis;

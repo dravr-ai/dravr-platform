@@ -2,7 +2,7 @@
 // ABOUTME: Validates, redacts sensitive data, and improves content based on user policy and tier
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Insight Quality Validation
 //!

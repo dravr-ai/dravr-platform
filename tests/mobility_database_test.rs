@@ -2,7 +2,7 @@
 // ABOUTME: Tests CRUD operations for stretching exercises and yoga poses
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Mobility Database Unit Tests
 //!

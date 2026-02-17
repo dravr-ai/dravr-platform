@@ -2,7 +2,7 @@
 // ABOUTME: Handles user login, token generation, validation, and session management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Authentication and Session Management
 //!

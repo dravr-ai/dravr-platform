@@ -3,7 +3,7 @@
 # ABOUTME: Companion script to .claude/skills/security-review/SKILL.md with machine-enforceable checks
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 
 set -e
 

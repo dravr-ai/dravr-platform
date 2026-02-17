@@ -2,7 +2,7 @@
 // ABOUTME: Provides machine-readable API spec at /api-docs/openapi.json and interactive docs at /swagger-ui
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Allow: utoipa's OpenApi derive macro generates code triggering this lint
 #![allow(clippy::needless_for_each)]

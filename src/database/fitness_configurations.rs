@@ -2,7 +2,7 @@
 // ABOUTME: Handles CRUD operations for fitness settings with tenant isolation and user-specific overrides
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::fitness::FitnessConfig;
 use crate::errors::{AppError, AppResult};

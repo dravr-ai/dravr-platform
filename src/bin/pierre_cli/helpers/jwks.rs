@@ -2,7 +2,7 @@
 // ABOUTME: Manages RSA keypair loading and generation for JWT signing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use pierre_mcp_server::{
     admin::jwks::JwksManager,

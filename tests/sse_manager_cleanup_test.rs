@@ -2,7 +2,7 @@
 // ABOUTME: Validates session tracking and cleanup when protocol streams disconnect
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::panic)]
 #![allow(missing_docs)]

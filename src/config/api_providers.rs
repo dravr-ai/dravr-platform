@@ -2,7 +2,7 @@
 // ABOUTME: Handles Strava, Fitbit, Garmin API settings and external service configurations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::api_provider_limits::{
     garmin, strava, FITBIT_RATE_LIMIT_DAILY, FITBIT_RATE_LIMIT_HOURLY, STRAVA_RATE_LIMIT_15MIN,

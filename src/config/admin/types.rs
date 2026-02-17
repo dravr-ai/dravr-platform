@@ -2,7 +2,7 @@
 // ABOUTME: Defines parameter types, categories, validation, and API request/response structures
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

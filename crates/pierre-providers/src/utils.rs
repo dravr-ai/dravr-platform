@@ -2,7 +2,7 @@
 // ABOUTME: Type conversions, retry logic, token refresh, and common patterns
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
 use chrono::{TimeZone, Utc};

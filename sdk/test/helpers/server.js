@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Server lifecycle management helper for integration tests
 // ABOUTME: Starts, monitors health, and cleanly shuts down Pierre MCP server instances
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 const { spawn } = require('child_process');
 const path = require('path');

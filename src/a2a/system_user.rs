@@ -2,7 +2,7 @@
 // ABOUTME: Creates internal user accounts for A2A clients to enable secure API access
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! System user management for A2A clients
 // NOTE: All `.clone()` calls in this file are Safe - Arc/String ownership for A2A operations

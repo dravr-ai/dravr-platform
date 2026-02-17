@@ -2,7 +2,7 @@
 // ABOUTME: Shows how agents discover each other's capabilities before collaboration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Agent Discovery Example
 //!

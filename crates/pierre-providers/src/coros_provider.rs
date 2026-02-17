@@ -2,7 +2,7 @@
 // ABOUTME: Handles OAuth2 authentication and data fetching for workouts, sleep, and daily summaries
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 //
 // NOTE: COROS API documentation is private. Apply for access at:
 // https://support.coros.com/hc/en-us/articles/17085887816340-Submitting-an-API-Application

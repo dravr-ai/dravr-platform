@@ -2,7 +2,7 @@
 // ABOUTME: Implements exponential moving averages to track chronic and acute training loads
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::errors::AppError;
 use crate::metrics::MetricsCalculator;

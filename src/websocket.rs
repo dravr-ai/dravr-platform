@@ -2,7 +2,7 @@
 // ABOUTME: Handles WebSocket connections, message routing, and real-time fitness data updates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Arc resource clones for multi-tenant concurrent access

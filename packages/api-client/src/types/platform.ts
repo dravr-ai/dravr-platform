@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Platform abstraction interfaces for HTTP client and auth storage
 // ABOUTME: Allows the same API logic to work on web (axios/localStorage) and mobile (axios/AsyncStorage)

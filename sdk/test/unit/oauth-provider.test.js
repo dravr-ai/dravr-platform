@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for OAuth provider functionality
 // ABOUTME: Tests OAuth client metadata generation and token management
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 describe('OAuth Client Metadata', () => {
   test('should generate valid client metadata', () => {

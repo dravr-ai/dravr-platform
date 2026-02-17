@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for managing user fitness configurations and training zones
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Configuration management routes
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Handles user registration, authentication, and profile management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::Database;
 use crate::database_plugins::shared;

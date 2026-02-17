@@ -2,7 +2,7 @@
 // ABOUTME: Converts volume/count units to grams using ingredient-specific densities
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
 use std::error::Error;

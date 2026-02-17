@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: MCP bridge connecting MCP host (stdio) to Pierre Server (HTTP)
 // ABOUTME: Manages MCP message translation, tool forwarding, and OAuth flow integration

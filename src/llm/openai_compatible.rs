@@ -2,7 +2,7 @@
 // ABOUTME: Supports Ollama, vLLM, LocalAI, and any OpenAI-compatible API
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # `OpenAI`-Compatible Provider
 //!

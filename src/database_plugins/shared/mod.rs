@@ -2,7 +2,7 @@
 // ABOUTME: Eliminates duplication by extracting common business logic
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Enum conversion utilities (`UserTier`, `UserStatus`, `TaskStatus`, etc.)
 pub mod enums;

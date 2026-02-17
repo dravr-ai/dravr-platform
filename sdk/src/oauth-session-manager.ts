@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: OAuth 2.0 session management for Pierre MCP Client
 // ABOUTME: Handles token storage, refresh, client registration, and callback server for OAuth flows

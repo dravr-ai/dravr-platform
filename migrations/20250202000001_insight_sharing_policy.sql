@@ -2,7 +2,7 @@
 -- ABOUTME: Enables per-user configuration of how data is shared in social feed
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- ============================================================================
 -- Add insight_sharing_policy column to user_social_settings

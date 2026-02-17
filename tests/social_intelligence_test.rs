@@ -2,7 +2,7 @@
 // ABOUTME: Validates insight generation, adaptation, and friend activity caching
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Tests for social intelligence modules including insight generation,
 //! insight adaptation, and friend activity caching.

@@ -2,7 +2,7 @@
 // ABOUTME: Tools implement this trait to be registered and executed via the ToolRegistry.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # MCP Tool Trait and Capabilities
 //!

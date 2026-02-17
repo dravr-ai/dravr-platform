@@ -2,7 +2,7 @@
 // ABOUTME: Establishes baseline latency metrics for the simplest endpoint
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';

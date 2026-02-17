@@ -1,11 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Clean up accumulated test database files from test_data directory
 # ABOUTME: Removes old test databases while preserving directory structure
 #
 # Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 
 set -euo pipefail
 

@@ -2,7 +2,7 @@
 // ABOUTME: Implements correct linear regression, R-squared calculations, and trend strength analysis
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 #![allow(clippy::cast_precision_loss)] // Safe: statistical calculations with controlled ranges
 
 use super::{TrendDataPoint, TrendDirection};

@@ -2,7 +2,7 @@
 // ABOUTME: Handles environment variables and configuration file parsing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};

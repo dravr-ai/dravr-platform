@@ -2,7 +2,7 @@
 // ABOUTME: Extracted from route handlers to enable reuse across REST, MCP, and A2A protocols
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use chrono::Utc;
 use tracing::{error, info};

@@ -2,7 +2,7 @@
 // ABOUTME: Tests version creation, retrieval, diff, and revert operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]

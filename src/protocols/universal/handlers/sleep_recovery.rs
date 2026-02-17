@@ -2,7 +2,7 @@
 // ABOUTME: Implements 5 tools: analyze_sleep_quality, calculate_recovery_score, suggest_rest_day, track_sleep_trends, optimize_sleep_schedule
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::cmp::Ordering;
 use std::collections::HashMap;

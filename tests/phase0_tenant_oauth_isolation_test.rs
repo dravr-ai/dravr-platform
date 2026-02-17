@@ -2,7 +2,7 @@
 // ABOUTME: Critical security tests verifying tenant-specific OAuth credentials and rate limiting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Phase 0: Per-Tenant OAuth Validation
 //!

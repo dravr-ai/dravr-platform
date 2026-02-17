@@ -2,7 +2,7 @@
 // ABOUTME: Provides configurable activity data without requiring OAuth authentication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // RwLock poisoning errors are converted to ProviderError::ConfigurationError
 // for proper error propagation through the application

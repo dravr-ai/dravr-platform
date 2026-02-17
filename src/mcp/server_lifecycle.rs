@@ -2,7 +2,7 @@
 // ABOUTME: Handles server startup, transport coordination, and notification forwarding
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::multitenant::{McpRequest, McpResponse};
 use super::sampling_peer::SamplingPeer;

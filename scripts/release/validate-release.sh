@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2026 dravr.io
+# Copyright (c) 2026 dravr.ai
 # ABOUTME: Validates that the codebase is ready for a release.
 # ABOUTME: Checks version consistency, build, tests, and npm package integrity.
 

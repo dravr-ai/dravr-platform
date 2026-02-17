@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for CRUD operations on user-created coaches
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Coaches routes
 //!

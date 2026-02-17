@@ -2,7 +2,7 @@
 // ABOUTME: This replaces scattered parameter passing with a unified context object.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Tool Execution Context
 //!

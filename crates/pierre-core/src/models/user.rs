@@ -2,7 +2,7 @@
 // ABOUTME: User, UserTier, UserStatus, and UserPhysiologicalProfile definitions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::str::FromStr;

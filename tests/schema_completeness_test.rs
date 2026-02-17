@@ -2,7 +2,7 @@
 // ABOUTME: Prevents regressions like "Unknown tool" errors by validating schema/registry consistency
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![doc = "Schema completeness validation - ensures all tools are properly registered"]
 #![allow(clippy::unwrap_used)]

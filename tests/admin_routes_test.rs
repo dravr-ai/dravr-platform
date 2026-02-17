@@ -2,7 +2,7 @@
 // ABOUTME: Validates admin routes behavior, edge cases, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Integration tests for admin_routes.rs module
 // Tests for admin API endpoints and authentication

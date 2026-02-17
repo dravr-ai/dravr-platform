@@ -2,7 +2,7 @@
 // ABOUTME: DTOs for multi-tenant chat conversations with LLM model tracking
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use serde::{Deserialize, Serialize};
 

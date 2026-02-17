@@ -2,7 +2,7 @@
 // ABOUTME: Ensures configuration values are valid and within acceptable ranges
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Configuration validation system for ensuring safe and valid parameter changes
 

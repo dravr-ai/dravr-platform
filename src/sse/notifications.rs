@@ -2,7 +2,7 @@
 // ABOUTME: Handles SSE streaming of OAuth connection status and completion events
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::network_config::SSE_BROADCAST_CHANNEL_SIZE;
 use crate::errors::AppError;

@@ -2,7 +2,7 @@
 // ABOUTME: Validates logging behavior, edge cases, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // Integration tests for logging.rs module
 // Tests for logging configuration and environment variable handling

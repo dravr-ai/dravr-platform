@@ -2,7 +2,7 @@
 // ABOUTME: Tests all 10 coach tools via the UniversalToolExecutor for MCP protocol compliance
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Coach Tool Handler Integration Tests
 //!

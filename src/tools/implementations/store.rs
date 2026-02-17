@@ -2,7 +2,7 @@
 // ABOUTME: Implements browse_store, search_store, install_coach, uninstall_coach tools.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! # Coach Store MCP Tools
 //!

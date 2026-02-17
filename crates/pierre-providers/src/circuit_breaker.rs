@@ -2,7 +2,7 @@
 // ABOUTME: Prevents cascading failures by failing fast when providers are unavailable
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use std::future::Future;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};

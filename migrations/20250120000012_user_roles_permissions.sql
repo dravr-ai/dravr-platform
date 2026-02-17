@@ -2,7 +2,7 @@
 -- ABOUTME: Includes impersonation audit logging and permission delegation tables
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2026 dravr.io
+-- Copyright (c) 2026 dravr.ai
 
 -- Add role column to users table (replaces is_admin boolean)
 -- role: 'super_admin' | 'admin' | 'user'

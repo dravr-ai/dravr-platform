@@ -2,7 +2,7 @@
 // ABOUTME: Handle goal setting, tracking, and feasibility analysis
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::default_provider;
 use crate::constants::defaults::DEFAULT_GOAL_TIMEFRAME_DAYS;

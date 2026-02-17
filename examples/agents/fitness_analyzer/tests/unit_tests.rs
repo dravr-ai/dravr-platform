@@ -2,7 +2,7 @@
 // ABOUTME: Tests isolated functionality without external dependencies
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use fitness_analyzer::config::AgentConfig;
 use fitness_analyzer::a2a_client::Activity;

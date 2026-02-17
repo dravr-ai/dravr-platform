@@ -2,7 +2,7 @@
 // ABOUTME: Tests one-time token issuance via admin and redemption via POST /api/auth/complete-reset
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]

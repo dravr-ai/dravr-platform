@@ -2,7 +2,7 @@
 // ABOUTME: Validates SQLite memory database isolation and cleanup behavior
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Tests to ensure in-memory databases don't create physical files
 

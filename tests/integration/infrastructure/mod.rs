@@ -2,7 +2,7 @@
 // ABOUTME: Provides test server lifecycle management and MCP HTTP client
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 pub mod mcp_client;
 pub mod test_server;

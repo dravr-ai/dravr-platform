@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 
 // ABOUTME: Command-line interface for Pierre MCP Client
 // ABOUTME: Parses arguments, configures MCP client, and manages process lifecycle
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /**
  * Pierre MCP Client CLI

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Comprehensive tool call validation test - validates ALL tool schemas match MCP protocol
 // ABOUTME: Tests that Claude Desktop can successfully call each tool with correct parameters

@@ -2,7 +2,7 @@
 // ABOUTME: Tests JSON-RPC 2.0 tool execution throughput and latency
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';

@@ -2,7 +2,7 @@
 // ABOUTME: AI-powered rest day recommendations based on multi-factor recovery assessment
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Recovery Calculator Module
 //!

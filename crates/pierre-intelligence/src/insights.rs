@@ -2,7 +2,7 @@
 // ABOUTME: Analyzes patterns, trends, and performance data to generate actionable fitness insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Insight generation and management for athlete intelligence
 

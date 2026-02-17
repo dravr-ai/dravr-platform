@@ -2,7 +2,7 @@
 // ABOUTME: Handles training history analysis and goal feasibility assessment
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use crate::constants::goal_management;
 use serde::{Deserialize, Serialize};

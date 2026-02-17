@@ -2,7 +2,7 @@
 // ABOUTME: Provides attribute-safe escaping for values injected into HTML templates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// Escape a string for safe insertion into HTML attribute values.
 ///

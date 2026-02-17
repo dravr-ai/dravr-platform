@@ -2,7 +2,7 @@
 // ABOUTME: Manages athlete profiles, preferences, and personalized configurations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Configuration profiles for different user types and use cases
 

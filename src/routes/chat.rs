@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for creating, listing, and messaging in chat conversations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Chat routes for AI conversations
 //!

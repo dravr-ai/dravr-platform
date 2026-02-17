@@ -2,7 +2,7 @@
 // ABOUTME: Validates adherence to Google A2A specification requirements
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! A2A Protocol Compliance Tests
 //!

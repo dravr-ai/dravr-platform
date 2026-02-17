@@ -2,7 +2,7 @@
 // ABOUTME: Provides predefined test data and argument builders for MCP tools
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

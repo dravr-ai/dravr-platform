@@ -2,7 +2,7 @@
 // ABOUTME: Multi-tenant MCP server functionality for MCP clients and AI assistants
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 /// MCP request processing and routing
 pub mod mcp_request_processor;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for social features - friends, feed, sharing insights
 // ABOUTME: Tests friend management, social feed interactions, and sharing workflows

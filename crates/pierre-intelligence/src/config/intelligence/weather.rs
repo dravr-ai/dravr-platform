@@ -2,7 +2,7 @@
 // ABOUTME: Configures temperature thresholds, weather condition impacts, and scoring weights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Weather Analysis Configuration
 //!

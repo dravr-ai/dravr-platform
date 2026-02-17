@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for response validation module that validates tool responses against schemas.
 // ABOUTME: Tests schema validation, error handling, and real tool responses from Pierre server.

@@ -2,7 +2,7 @@
 // ABOUTME: Provides common validation functions for PostgreSQL and SQLite backends.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 //! Input validation logic shared across database implementations
 //!

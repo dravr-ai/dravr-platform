@@ -2,7 +2,7 @@
 // ABOUTME: Enables admins to customize which tools are exposed to MCP clients
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.io
+// Copyright (c) 2026 dravr.ai
 
 use super::TenantId;
 use chrono::{DateTime, Utc};
