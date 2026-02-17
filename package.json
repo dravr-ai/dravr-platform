@@ -11,7 +11,9 @@
     "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
     "typecheck:packages": "bun run typecheck --filter './packages/*'",
     "lint:packages": "bun run lint --filter './packages/*'",
-    "test:packages": "bun run test --filter './packages/*'"
+    "test:packages": "bun run test --filter './packages/*'",
+    "scan:skills": "uvx mcp-scan@latest --skills .claude/skills",
+    "scan:mcp": "uvx mcp-scan@latest .mcp.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.2"
