@@ -24,7 +24,7 @@ fi
 # Check if node_modules exists
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then
     echo "⚠️  Warning: frontend/node_modules not found."
-    echo "   Run 'cd frontend && npm install' to enable validation."
+    echo "   Run 'cd frontend && bun install' to enable validation."
     exit 0
 fi
 
@@ -41,7 +41,7 @@ echo "📘 Tier 0: TypeScript Type Checking"
 echo "------------------------------------"
 echo -n "Running type-check... "
 
-if npm run type-check > /dev/null 2>&1; then
+if bun run type-check > /dev/null 2>&1; then
     echo "✅"
     PASSED=$((PASSED + 1))
 else
@@ -49,7 +49,7 @@ else
     FAILED=$((FAILED + 1))
     echo ""
     echo "TypeScript errors found:"
-    npm run type-check 2>&1 | head -30
+    bun run type-check 2>&1 | head -30
     echo ""
     echo "Run 'cd frontend && npm run type-check' to see all errors."
     exit 1
@@ -64,7 +64,7 @@ echo "🔍 Tier 1: ESLint"
 echo "-----------------"
 echo -n "Running lint... "
 
-if npm run lint -- --quiet > /dev/null 2>&1; then
+if bun run lint -- --quiet > /dev/null 2>&1; then
     echo "✅"
     PASSED=$((PASSED + 1))
 else
@@ -72,7 +72,7 @@ else
     FAILED=$((FAILED + 1))
     echo ""
     echo "Lint errors found:"
-    npm run lint 2>&1 | head -30
+    bun run lint 2>&1 | head -30
     echo ""
     echo "Run 'cd frontend && npm run lint' to see all errors."
     exit 1
@@ -87,7 +87,7 @@ echo "🧪 Tier 2: Unit Tests"
 echo "---------------------"
 echo -n "Running tests... "
 
-if npm test -- --run --reporter=dot > /dev/null 2>&1; then
+if bun run test -- --run --reporter=dot > /dev/null 2>&1; then
     echo "✅"
     PASSED=$((PASSED + 1))
 else
@@ -95,9 +95,9 @@ else
     FAILED=$((FAILED + 1))
     echo ""
     echo "Test failures:"
-    npm test -- --run 2>&1 | tail -30
+    bun run test -- --run 2>&1 | tail -30
     echo ""
-    echo "Run 'cd frontend && npm test' to see details."
+    echo "Run 'cd frontend && bun run test' to see details."
     exit 1
 fi
 
