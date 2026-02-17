@@ -89,29 +89,15 @@ module "cache" {
 }
 
 # -----------------------------------------------------------------------------
-# Artifact Registry (depends on APIs)
-# -----------------------------------------------------------------------------
-
-module "artifact_registry" {
-  source = "./modules/artifact_registry"
-
-  project_id    = var.project_id
-  region        = var.region
-  registry_name = var.registry_name
-  labels        = var.labels
-
-  depends_on = [module.project]
-}
-
-# -----------------------------------------------------------------------------
 # Service Accounts (depends on APIs)
 # -----------------------------------------------------------------------------
 
 module "service_accounts" {
   source = "./modules/service_accounts"
 
-  project_id   = var.project_id
-  service_name = var.service_name
+  project_id          = var.project_id
+  service_name        = var.service_name
+  artifacts_project_id = var.artifacts_project_id
 
   depends_on = [module.project]
 }
@@ -186,7 +172,7 @@ module "backend" {
 
   labels = merge(var.labels, { component = "backend" })
 
-  depends_on = [module.networking, module.secrets, module.service_accounts, module.artifact_registry]
+  depends_on = [module.networking, module.secrets, module.service_accounts]
 }
 
 # -----------------------------------------------------------------------------
@@ -219,7 +205,7 @@ module "frontend" {
 
   labels = merge(var.labels, { component = "frontend" })
 
-  depends_on = [module.service_accounts, module.artifact_registry]
+  depends_on = [module.service_accounts]
 }
 
 # -----------------------------------------------------------------------------

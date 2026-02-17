@@ -1,6 +1,14 @@
 environment = "production"
 
+<<<<<<< Updated upstream
 # Database disabled until production migration from SQLite is ready
+=======
+# Centralized Artifact Registry project (images are pushed here by GitHub Actions)
+# Replace with the real dravr-artifacts GCP project ID after creating it in the Console
+artifacts_project_id = "dravr-artifacts"
+
+# All optional features enabled
+>>>>>>> Stashed changes
 enable_database = false
 enable_cache    = true
 enable_frontend = true

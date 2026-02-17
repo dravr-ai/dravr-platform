@@ -80,9 +80,9 @@ output "workload_identity_provider" {
 # Artifact Registry Outputs
 # -----------------------------------------------------------------------------
 
-output "artifact_registry_url" {
-  description = "Artifact Registry URL (for docker push)"
-  value       = module.artifact_registry.registry_url
+output "artifacts_registry_url" {
+  description = "Central Artifact Registry URL in dravr-artifacts project (for docker push/pull)"
+  value       = "${var.region}-docker.pkg.dev/${var.artifacts_project_id}/dravr-images"
 }
 
 # -----------------------------------------------------------------------------
@@ -130,7 +130,7 @@ output "cloud_run_config" {
     service_account      = module.service_accounts.app_service_account_email
     vpc_connector        = module.networking.vpc_connector_id
     cloudsql_instance    = var.enable_database ? module.database[0].connection_name : null
-    artifact_registry    = module.artifact_registry.registry_url
+    artifacts_registry   = "${var.region}-docker.pkg.dev/${var.artifacts_project_id}/dravr-images"
     database_url_pattern = var.enable_database ? "postgresql://${module.database[0].database_user}:$${DB_PASSWORD}@/pierre?host=/cloudsql/${module.database[0].connection_name}" : null
   }
   sensitive = true

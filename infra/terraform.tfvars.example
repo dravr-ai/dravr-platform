@@ -69,11 +69,11 @@ project_id = "pierrefitnessplatform"
 # github_repo = "dravr-platform"
 
 # -----------------------------------------------------------------------------
-# Artifact Registry
+# Centralized Artifact Registry
 # -----------------------------------------------------------------------------
 
-# Docker repository name
-# registry_name = "pierre-images"
+# GCP project ID of the centralized dravr-artifacts project (required)
+artifacts_project_id = "dravr-artifacts"
 
 # -----------------------------------------------------------------------------
 # Labels

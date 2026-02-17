@@ -40,6 +40,13 @@ resource "google_project_iam_member" "app_aiplatform_user" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Artifact Registry Reader in dravr-artifacts (cross-project: pull images from central registry)
+resource "google_project_iam_member" "app_artifact_reader" {
+  project = var.artifacts_project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.app.email}"
+}
+
 # -----------------------------------------------------------------------------
 # Deployer Service Account (used by GitHub Actions)
 # -----------------------------------------------------------------------------
@@ -62,13 +69,6 @@ resource "google_project_iam_member" "deployer_run_admin" {
 resource "google_project_iam_member" "deployer_cloudbuild_editor" {
   project = var.project_id
   role    = "roles/cloudbuild.builds.editor"
-  member  = "serviceAccount:${google_service_account.deployer.email}"
-}
-
-# Artifact Registry Writer (push images)
-resource "google_project_iam_member" "deployer_artifact_writer" {
-  project = var.project_id
-  role    = "roles/artifactregistry.writer"
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 

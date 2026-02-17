@@ -155,13 +155,12 @@ variable "github_repo" {
 }
 
 # -----------------------------------------------------------------------------
-# Artifact Registry
+# Artifact Registry (centralized in dravr-artifacts project)
 # -----------------------------------------------------------------------------
 
-variable "registry_name" {
-  description = "Name of the Artifact Registry Docker repository"
+variable "artifacts_project_id" {
+  description = "GCP project ID of the centralized dravr-artifacts project (used for cross-project image pull IAM)"
   type        = string
-  default     = "pierre-images"
 }
 
 # -----------------------------------------------------------------------------
