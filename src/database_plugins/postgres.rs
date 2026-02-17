@@ -2764,7 +2764,7 @@ impl DatabaseProvider for PostgresDatabase {
             "SELECT last_sync FROM user_oauth_tokens WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .fetch_optional(&self.pool)
         .await
@@ -2785,7 +2785,7 @@ impl DatabaseProvider for PostgresDatabase {
         )
         .bind(sync_time)
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .execute(&self.pool)
         .await
@@ -4444,7 +4444,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .fetch_optional(&self.pool)
         .await
@@ -4513,7 +4513,7 @@ impl DatabaseProvider for PostgresDatabase {
             ORDER BY created_at DESC
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .fetch_all(&self.pool)
         .await
@@ -4539,7 +4539,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .execute(&self.pool)
         .await
@@ -4560,7 +4560,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -4597,7 +4597,7 @@ impl DatabaseProvider for PostgresDatabase {
             ",
         )
         .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .bind(&encrypted_access_token)
         .bind(encrypted_refresh_token.as_deref())
