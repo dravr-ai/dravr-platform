@@ -38,7 +38,7 @@ fn app_error_to_db(e: AppError) -> DatabaseError {
     if e.code == ErrorCode::ResourceNotFound {
         DatabaseError::NotFound {
             entity_type: "resource",
-            entity_id: e.message.clone(),
+            entity_id: e.message,
         }
     } else {
         DatabaseError::QueryError {
