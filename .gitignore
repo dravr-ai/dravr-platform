@@ -109,3 +109,4 @@ pnpm-lock.yaml
 data/
 logs/
 book/build/
+pierre_mcp_server-integration/
