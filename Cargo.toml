@@ -7,7 +7,7 @@ version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Pierre Fitness API - Multi-protocol fitness data API for LLMs (MCP + A2A)"
-repository = "https://github.com/Async-IO/pierre_mcp_server"
+repository = "https://github.com/dravr-ai/dravr-platform"
 keywords = ["mcp", "fitness", "strava", "api", "claude"]
 categories = ["api-bindings", "web-programming"]
 

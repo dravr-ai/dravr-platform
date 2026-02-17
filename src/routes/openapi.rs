@@ -2,7 +2,7 @@
 // ABOUTME: Provides machine-readable API spec at /api-docs/openapi.json and interactive docs at /swagger-ui
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // Allow: utoipa's OpenApi derive macro generates code triggering this lint
 #![allow(clippy::needless_for_each)]
@@ -36,7 +36,7 @@ use crate::routes::coaches::{
         license(name = "MIT OR Apache-2.0"),
         contact(
             name = "Pierre Fitness Intelligence",
-            url = "https://github.com/Async-IO/pierre_mcp_server"
+            url = "https://github.com/dravr-ai/dravr-platform"
         )
     ),
     tags(

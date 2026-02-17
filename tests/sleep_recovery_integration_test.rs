@@ -2,7 +2,7 @@
 // ABOUTME: Tests end-to-end execution of 5 sleep/recovery tools via universal protocol
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Sleep and Recovery Integration Tests
 //!
 //! Comprehensive end-to-end tests for sleep analysis and recovery scoring tools

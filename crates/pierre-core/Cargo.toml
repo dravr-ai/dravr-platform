@@ -7,7 +7,7 @@ version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Core types and constants for Pierre fitness intelligence platform"
-repository = "https://github.com/Async-IO/pierre_mcp_server"
+repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
 [features]

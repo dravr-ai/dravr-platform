@@ -2,7 +2,7 @@
 // ABOUTME: Validates feature flag combinations at startup and logs enabled features
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # Feature Configuration Validation
 //!

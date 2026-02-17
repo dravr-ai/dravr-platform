@@ -318,5 +318,5 @@ And this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MINOR**: New functionality (backward compatible)
 - **PATCH**: Bug fixes (backward compatible)
 
-[0.2.0]: https://github.com/Async-IO/pierre_mcp_server/releases/tag/v0.2.0
-[0.1.0]: https://github.com/Async-IO/pierre_mcp_server/releases/tag/v0.1.0
+[0.2.0]: https://github.com/dravr-ai/dravr-platform/releases/tag/v0.2.0
+[0.1.0]: https://github.com/dravr-ai/dravr-platform/releases/tag/v0.1.0

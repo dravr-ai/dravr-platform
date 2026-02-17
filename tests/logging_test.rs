@@ -2,7 +2,7 @@
 // ABOUTME: Validates logging behavior, edge cases, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // Integration tests for logging.rs module
 // Tests for logging configuration and environment variable handling

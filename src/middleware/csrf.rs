@@ -2,7 +2,7 @@
 // ABOUTME: Validates X-CSRF-Token header against user-scoped tokens to prevent request forgery
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! CSRF validation middleware
 //!

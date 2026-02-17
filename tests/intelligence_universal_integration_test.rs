@@ -2,7 +2,7 @@
 // ABOUTME: Tests interaction between fitness intelligence and universal tool execution
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Integration tests for intelligence engines and universal tool handlers
 //!
 //! Tests the interaction between fitness intelligence engines and the universal

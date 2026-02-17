@@ -2,7 +2,7 @@
 // ABOUTME: Handles configuration parsing, validation, and runtime updates
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Runtime configuration management with session-scoped overrides
 //!

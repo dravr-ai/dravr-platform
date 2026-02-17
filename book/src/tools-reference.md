@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Copyright (c) 2025 Pierre Fitness Intelligence -->
+<!-- Copyright (c) 2026 dravr.io -->
 
 # MCP Tools Reference
 
@@ -698,7 +698,7 @@ Overrides are stored in `tenant_tool_overrides` table and cached for performance
 ## Additional Resources
 
 - [MCP Protocol Specification](https://github.com/anthropics/mcp)
-- [Pierre MCP Server Repository](https://github.com/Async-IO/pierre_mcp_server)
+- [Pierre MCP Server Repository](https://github.com/dravr-ai/dravr-platform)
 - [Development Guide](./development.md)
 - [Testing Guide](./testing.md)
 - [Configuration Guide](./configuration.md)

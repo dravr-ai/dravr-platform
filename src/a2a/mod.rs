@@ -2,7 +2,7 @@
 // ABOUTME: Provides client registration, authentication, and protocol compliance for A2A communication
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # A2A (Agent-to-Agent) Protocol Implementation
 //!

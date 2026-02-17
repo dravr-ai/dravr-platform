@@ -2,7 +2,7 @@
 // ABOUTME: Manages RSA keypair loading and generation for JWT signing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use pierre_mcp_server::{
     admin::jwks::JwksManager,

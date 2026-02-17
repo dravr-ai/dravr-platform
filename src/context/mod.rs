@@ -2,7 +2,7 @@
 // ABOUTME: Provides type-safe dependency injection with minimal coupling between components
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Focused dependency injection contexts
 //!

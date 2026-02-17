@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 // ABOUTME: API service entry point using @pierre/api-client with mobile adapter
 // ABOUTME: Exports domain-based APIs with secure token storage via expo-secure-store
 

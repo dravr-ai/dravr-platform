@@ -2,7 +2,7 @@
 // ABOUTME: Enforces request rate limits and prevents API abuse
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # Rate Limiting Middleware with HTTP Headers
 //!

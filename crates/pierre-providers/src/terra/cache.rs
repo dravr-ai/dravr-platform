@@ -2,7 +2,7 @@
 // ABOUTME: Stores activities, sleep, health metrics, and nutrition from webhooks for FitnessProvider access
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Terra data cache
 //!

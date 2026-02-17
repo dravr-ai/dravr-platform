@@ -2,7 +2,7 @@
 // ABOUTME: Implements per-IP token bucket rate limiting for authorization, token, and registration endpoints
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::config::environment::RateLimitConfig;
 use crate::rate_limiting::{OAuth2RateLimitConfig, OAuth2RateLimitStatus};

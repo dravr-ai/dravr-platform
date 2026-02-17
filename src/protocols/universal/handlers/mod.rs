@@ -2,7 +2,7 @@
 // ABOUTME: Clean separation of concerns replacing monolithic handler functions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// Coach management tool handlers (custom AI personas)
 pub mod coaches;

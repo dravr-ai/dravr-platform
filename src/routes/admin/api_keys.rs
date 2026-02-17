@@ -2,7 +2,7 @@
 // ABOUTME: Handles provisioning, revocation, listing, and token info for API keys
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use std::sync::Arc;
 

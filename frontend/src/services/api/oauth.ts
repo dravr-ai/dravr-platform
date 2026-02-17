@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: OAuth and provider connection API methods - status, authorization URLs
 // ABOUTME: Handles third-party OAuth integrations and provider status

@@ -2,7 +2,7 @@
 // ABOUTME: Provides reusable data generators and setup functions for Criterion benchmarks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Common benchmark utilities and test fixtures.
 //!

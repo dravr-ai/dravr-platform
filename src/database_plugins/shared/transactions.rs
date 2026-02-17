@@ -2,7 +2,7 @@
 // ABOUTME: Provides automatic rollback on drop and exponential backoff for PostgreSQL and SQLite.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Transaction management with RAII guards and retry patterns
 //!

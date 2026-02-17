@@ -2,7 +2,7 @@
 // ABOUTME: Tests MCP protocol tools through universal execution to config management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! End-to-End (E2E) integration tests for the configuration system
 //!
 //! Tests the entire configuration system flow from MCP protocol tools

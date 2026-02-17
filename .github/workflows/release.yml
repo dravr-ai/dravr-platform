@@ -145,7 +145,7 @@ jobs:
 
           ### Documentation
 
-          See [README.md](https://github.com/Async-IO/pierre_mcp_server) for configuration and usage.
+          See [README.md](https://github.com/dravr-ai/dravr-platform) for configuration and usage.
           EOF
 
       - name: Create draft release
@@ -292,7 +292,7 @@ jobs:
              pierre-mcp-server
 
           For full documentation, see README.md or visit:
-          https://github.com/Async-IO/pierre_mcp_server
+          https://github.com/dravr-ai/dravr-platform
           EOF
 
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
@@ -331,7 +331,7 @@ jobs:
              bin\pierre-mcp-server.exe
 
           For full documentation, see README.md or visit:
-          https://github.com/Async-IO/pierre_mcp_server
+          https://github.com/dravr-ai/dravr-platform
           "@ | Out-File -FilePath "dist\${PACKAGE_NAME}\INSTALL.txt" -Encoding utf8
 
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $env:GITHUB_ENV

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Visual E2E tests for user mode (ASY-313).
 // ABOUTME: Tests all user dashboard screens against real backend.

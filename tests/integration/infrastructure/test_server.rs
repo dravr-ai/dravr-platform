@@ -2,7 +2,7 @@
 // ABOUTME: Spawns real HTTP server with synthetic provider for E2E testing
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 // Allow dead code in test infrastructure - methods designed for future test expansion

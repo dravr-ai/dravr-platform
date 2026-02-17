@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E tests for social feed actions and conversation management
 // ABOUTME: Web equivalents of mobile swipe gestures (reactions, adapt, rename, delete)

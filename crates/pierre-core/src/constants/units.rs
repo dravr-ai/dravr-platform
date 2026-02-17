@@ -2,7 +2,7 @@
 // ABOUTME: Provides named constants to eliminate magic numbers in calculations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// Meters per kilometer conversion factor
 pub const METERS_PER_KM: f64 = 1000.0;

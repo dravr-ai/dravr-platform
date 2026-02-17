@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Token edge case integration tests - race conditions, expired refresh, concurrent refresh
 // ABOUTME: Tests token refresh edge cases including mid-request expiry and invalidation scenarios
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
-// Copyright (c) 2025 Async-IO.org
+// Copyright (c) 2026 dravr.io
 
 const { ensureServerRunning } = require('../helpers/server');
 const { TestConfig } = require('../helpers/fixtures');

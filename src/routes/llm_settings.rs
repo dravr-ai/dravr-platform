@@ -2,7 +2,7 @@
 // ABOUTME: Enables configuration of Gemini, Groq, and local LLM API keys via the frontend
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use axum::{
     extract::{Path, State},

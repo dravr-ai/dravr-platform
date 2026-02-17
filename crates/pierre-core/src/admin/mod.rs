@@ -2,7 +2,7 @@
 // ABOUTME: Tokens, permissions, and audit types used by DatabaseProvider trait
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 /// Admin data models (tokens, permissions, usage)
 pub mod models;

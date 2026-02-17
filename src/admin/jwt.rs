@@ -2,7 +2,7 @@
 // ABOUTME: Creates secure admin JWT tokens with permissions and validates token claims for authorization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! JWT Token Generation and Validation for Admin Authentication
 //!
 //! This module provides secure JWT token generation and validation for admin services.

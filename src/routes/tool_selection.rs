@@ -2,7 +2,7 @@
 // ABOUTME: Enables admins to view, configure, and override tool availability per tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Tool selection admin routes for managing MCP tool availability per tenant.
 //!

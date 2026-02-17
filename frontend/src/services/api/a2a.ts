@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Agent-to-Agent (A2A) protocol API methods - client management, sessions, analytics
 // ABOUTME: Handles A2A protocol for agent-to-agent communication

@@ -39,7 +39,7 @@ Add to your MCP client configuration file:
 **Configuration File Locations:**
 - **Claude Desktop**: `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 - **ChatGPT**: `~/Library/Application Support/ChatGPT/config.json` (macOS)
-- See [full installation guide](https://github.com/Async-IO/pierre_mcp_server/blob/main/book/src/installation-guides/install-mcp-client.md) for all platforms
+- See [full installation guide](https://github.com/dravr-ai/dravr-platform/blob/main/book/src/installation-guides/install-mcp-client.md) for all platforms
 
 ## What It Does
 
@@ -275,13 +275,13 @@ rm ~/.pierre-mcp-tokens.enc
 ## Documentation
 
 - [Tools Reference](../book/src/tools-reference.md)
-- [Installation Guide](https://github.com/Async-IO/pierre_mcp_server/blob/main/book/src/installation-guides/install-mcp-client.md)
-- [Server Documentation](https://github.com/Async-IO/pierre_mcp_server)
+- [Installation Guide](https://github.com/dravr-ai/dravr-platform/blob/main/book/src/installation-guides/install-mcp-client.md)
+- [Server Documentation](https://github.com/dravr-ai/dravr-platform)
 
 ## Support
 
-- **GitHub Issues**: https://github.com/Async-IO/pierre_mcp_server/issues
-- **Discussions**: https://github.com/Async-IO/pierre_mcp_server/discussions
+- **GitHub Issues**: https://github.com/dravr-ai/dravr-platform/issues
+- **Discussions**: https://github.com/dravr-ai/dravr-platform/discussions
 
 ## License
 

@@ -2,7 +2,7 @@
 -- ABOUTME: Enables coaches to automatically fetch context when a conversation starts.
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2025 Pierre Fitness Intelligence
+-- Copyright (c) 2026 dravr.io
 
 -- ============================================================================
 -- Add startup_query column for automatic context fetching

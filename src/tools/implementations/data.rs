@@ -2,7 +2,7 @@
 // ABOUTME: Delegates to existing handlers for get_activities, get_athlete, get_stats.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # Data Access Tools
 //!

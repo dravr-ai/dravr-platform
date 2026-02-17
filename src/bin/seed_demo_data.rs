@@ -2,7 +2,7 @@
 // ABOUTME: Generates realistic time-series data for users, API keys, and usage analytics
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Demo data seeder for Pierre MCP Server.
 //!

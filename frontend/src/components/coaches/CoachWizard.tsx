@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 // ABOUTME: 7-step wizard for creating/editing AI coaches (ASY-148)
 // ABOUTME: Includes markdown toggle, live preview, token counter, and export/import
 

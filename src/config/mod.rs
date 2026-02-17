@@ -2,7 +2,7 @@
 // ABOUTME: Handles environment configs, fitness parameters, intelligence settings, and runtime options
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Configuration module for Pierre MCP Server
 //!
 //! This module provides centralized configuration management for all components

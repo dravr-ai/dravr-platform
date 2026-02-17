@@ -2,7 +2,7 @@
 // ABOUTME: Follows DatabaseProvider pattern for pluggable cache backends
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use std::time::Duration;
 

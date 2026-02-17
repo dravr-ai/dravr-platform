@@ -5,7 +5,7 @@
 name = "task-manager-example"
 version = "1.0.0"
 edition = "2021"
-authors = ["Async-IO.org"]
+authors = ["dravr.io"]
 license = "MIT OR Apache-2.0"
 description = "Demonstrates A2A task lifecycle management with status tracking"
 

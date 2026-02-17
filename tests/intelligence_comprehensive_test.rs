@@ -2,7 +2,7 @@
 // ABOUTME: Tests activity analyzer, performance analyzer, and intelligence engines
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Comprehensive tests for intelligence modules to improve coverage
 //!
 //! This test suite focuses on intelligence modules (activity analyzer, performance analyzer)

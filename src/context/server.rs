@@ -2,7 +2,7 @@
 // ABOUTME: Replaces ServerResources with focused dependency injection while maintaining compatibility
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use super::{
     AuthContext, ConfigContext, DataContext, ExtensionContext, NotificationContext, SecurityContext,

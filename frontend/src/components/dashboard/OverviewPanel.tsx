@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Overview panel for the admin dashboard with aggregated stats
 // ABOUTME: Owns its own useQuery calls for dashboard overview, rate limits, and usage analytics

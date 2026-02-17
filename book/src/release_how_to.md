@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Copyright (c) 2025 Pierre Fitness Intelligence -->
+<!-- Copyright (c) 2026 dravr.io -->
 
 # Release How-To Guide
 
@@ -77,7 +77,7 @@ git push origin v0.3.0
 
 ### Step 3: Create GitHub Release
 
-1. Go to https://github.com/Async-IO/pierre_mcp_server/releases
+1. Go to https://github.com/dravr-ai/dravr-platform/releases
 2. Click "Draft a new release"
 3. Select the tag you just pushed (`v0.3.0`)
 4. Add release notes (or let it auto-generate from CHANGELOG)

@@ -2,7 +2,7 @@
 // ABOUTME: Tests user settings tabs, change password modal, about tab, and admin settings navigation.
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 import { test, expect } from '@playwright/test';
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Modal for sharing an insight to the social feed
 // ABOUTME: Shows preview mode with Edit button, then allows editing before sharing

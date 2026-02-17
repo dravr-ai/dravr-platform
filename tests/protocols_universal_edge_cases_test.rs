@@ -2,7 +2,7 @@
 // ABOUTME: Tests error conditions, edge cases, and untested paths in universal layer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Universal Protocol Edge Cases and Error Path Tests
 //!
 //! Tests for error conditions, edge cases, and untested paths

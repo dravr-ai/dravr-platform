@@ -2,7 +2,7 @@
 // ABOUTME: Defines User type with role/status and AuthContext for app-wide auth state
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 import { createContext } from 'react';
 import type { User, UserRole, UserStatus, FirebaseLoginResponse } from '@pierre/shared-types';

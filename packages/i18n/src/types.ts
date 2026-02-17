@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Type-safe translation hook wrapper for better developer experience
 // ABOUTME: Provides autocomplete and type checking for translation keys

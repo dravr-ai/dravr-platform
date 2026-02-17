@@ -36,7 +36,7 @@ This script:
 ### Step 2: Monitor CI
 Check GitHub Actions:
 ```
-https://github.com/Async-IO/pierre_mcp_server/actions
+https://github.com/dravr-ai/dravr-platform/actions
 ```
 
 Wait for all checks to pass (green).

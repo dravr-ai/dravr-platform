@@ -2,7 +2,7 @@
 // ABOUTME: Validates signatures, parses payloads, and stores data in cache for provider access
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Terra webhook handler
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Analyzes individual activities for pace, power, heart rate patterns and training insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Activity analysis engine for detailed activity insights
 
 use super::{

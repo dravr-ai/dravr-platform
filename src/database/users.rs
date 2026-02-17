@@ -2,7 +2,7 @@
 // ABOUTME: Handles user registration, authentication, and profile management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use super::Database;
 use crate::database_plugins::shared;

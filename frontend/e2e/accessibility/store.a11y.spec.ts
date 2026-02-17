@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Accessibility tests for user-facing store pages focusing on color contrast and focus management.
 // ABOUTME: Tests coach marketplace, coach details, search, filtering, and pagination accessibility.

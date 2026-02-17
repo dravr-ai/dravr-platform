@@ -2,7 +2,7 @@
 // ABOUTME: Tracks training goals, milestones, progress metrics, and provides achievement insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Goal tracking and progress monitoring engine
 #![allow(clippy::cast_precision_loss)] // Safe: fitness data conversions
 #![allow(clippy::cast_possible_truncation)] // Safe: controlled ranges

@@ -2,7 +2,7 @@
 // ABOUTME: Validates 3-tier credential resolution and REST endpoint functionality
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # User OAuth App Tests
 //!

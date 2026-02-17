@@ -2,7 +2,7 @@
 // ABOUTME: Provides endpoints for trial key requests, API key status, and user API key management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! HTTP routes for API key management
 

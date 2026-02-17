@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Custom hook for handling message sending and streaming in chat
 // ABOUTME: Manages streaming state, error handling, OAuth URL detection, and message metadata

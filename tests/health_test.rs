@@ -2,7 +2,7 @@
 // ABOUTME: Validates health behavior, edge cases, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // Integration tests for health.rs module
 // Tests for health check functionality and system monitoring

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Modal displaying activity details with Share with Friends functionality
 // ABOUTME: Shows activity stats, AI insights, and allows coach-mediated sharing

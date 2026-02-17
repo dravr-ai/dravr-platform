@@ -2,7 +2,7 @@
 // ABOUTME: Handles secure storage, encryption, and retrieval of tenant-specific OAuth applications
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::config::environment::OAuthConfig;
 use crate::constants::rate_limits::{

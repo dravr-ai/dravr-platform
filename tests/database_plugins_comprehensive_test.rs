@@ -2,7 +2,7 @@
 // ABOUTME: Tests SQLite and PostgreSQL database providers with full CRUD operations
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 //! Comprehensive tests for database plugins
 //!
 //! This test suite covers the database plugin implementations

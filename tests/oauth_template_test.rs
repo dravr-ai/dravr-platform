@@ -2,7 +2,7 @@
 // ABOUTME: Validates template compilation, placeholder replacement, and HTML generation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Tests for OAuth template-based HTML rendering
 //!

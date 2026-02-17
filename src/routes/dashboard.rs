@@ -2,7 +2,7 @@
 // ABOUTME: Provides REST endpoints for viewing system status, usage analytics, and request logs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Dashboard routes for monitoring and analytics
 //!

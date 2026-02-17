@@ -2,7 +2,7 @@
 // ABOUTME: Orchestrates loading of all configuration modules from environment variables
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Environment-based configuration management for production deployment
 //!

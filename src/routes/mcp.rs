@@ -2,7 +2,7 @@
 // ABOUTME: Provides MCP protocol endpoints for tool discovery and execution
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! MCP protocol routes for AI assistant integration
 

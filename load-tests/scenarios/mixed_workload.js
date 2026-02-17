@@ -2,7 +2,7 @@
 // ABOUTME: Combines health checks, auth, and API calls with weighted distribution
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';

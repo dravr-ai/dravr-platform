@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
-<!-- Copyright (c) 2025 Pierre Fitness Intelligence -->
+<!-- Copyright (c) 2026 dravr.io -->
 
 # Installing Pierre MCP Client
 
@@ -30,7 +30,7 @@ Skip installation and use npx directly in your MCP client configuration.
 **Option C: Build from source**
 
 ```bash
-git clone https://github.com/Async-IO/pierre_mcp_server.git
+git clone https://github.com/dravr-ai/dravr-platform.git
 cd pierre_mcp_server/sdk
 npm install
 npm run build
@@ -540,8 +540,8 @@ For production deployments, always use HTTPS:
 
 ### Support Channels
 
-1. **GitHub Issues**: https://github.com/Async-IO/pierre_mcp_server/issues
-2. **Discussions**: https://github.com/Async-IO/pierre_mcp_server/discussions
+1. **GitHub Issues**: https://github.com/dravr-ai/dravr-platform/issues
+2. **Discussions**: https://github.com/dravr-ai/dravr-platform/discussions
 
 When reporting issues, include:
 - Operating system and version

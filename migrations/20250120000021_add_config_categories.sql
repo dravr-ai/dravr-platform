@@ -2,7 +2,7 @@
 -- ABOUTME: Enables 30 additional configuration parameters to appear in admin UI
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2025 Pierre Fitness Intelligence
+-- Copyright (c) 2026 dravr.io
 
 -- Add missing categories for new parameter definitions
 INSERT OR IGNORE INTO admin_config_categories (id, name, display_name, description, display_order, icon) VALUES

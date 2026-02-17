@@ -2,7 +2,7 @@
 // ABOUTME: Computes effective tool list combining global disabling, plan restrictions, and tenant overrides
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::config::ToolSelectionConfig;
 use crate::database_plugins::factory::Database;

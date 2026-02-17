@@ -2,7 +2,7 @@
 // ABOUTME: Heart rate zones, power zones, time series data, and segment efforts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Comprehensive response shape validation for ALL 47 MCP tools
 // ABOUTME: Ensures response formats are stable and match documented schemas

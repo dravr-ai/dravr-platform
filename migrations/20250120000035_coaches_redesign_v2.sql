@@ -2,7 +2,7 @@
 -- ABOUTME: Adds markdown-defined coach support with structured sections and relations.
 --
 -- SPDX-License-Identifier: MIT OR Apache-2.0
--- Copyright (c) 2025 Pierre Fitness Intelligence
+-- Copyright (c) 2026 dravr.io
 
 -- ============================================================================
 -- Add new columns to coaches table for markdown-defined coaches

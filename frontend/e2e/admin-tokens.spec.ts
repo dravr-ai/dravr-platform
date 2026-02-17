@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for API Key management features.
 // ABOUTME: Tests key listing, creation, revocation, rotation, and bulk operations.

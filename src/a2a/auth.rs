@@ -2,7 +2,7 @@
 // ABOUTME: Handles client ID/secret validation, session tokens, and A2A protocol security
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! A2A Authentication Implementation
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Provides centralized route definitions organized by domain with clean separation of concerns
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Route module for Pierre MCP Server
 //!

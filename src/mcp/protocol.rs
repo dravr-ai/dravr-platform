@@ -2,7 +2,7 @@
 // ABOUTME: Handles initialize, ping, tools/list, and authentication protocol messages
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! # MCP Protocol Handlers
 //!

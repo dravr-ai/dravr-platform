@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: Structured error types for Pierre MCP Client SDK
 // ABOUTME: Provides typed error codes and PierreError class for consistent error handling

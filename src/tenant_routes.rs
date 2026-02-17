@@ -2,7 +2,7 @@
 // ABOUTME: Handles tenant creation and listing with tenant-isolated authentication flows
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::{
     auth::AuthResult,

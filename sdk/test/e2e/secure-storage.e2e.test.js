@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // ABOUTME: E2E tests for secure credential storage module in the SDK.
 // ABOUTME: Tests store, retrieve, delete operations and security properties.

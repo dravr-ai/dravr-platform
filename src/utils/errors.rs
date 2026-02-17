@@ -2,7 +2,7 @@
 // ABOUTME: Provides helper functions and patterns for creating and handling errors consistently
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use std::fmt::{Debug, Display};
 use std::result::Result;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2025 Pierre Fitness Intelligence
+# Copyright (c) 2026 dravr.io
 # ABOUTME: Prepares a release by bumping versions in Cargo.toml and sdk/package.json.
 # ABOUTME: Creates a git commit and tag for the release.
 

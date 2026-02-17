@@ -2,7 +2,7 @@
 // ABOUTME: Provides thread-safe, efficient plugin management with Rust-idiomatic patterns
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Plugin info cloning for registry operations

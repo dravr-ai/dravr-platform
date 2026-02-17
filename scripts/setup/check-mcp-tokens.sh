@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Copyright (c) 2025 Pierre Fitness Intelligence
+# Copyright (c) 2026 dravr.io
 # ABOUTME: Checks if MCP tokens and Fougere/Copilot CLI are available.
 # ABOUTME: Outputs instructions for Claude to ask the user for missing credentials via AskUserQuestion.
 

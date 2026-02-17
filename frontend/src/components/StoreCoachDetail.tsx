@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Coach Store detail screen showing full coach info with install/uninstall actions
 // ABOUTME: Displays system prompt preview, sample prompts, tags, and install count

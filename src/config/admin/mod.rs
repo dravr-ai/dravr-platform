@@ -2,7 +2,7 @@
 // ABOUTME: Provides types, database operations, and service layer for runtime configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 //! Admin Configuration Management
 //!

@@ -2,7 +2,7 @@
 // ABOUTME: Implements Jack Daniels' VDOT methodology and Riegel's race time prediction formula
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2025 Pierre Fitness Intelligence
+// Copyright (c) 2026 dravr.io
 
 use crate::algorithms::VdotAlgorithm;
 use crate::errors::AppError;

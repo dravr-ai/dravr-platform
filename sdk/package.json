@@ -46,12 +46,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Async-IO/pierre_mcp_server.git",
+    "url": "https://github.com/dravr-ai/dravr-platform.git",
     "directory": "sdk"
   },
-  "homepage": "https://github.com/Async-IO/pierre_mcp_server/tree/main/sdk#readme",
+  "homepage": "https://github.com/dravr-ai/dravr-platform/tree/main/sdk#readme",
   "bugs": {
-    "url": "https://github.com/Async-IO/pierre_mcp_server/issues"
+    "url": "https://github.com/dravr-ai/dravr-platform/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
