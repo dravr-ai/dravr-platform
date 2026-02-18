@@ -36,6 +36,7 @@ const CoachLibraryTab = lazy(() => import('./CoachLibraryTab'));
 const StoreScreen = lazy(() => import('./StoreScreen'));
 const FriendsTab = lazy(() => import('./social/FriendsTab'));
 const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
+const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
 
 // Tab definition type with optional badge for notification counts
 interface TabDefinition {
@@ -411,9 +412,14 @@ export default function Dashboard() {
           </Suspense>
         )}
         {activeTab === 'analytics' && (
-          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <UsageAnalytics />
-          </Suspense>
+          <div className="space-y-6">
+            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+              <UsageAnalytics />
+            </Suspense>
+            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+              <LlmConsumptionPanel />
+            </Suspense>
+          </div>
         )}
         {activeTab === 'monitor' && (
           <div className="space-y-6">

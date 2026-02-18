@@ -92,6 +92,8 @@ const SERVER_CATEGORIES = new Set([
   'provider_garmin',
   'mcp_network',
   'monitoring',
+  'usage_quotas',
+  'llm_pricing',
 ]);
 
 const INTELLIGENCE_CATEGORIES = new Set([
@@ -118,6 +120,7 @@ export default function AdminConfiguration() {
   const [resetTarget, setResetTarget] = useState<{ category?: string; key?: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedEnvVar, setCopiedEnvVar] = useState<string | null>(null);
+  const [tenantIdOverride, setTenantIdOverride] = useState('');
 
   // Handle copy to clipboard with feedback
   const handleCopyEnvVar = useCallback(async (envVar: string) => {
@@ -128,10 +131,12 @@ export default function AdminConfiguration() {
     }
   }, []);
 
-  // Fetch configuration catalog
+  const effectiveTenantId = tenantIdOverride.trim() || undefined;
+
+  // Fetch configuration catalog (with optional tenant override)
   const { data: catalogData, isLoading, error } = useQuery({
-    queryKey: QUERY_KEYS.adminConfig.catalog(),
-    queryFn: () => adminApi.getConfigCatalog(),
+    queryKey: [...QUERY_KEYS.adminConfig.catalog(), effectiveTenantId],
+    queryFn: () => adminApi.getConfigCatalog(effectiveTenantId),
     retry: 1,
   });
 
@@ -142,10 +147,10 @@ export default function AdminConfiguration() {
     enabled: activeTab === 'history',
   });
 
-  // Update configuration mutation
+  // Update configuration mutation (passes tenant override when set)
   const updateMutation = useMutation({
     mutationFn: ({ parameters, reason }: { parameters: Record<string, unknown>; reason?: string }) =>
-      adminApi.updateConfig({ parameters, reason }),
+      adminApi.updateConfig({ parameters, reason }, effectiveTenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminConfig.catalog() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminConfig.audit() });
@@ -155,10 +160,10 @@ export default function AdminConfiguration() {
     },
   });
 
-  // Reset configuration mutation
+  // Reset configuration mutation (passes tenant override when set)
   const resetMutation = useMutation({
     mutationFn: ({ category, keys }: { category?: string; keys?: string[] }) =>
-      adminApi.resetConfig({ category, parameters: keys }),
+      adminApi.resetConfig({ category, parameters: keys }, effectiveTenantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminConfig.catalog() });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminConfig.audit() });
@@ -422,6 +427,43 @@ export default function AdminConfiguration() {
 
       {activeTab === 'parameters' ? (
         <>
+          {/* Tenant override selector + Search input */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <label htmlFor="tenant-override" className="text-sm text-zinc-400 whitespace-nowrap">
+                Tenant Override
+              </label>
+              <Input
+                id="tenant-override"
+                type="text"
+                placeholder="Default (global)"
+                value={tenantIdOverride}
+                onChange={(e) => {
+                  setTenantIdOverride(e.target.value);
+                  setPendingChanges({});
+                }}
+                className="w-48"
+              />
+              {tenantIdOverride && (
+                <button
+                  aria-label="Clear tenant override"
+                  onClick={() => {
+                    setTenantIdOverride('');
+                    setPendingChanges({});
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+              {tenantIdOverride && (
+                <Badge variant="info">Per-tenant</Badge>
+              )}
+            </div>
+          </div>
+
           {/* Search input */}
           <div className="relative">
             <Input
