@@ -60,6 +60,22 @@ async fn call_tool_raw_response(
         .await
 }
 
+/// Make a `get_activities` call with a specific mode (summary or detailed)
+async fn call_get_activities_with_mode(
+    client: &McpTestClient,
+    mode: &str,
+) -> Result<serde_json::Value> {
+    client
+        .send_request_raw(
+            "tools/call",
+            Some(json!({
+                "name": "get_activities",
+                "arguments": { "provider": "synthetic", "limit": 1, "mode": mode }
+            })),
+        )
+        .await
+}
+
 // ============================================================================
 // ASY-588: Counter increment tests
 // ============================================================================
@@ -419,5 +435,199 @@ async fn test_quota_error_response_format() -> Result<()> {
     );
 
     println!("test_quota_error_response_format passed");
+    Ok(())
+}
+
+// ============================================================================
+// Activity access quota tests (DRAVR-428)
+// ============================================================================
+
+/// Verify that a summary mode `get_activities` increments `daily_activity_summary` counter
+#[tokio::test]
+async fn test_activity_summary_increments_counter() -> Result<()> {
+    let (server, client, tenant_id, user_id) =
+        setup_quota_test("activity-summary@test.local").await?;
+
+    // Counter should start at zero
+    let before = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_summary",
+            &current_daily_period(),
+        )
+        .await?;
+    assert_eq!(before.value, 0, "Summary counter should start at zero");
+
+    // Call get_activities in summary mode (default)
+    let response = call_get_activities_with_mode(&client, "summary").await?;
+    assert!(
+        response.get("result").is_some(),
+        "Summary tool call should succeed: {response}"
+    );
+
+    // Daily summary counter should be incremented
+    let after = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_summary",
+            &current_daily_period(),
+        )
+        .await?;
+    assert_eq!(after.value, 1, "Daily activity summary counter should be 1");
+
+    // Weekly summary counter should also be incremented
+    let weekly = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "weekly_activity_summary",
+            &current_weekly_period(),
+        )
+        .await?;
+    assert_eq!(
+        weekly.value, 1,
+        "Weekly activity summary counter should be 1"
+    );
+
+    // Detailed counters should remain at zero
+    let detailed_daily = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_detailed",
+            &current_daily_period(),
+        )
+        .await?;
+    assert_eq!(
+        detailed_daily.value, 0,
+        "Detailed counter should not increment for summary mode"
+    );
+
+    println!("test_activity_summary_increments_counter passed");
+    Ok(())
+}
+
+/// Verify that a detailed mode `get_activities` increments `daily_activity_detailed` counter
+#[tokio::test]
+async fn test_activity_detailed_increments_counter() -> Result<()> {
+    let (server, client, tenant_id, user_id) =
+        setup_quota_test("activity-detailed@test.local").await?;
+
+    // Call get_activities in detailed mode
+    let response = call_get_activities_with_mode(&client, "detailed").await?;
+    assert!(
+        response.get("result").is_some(),
+        "Detailed tool call should succeed: {response}"
+    );
+
+    // Daily detailed counter should be incremented
+    let detailed_daily = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_detailed",
+            &current_daily_period(),
+        )
+        .await?;
+    assert_eq!(
+        detailed_daily.value, 1,
+        "Daily activity detailed counter should be 1"
+    );
+
+    // Weekly detailed counter should also be incremented
+    let detailed_weekly = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "weekly_activity_detailed",
+            &current_weekly_period(),
+        )
+        .await?;
+    assert_eq!(
+        detailed_weekly.value, 1,
+        "Weekly activity detailed counter should be 1"
+    );
+
+    // Summary counters should remain at zero
+    let summary_daily = server
+        .resources()
+        .database
+        .get_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_summary",
+            &current_daily_period(),
+        )
+        .await?;
+    assert_eq!(
+        summary_daily.value, 0,
+        "Summary counter should not increment for detailed mode"
+    );
+
+    println!("test_activity_detailed_increments_counter passed");
+    Ok(())
+}
+
+/// Verify that exceeding the daily detailed activity limit blocks the request
+#[tokio::test]
+async fn test_activity_detailed_blocked_at_daily_limit() -> Result<()> {
+    let (server, client, tenant_id, user_id) =
+        setup_quota_test("activity-block@test.local").await?;
+
+    // Default daily_activity_detailed limit is 20, burst 1.5x = 30 hard limit.
+    // Pre-seed counter to 30 so next check returns allowed=false.
+    server
+        .resources()
+        .database
+        .increment_counter(
+            &tenant_id,
+            &user_id,
+            "daily_activity_detailed",
+            &current_daily_period(),
+            30,
+        )
+        .await?;
+
+    // Detailed request should be blocked
+    let response = call_get_activities_with_mode(&client, "detailed").await?;
+    let error = response
+        .get("error")
+        .expect("Detailed call should be blocked");
+    assert_eq!(
+        error.get("code").and_then(|c| c.as_i64()),
+        Some(-32029),
+        "Error code should be -32029 (rate limit exceeded)"
+    );
+    assert_eq!(
+        error
+            .get("data")
+            .and_then(|d| d.get("limit_type"))
+            .and_then(|l| l.as_str()),
+        Some("daily_activity_detailed"),
+        "Error should reference the activity detailed limit"
+    );
+
+    // Summary mode should still work (different counter)
+    let summary_response = call_get_activities_with_mode(&client, "summary").await?;
+    assert!(
+        summary_response.get("result").is_some(),
+        "Summary call should succeed even when detailed is blocked: {summary_response}"
+    );
+
+    println!("test_activity_detailed_blocked_at_daily_limit passed");
     Ok(())
 }

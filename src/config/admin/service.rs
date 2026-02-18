@@ -1750,6 +1750,103 @@ impl AdminConfigService {
             },
         );
 
+        // Activity access quotas — separate limits for summary vs detailed mode
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.daily_activity_summary_limit".to_owned(),
+                display_name: "Daily Activity Summary Limit".to_owned(),
+                description: "Maximum activity summary requests per coach per day".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(100),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(10),
+                    max: serde_json::json!(1000),
+                    step: Some(10.0),
+                }),
+                enum_options: None,
+                units: Some("requests/day".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.weekly_activity_summary_limit".to_owned(),
+                display_name: "Weekly Activity Summary Limit".to_owned(),
+                description: "Maximum activity summary requests per coach per week".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(500),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(50),
+                    max: serde_json::json!(5000),
+                    step: Some(50.0),
+                }),
+                enum_options: None,
+                units: Some("requests/week".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.daily_activity_detailed_limit".to_owned(),
+                display_name: "Daily Activity Detailed Limit".to_owned(),
+                description:
+                    "Maximum detailed activity requests per coach per day (higher token cost)"
+                        .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(20),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(5),
+                    max: serde_json::json!(500),
+                    step: Some(5.0),
+                }),
+                enum_options: None,
+                units: Some("requests/day".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.weekly_activity_detailed_limit".to_owned(),
+                display_name: "Weekly Activity Detailed Limit".to_owned(),
+                description:
+                    "Maximum detailed activity requests per coach per week (higher token cost)"
+                        .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(100),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(25),
+                    max: serde_json::json!(2500),
+                    step: Some(25.0),
+                }),
+                enum_options: None,
+                units: Some("requests/week".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
         // ====================================================================
         // LLM Pricing Parameters
         // ====================================================================

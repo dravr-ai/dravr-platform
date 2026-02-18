@@ -16,7 +16,7 @@ use crate::constants::{
         ERROR_UNAUTHORIZED, MSG_TOKEN_EXPIRED, MSG_TOKEN_INVALID, MSG_TOKEN_MALFORMED,
     },
     protocol::JSONRPC_VERSION,
-    tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_CONNECTION_STATUS},
+    tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
 };
 use crate::database::llm_usage::InsertLlmUsage;
 use crate::database_plugins::factory::Database;
@@ -328,6 +328,20 @@ impl ToolHandlers {
             return error_response;
         }
 
+        // Activity-specific quota check (separate from general tool_calls budget)
+        if let Some(error_response) = Self::check_activity_quota(
+            resources,
+            &tenant_context,
+            &auth_result,
+            tool_name,
+            args,
+            request.id.clone(),
+        )
+        .await
+        {
+            return error_response;
+        }
+
         let start_time = Instant::now();
 
         info!(
@@ -390,6 +404,11 @@ impl ToolHandlers {
                 duration_ms,
             )
             .await;
+
+            // Increment activity-specific counters after successful get_activities
+            if tool_name == GET_ACTIVITIES {
+                Self::increment_activity_counters(resources, &tenant_context, user_id, args).await;
+            }
         } else {
             warn!(
                 "Tool call failed: {} for user: {} in {}ms - {:?}",
@@ -615,6 +634,111 @@ impl ToolHandlers {
                 "resets_at": resets_at,
             }),
         )
+    }
+
+    /// Determine the activity mode from tool call arguments
+    ///
+    /// Reads the `mode` parameter from the `get_activities` args.
+    /// Returns `"summary"` (default) or `"detailed"`.
+    fn activity_mode_from_args(args: &Value) -> &str {
+        args.get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("summary")
+    }
+
+    /// Check activity access quotas for `get_activities` calls
+    ///
+    /// Applies separate quota counters based on activity mode (summary vs detailed).
+    /// Detailed mode has lower limits because it consumes more tokens (~1350 vs ~135).
+    /// Returns `Some(McpResponse)` if any activity quota is exceeded, `None` if allowed.
+    async fn check_activity_quota(
+        resources: &Arc<ServerResources>,
+        tenant_context: &TenantContext,
+        auth_result: &AuthResult,
+        tool_name: &str,
+        args: &Value,
+        request_id: Option<Value>,
+    ) -> Option<McpResponse> {
+        if tool_name != GET_ACTIVITIES {
+            return None;
+        }
+
+        let Some(ref admin_config) = resources.admin_config else {
+            debug!("Admin config not available, skipping activity quota check");
+            return None;
+        };
+
+        let tenant_id_str = tenant_context.tenant_id.to_string();
+        let user_id_str = auth_result.user_id.to_string();
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+
+        let mode = Self::activity_mode_from_args(args);
+        let counter_types = if mode == "detailed" {
+            &["daily_activity_detailed", "weekly_activity_detailed"][..]
+        } else {
+            &["daily_activity_summary", "weekly_activity_summary"][..]
+        };
+
+        for counter_type in counter_types {
+            if let Some(response) = Self::check_single_quota(
+                &usage_svc,
+                &tenant_id_str,
+                &user_id_str,
+                counter_type,
+                request_id.clone(),
+            )
+            .await
+            {
+                return Some(response);
+            }
+        }
+
+        None
+    }
+
+    /// Increment activity-specific counters after a successful `get_activities` call
+    ///
+    /// Uses the mode parameter to determine which counters to increment
+    /// (summary vs detailed). Fire-and-forget: errors are logged but not propagated.
+    async fn increment_activity_counters(
+        resources: &Arc<ServerResources>,
+        tenant_context: &TenantContext,
+        user_id: Uuid,
+        args: &Value,
+    ) {
+        let Some(ref admin_config) = resources.admin_config else {
+            return;
+        };
+
+        let tenant_id_str = tenant_context.tenant_id.to_string();
+        let user_id_str = user_id.to_string();
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+
+        let mode = Self::activity_mode_from_args(args);
+        let counter_types = if mode == "detailed" {
+            &["daily_activity_detailed", "weekly_activity_detailed"][..]
+        } else {
+            &["daily_activity_summary", "weekly_activity_summary"][..]
+        };
+
+        for counter_type in counter_types {
+            if let Err(e) = usage_svc
+                .increment(&tenant_id_str, &user_id_str, counter_type, 1)
+                .await
+            {
+                warn!(
+                    counter_type,
+                    mode, "Failed to increment activity counter: {e}"
+                );
+            }
+        }
+
+        debug!(
+            mode,
+            tenant_id = %tenant_id_str,
+            user_id = %user_id_str,
+            "Activity access counters incremented"
+        );
     }
 
     /// Build a `ToolExecutionContext` from MCP routing context

@@ -204,6 +204,10 @@ fn counter_type_to_config_key(counter_type: &str) -> String {
         "weekly_tool_calls" => "weekly_tool_call_limit",
         "daily_tokens" => "daily_token_budget",
         "weekly_tokens" => "weekly_token_budget",
+        "daily_activity_summary" => "daily_activity_summary_limit",
+        "weekly_activity_summary" => "weekly_activity_summary_limit",
+        "daily_activity_detailed" => "daily_activity_detailed_limit",
+        "weekly_activity_detailed" => "weekly_activity_detailed_limit",
         other => other,
     };
     format!("usage_quotas.{param}")
@@ -214,10 +218,12 @@ fn default_limit(counter_type: &str) -> i64 {
     match counter_type {
         "daily_messages" => 50,
         "weekly_messages" => 250,
-        "weekly_tool_calls" => 500,
+        "weekly_tool_calls" | "weekly_activity_summary" => 500,
         "daily_tokens" => 500_000,
         "weekly_tokens" => 2_000_000,
-        // daily_tool_calls and unrecognized counter types default to 100
+        "daily_activity_detailed" => 20,
+        // daily_tool_calls, daily_activity_summary, weekly_activity_detailed,
+        // and unrecognized counter types default to 100
         _ => 100,
     }
 }
