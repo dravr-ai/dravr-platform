@@ -150,9 +150,9 @@ echo "    Database cleared"
 # Step 3: Build binaries
 print_step 3 "Building server binaries ($BUILD_MODE mode)..."
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities --bin seed-llm-usage 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities --bin seed-llm-usage 2>&1 | tail -3
 fi
 echo "    Build complete"
 
@@ -192,6 +192,10 @@ if [ "$SKIP_SYNTHETIC" != "true" ]; then
 else
     echo "    Skipping synthetic activities (--no-synthetic)"
 fi
+
+# Seed LLM usage data for consumption analytics dashboard
+echo "    Seeding LLM usage data (30 days)..."
+./target/$TARGET_DIR/seed-llm-usage --admin-email "$ADMIN_EMAIL" --days 30 2>&1 | tail -3
 
 echo "    All seeders complete"
 
