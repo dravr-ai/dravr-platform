@@ -337,8 +337,20 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
 ### Before Pushing
 
 1. Run `./scripts/ci/pre-push-validate.sh` to create the validation marker
-2. Check CI: `gh run list --branch main` to avoid queueing redundant workflows
-3. After push: `gh run watch` to monitor for CI failures
+2. Check CI status to avoid queueing redundant workflows (see "CI Monitoring" below)
+3. After push: monitor CI for failures (see "CI Monitoring" below)
+
+### CI Monitoring
+
+Use the first available method. **NEVER ask the user for a GitHub token** — fall back instead.
+
+| Priority | Method | When to use |
+|----------|--------|-------------|
+| 1 | `gh run list --branch main` / `gh run watch` | `gh` CLI is installed and authenticated (session hook says `CI_MONITORING=gh`) |
+| 2 | GitHub MCP tools (`mcp__github__*`) | `gh` unavailable but GitHub MCP server is configured |
+| 3 | WebFetch | Neither `gh` nor GitHub MCP is available — fetch `https://github.com/dravr-ai/dravr-platform/actions` |
+
+The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` to tell you which path to take.
 
 # Writing code
 

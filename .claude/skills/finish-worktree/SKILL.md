@@ -34,10 +34,10 @@ This script:
 4. Pushes with `--force-with-lease`
 
 ### Step 2: Monitor CI
-Check GitHub Actions:
-```
-https://github.com/dravr-ai/dravr-platform/actions
-```
+Use the first available method (**never ask for a GitHub token**):
+1. `gh run list --branch <branch>` / `gh run watch` — if gh CLI is authenticated
+2. GitHub MCP tools (`mcp__github__*`) — if MCP server is configured
+3. WebFetch `https://github.com/dravr-ai/dravr-platform/actions` — always available
 
 Wait for all checks to pass (green).
 
