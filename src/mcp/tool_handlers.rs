@@ -11,17 +11,19 @@ use crate::auth::AuthMethod as AuthResultMethod;
 use crate::auth::AuthResult;
 use crate::constants::{
     errors::{
-        ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND, ERROR_TOKEN_EXPIRED,
-        ERROR_TOKEN_INVALID, ERROR_TOKEN_MALFORMED, ERROR_UNAUTHORIZED, MSG_TOKEN_EXPIRED,
-        MSG_TOKEN_INVALID, MSG_TOKEN_MALFORMED,
+        ERROR_INTERNAL_ERROR, ERROR_INVALID_PARAMS, ERROR_METHOD_NOT_FOUND,
+        ERROR_RATE_LIMIT_EXCEEDED, ERROR_TOKEN_EXPIRED, ERROR_TOKEN_INVALID, ERROR_TOKEN_MALFORMED,
+        ERROR_UNAUTHORIZED, MSG_TOKEN_EXPIRED, MSG_TOKEN_INVALID, MSG_TOKEN_MALFORMED,
     },
     protocol::JSONRPC_VERSION,
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_CONNECTION_STATUS},
 };
+use crate::database::llm_usage::InsertLlmUsage;
 use crate::database_plugins::factory::Database;
 use crate::database_plugins::DatabaseProvider;
 use crate::errors::{AppError, ErrorCode};
 use crate::models::{OAuthNotification, TenantId};
+use crate::services::usage_counter::UsageCounterService;
 use crate::tenant::TenantContext;
 use crate::tools::context::{AuthMethod, ToolExecutionContext};
 use crate::tools::result::ToolResult;
@@ -185,6 +187,18 @@ impl ToolHandlers {
 
                 // Record tenant context in span now that we have it
                 tracing::Span::current().record("tenant_id", tenant_context.tenant_id.to_string());
+
+                // Pre-execution quota check: shared budget with chat route
+                if let Some(quota_error) = Self::check_tool_quota(
+                    resources,
+                    &tenant_context,
+                    &auth_result,
+                    request.id.clone(),
+                )
+                .await
+                {
+                    return quota_error;
+                }
 
                 // Use the provided ServerResources directly
                 Self::handle_tool_execution_direct(request, auth_result, tenant_context, resources)
@@ -366,6 +380,16 @@ impl ToolHandlers {
                 "Tool call completed successfully: {} for user: {} in {}ms",
                 tool_name, user_id, duration_ms
             );
+
+            // Fire-and-forget: increment usage counters and record llm_usage
+            Self::record_mcp_tool_usage(
+                resources,
+                &tenant_context,
+                user_id,
+                tool_name,
+                duration_ms,
+            )
+            .await;
         } else {
             warn!(
                 "Tool call failed: {} for user: {} in {}ms - {:?}",
@@ -399,6 +423,196 @@ impl ToolHandlers {
             serde_json::json!({
                 "detailed_error": error_message,
                 "authentication_failed": true
+            }),
+        )
+    }
+
+    /// Increment usage counters and record `llm_usage` after a successful MCP tool call
+    ///
+    /// Increments `daily_tool_calls` and `weekly_tool_calls` counters (shared budget
+    /// with chat route), and inserts an `llm_usage` record with `call_type = "mcp_tool"`
+    /// for analytics. Errors are logged but never propagated to avoid failing the
+    /// tool response.
+    async fn record_mcp_tool_usage(
+        resources: &Arc<ServerResources>,
+        tenant_context: &TenantContext,
+        user_id: Uuid,
+        tool_name: &str,
+        duration_ms: u64,
+    ) {
+        let tenant_id_str = tenant_context.tenant_id.to_string();
+        let user_id_str = user_id.to_string();
+
+        Self::increment_tool_counters(resources, &tenant_id_str, &user_id_str, tool_name).await;
+        Self::insert_tool_llm_usage(
+            resources,
+            &tenant_id_str,
+            &user_id_str,
+            tool_name,
+            duration_ms,
+        )
+        .await;
+    }
+
+    /// Increment shared daily/weekly tool call counters (fire-and-forget)
+    async fn increment_tool_counters(
+        resources: &Arc<ServerResources>,
+        tenant_id: &str,
+        user_id: &str,
+        tool_name: &str,
+    ) {
+        let Some(ref admin_config) = resources.admin_config else {
+            return;
+        };
+
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
+            if let Err(e) = usage_svc
+                .increment(tenant_id, user_id, counter_type, 1)
+                .await
+            {
+                warn!(
+                    tool_name,
+                    counter_type, "Failed to increment MCP tool counter: {e}"
+                );
+            }
+        }
+
+        debug!(
+            tool_name,
+            tenant_id, user_id, "MCP tool call counters incremented"
+        );
+    }
+
+    /// Record MCP tool execution in `llm_usage` table for analytics (fire-and-forget)
+    async fn insert_tool_llm_usage(
+        resources: &Arc<ServerResources>,
+        tenant_id: &str,
+        user_id: &str,
+        tool_name: &str,
+        duration_ms: u64,
+    ) {
+        #[allow(clippy::cast_possible_wrap)]
+        let exec_time_ms = duration_ms as i64;
+
+        if let Err(e) = resources
+            .database
+            .insert_llm_usage(&InsertLlmUsage {
+                tenant_id,
+                user_id,
+                conversation_id: None,
+                provider: "direct",
+                // model column stores the tool name for mcp_tool call_type
+                // (no LLM model involved in direct tool execution)
+                model: tool_name,
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+                call_type: "mcp_tool",
+                tool_calls_count: 1,
+                execution_time_ms: Some(exec_time_ms),
+            })
+            .await
+        {
+            warn!(
+                tool_name,
+                "Failed to record MCP tool usage in llm_usage: {e}"
+            );
+        }
+    }
+
+    /// Check daily and weekly tool call quotas before executing a tool
+    ///
+    /// Returns `Some(McpResponse)` with a JSON-RPC error if any quota is exceeded,
+    /// or `None` if execution is allowed. Uses the same `daily_tool_calls` and
+    /// `weekly_tool_calls` counters as the chat route for shared budget enforcement.
+    async fn check_tool_quota(
+        resources: &Arc<ServerResources>,
+        tenant_context: &TenantContext,
+        auth_result: &AuthResult,
+        request_id: Option<Value>,
+    ) -> Option<McpResponse> {
+        let Some(ref admin_config) = resources.admin_config else {
+            debug!("Admin config not available, skipping MCP tool quota check");
+            return None;
+        };
+
+        let tenant_id_str = tenant_context.tenant_id.to_string();
+        let user_id_str = auth_result.user_id.to_string();
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+
+        // Check daily, then weekly quota
+        for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
+            if let Some(response) = Self::check_single_quota(
+                &usage_svc,
+                &tenant_id_str,
+                &user_id_str,
+                counter_type,
+                request_id.clone(),
+            )
+            .await
+            {
+                return Some(response);
+            }
+        }
+
+        None
+    }
+
+    /// Check a single quota counter and return an error response if exceeded
+    async fn check_single_quota(
+        usage_svc: &UsageCounterService<'_>,
+        tenant_id: &str,
+        user_id: &str,
+        counter_type: &str,
+        request_id: Option<Value>,
+    ) -> Option<McpResponse> {
+        match usage_svc
+            .check_limit(tenant_id, user_id, counter_type)
+            .await
+        {
+            Ok(check) if !check.allowed => {
+                warn!(
+                    tenant_id,
+                    user_id,
+                    current = check.current,
+                    limit = check.limit,
+                    counter_type,
+                    "Tool call quota exceeded"
+                );
+                Some(Self::build_rate_limit_error(
+                    request_id,
+                    counter_type,
+                    check.current,
+                    check.limit,
+                    &check.resets_at,
+                ))
+            }
+            Err(e) => {
+                warn!(counter_type, "Failed to check tool call quota: {e}");
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Build a JSON-RPC error response for rate limit exceeded
+    fn build_rate_limit_error(
+        request_id: Option<Value>,
+        limit_type: &str,
+        current: i64,
+        limit: i64,
+        resets_at: &str,
+    ) -> McpResponse {
+        McpResponse::error_with_data(
+            request_id,
+            ERROR_RATE_LIMIT_EXCEEDED,
+            "Rate limit exceeded".to_owned(),
+            json!({
+                "limit_type": limit_type,
+                "current": current,
+                "limit": limit,
+                "resets_at": resets_at,
             }),
         )
     }

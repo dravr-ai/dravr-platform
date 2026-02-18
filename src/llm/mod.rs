@@ -38,6 +38,7 @@
 mod gemini;
 mod groq;
 mod openai_compatible;
+pub mod pricing;
 pub mod prompts;
 mod provider;
 pub mod sse_parser;

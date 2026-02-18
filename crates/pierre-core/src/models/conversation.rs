@@ -40,8 +40,12 @@ pub struct MessageRecord {
     pub role: String,
     /// Message content
     pub content: String,
-    /// Token count for this message
+    /// Token count for this message (completion tokens for assistant messages)
     pub token_count: Option<i64>,
+    /// Prompt tokens used to generate this message
+    pub prompt_tokens: Option<i64>,
+    /// LLM model used to generate this message
+    pub model: Option<String>,
     /// Finish reason for assistant messages
     pub finish_reason: Option<String>,
     /// When the message was created (ISO 8601)

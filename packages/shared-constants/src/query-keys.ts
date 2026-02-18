@@ -180,6 +180,13 @@ export const QUERY_KEYS = {
     settings: () => ['social-settings'] as const,
   },
 
+  // ==================== USAGE QUOTAS ====================
+  usage: {
+    all: ['usage'] as const,
+    status: () => ['usage-status'] as const,
+    llmConsumption: (days?: number) => ['llm-consumption', days] as const,
+  },
+
   // ==================== PROMPTS ====================
   prompts: {
     all: ['prompts'] as const,

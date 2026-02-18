@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::LlmProviderType;
+use crate::database::chat::AddMessageParams;
 use crate::database::repositories::ChatRepository;
 use crate::database::{ConversationRecord, MessageRecord};
 use crate::database_plugins::factory::Database;
@@ -83,9 +84,17 @@ pub async fn persist_user_message(
         .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
     // Persist user message before LLM dispatch
-    let message = database
-        .add_message(conversation_id, user_id, "user", content, None, None)
-        .await?;
+    let user_msg_params = AddMessageParams {
+        conversation_id,
+        user_id,
+        role: "user",
+        content,
+        token_count: None,
+        finish_reason: None,
+        prompt_tokens: None,
+        model: None,
+    };
+    let message = database.add_message(&user_msg_params).await?;
 
     Ok(UserMessageResult {
         message,
@@ -122,26 +131,13 @@ pub async fn get_conversation_history(
 /// Returns database errors on message persistence failure.
 pub async fn persist_assistant_response(
     database: &Database,
-    conversation_id: &str,
-    user_id: &str,
+    params: &AddMessageParams<'_>,
     tenant_id: TenantId,
-    content: &str,
-    token_count: Option<u32>,
-    finish_reason: Option<&str>,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
-    let message = database
-        .add_message(
-            conversation_id,
-            user_id,
-            "assistant",
-            content,
-            token_count,
-            finish_reason,
-        )
-        .await?;
+    let message = database.add_message(params).await?;
 
     let conversation = database
-        .get_conversation(conversation_id, user_id, tenant_id)
+        .get_conversation(params.conversation_id, params.user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::internal("Failed to get updated conversation"))?;
 

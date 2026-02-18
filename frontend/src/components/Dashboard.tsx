@@ -9,12 +9,14 @@ import { useAuth } from '../hooks/useAuth';
 import type { AdminToken } from '../types/api';
 import { Card } from './ui';
 import { clsx } from 'clsx';
+// Explicit /index path avoids macOS case-insensitive collision between
+// Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
   OverviewPanel,
   ConversationsPanel,
   usePendingUsersCount,
   useStoreStatsPendingCount,
-} from './dashboard';
+} from './dashboard/index';
 
 // Lazy load heavy components to reduce initial bundle size
 const UsageAnalytics = lazy(() => import('./UsageAnalytics'));

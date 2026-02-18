@@ -13,8 +13,10 @@ use crate::models::ConnectionType;
 use crate::models::TenantId;
 use crate::{
     auth::AuthResult,
-    database::repositories::{ChatRepository, ProviderConnectionRepository, TenantRepository},
-    database::{ConversationRecord, MessageRecord},
+    database::repositories::{
+        ChatRepository, LlmUsageRepository, ProviderConnectionRepository, TenantRepository,
+    },
+    database::{llm_usage::InsertLlmUsage, AddMessageParams, ConversationRecord, MessageRecord},
     errors::AppError,
     llm::{
         get_insight_generation_prompt, get_pierre_system_prompt, ChatMessage, ChatProvider,
@@ -23,30 +25,44 @@ use crate::{
     mcp::resources::ServerResources,
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
     security::cookies::get_cookie_value,
-    services::chat_orchestration,
+    services::{
+        chat_orchestration,
+        usage_counter::{LimitCheckResult, UsageCounterService},
+    },
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt::Write, sync::Arc, time::Instant};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-/// Maximum number of tool call iterations before forcing a text response
-const MAX_TOOL_ITERATIONS: usize = 10;
+/// Default maximum number of tool call iterations before forcing a text response
+const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
 
 /// Prefix used to detect insight generation requests from the frontend.
 /// Must match the `INSIGHT_PROMPT_PREFIX` constant in `@pierre/chat-utils`.
 const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from this analysis";
+
+/// Parameters for the multi-turn tool execution loop
+struct ToolLoopParams<'a> {
+    provider: &'a ChatProvider,
+    executor: &'a UniversalExecutor,
+    tools: &'a Tool,
+    model: &'a str,
+    user_id: &'a str,
+    tenant_id: TenantId,
+    max_iterations: usize,
+}
 
 // ============================================================================
 // Helper Functions
@@ -139,6 +155,32 @@ struct ToolLoopResult {
     finish_reason: Option<String>,
     /// Activity list from `get_activities` tool (to prepend to response)
     activity_list: Option<String>,
+    /// Total tool calls executed across all iterations
+    tool_calls_count: u32,
+}
+
+/// Parameters for recording LLM usage after a chat completion
+struct RecordLlmUsageParams<'a> {
+    /// Tenant this usage belongs to
+    tenant_id: TenantId,
+    /// User who initiated the request
+    user_id: &'a str,
+    /// Conversation this message belongs to
+    conversation_id: &'a str,
+    /// LLM provider used for this completion
+    provider: &'a ChatProvider,
+    /// Model identifier used for this completion
+    model: &'a str,
+    /// Number of prompt tokens consumed
+    prompt_tokens: Option<u32>,
+    /// Number of completion tokens generated
+    completion_tokens: Option<u32>,
+    /// Number of tool calls executed
+    tool_calls_count: u32,
+    /// Total wall-clock time for the LLM interaction in milliseconds
+    execution_time_ms: u64,
+    /// Whether this was an insight generation request vs a regular chat
+    is_insight_request: bool,
 }
 
 // ============================================================================
@@ -680,21 +722,18 @@ impl ChatRoutes {
     ///
     /// Returns error if LLM call fails or tool execution fails.
     async fn run_tool_loop(
-        provider: &ChatProvider,
-        executor: &UniversalExecutor,
+        params: &ToolLoopParams<'_>,
         llm_messages: &mut Vec<ChatMessage>,
-        tools: &Tool,
-        model: &str,
-        user_id: &str,
-        tenant_id: TenantId,
     ) -> Result<ToolLoopResult, AppError> {
         // Track activity list across iterations (to prepend to final response)
         let mut captured_activity_list: Option<String> = None;
+        let mut tool_calls_count: u32 = 0;
 
-        for iteration in 0..MAX_TOOL_ITERATIONS {
-            let llm_request = ChatRequest::new(llm_messages.clone()).with_model(model);
-            let response = provider
-                .complete_with_tools(&llm_request, Some(vec![tools.clone()]))
+        for iteration in 0..params.max_iterations {
+            let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+            let response = params
+                .provider
+                .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
                 .await?;
 
             // Check for function calls
@@ -706,9 +745,18 @@ impl ChatRoutes {
                         function_calls.len()
                     );
 
-                    let function_responses =
-                        Self::execute_function_calls(executor, function_calls, user_id, tenant_id)
-                            .await?;
+                    let function_responses = Self::execute_function_calls(
+                        params.executor,
+                        function_calls,
+                        params.user_id,
+                        params.tenant_id,
+                    )
+                    .await?;
+
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        tool_calls_count += function_calls.len() as u32;
+                    }
 
                     // Add assistant's text to messages if present (strip synthetic function syntax)
                     if let Some(ref text) = response.content {
@@ -738,6 +786,7 @@ impl ChatRoutes {
                 usage: response.usage,
                 finish_reason: response.finish_reason,
                 activity_list: captured_activity_list,
+                tool_calls_count,
             });
         }
 
@@ -747,6 +796,7 @@ impl ChatRoutes {
             usage: None,
             finish_reason: Some("max_iterations".to_owned()),
             activity_list: captured_activity_list,
+            tool_calls_count,
         })
     }
 
@@ -757,12 +807,29 @@ impl ChatRoutes {
         user_id: &str,
         tenant_id: TenantId,
     ) -> Result<Vec<FunctionResponse>, AppError> {
+        use crate::formatters::TokenEfficiencyMetrics;
+
         let mut responses = Vec::with_capacity(function_calls.len());
         for function_call in function_calls {
             info!("Executing tool: {}", function_call.name);
             let tool_response =
                 Self::execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
-            responses.push(Self::build_function_response(function_call, &tool_response));
+            let func_response = Self::build_function_response(function_call, &tool_response);
+
+            // Measure serialized response size and estimate token cost
+            let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
+            let byte_size = serialized.len();
+            let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
+            let name = &func_response.name;
+            info!(
+                event_type = "tool_response_size",
+                tool_name = %name,
+                response_bytes = byte_size,
+                estimated_tokens = estimated_tokens,
+                "Tool response measurement"
+            );
+
+            responses.push(func_response);
         }
         Ok(responses)
     }
@@ -872,10 +939,38 @@ impl ChatRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
+        let user_id_str = auth.user_id.to_string();
+
+        // Enforce max_active_conversations limit from admin config
+        if let Some(ref admin_config) = resources.admin_config {
+            let max_conversations = admin_config
+                .get_value(
+                    "usage_quotas.max_active_conversations",
+                    Some(&tenant_id.to_string()),
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_i64())
+                .unwrap_or(50);
+
+            let current_count = resources
+                .database
+                .count_conversations(&user_id_str, tenant_id)
+                .await?;
+            if current_count >= max_conversations {
+                return Err(AppError::quota_exceeded(
+                    "max_active_conversations",
+                    current_count,
+                    max_conversations,
+                    "",
+                ));
+            }
+        }
 
         let result = chat_orchestration::create_conversation(
             resources.database.as_ref(),
-            &auth.user_id.to_string(),
+            &user_id_str,
             tenant_id,
             &request.title,
             request.model.as_deref(),
@@ -1082,6 +1177,11 @@ impl ChatRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
         let user_id_str = auth.user_id.to_string();
+        let tenant_id_str = tenant_id.to_string();
+
+        // Pre-chat quota check: verify message and token quotas before LLM dispatch
+        let usage_warning =
+            Self::check_pre_chat_quotas(&resources, &tenant_id_str, &user_id_str).await?;
 
         // Verify ownership and persist user message (crash-safe: saved before LLM dispatch)
         let msg_result = chat_orchestration::persist_user_message(
@@ -1159,57 +1259,88 @@ impl ChatRoutes {
         // Create MCP executor for tool calls
         let executor = UniversalExecutor::new(resources.clone()); // Arc clone for executor creation
 
+        // Resolve max tool iterations: coach setting > admin config > default
+        let max_iterations =
+            Self::resolve_max_tool_iterations(&resources, conv.system_prompt.as_ref(), tenant_id)
+                .await;
+
         // Track execution time for the entire LLM + tool loop
         let start_time = Instant::now();
 
         // Run multi-turn tool execution loop
-        let result = Self::run_tool_loop(
-            &provider,
-            &executor,
-            &mut llm_messages,
-            &tools,
-            &conv.model,
-            &user_id_str,
+        let tool_params = ToolLoopParams {
+            provider: &provider,
+            executor: &executor,
+            tools: &tools,
+            model: &conv.model,
+            user_id: &user_id_str,
             tenant_id,
-        )
-        .await?;
+            max_iterations,
+        };
+        let result = Self::run_tool_loop(&tool_params, &mut llm_messages).await?;
 
         // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
         #[allow(clippy::cast_possible_truncation)]
         let execution_time_ms = start_time.elapsed().as_millis() as u64;
 
-        // Calculate token count from usage
-        let token_count = result.usage.map(|u| u.completion_tokens);
+        // Extract token counts from usage
+        let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
+        let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
 
-        // For insight requests, parse the JSON response to extract clean content
-        let processed_content = if is_insight_request {
-            parse_insight_json_response(&result.content)
-        } else {
-            result.content.clone()
+        // Process content: parse insight JSON if applicable, prepend activity list if present
+        let final_content = Self::post_process_content(
+            &result.content,
+            result.activity_list.as_deref(),
+            is_insight_request,
+        );
+
+        // Persist assistant response with full token usage and model name
+        let assistant_params = AddMessageParams {
+            conversation_id: &conversation_id,
+            user_id: &user_id_str,
+            role: "assistant",
+            content: &final_content,
+            token_count,
+            finish_reason: result.finish_reason.as_deref(),
+            prompt_tokens,
+            model: Some(&conv.model),
         };
-
-        // Prepend activity list to content if present (guarantees user sees formatted data)
-        let final_content = if let Some(ref list) = result.activity_list {
-            info!(
-                "Prepending activity list ({} chars) to LLM response",
-                list.len()
-            );
-            format!("{list}\n\n---\n\n**Analysis:**\n\n{processed_content}")
-        } else {
-            processed_content
-        };
-
-        // Persist assistant response and get updated conversation
         let (assistant_msg, updated_conv) = chat_orchestration::persist_assistant_response(
             resources.database.as_ref(),
-            &conversation_id,
-            &user_id_str,
+            &assistant_params,
             tenant_id,
-            &final_content,
-            token_count,
-            result.finish_reason.as_deref(),
         )
         .await?;
+
+        // Record LLM usage for cost tracking and quota enforcement
+        Self::record_llm_usage(
+            &resources,
+            &RecordLlmUsageParams {
+                tenant_id,
+                user_id: &user_id_str,
+                conversation_id: &conversation_id,
+                provider: &provider,
+                model: &conv.model,
+                prompt_tokens,
+                completion_tokens: token_count,
+                tool_calls_count: result.tool_calls_count,
+                execution_time_ms,
+                is_insight_request,
+            },
+        )
+        .await;
+
+        // Increment usage counters after successful LLM call
+        let total_tokens_used =
+            i64::from(prompt_tokens.unwrap_or(0)) + i64::from(token_count.unwrap_or(0));
+        Self::increment_usage_counters(
+            &resources,
+            &tenant_id_str,
+            &user_id_str,
+            total_tokens_used,
+            result.tool_calls_count,
+        )
+        .await;
 
         let response = ChatCompletionResponse {
             user_message: MessageResponse {
@@ -1231,6 +1362,270 @@ impl ChatRoutes {
             execution_time_ms,
         };
 
-        Ok((StatusCode::OK, Json(response)).into_response())
+        // Build response with usage warning headers
+        let mut http_response = (StatusCode::OK, Json(response)).into_response();
+        Self::apply_usage_warning_headers(&mut http_response, usage_warning);
+
+        Ok(http_response)
+    }
+
+    /// Check pre-chat quotas and return optional usage warning info for response headers.
+    ///
+    /// Checks daily messages (with burst), weekly tokens (hard cap), and daily tokens (with burst).
+    /// Returns `Err` with 429 if any hard limit is exceeded.
+    async fn check_pre_chat_quotas(
+        resources: &Arc<ServerResources>,
+        tenant_id: &str,
+        user_id: &str,
+    ) -> Result<Option<(&'static str, i64, i64, String)>, AppError> {
+        let Some(ref admin_config) = resources.admin_config else {
+            debug!("Admin config not available, skipping quota check");
+            return Ok(None);
+        };
+
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+
+        // Check daily message quota (allows 1.5x burst)
+        let daily_msg_check = usage_svc
+            .check_limit(tenant_id, user_id, "daily_messages")
+            .await?;
+        if !daily_msg_check.allowed {
+            return Err(AppError::quota_exceeded(
+                "daily_messages",
+                daily_msg_check.current,
+                daily_msg_check.limit,
+                &daily_msg_check.resets_at,
+            ));
+        }
+
+        // Check weekly token budget (hard cap, no burst allowed)
+        let weekly_token_check = usage_svc
+            .check_limit(tenant_id, user_id, "weekly_tokens")
+            .await?;
+        if weekly_token_check.current >= weekly_token_check.limit {
+            return Err(AppError::quota_exceeded(
+                "weekly_tokens",
+                weekly_token_check.current,
+                weekly_token_check.limit,
+                &weekly_token_check.resets_at,
+            ));
+        }
+
+        // Check daily token budget (allows 1.5x burst)
+        let daily_token_check = usage_svc
+            .check_limit(tenant_id, user_id, "daily_tokens")
+            .await?;
+        if !daily_token_check.allowed {
+            return Err(AppError::quota_exceeded(
+                "daily_tokens",
+                daily_token_check.current,
+                daily_token_check.limit,
+                &daily_token_check.resets_at,
+            ));
+        }
+
+        // Track the most restrictive warning/burst state for response headers
+        Ok(Self::select_usage_warning(
+            &daily_msg_check,
+            &daily_token_check,
+            &weekly_token_check,
+        ))
+    }
+
+    /// Select the most restrictive usage warning from daily and weekly checks
+    ///
+    /// Priority: burst zone > approaching warning. Within each tier, weekly caps
+    /// take precedence over daily since they represent a harder boundary.
+    fn select_usage_warning(
+        daily_msg_check: &LimitCheckResult,
+        daily_token_check: &LimitCheckResult,
+        weekly_token_check: &LimitCheckResult,
+    ) -> Option<(&'static str, i64, i64, String)> {
+        let checks: &[&LimitCheckResult] =
+            &[weekly_token_check, daily_token_check, daily_msg_check];
+
+        // Burst zone takes highest priority (most restrictive)
+        if let Some(check) = checks.iter().find(|c| c.burst_zone) {
+            return Some(("burst", check.current, check.limit, check.resets_at.clone()));
+        }
+
+        // Warning threshold is next priority
+        if let Some(check) = checks.iter().find(|c| c.warning) {
+            return Some((
+                "approaching",
+                check.current,
+                check.limit,
+                check.resets_at.clone(),
+            ));
+        }
+
+        None
+    }
+
+    /// Apply usage warning headers to an HTTP response
+    fn apply_usage_warning_headers(
+        response: &mut Response,
+        warning: Option<(&str, i64, i64, String)>,
+    ) {
+        if let Some((level, current, limit, resets_at)) = warning {
+            let headers = response.headers_mut();
+            if let Ok(val) = HeaderValue::from_str(level) {
+                headers.insert("X-Usage-Warning", val);
+            }
+            if let Ok(val) = HeaderValue::from_str(&current.to_string()) {
+                headers.insert("X-Usage-Current", val);
+            }
+            if let Ok(val) = HeaderValue::from_str(&limit.to_string()) {
+                headers.insert("X-Usage-Limit", val);
+            }
+            if let Ok(val) = HeaderValue::from_str(&resets_at) {
+                headers.insert("X-Usage-Resets-At", val);
+            }
+        }
+    }
+
+    /// Post-process LLM content: parse insight JSON and prepend activity list if present
+    fn post_process_content(
+        raw_content: &str,
+        activity_list: Option<&str>,
+        is_insight_request: bool,
+    ) -> String {
+        let processed = if is_insight_request {
+            parse_insight_json_response(raw_content)
+        } else {
+            raw_content.to_owned()
+        };
+
+        if let Some(list) = activity_list {
+            info!(
+                "Prepending activity list ({} chars) to LLM response",
+                list.len()
+            );
+            format!("{list}\n\n---\n\n**Analysis:**\n\n{processed}")
+        } else {
+            processed
+        }
+    }
+
+    /// Resolve the maximum tool iterations for this conversation
+    ///
+    /// Resolution hierarchy: coach `max_tool_iterations` > admin config > default (10).
+    /// Looks up the coach by system prompt when the conversation has one.
+    async fn resolve_max_tool_iterations(
+        resources: &Arc<ServerResources>,
+        system_prompt: Option<&String>,
+        tenant_id: TenantId,
+    ) -> usize {
+        // Try coach-level override via system prompt lookup
+        if let Some(prompt) = system_prompt {
+            if let Ok(coaches_manager) = resources.coaches_manager() {
+                if let Ok(Some(iterations)) = coaches_manager
+                    .get_max_tool_iterations_by_system_prompt(prompt, tenant_id)
+                    .await
+                {
+                    #[allow(clippy::cast_sign_loss)]
+                    let value = iterations.max(1) as usize;
+                    debug!(
+                        max_tool_iterations = value,
+                        "Using coach-level tool iteration limit"
+                    );
+                    return value;
+                }
+            }
+        }
+
+        // Try admin config override
+        if let Some(ref admin_config) = resources.admin_config {
+            if let Ok(Some(val)) = admin_config
+                .get_value("tool_execution.max_iterations", None)
+                .await
+            {
+                if let Some(config_val) = val.as_i64() {
+                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                    let value = (config_val.max(1) as usize).min(50);
+                    debug!(
+                        max_tool_iterations = value,
+                        "Using admin config tool iteration limit"
+                    );
+                    return value;
+                }
+            }
+        }
+
+        DEFAULT_MAX_TOOL_ITERATIONS
+    }
+
+    /// Increment usage counters after a successful LLM call
+    ///
+    /// Tracks daily/weekly messages, tokens, and tool calls. Failures are logged
+    /// but do not block the chat response to avoid degrading user experience.
+    async fn increment_usage_counters(
+        resources: &Arc<ServerResources>,
+        tenant_id: &str,
+        user_id: &str,
+        total_tokens: i64,
+        tool_calls_count: u32,
+    ) {
+        let Some(ref admin_config) = resources.admin_config else {
+            return;
+        };
+
+        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+
+        // Build list of (counter_type, amount) pairs to increment
+        let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
+        if total_tokens > 0 {
+            counters.push(("daily_tokens", total_tokens));
+            counters.push(("weekly_tokens", total_tokens));
+        }
+        if tool_calls_count > 0 {
+            let tool_calls = i64::from(tool_calls_count);
+            counters.push(("daily_tool_calls", tool_calls));
+            counters.push(("weekly_tool_calls", tool_calls));
+        }
+
+        for (counter_type, amount) in counters {
+            if let Err(e) = usage_svc
+                .increment(tenant_id, user_id, counter_type, amount)
+                .await
+            {
+                warn!("Failed to increment {counter_type} counter: {e}");
+            }
+        }
+    }
+
+    /// Record LLM usage after chat completion for cost tracking and quota enforcement
+    async fn record_llm_usage(resources: &Arc<ServerResources>, params: &RecordLlmUsageParams<'_>) {
+        let tenant_id_str = params.tenant_id.to_string();
+        let prompt_count = i64::from(params.prompt_tokens.unwrap_or(0));
+        let completion_count = i64::from(params.completion_tokens.unwrap_or(0));
+        let call_type = if params.is_insight_request {
+            "insight"
+        } else {
+            "chat"
+        };
+
+        #[allow(clippy::cast_possible_wrap)]
+        let exec_time = params.execution_time_ms as i64;
+
+        if let Err(e) = resources
+            .database
+            .insert_llm_usage(&InsertLlmUsage {
+                tenant_id: &tenant_id_str,
+                user_id: params.user_id,
+                conversation_id: Some(params.conversation_id),
+                provider: params.provider.name(),
+                model: params.model,
+                prompt_tokens: prompt_count,
+                completion_tokens: completion_count,
+                total_tokens: prompt_count + completion_count,
+                call_type,
+                tool_calls_count: i64::from(params.tool_calls_count),
+                execution_time_ms: Some(exec_time),
+            })
+            .await
+        {
+            warn!("Failed to record LLM usage: {e}");
+        }
     }
 }

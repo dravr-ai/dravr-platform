@@ -23,6 +23,11 @@ use crate::config::fitness::FitnessConfig;
 use crate::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use crate::constants::tiers;
 use crate::dashboard_routes::{RequestLog, ToolUsage};
+use crate::database::chat::AddMessageParams;
+use crate::database::llm_usage::{
+    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+};
+use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -357,6 +362,8 @@ impl DatabaseProvider for PostgresDatabase {
         self.create_tenant_tables().await?;
         self.create_tool_selection_tables().await?;
         self.create_chat_tables().await?;
+        self.create_llm_usage_table().await?;
+        self.create_usage_counters_table().await?;
         self.create_indexes().await?;
         Ok(())
     }
@@ -6875,36 +6882,30 @@ impl DatabaseProvider for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn chat_add_message(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
-    ) -> AppResult<MessageRecord> {
+    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
-        let user_uuid = parse_uuid(user_id)?;
+        let user_uuid = parse_uuid(params.user_id)?;
 
         // Insert message only if the conversation belongs to the user
         let result = sqlx::query(
             r"
-            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at)
-            SELECT $1, $2, $3, $4, $5, $6, $7
+            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
             WHERE EXISTS (
-                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $8
+                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10
             )
             ",
         )
         .bind(&id)
-        .bind(conversation_id)
-        .bind(role)
-        .bind(content)
-        .bind(token_count.map(i64::from))
-        .bind(finish_reason)
+        .bind(params.conversation_id)
+        .bind(params.role)
+        .bind(params.content)
+        .bind(params.token_count.map(i64::from))
+        .bind(params.finish_reason)
         .bind(now)
+        .bind(params.prompt_tokens.map(i64::from))
+        .bind(params.model)
         .bind(user_uuid)
         .execute(&self.pool)
         .await
@@ -6917,7 +6918,7 @@ impl DatabaseProvider for PostgresDatabase {
         }
 
         // Update conversation's updated_at and total_tokens (ownership already verified above)
-        if let Some(tokens) = token_count {
+        if let Some(tokens) = params.token_count {
             sqlx::query(
                 r"
                 UPDATE chat_conversations
@@ -6927,7 +6928,7 @@ impl DatabaseProvider for PostgresDatabase {
             )
             .bind(now)
             .bind(i64::from(tokens))
-            .bind(conversation_id)
+            .bind(params.conversation_id)
             .bind(user_uuid)
             .execute(&self.pool)
             .await
@@ -6943,7 +6944,7 @@ impl DatabaseProvider for PostgresDatabase {
                 ",
             )
             .bind(now)
-            .bind(conversation_id)
+            .bind(params.conversation_id)
             .bind(user_uuid)
             .execute(&self.pool)
             .await
@@ -6954,11 +6955,13 @@ impl DatabaseProvider for PostgresDatabase {
 
         Ok(MessageRecord {
             id,
-            conversation_id: conversation_id.to_owned(),
-            role: role.to_owned(),
-            content: content.to_owned(),
-            token_count: token_count.map(i64::from),
-            finish_reason: finish_reason.map(ToOwned::to_owned),
+            conversation_id: params.conversation_id.to_owned(),
+            role: params.role.to_owned(),
+            content: params.content.to_owned(),
+            token_count: params.token_count.map(i64::from),
+            prompt_tokens: params.prompt_tokens.map(i64::from),
+            model: params.model.map(ToOwned::to_owned),
+            finish_reason: params.finish_reason.map(ToOwned::to_owned),
             created_at: now.to_rfc3339(),
         })
     }
@@ -6970,7 +6973,7 @@ impl DatabaseProvider for PostgresDatabase {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.finish_reason, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2
@@ -6994,6 +6997,8 @@ impl DatabaseProvider for PostgresDatabase {
                     role: r.get("role"),
                     content: r.get("content"),
                     token_count: r.get("token_count"),
+                    prompt_tokens: r.get("prompt_tokens"),
+                    model: r.get("model"),
                     finish_reason: r.get("finish_reason"),
                     created_at: created_at.to_rfc3339(),
                 }
@@ -7011,7 +7016,7 @@ impl DatabaseProvider for PostgresDatabase {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.finish_reason, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2
@@ -7038,6 +7043,8 @@ impl DatabaseProvider for PostgresDatabase {
                     role: r.get("role"),
                     content: r.get("content"),
                     token_count: r.get("token_count"),
+                    prompt_tokens: r.get("prompt_tokens"),
+                    model: r.get("model"),
                     finish_reason: r.get("finish_reason"),
                     created_at: created_at.to_rfc3339(),
                 }
@@ -7062,6 +7069,23 @@ impl DatabaseProvider for PostgresDatabase {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get message count: {e}")))?;
+
+        Ok(count)
+    }
+
+    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r"
+            SELECT COUNT(*)
+            FROM chat_conversations
+            WHERE user_id = $1 AND tenant_id = $2
+            ",
+        )
+        .bind(parse_uuid(user_id)?)
+        .bind(tenant_id.to_string())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count conversations: {e}")))?;
 
         Ok(count)
     }
@@ -7167,6 +7191,228 @@ impl DatabaseProvider for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
 
         Ok(())
+    }
+
+    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, execution_time_ms, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ",
+        )
+        .bind(&id)
+        .bind(params.tenant_id)
+        .bind(params.user_id)
+        .bind(params.conversation_id)
+        .bind(params.provider)
+        .bind(params.model)
+        .bind(params.prompt_tokens)
+        .bind(params.completion_tokens)
+        .bind(params.total_tokens)
+        .bind(params.call_type)
+        .bind(params.tool_calls_count)
+        .bind(params.execution_time_ms)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to insert LLM usage: {e}")))?;
+
+        Ok(LlmUsageRecord {
+            id,
+            tenant_id: params.tenant_id.to_owned(),
+            user_id: params.user_id.to_owned(),
+            conversation_id: params.conversation_id.map(ToOwned::to_owned),
+            provider: params.provider.to_owned(),
+            model: params.model.to_owned(),
+            prompt_tokens: params.prompt_tokens,
+            completion_tokens: params.completion_tokens,
+            total_tokens: params.total_tokens,
+            call_type: params.call_type.to_owned(),
+            tool_calls_count: params.tool_calls_count,
+            execution_time_ms: params.execution_time_ms,
+            created_at: now,
+        })
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64)>(
+            r"
+            SELECT provider, model, call_type,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as total_tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE tenant_id = $1 AND created_at >= $2
+            GROUP BY provider, model, call_type
+            ORDER BY total_tokens DESC
+            ",
+        )
+        .bind(tenant_id)
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    provider,
+                    model,
+                    call_type,
+                    total_tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                )| {
+                    LlmUsageAggregateRow {
+                        provider,
+                        model,
+                        call_type,
+                        total_tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>> {
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+            r"
+            SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE tenant_id = $1 AND created_at >= $2
+            GROUP BY created_at::DATE
+            ORDER BY date ASC
+            ",
+        )
+        .bind(tenant_id)
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage daily series: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
+                    date,
+                    tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                },
+            )
+            .collect())
+    }
+
+    async fn increment_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, user_id, counter_key, period)
+            DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .bind(amount)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
+
+        self.get_usage_counter(tenant_id, user_id, counter_key, period)
+            .await
+    }
+
+    async fn get_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord> {
+        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
+            r"
+            SELECT tenant_id, user_id, counter_key, period, value, updated_at
+            FROM usage_counters
+            WHERE tenant_id = $1 AND user_id = $2 AND counter_key = $3 AND period = $4
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get usage counter: {e}")))?;
+
+        match row {
+            Some((tid, uid, key, per, val, updated)) => Ok(UsageCounterRecord {
+                tenant_id: tid,
+                user_id: uid,
+                counter_key: key,
+                period: per,
+                value: val,
+                updated_at: updated,
+            }),
+            None => Ok(UsageCounterRecord {
+                tenant_id: tenant_id.to_owned(),
+                user_id: user_id.to_owned(),
+                counter_key: counter_key.to_owned(),
+                period: period.to_owned(),
+                value: 0,
+                updated_at: String::new(),
+            }),
+        }
+    }
+
+    /// System-level housekeeping: intentionally cross-tenant pruning of expired counters
+    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM usage_counters
+            WHERE period < $1
+            ",
+        )
+        .bind(period_before)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
+
+        Ok(result.rows_affected())
     }
 }
 
@@ -8002,6 +8248,8 @@ impl PostgresDatabase {
                 role VARCHAR(50) NOT NULL CHECK (role IN ('system', 'user', 'assistant')),
                 content TEXT NOT NULL,
                 token_count BIGINT,
+                prompt_tokens BIGINT,
+                model VARCHAR(255),
                 finish_reason VARCHAR(50),
                 created_at TIMESTAMPTZ NOT NULL
             )
@@ -8053,6 +8301,100 @@ impl PostgresDatabase {
         .map_err(|e| {
             AppError::database(format!(
                 "Failed to create index idx_chat_messages_conversation: {e}"
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Create LLM usage tracking table for cost analysis and quota enforcement
+    async fn create_llm_usage_table(&self) -> AppResult<()> {
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS llm_usage (
+                id VARCHAR(255) PRIMARY KEY,
+                tenant_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                conversation_id VARCHAR(255),
+                provider VARCHAR(255) NOT NULL,
+                model VARCHAR(255) NOT NULL,
+                prompt_tokens BIGINT NOT NULL,
+                completion_tokens BIGINT NOT NULL,
+                total_tokens BIGINT NOT NULL,
+                call_type VARCHAR(50) NOT NULL,
+                tool_calls_count BIGINT DEFAULT 0,
+                execution_time_ms BIGINT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create llm_usage table: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_llm_usage_tenant_user_date ON llm_usage(tenant_id, user_id, created_at)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create index idx_llm_usage_tenant_user_date: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_llm_usage_tenant_date ON llm_usage(tenant_id, created_at)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create index idx_llm_usage_tenant_date: {e}"
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Create usage counters table for rate limiting and quota enforcement
+    async fn create_usage_counters_table(&self) -> AppResult<()> {
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS usage_counters (
+                tenant_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                counter_key VARCHAR(255) NOT NULL,
+                period VARCHAR(50) NOT NULL,
+                value BIGINT NOT NULL DEFAULT 0,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (tenant_id, user_id, counter_key, period)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create usage_counters table: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_usage_counters_tenant_user ON usage_counters(tenant_id, user_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create index idx_usage_counters_tenant_user: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_usage_counters_period ON usage_counters(period)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create index idx_usage_counters_period: {e}"
             ))
         })?;
 

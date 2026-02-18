@@ -27,3 +27,9 @@ pub mod chat_orchestration;
 
 /// Social insights: friend-request validation, user search enrichment, insight adaptation
 pub mod social_insights;
+
+/// Usage counter service: quota enforcement with burst zones and warning thresholds
+pub mod usage_counter;
+
+/// Background task for periodic pruning of old usage counter records
+pub mod usage_pruning;

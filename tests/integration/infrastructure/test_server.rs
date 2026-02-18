@@ -218,6 +218,66 @@ impl IntegrationTestServer {
         Ok((user_id, jwt_token))
     }
 
+    /// Create a test user and return (`user_id`, `tenant_id`, `jwt_token`)
+    ///
+    /// Like `create_test_user` but also returns the tenant ID for tests that
+    /// need to interact with tenant-scoped data (counters, config, etc.).
+    pub async fn create_test_user_with_tenant(
+        &self,
+        email: &str,
+    ) -> Result<(Uuid, TenantId, String)> {
+        let user_id = Uuid::new_v4();
+        let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
+
+        let user = User {
+            id: user_id,
+            email: email.to_owned(),
+            display_name: Some("Integration Test User".to_owned()),
+            password_hash,
+            tier: UserTier::Professional,
+            strava_token: None,
+            fitbit_token: None,
+            is_active: true,
+            user_status: UserStatus::Active,
+            is_admin: false,
+            role: UserRole::User,
+            approved_by: Some(user_id),
+            approved_at: Some(chrono::Utc::now()),
+            created_at: chrono::Utc::now(),
+            last_active: chrono::Utc::now(),
+            firebase_uid: None,
+            auth_provider: String::new(),
+        };
+
+        self.resources.database.create_user(&user).await?;
+
+        let tenant_id = TenantId::new();
+        let tenant = Tenant {
+            id: tenant_id,
+            name: format!("Tenant for {email}"),
+            slug: format!("tenant-{tenant_id}"),
+            domain: None,
+            plan: "enterprise".to_owned(),
+            owner_user_id: user_id,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        self.resources.database.create_tenant(&tenant).await?;
+
+        self.resources
+            .database
+            .update_user_tenant_id(user_id, tenant_id)
+            .await?;
+
+        let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
+            &user,
+            &self.resources.jwks_manager,
+            Some(tenant_id.to_string()),
+        )?;
+
+        Ok((user_id, tenant_id, jwt_token))
+    }
+
     /// Stop the server gracefully
     pub fn stop(&mut self) {
         if let Some(handle) = self.server_handle.take() {

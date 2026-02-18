@@ -261,8 +261,8 @@ async fn test_create_conversation_invalid_token() {
 async fn test_list_conversations_pagination() {
     let (router, auth_token) = setup_test_environment().await;
 
-    // Create multiple conversations
-    for i in 1..=5 {
+    // Create 2 conversations (within the default max_active_conversations=2 quota)
+    for i in 1..=2 {
         AxumTestRequest::post("/api/chat/conversations")
             .header("authorization", &auth_token)
             .json(&json!({
@@ -273,23 +273,29 @@ async fn test_list_conversations_pagination() {
             .await;
     }
 
-    // Get first page (limit=2)
-    let page1_response = AxumTestRequest::get("/api/chat/conversations?limit=2&offset=0")
+    // Get first page (limit=1)
+    let page1_response = AxumTestRequest::get("/api/chat/conversations?limit=1&offset=0")
         .header("authorization", &auth_token)
         .send(router.clone())
         .await;
 
     let page1: ConversationListResponse = page1_response.json();
-    assert_eq!(page1.conversations.len(), 2);
+    assert_eq!(page1.conversations.len(), 1);
 
     // Get second page
-    let page2_response = AxumTestRequest::get("/api/chat/conversations?limit=2&offset=2")
+    let page2_response = AxumTestRequest::get("/api/chat/conversations?limit=1&offset=1")
         .header("authorization", &auth_token)
         .send(router)
         .await;
 
     let page2: ConversationListResponse = page2_response.json();
-    assert_eq!(page2.conversations.len(), 2);
+    assert_eq!(page2.conversations.len(), 1);
+
+    // Verify different conversations on each page
+    assert_ne!(
+        page1.conversations[0].id, page2.conversations[0].id,
+        "Pagination should return different conversations"
+    );
 }
 
 // ============================================================================

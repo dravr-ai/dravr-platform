@@ -11,6 +11,7 @@
 //! wrappers that delegate business logic to service layers.
 
 mod api_keys;
+mod diagnostics;
 mod settings;
 mod setup;
 mod store;
@@ -41,6 +42,7 @@ use crate::{
     database_plugins::factory::Database,
     mcp::ToolSelectionService,
     routes::tool_selection::{ToolSelectionContext, ToolSelectionRoutes},
+    tools::registry::ToolRegistry,
 };
 
 /// Admin API context shared across all endpoints
@@ -60,6 +62,8 @@ pub struct AdminApiContext {
     pub admin_api_key_monthly_limit: u32,
     /// Tool selection service for managing per-tenant MCP tool availability
     pub tool_selection: Arc<ToolSelectionService>,
+    /// Tool registry for diagnostics (schema size estimation)
+    pub tool_registry: Option<Arc<ToolRegistry>>,
 }
 
 impl AdminApiContext {
@@ -87,6 +91,7 @@ impl AdminApiContext {
             jwks_manager,
             admin_api_key_monthly_limit,
             tool_selection,
+            tool_registry: None,
         }
     }
 }
@@ -130,6 +135,11 @@ impl AdminRoutes {
 
         // Store review routes for admin coach review queue
         let store_review_routes = Self::store_review_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Diagnostics routes for system observability
+        let diagnostics_routes = Self::diagnostics_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
@@ -143,6 +153,7 @@ impl AdminRoutes {
             .merge(admin_token_routes)
             .merge(tool_selection_routes)
             .merge(store_review_routes)
+            .merge(diagnostics_routes)
             .merge(setup_routes)
     }
 
@@ -236,6 +247,16 @@ impl AdminRoutes {
             .route(
                 "/admin/tokens/:token_id/rotate",
                 post(tokens::handle_rotate_admin_token),
+            )
+            .with_state(context)
+    }
+
+    /// Diagnostics routes for system observability (Axum)
+    fn diagnostics_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/diagnostics/tool-schema-size",
+                get(diagnostics::handle_tool_schema_size),
             )
             .with_state(context)
     }

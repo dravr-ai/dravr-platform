@@ -72,6 +72,14 @@ pub mod fitness;
 #[cfg(feature = "client-chat")]
 pub mod chat;
 
+/// Usage quota status routes
+#[cfg(feature = "client-chat")]
+pub mod usage;
+
+/// LLM token consumption analytics routes
+#[cfg(feature = "client-chat")]
+pub mod llm_consumption;
+
 /// Coaches (custom AI personas) routes
 #[cfg(feature = "client-coaches")]
 pub mod coaches;
@@ -182,6 +190,12 @@ pub use fitness::FitnessConfigurationRoutes;
 
 #[cfg(feature = "client-chat")]
 pub use chat::ChatRoutes;
+
+#[cfg(feature = "client-chat")]
+pub use usage::UsageRoutes;
+
+#[cfg(feature = "client-chat")]
+pub use llm_consumption::LlmConsumptionRoutes;
 
 #[cfg(feature = "client-coaches")]
 pub use coaches::CoachesRoutes;

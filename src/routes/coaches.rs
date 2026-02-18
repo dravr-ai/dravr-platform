@@ -632,6 +632,31 @@ impl CoachesRoutes {
         let tenant_id = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_coaches_manager(&resources)?;
+
+        // Enforce max_coaches_per_user limit from admin config
+        if let Some(ref admin_config) = resources.admin_config {
+            let max_coaches = admin_config
+                .get_value(
+                    "usage_quotas.max_coaches_per_user",
+                    Some(&tenant_id.to_string()),
+                )
+                .await
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_i64())
+                .unwrap_or(20);
+
+            let current_count = i64::from(manager.count(auth.user_id, tenant_id).await?);
+            if current_count >= max_coaches {
+                return Err(AppError::quota_exceeded(
+                    "max_coaches_per_user",
+                    current_count,
+                    max_coaches,
+                    "",
+                ));
+            }
+        }
+
         let request: CreateCoachRequest = body.into();
         let coach = manager.create(auth.user_id, tenant_id, &request).await?;
 

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
 // ABOUTME: Main chat screen orchestrator importing decomposed hooks and components
 // ABOUTME: Coordinates conversation, message, provider, coach, and voice input state
 
@@ -27,6 +30,8 @@ import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
 import { useCoachSelection } from './useCoachSelection';
 import { useChatVoiceInput } from './useChatVoiceInput';
+import { useUsageStatus } from './useUsageStatus';
+import { UsageWarningBanner } from './UsageWarningBanner';
 
 interface ChatScreenProps {
   navigation: NativeStackNavigationProp<ChatStackParamList>;
@@ -55,6 +60,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
   const messagesHook = useMessages();
   const providerStatus = useProviderStatus();
   const coachSelection = useCoachSelection();
+  const usageStatus = useUsageStatus();
 
   // Voice input with chat-specific error handling
   const voiceInput = useChatVoiceInput(
@@ -167,8 +173,12 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
       conversationId = newConversation.id;
     }
 
-    await messagesHook.sendMessage(conversationId, messageText);
-  }, [inputText, messagesHook, conversations]);
+    try {
+      await messagesHook.sendMessage(conversationId, messageText);
+    } finally {
+      usageStatus.invalidate();
+    }
+  }, [inputText, messagesHook, conversations, usageStatus]);
 
   // Insight creation
   const handleCreateInsight = useCallback(async (content: string) => {
@@ -416,11 +426,14 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           onOpenUrl={handleOpenUrl}
         />
 
+        <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+
         <ChatInputBar
           inputText={inputText}
           partialTranscript={voiceInput.partialTranscript}
           isListening={voiceInput.isListening}
           isSending={messagesHook.isSending}
+          disabled={usageStatus.sendDisabled}
           voiceAvailable={voiceInput.isAvailable}
           insetBottom={insets.bottom}
           inputRef={inputRef}

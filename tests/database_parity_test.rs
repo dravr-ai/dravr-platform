@@ -10,6 +10,7 @@
 
 use chrono::Utc;
 use pierre_mcp_server::{
+    database::AddMessageParams,
     database_plugins::{factory::Database, DatabaseProvider},
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -354,20 +355,33 @@ async fn test_parity_chat_messages() {
     let pg_uid = pg_user_id.to_string();
 
     for (role, content, tokens, finish) in &messages {
+        let sqlite_params = AddMessageParams {
+            conversation_id: &sqlite_conv.id,
+            user_id: &sqlite_uid,
+            role,
+            content,
+            token_count: *tokens,
+            finish_reason: *finish,
+            prompt_tokens: None,
+            model: None,
+        };
         sqlite_db
-            .chat_add_message(
-                &sqlite_conv.id,
-                &sqlite_uid,
-                role,
-                content,
-                *tokens,
-                *finish,
-            )
+            .chat_add_message(&sqlite_params)
             .await
             .expect("SQLite: Failed to add message");
 
+        let pg_params = AddMessageParams {
+            conversation_id: &pg_conv.id,
+            user_id: &pg_uid,
+            role,
+            content,
+            token_count: *tokens,
+            finish_reason: *finish,
+            prompt_tokens: None,
+            model: None,
+        };
         pg_db
-            .chat_add_message(&pg_conv.id, &pg_uid, role, content, *tokens, *finish)
+            .chat_add_message(&pg_params)
             .await
             .expect("PostgreSQL: Failed to add message");
     }

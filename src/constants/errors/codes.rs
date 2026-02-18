@@ -42,6 +42,8 @@ pub const ERROR_SERIALIZATION: i32 = -32004; // Server error - data serializatio
 pub const ERROR_PROGRESS_TRACKING: i32 = -32005; // Server error - progress tracking failed
 /// Server error code for cancelled operations
 pub const ERROR_OPERATION_CANCELLED: i32 = -32006; // Server error - operation cancelled
+/// Rate limit exceeded (daily or weekly quota exhausted)
+pub const ERROR_RATE_LIMIT_EXCEEDED: i32 = -32029; // Server error - rate limit exceeded
 
 /// Common error messages
 pub const MSG_METHOD_NOT_FOUND: &str = "Method not found";
@@ -76,3 +78,5 @@ pub const MSG_AUTHENTICATION: &str = "Authentication failed";
 pub const MSG_AUTHORIZATION: &str = "Authorization failed";
 /// Error message for serialization/deserialization failures
 pub const MSG_SERIALIZATION: &str = "Data serialization failed";
+/// Error message for rate limit / quota exceeded
+pub const MSG_RATE_LIMIT_EXCEEDED: &str = "Rate limit exceeded";

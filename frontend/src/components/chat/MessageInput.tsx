@@ -13,6 +13,8 @@ interface MessageInputProps {
   onChange: (value: string) => void;
   onSend: () => void;
   isStreaming: boolean;
+  /** Whether input should be disabled (e.g., quota exceeded) */
+  disabled?: boolean;
   showIdeas: boolean;
   onToggleIdeas: () => void;
   onSelectPrompt: (prompt: string, systemPrompt?: string) => void;
@@ -23,6 +25,7 @@ export default function MessageInput({
   onChange,
   onSend,
   isStreaming,
+  disabled = false,
   showIdeas,
   onToggleIdeas,
   onSelectPrompt,
@@ -69,15 +72,15 @@ export default function MessageInput({
             placeholder="Message Pierre..."
             className="w-full resize-none rounded-xl border border-white/10 bg-[#151520] text-white placeholder-zinc-500 pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors overflow-hidden"
             rows={1}
-            disabled={isStreaming}
+            disabled={isStreaming || disabled}
           />
           <button
             onClick={onSend}
-            disabled={!value.trim() || isStreaming}
+            disabled={!value.trim() || isStreaming || disabled}
             aria-label="Send message"
             className={clsx(
               'absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
-              value.trim() && !isStreaming
+              value.trim() && !isStreaming && !disabled
                 ? 'bg-pierre-violet text-white hover:bg-pierre-violet/90 shadow-glow-sm'
                 : 'text-zinc-600 cursor-not-allowed'
             )}

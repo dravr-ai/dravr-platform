@@ -980,6 +980,8 @@ impl MultiTenantMcpServer {
         use crate::routes::fitness::FitnessConfigurationRoutes;
         #[cfg(feature = "client-impersonation")]
         use crate::routes::impersonation::ImpersonationRoutes;
+        #[cfg(feature = "client-chat")]
+        use crate::routes::llm_consumption::LlmConsumptionRoutes;
         #[cfg(feature = "client-llm-settings")]
         use crate::routes::llm_settings::LlmSettingsRoutes;
         #[cfg(feature = "protocol-mcp")]
@@ -990,6 +992,8 @@ impl MultiTenantMcpServer {
         use crate::routes::openapi::OpenApiRoutes;
         #[cfg(feature = "client-tenants")]
         use crate::routes::tenants::TenantRoutes;
+        #[cfg(feature = "client-chat")]
+        use crate::routes::usage::UsageRoutes;
         #[cfg(feature = "client-mcp-tokens")]
         use crate::routes::user_mcp_tokens::UserMcpTokenRoutes;
         #[cfg(feature = "client-oauth-apps")]
@@ -1022,7 +1026,7 @@ impl MultiTenantMcpServer {
                 .rate_limiting
                 .admin_provisioned_api_key_monthly_limit;
             let admin_token_cache_ttl = resources.config.auth.admin_token_cache_ttl_secs;
-            let admin_context = AdminApiContext::new(
+            let mut admin_context = AdminApiContext::new(
                 resources.database.clone(),
                 &resources.admin_jwt_secret,
                 resources.auth_manager.clone(),
@@ -1031,6 +1035,7 @@ impl MultiTenantMcpServer {
                 admin_token_cache_ttl,
                 resources.tool_selection.clone(),
             );
+            admin_context.tool_registry = Some(resources.tool_registry.clone());
             let admin_routes = AdminRoutes::routes(admin_context);
 
             let admin_config_routes = resources.admin_config.as_ref().map_or_else(
@@ -1108,7 +1113,10 @@ impl MultiTenantMcpServer {
             .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-chat")]
-        let app = app.merge(ChatRoutes::routes(Arc::clone(resources)));
+        let app = app
+            .merge(ChatRoutes::routes(Arc::clone(resources)))
+            .merge(UsageRoutes::routes(Arc::clone(resources)))
+            .merge(LlmConsumptionRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-coaches")]
         let app = app

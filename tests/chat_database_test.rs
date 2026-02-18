@@ -7,8 +7,8 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_mcp_server::database::chat::AddMessageParams;
 use pierre_mcp_server::database::ChatManager;
-use pierre_mcp_server::llm::MessageRole;
 use pierre_mcp_server::models::TenantId;
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -92,7 +92,9 @@ async fn create_test_db() -> SqlitePool {
             content TEXT NOT NULL,
             token_count INTEGER,
             finish_reason TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            prompt_tokens INTEGER,
+            model TEXT
         )
         ",
     )
@@ -337,14 +339,16 @@ async fn test_add_message() {
         .unwrap();
 
     let msg = manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::User,
-            "Hello, world!",
-            Some(5),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Hello, world!",
+            token_count: Some(5),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
 
@@ -367,19 +371,23 @@ async fn test_add_assistant_message_with_finish_reason() {
         .unwrap();
 
     let msg = manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::Assistant,
-            "I'm here to help!",
-            Some(10),
-            Some("STOP"),
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "I'm here to help!",
+            token_count: Some(10),
+            finish_reason: Some("STOP"),
+            prompt_tokens: Some(20),
+            model: Some("gemini-1.5-flash"),
+        })
         .await
         .unwrap();
 
     assert_eq!(msg.role, "assistant");
     assert_eq!(msg.finish_reason, Some("STOP".to_owned()));
+    assert_eq!(msg.prompt_tokens, Some(20));
+    assert_eq!(msg.model, Some("gemini-1.5-flash".to_owned()));
 }
 
 #[tokio::test]
@@ -395,36 +403,42 @@ async fn test_get_messages() {
 
     // Add messages
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::User,
-            "Hello",
-            Some(2),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Hello",
+            token_count: Some(2),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::Assistant,
-            "Hi there!",
-            Some(3),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "Hi there!",
+            token_count: Some(3),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::User,
-            "How are you?",
-            Some(4),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "How are you?",
+            token_count: Some(4),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
 
@@ -449,15 +463,18 @@ async fn test_get_recent_messages() {
 
     // Add 5 messages
     for i in 1..=5 {
+        let content = format!("Message {i}");
         manager
-            .add_message(
-                &conv.id,
-                "user-1",
-                MessageRole::User,
-                &format!("Message {i}"),
-                Some(2),
-                None,
-            )
+            .add_message(&AddMessageParams {
+                conversation_id: &conv.id,
+                user_id: "user-1",
+                role: "user",
+                content: &content,
+                token_count: Some(2),
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+            })
             .await
             .unwrap();
     }
@@ -490,25 +507,29 @@ async fn test_message_updates_conversation_tokens() {
 
     // Add messages with token counts
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::User,
-            "Hello",
-            Some(10),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Hello",
+            token_count: Some(10),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::Assistant,
-            "Hi!",
-            Some(15),
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "Hi!",
+            token_count: Some(15),
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
 
@@ -539,11 +560,29 @@ async fn test_get_message_count() {
 
     // Add messages
     manager
-        .add_message(&conv.id, "user-1", MessageRole::User, "1", None, None)
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "1",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
     manager
-        .add_message(&conv.id, "user-1", MessageRole::Assistant, "2", None, None)
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "2",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
 
@@ -564,18 +603,29 @@ async fn test_cascade_delete_messages() {
 
     // Add messages
     manager
-        .add_message(&conv.id, "user-1", MessageRole::User, "Hello", None, None)
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "user",
+            content: "Hello",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
     manager
-        .add_message(
-            &conv.id,
-            "user-1",
-            MessageRole::Assistant,
-            "Hi!",
-            None,
-            None,
-        )
+        .add_message(&AddMessageParams {
+            conversation_id: &conv.id,
+            user_id: "user-1",
+            role: "assistant",
+            content: "Hi!",
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
         .await
         .unwrap();
 

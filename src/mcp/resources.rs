@@ -41,6 +41,7 @@ use crate::plugins::executor::PluginToolExecutor;
 use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
 use crate::security::csrf::CsrfTokenManager;
+use crate::services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use crate::sse::SseManager;
 use crate::tenant::{oauth_manager::TenantOAuthManager, TenantOAuthClient};
@@ -51,6 +52,7 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
 
 /// Optional initialization parameters for `ServerResources`
@@ -174,6 +176,8 @@ pub struct ServerResources {
     pub tool_registry: Arc<ToolRegistry>,
     /// Optional LLM provider for insight validation and generation (injected for testing)
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
+    /// Abort handle for the background usage counter pruning task
+    pub pruning_abort_handle: Option<AbortHandle>,
 }
 
 impl ServerResources {
@@ -274,6 +278,11 @@ impl ServerResources {
         // This provides runtime-configurable parameters via admin API
         let admin_config = Self::init_admin_config_service(&database_arc).await;
 
+        // Start background usage counter pruning task (hourly, removes records older than 90 days)
+        let pruning_abort_handle = admin_config
+            .as_ref()
+            .map(|config| start_usage_pruning_task(Arc::clone(&database_arc), Arc::clone(config)));
+
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
 
@@ -311,13 +320,27 @@ impl ServerResources {
             tool_selection,
             tool_registry,
             llm_provider,
+            pruning_abort_handle,
         }
     }
 
     /// Create and initialize the tool registry with all built-in tools
     fn create_tool_registry() -> ToolRegistry {
+        use tracing::info;
+
         let mut registry = ToolRegistry::new();
         registry.register_builtin_tools();
+
+        // Log total schema token cost at startup for capacity planning
+        let estimate = registry.total_schema_token_estimate();
+        info!(
+            event_type = "tool_schema_size",
+            total_bytes = estimate.total_bytes,
+            estimated_tokens = estimate.estimated_tokens,
+            tool_count = estimate.tool_count,
+            "Tool registry schema size at startup"
+        );
+
         registry
     }
 

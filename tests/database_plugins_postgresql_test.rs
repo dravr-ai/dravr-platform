@@ -10,6 +10,7 @@
 
 use chrono::Utc;
 use pierre_mcp_server::{
+    database::AddMessageParams,
     database_plugins::{factory::Database, DatabaseProvider},
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -521,23 +522,36 @@ async fn test_pg_chat_messages() {
         .expect("Failed to create conversation");
 
     // Add messages (user_id required for ownership verification)
+    let msg1_params = AddMessageParams {
+        conversation_id: &conv.id,
+        user_id: &user_id_str,
+        role: "user",
+        content: "Hello!",
+        token_count: None,
+        finish_reason: None,
+        prompt_tokens: None,
+        model: None,
+    };
     let msg1 = db
-        .chat_add_message(&conv.id, &user_id_str, "user", "Hello!", None, None)
+        .chat_add_message(&msg1_params)
         .await
         .expect("Failed to add user message");
 
     assert_eq!(msg1.role, "user");
     assert_eq!(msg1.content, "Hello!");
 
+    let msg2_params = AddMessageParams {
+        conversation_id: &conv.id,
+        user_id: &user_id_str,
+        role: "assistant",
+        content: "Hi there!",
+        token_count: Some(10),
+        finish_reason: Some("stop"),
+        prompt_tokens: None,
+        model: None,
+    };
     let msg2 = db
-        .chat_add_message(
-            &conv.id,
-            &user_id_str,
-            "assistant",
-            "Hi there!",
-            Some(10),
-            Some("stop"),
-        )
+        .chat_add_message(&msg2_params)
         .await
         .expect("Failed to add assistant message");
 

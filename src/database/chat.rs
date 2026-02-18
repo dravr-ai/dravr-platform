@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
-use crate::llm::MessageRole;
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
 
@@ -13,6 +12,26 @@ use pierre_core::models::TenantId;
 
 // Re-export DTOs from pierre-core (canonical definitions)
 pub use pierre_core::models::{ConversationRecord, ConversationSummary, MessageRecord};
+
+/// Parameters for adding a message to a conversation
+pub struct AddMessageParams<'a> {
+    /// Conversation to add the message to
+    pub conversation_id: &'a str,
+    /// User who owns the conversation
+    pub user_id: &'a str,
+    /// Role of the message sender (`user`, `assistant`, `system`)
+    pub role: &'a str,
+    /// Message content
+    pub content: &'a str,
+    /// Completion token count (for assistant messages)
+    pub token_count: Option<u32>,
+    /// Reason the LLM stopped generating (e.g. `stop`, `length`)
+    pub finish_reason: Option<&'a str>,
+    /// Prompt token count for this interaction
+    pub prompt_tokens: Option<u32>,
+    /// LLM model identifier used for this message
+    pub model: Option<&'a str>,
+}
 
 // ============================================================================
 // Chat Manager
@@ -235,37 +254,31 @@ impl ChatManager {
     /// # Errors
     ///
     /// Returns an error if database operation fails
-    pub async fn add_message(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: MessageRole,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
-    ) -> AppResult<MessageRecord> {
+    pub async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
-        let role_str = role.as_str();
+        let role_str = params.role;
 
         // Insert message only if the conversation belongs to the user
         let result = sqlx::query(
             r"
-            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at)
-            SELECT $1, $2, $3, $4, $5, $6, $7
+            INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model)
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9
             WHERE EXISTS (
-                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $8
+                SELECT 1 FROM chat_conversations WHERE id = $2 AND user_id = $10
             )
             ",
         )
         .bind(&id)
-        .bind(conversation_id)
+        .bind(params.conversation_id)
         .bind(role_str)
-        .bind(content)
-        .bind(token_count.map(i64::from))
-        .bind(finish_reason)
+        .bind(params.content)
+        .bind(params.token_count.map(i64::from))
+        .bind(params.finish_reason)
         .bind(&now)
-        .bind(user_id)
+        .bind(params.prompt_tokens.map(i64::from))
+        .bind(params.model)
+        .bind(params.user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
@@ -277,7 +290,7 @@ impl ChatManager {
         }
 
         // Update conversation's updated_at and total_tokens (ownership already verified above)
-        if let Some(tokens) = token_count {
+        if let Some(tokens) = params.token_count {
             sqlx::query(
                 r"
                 UPDATE chat_conversations
@@ -287,8 +300,8 @@ impl ChatManager {
             )
             .bind(&now)
             .bind(i64::from(tokens))
-            .bind(conversation_id)
-            .bind(user_id)
+            .bind(params.conversation_id)
+            .bind(params.user_id)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -303,8 +316,8 @@ impl ChatManager {
                 ",
             )
             .bind(&now)
-            .bind(conversation_id)
-            .bind(user_id)
+            .bind(params.conversation_id)
+            .bind(params.user_id)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -314,11 +327,13 @@ impl ChatManager {
 
         Ok(MessageRecord {
             id,
-            conversation_id: conversation_id.to_owned(),
+            conversation_id: params.conversation_id.to_owned(),
             role: role_str.to_owned(),
-            content: content.to_owned(),
-            token_count: token_count.map(i64::from),
-            finish_reason: finish_reason.map(ToOwned::to_owned),
+            content: params.content.to_owned(),
+            token_count: params.token_count.map(i64::from),
+            prompt_tokens: params.prompt_tokens.map(i64::from),
+            model: params.model.map(ToOwned::to_owned),
+            finish_reason: params.finish_reason.map(ToOwned::to_owned),
             created_at: now,
         })
     }
@@ -335,7 +350,7 @@ impl ChatManager {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.finish_reason, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2
@@ -356,6 +371,8 @@ impl ChatManager {
                 role: r.get("role"),
                 content: r.get("content"),
                 token_count: r.get("token_count"),
+                prompt_tokens: r.get("prompt_tokens"),
+                model: r.get("model"),
                 finish_reason: r.get("finish_reason"),
                 created_at: r.get("created_at"),
             })
@@ -377,7 +394,7 @@ impl ChatManager {
     ) -> AppResult<Vec<MessageRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.finish_reason, m.created_at
+            SELECT m.id, m.conversation_id, m.role, m.content, m.token_count, m.prompt_tokens, m.model, m.finish_reason, m.created_at
             FROM chat_messages m
             JOIN chat_conversations c ON m.conversation_id = c.id
             WHERE m.conversation_id = $1 AND c.user_id = $2
@@ -401,6 +418,8 @@ impl ChatManager {
                 role: r.get("role"),
                 content: r.get("content"),
                 token_count: r.get("token_count"),
+                prompt_tokens: r.get("prompt_tokens"),
+                model: r.get("model"),
                 finish_reason: r.get("finish_reason"),
                 created_at: r.get("created_at"),
             })
@@ -429,6 +448,28 @@ impl ChatManager {
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get message count: {e}")))?;
+
+        Ok(row.get("count"))
+    }
+
+    /// Count total conversations for a user in a tenant
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+        let row = sqlx::query(
+            r"
+            SELECT COUNT(*) as count
+            FROM chat_conversations
+            WHERE user_id = $1 AND tenant_id = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count conversations: {e}")))?;
 
         Ok(row.get("count"))
     }

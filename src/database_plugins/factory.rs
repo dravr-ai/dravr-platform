@@ -20,6 +20,11 @@ use crate::api_keys::{ApiKey, ApiKeyUsage, ApiKeyUsageStats};
 use crate::config::fitness::FitnessConfig;
 use crate::config::social::SocialInsightsConfig;
 use crate::dashboard_routes::{RequestLog, ToolUsage};
+use crate::database::chat::AddMessageParams;
+use crate::database::llm_usage::{
+    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+};
+use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -2946,39 +2951,11 @@ impl DatabaseProvider for Database {
         }
     }
 
-    async fn chat_add_message(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
-    ) -> AppResult<MessageRecord> {
+    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         match self {
-            Self::SQLite(db) => {
-                db.chat_add_message_impl(
-                    conversation_id,
-                    user_id,
-                    role,
-                    content,
-                    token_count,
-                    finish_reason,
-                )
-                .await
-            }
+            Self::SQLite(db) => db.chat_add_message_impl(params).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.chat_add_message(
-                    conversation_id,
-                    user_id,
-                    role,
-                    content,
-                    token_count,
-                    finish_reason,
-                )
-                .await
-            }
+            Self::PostgreSQL(db) => db.chat_add_message(params).await,
         }
     }
 
@@ -3021,6 +2998,14 @@ impl DatabaseProvider for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.chat_get_message_count(conversation_id, user_id).await,
+        }
+    }
+
+    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+        match self {
+            Self::SQLite(db) => db.chat_count_conversations_impl(user_id, tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.chat_count_conversations(user_id, tenant_id).await,
         }
     }
 
@@ -3074,6 +3059,87 @@ impl DatabaseProvider for Database {
             Self::SQLite(db) => db.invalidate_user_reset_tokens_impl(user_id).await,
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.invalidate_user_reset_tokens(user_id).await,
+        }
+    }
+
+    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
+        match self {
+            Self::SQLite(db) => db.insert_llm_usage_impl(params).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.insert_llm_usage(params).await,
+        }
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+        match self {
+            Self::SQLite(db) => db.get_llm_usage_aggregates_impl(tenant_id, since).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_llm_usage_aggregates(tenant_id, since).await,
+        }
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>> {
+        match self {
+            Self::SQLite(db) => db.get_llm_usage_daily_series_impl(tenant_id, since).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_llm_usage_daily_series(tenant_id, since).await,
+        }
+    }
+
+    async fn increment_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord> {
+        match self {
+            Self::SQLite(db) => {
+                db.increment_usage_counter_impl(tenant_id, user_id, counter_key, period, amount)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.increment_usage_counter(tenant_id, user_id, counter_key, period, amount)
+                    .await
+            }
+        }
+    }
+
+    async fn get_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord> {
+        match self {
+            Self::SQLite(db) => {
+                db.get_usage_counter_impl(tenant_id, user_id, counter_key, period)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.get_usage_counter(tenant_id, user_id, counter_key, period)
+                    .await
+            }
+        }
+    }
+
+    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+        match self {
+            Self::SQLite(db) => db.delete_old_usage_counters_impl(period_before).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.delete_old_usage_counters(period_before).await,
         }
     }
 }
