@@ -208,6 +208,54 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
+  // Mock usage status endpoint (used by UsageWarningBanner in chat)
+  await page.route('**/api/usage/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        daily: {
+          messages: { current: 0, limit: 50, warning: false },
+          tool_calls: { current: 0, limit: 100, warning: false },
+          tokens: { current: 0, limit: 500000, warning: false, burst_zone: false },
+        },
+        weekly: {
+          messages: { current: 0, limit: 250, warning: false },
+          tool_calls: { current: 0, limit: 500, warning: false },
+          tokens: { current: 0, limit: 2000000, warning: false },
+        },
+        resources: { coaches: { current: 0, limit: 3 }, active_conversations: { current: 0, limit: 20 } },
+        resets: { daily: '2026-02-19T00:00:00Z', weekly: '2026-02-23T00:00:00Z' },
+      }),
+    });
+  });
+
+  // Mock admin LLM consumption endpoint (used by LlmConsumptionPanel)
+  await page.route('**/admin/usage/llm-consumption**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
+        breakdown: [],
+        daily_series: [],
+      }),
+    });
+  });
+
+  // Mock user LLM consumption endpoint
+  await page.route('**/api/usage/llm-consumption**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
+        breakdown: [],
+        daily_series: [],
+      }),
+    });
+  });
+
   // Mock prompts suggestions endpoint (public API for chat prompts)
   await page.route('**/api/prompts/suggestions', async (route) => {
     await route.fulfill({
