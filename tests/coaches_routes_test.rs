@@ -460,8 +460,8 @@ async fn test_list_by_category() {
 async fn test_list_coaches_pagination() {
     let (router, auth_token) = setup_test_environment().await;
 
-    // Create multiple coaches
-    for i in 1..=5 {
+    // Create 3 coaches (max_coaches_per_user default quota is 3)
+    for i in 1..=3 {
         AxumTestRequest::post("/api/coaches")
             .header("authorization", &auth_token)
             .json(&json!({
@@ -480,7 +480,7 @@ async fn test_list_coaches_pagination() {
 
     let page1: ListCoachesResponse = page1_response.json();
     assert_eq!(page1.coaches.len(), 2);
-    assert_eq!(page1.total, 5);
+    assert_eq!(page1.total, 3);
 
     // Get second page
     let page2_response = AxumTestRequest::get("/api/coaches?limit=2&offset=2")
@@ -489,7 +489,7 @@ async fn test_list_coaches_pagination() {
         .await;
 
     let page2: ListCoachesResponse = page2_response.json();
-    assert_eq!(page2.coaches.len(), 2);
+    assert_eq!(page2.coaches.len(), 1);
 }
 
 // ============================================================================
