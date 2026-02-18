@@ -14,6 +14,11 @@ use crate::admin::models::{
 use crate::api_keys::{ApiKey, ApiKeyUsage, ApiKeyUsageStats};
 use crate::config::fitness::FitnessConfig;
 use crate::dashboard_routes::{RequestLog, ToolUsage};
+use crate::database::chat::AddMessageParams;
+use crate::database::llm_usage::{
+    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+};
+use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest, MessageRecord,
     UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -1204,15 +1209,7 @@ pub trait DatabaseProvider: Send + Sync + Clone {
     ) -> AppResult<bool>;
 
     /// Add a message to a conversation (verifies user owns the conversation)
-    async fn chat_add_message(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
-    ) -> AppResult<MessageRecord>;
+    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord>;
 
     /// Get all messages for a conversation (verifies user owns the conversation)
     async fn chat_get_messages(
@@ -1231,6 +1228,9 @@ pub trait DatabaseProvider: Send + Sync + Clone {
 
     /// Get message count for a conversation (verifies user owns the conversation)
     async fn chat_get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64>;
+
+    /// Count total conversations for a user in a tenant
+    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64>;
 
     /// Delete all conversations for a user
     async fn chat_delete_all_user_conversations(
@@ -1263,4 +1263,51 @@ pub trait DatabaseProvider: Send + Sync + Clone {
     ///
     /// Called after a successful password change to prevent stale tokens from being used.
     async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()>;
+
+    // ================================
+    // LLM Usage Tracking
+    // ================================
+
+    /// Insert a new LLM usage record for cost analysis and quota enforcement
+    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
+
+    /// Query aggregated LLM usage grouped by `provider`, `model`, and `call_type`
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>>;
+
+    /// Query daily LLM usage time series for consumption charts
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>>;
+
+    // ================================
+    // Usage Counters
+    // ================================
+
+    /// Atomically increment a usage counter via upsert
+    async fn increment_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord>;
+
+    /// Get the current value of a usage counter (returns 0 if not found)
+    async fn get_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord>;
+
+    /// Delete usage counters older than the given period cutoff
+    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64>;
 }

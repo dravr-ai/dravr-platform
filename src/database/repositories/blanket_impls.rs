@@ -6,11 +6,11 @@
 
 use super::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, FitnessConfigRepository,
-    ImpersonationRepository, InsightRepository, LlmCredentialRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, ProfileRepository, ProviderConnectionRepository, SecurityRepository,
-    TenantRepository, ToolSelectionRepository, UsageRepository, UserMcpTokenRepository,
-    UserRepository,
+    ImpersonationRepository, InsightRepository, LlmCredentialRepository, LlmUsageRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    SecurityRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 use crate::a2a::auth::A2AClient;
 use crate::a2a::client::A2ASession;
@@ -22,6 +22,11 @@ use crate::admin::models::{
 use crate::api_keys::{ApiKey, ApiKeyUsage, ApiKeyUsageStats};
 use crate::config::fitness::FitnessConfig;
 use crate::dashboard_routes::{RequestLog, ToolUsage};
+use crate::database::chat::AddMessageParams;
+use crate::database::llm_usage::{
+    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+};
+use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     DatabaseError, MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -1295,24 +1300,11 @@ impl<T: DatabaseProvider> ChatRepository for T {
     }
     async fn add_message(
         &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
+        params: &AddMessageParams<'_>,
     ) -> Result<MessageRecord, DatabaseError> {
-        DatabaseProvider::chat_add_message(
-            self,
-            conversation_id,
-            user_id,
-            role,
-            content,
-            token_count,
-            finish_reason,
-        )
-        .await
-        .map_err(app_error_to_db)
+        DatabaseProvider::chat_add_message(self, params)
+            .await
+            .map_err(app_error_to_db)
     }
     async fn get_messages(
         &self,
@@ -1339,6 +1331,15 @@ impl<T: DatabaseProvider> ChatRepository for T {
         user_id: &str,
     ) -> Result<i64, DatabaseError> {
         DatabaseProvider::chat_get_message_count(self, conversation_id, user_id)
+            .await
+            .map_err(app_error_to_db)
+    }
+    async fn count_conversations(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> Result<i64, DatabaseError> {
+        DatabaseProvider::chat_count_conversations(self, user_id, tenant_id)
             .await
             .map_err(app_error_to_db)
     }
@@ -1664,6 +1665,79 @@ impl<T: DatabaseProvider> ToolSelectionRepository for T {
     }
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> Result<usize, DatabaseError> {
         DatabaseProvider::count_enabled_tools(self, tenant_id)
+            .await
+            .map_err(app_error_to_db)
+    }
+}
+
+#[async_trait]
+impl<T: DatabaseProvider> LlmUsageRepository for T {
+    async fn insert_llm_usage(
+        &self,
+        params: &InsertLlmUsage<'_>,
+    ) -> Result<LlmUsageRecord, DatabaseError> {
+        DatabaseProvider::insert_llm_usage(self, params)
+            .await
+            .map_err(app_error_to_db)
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> Result<Vec<LlmUsageAggregateRow>, DatabaseError> {
+        DatabaseProvider::get_llm_usage_aggregates(self, tenant_id, since)
+            .await
+            .map_err(app_error_to_db)
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> Result<Vec<LlmUsageDailyRow>, DatabaseError> {
+        DatabaseProvider::get_llm_usage_daily_series(self, tenant_id, since)
+            .await
+            .map_err(app_error_to_db)
+    }
+}
+
+#[async_trait]
+impl<T: DatabaseProvider> UsageCounterRepository for T {
+    async fn increment_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> Result<UsageCounterRecord, DatabaseError> {
+        DatabaseProvider::increment_usage_counter(
+            self,
+            tenant_id,
+            user_id,
+            counter_key,
+            period,
+            amount,
+        )
+        .await
+        .map_err(app_error_to_db)
+    }
+
+    async fn get_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> Result<UsageCounterRecord, DatabaseError> {
+        DatabaseProvider::get_usage_counter(self, tenant_id, user_id, counter_key, period)
+            .await
+            .map_err(app_error_to_db)
+    }
+
+    async fn delete_old_counters(&self, period_before: &str) -> Result<u64, DatabaseError> {
+        DatabaseProvider::delete_old_usage_counters(self, period_before)
             .await
             .map_err(app_error_to_db)
     }

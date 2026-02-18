@@ -464,6 +464,15 @@ impl AppError {
         )
     }
 
+    /// Usage quota exceeded with limit details for 429 response
+    #[must_use]
+    pub fn quota_exceeded(limit_type: &str, current: i64, limit: i64, resets_at: &str) -> Self {
+        Self::new(
+            ErrorCode::QuotaExceeded,
+            format!("{limit_type} quota exceeded: {current}/{limit}, resets at {resets_at}"),
+        )
+    }
+
     /// Resource already exists (conflict)
     #[must_use]
     pub fn already_exists(resource: impl Into<String>) -> Self {

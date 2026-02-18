@@ -154,6 +154,39 @@ impl McpTestClient {
         Ok(json_response)
     }
 
+    /// Send a raw MCP JSON-RPC request and return the full response without error conversion
+    ///
+    /// Unlike `send_request`, this does not convert JSON-RPC errors into `Err`.
+    /// Returns the raw JSON response so callers can inspect error codes and data.
+    pub async fn send_request_raw(&self, method: &str, params: Option<Value>) -> Result<Value> {
+        let request_id = self.next_request_id();
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params.unwrap_or(json!({}))
+        });
+
+        let response = self
+            .http_client
+            .post(format!("{}/mcp", self.base_url))
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.auth_token))
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "MCP request failed with HTTP status: {}",
+                response.status()
+            ));
+        }
+
+        let json_response: Value = response.json().await?;
+        Ok(json_response)
+    }
+
     /// Send MCP request and extract the result field
     pub async fn send_request_for_result(
         &self,

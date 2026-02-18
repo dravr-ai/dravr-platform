@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
 // ABOUTME: Chat input bar component with text input, voice, and send buttons
 // ABOUTME: Displays paperclip attachment, voice input, and send button with states
 
@@ -12,6 +15,8 @@ interface ChatInputBarProps {
   partialTranscript: string;
   isListening: boolean;
   isSending: boolean;
+  /** When true, input and send are disabled (e.g. usage quota blocked) */
+  disabled?: boolean;
   voiceAvailable: boolean;
   insetBottom: number;
   inputRef: React.RefObject<TextInput | null>;
@@ -25,6 +30,7 @@ export function ChatInputBar({
   partialTranscript,
   isListening,
   isSending,
+  disabled = false,
   voiceAvailable,
   insetBottom,
   inputRef,
@@ -33,7 +39,7 @@ export function ChatInputBar({
   onSendMessage,
 }: ChatInputBarProps) {
   const displayText = isListening ? partialTranscript : inputText;
-  const canSend = inputText.trim() && !isSending && !isListening;
+  const canSend = inputText.trim() && !isSending && !isListening && !disabled;
 
   return (
     <View className="px-4 py-2" style={{ paddingBottom: Math.max(insetBottom, 8) }}>
@@ -60,7 +66,7 @@ export function ChatInputBar({
           multiline
           maxLength={4000}
           returnKeyType="default"
-          editable={!isListening}
+          editable={!isListening && !disabled}
           testID="message-input"
         />
         <VoiceButton

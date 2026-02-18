@@ -7,6 +7,15 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
 
+// Mock dashboard barrel via explicit /index path to avoid macOS case-insensitive
+// collision between ../dashboard (resolves to Dashboard.tsx) and dashboard/ directory
+vi.mock('../dashboard/index', () => ({
+  OverviewPanel: () => null,
+  ConversationsPanel: () => null,
+  usePendingUsersCount: () => 1,
+  useStoreStatsPendingCount: () => 0,
+}));
+
 // Mock all dependencies to avoid complex setup
 vi.mock('../UsageAnalytics', () => ({
   default: () => <div data-testid="usage-analytics">Analytics Component</div>
@@ -78,7 +87,8 @@ vi.mock('../../services/api', () => ({
   adminApi: {
     getPendingUsers: vi.fn().mockResolvedValue([
       { id: '1', email: 'user@test.com' }
-    ])
+    ]),
+    getStoreStats: vi.fn().mockResolvedValue({ pending_count: 0, total_count: 5, approved_count: 5 }),
   },
   a2aApi: {
     getA2ADashboardOverview: vi.fn().mockResolvedValue({

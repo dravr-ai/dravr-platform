@@ -24,6 +24,8 @@ pub mod errors;
 pub mod fitness_configurations;
 /// Impersonation session management for super admin user impersonation
 pub mod impersonation;
+/// LLM usage tracking for cost analysis and quota enforcement
+pub mod llm_usage;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth callback notification handling
@@ -46,6 +48,8 @@ pub mod synthetic_activities;
 pub mod system_settings;
 /// Tool selection and per-tenant MCP tool configuration
 pub mod tool_selection;
+/// Usage counters for rate limiting and quota enforcement
+pub mod usage_counters;
 /// User MCP token management for AI client authentication
 pub mod user_mcp_tokens;
 /// User OAuth token storage and management
@@ -57,7 +61,9 @@ pub mod users;
 pub mod test_utils;
 
 pub use a2a::{A2AUsage, A2AUsageStats};
-pub use chat::{ChatManager, ConversationRecord, ConversationSummary, MessageRecord};
+pub use chat::{
+    AddMessageParams, ChatManager, ConversationRecord, ConversationSummary, MessageRecord,
+};
 pub use coach_authors::{
     CoachAuthor, CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
 };
@@ -2434,33 +2440,10 @@ impl Database {
     /// Returns an error if the database insert fails.
     pub async fn chat_add_message_impl(
         &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
+        params: &AddMessageParams<'_>,
     ) -> AppResult<MessageRecord> {
-        use crate::llm::MessageRole;
-
-        let message_role = match role {
-            "assistant" => MessageRole::Assistant,
-            "system" => MessageRole::System,
-            // Default to User for "user" and any unrecognized roles
-            _ => MessageRole::User,
-        };
-
         let chat_manager = ChatManager::new(self.pool.clone());
-        chat_manager
-            .add_message(
-                conversation_id,
-                user_id,
-                message_role,
-                content,
-                token_count,
-                finish_reason,
-            )
-            .await
+        chat_manager.add_message(params).await
     }
 
     /// Get all messages for a conversation (impl for trait)
@@ -2505,6 +2488,19 @@ impl Database {
         chat_manager
             .get_message_count(conversation_id, user_id)
             .await
+    }
+
+    /// Count conversations for a user (impl for trait)
+    ///
+    /// # Errors
+    /// Returns an error if the database query fails.
+    pub async fn chat_count_conversations_impl(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<i64> {
+        let chat_manager = ChatManager::new(self.pool.clone());
+        chat_manager.count_conversations(user_id, tenant_id).await
     }
 
     /// Delete all conversations for a user (impl for trait)
@@ -4039,25 +4035,8 @@ impl DatabaseProvider for Database {
         Self::chat_delete_conversation_impl(self, conversation_id, user_id, tenant_id).await
     }
 
-    async fn chat_add_message(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
-    ) -> AppResult<MessageRecord> {
-        Self::chat_add_message_impl(
-            self,
-            conversation_id,
-            user_id,
-            role,
-            content,
-            token_count,
-            finish_reason,
-        )
-        .await
+    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
+        Self::chat_add_message_impl(self, params).await
     }
 
     async fn chat_get_messages(
@@ -4079,6 +4058,10 @@ impl DatabaseProvider for Database {
 
     async fn chat_get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
         Self::chat_get_message_count_impl(self, conversation_id, user_id).await
+    }
+
+    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+        Self::chat_count_conversations_impl(self, user_id, tenant_id).await
     }
 
     async fn chat_delete_all_user_conversations(
@@ -4104,6 +4087,56 @@ impl DatabaseProvider for Database {
 
     async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()> {
         Self::invalidate_user_reset_tokens_impl(self, user_id).await
+    }
+
+    async fn insert_llm_usage(
+        &self,
+        params: &llm_usage::InsertLlmUsage<'_>,
+    ) -> AppResult<llm_usage::LlmUsageRecord> {
+        self.insert_llm_usage_impl(params).await
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<llm_usage::LlmUsageAggregateRow>> {
+        self.get_llm_usage_aggregates_impl(tenant_id, since).await
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<llm_usage::LlmUsageDailyRow>> {
+        self.get_llm_usage_daily_series_impl(tenant_id, since).await
+    }
+
+    async fn increment_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<usage_counters::UsageCounterRecord> {
+        self.increment_usage_counter_impl(tenant_id, user_id, counter_key, period, amount)
+            .await
+    }
+
+    async fn get_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<usage_counters::UsageCounterRecord> {
+        self.get_usage_counter_impl(tenant_id, user_id, counter_key, period)
+            .await
+    }
+
+    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+        self.delete_old_usage_counters_impl(period_before).await
     }
 }
 

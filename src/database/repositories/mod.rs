@@ -14,10 +14,15 @@ use crate::admin::models::{
 use crate::api_keys::{ApiKey, ApiKeyUsage, ApiKeyUsageStats};
 use crate::config::fitness::FitnessConfig;
 use crate::dashboard_routes::{RequestLog, ToolUsage};
+use crate::database::chat::AddMessageParams;
 use crate::database::coaches::{Coach, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest};
+use crate::database::llm_usage::{
+    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
+};
 use crate::database::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
+use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     DatabaseError, MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -45,7 +50,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 // ================================
-// Repository Trait Definitions (21 with blanket impls)
+// Repository Trait Definitions (23 with blanket impls)
 // ================================
 
 /// User account management repository
@@ -779,12 +784,7 @@ pub trait ChatRepository: Send + Sync {
     /// Add a message to a conversation (verifies user owns the conversation)
     async fn add_message(
         &self,
-        conversation_id: &str,
-        user_id: &str,
-        role: &str,
-        content: &str,
-        token_count: Option<u32>,
-        finish_reason: Option<&str>,
+        params: &AddMessageParams<'_>,
     ) -> Result<MessageRecord, DatabaseError>;
     /// Get all messages for a conversation (verifies user owns the conversation)
     async fn get_messages(
@@ -804,6 +804,12 @@ pub trait ChatRepository: Send + Sync {
         &self,
         conversation_id: &str,
         user_id: &str,
+    ) -> Result<i64, DatabaseError>;
+    /// Count total conversations for a user in a tenant
+    async fn count_conversations(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
     ) -> Result<i64, DatabaseError>;
     /// Delete all conversations for a user
     async fn delete_all_user_conversations(
@@ -1007,6 +1013,59 @@ pub trait ToolSelectionRepository: Send + Sync {
     ) -> Result<bool, DatabaseError>;
     /// Count enabled tools for a tenant
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> Result<usize, DatabaseError>;
+}
+
+/// LLM usage tracking repository for cost analysis and quota enforcement
+#[async_trait]
+pub trait LlmUsageRepository: Send + Sync {
+    /// Insert a new LLM usage record
+    async fn insert_llm_usage(
+        &self,
+        params: &InsertLlmUsage<'_>,
+    ) -> Result<LlmUsageRecord, DatabaseError>;
+
+    /// Query aggregated LLM usage grouped by `provider`, `model`, and `call_type`
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> Result<Vec<LlmUsageAggregateRow>, DatabaseError>;
+
+    /// Query daily LLM usage time series for consumption charts
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> Result<Vec<LlmUsageDailyRow>, DatabaseError>;
+}
+
+/// Usage counter repository for rate limiting and quota enforcement
+#[async_trait]
+pub trait UsageCounterRepository: Send + Sync {
+    /// Atomically increment a usage counter via upsert
+    async fn increment_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> Result<UsageCounterRecord, DatabaseError>;
+
+    /// Get the current value of a counter (returns 0 if not found)
+    async fn get_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> Result<UsageCounterRecord, DatabaseError>;
+
+    /// Delete counters older than the given period cutoff
+    ///
+    /// System-level housekeeping: intentionally operates across ALL tenants.
+    /// Called only from background pruning tasks, not user-facing endpoints.
+    async fn delete_old_counters(&self, period_before: &str) -> Result<u64, DatabaseError>;
 }
 
 // ================================

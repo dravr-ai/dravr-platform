@@ -20,6 +20,8 @@ import {
   CreateCoachFromConversationModal,
   DEFAULT_COACH_FORM_DATA,
 } from './chat';
+import UsageWarningBanner from './chat/UsageWarningBanner';
+import { useUsageStatus } from '../hooks/useUsageStatus';
 import ShareChatMessageModal from './social/ShareChatMessageModal';
 import { useSuccessToast, useInfoToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -69,6 +71,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Fetch usage quota status for warning banners
+  const usageStatus = useUsageStatus();
 
   // Fetch provider status (includes both OAuth and non-OAuth providers like synthetic)
   const { data: providersData } = useQuery({
@@ -390,8 +395,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     } finally {
       setIsStreaming(false);
       setStreamingContent('');
+      usageStatus.invalidate();
     }
-  }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token]);
+  }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token, usageStatus]);
 
   // Coach handlers
   // Note: coachId is passed by PromptSuggestions but not currently used here
@@ -679,6 +685,9 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       ) : (
         /* Active Conversation View */
         <div className="h-full flex flex-col">
+          {/* Usage warning banner */}
+          <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
+
           {/* Conversation Header with Create Coach button */}
           {(messagesData?.messages?.length ?? 0) >= 2 && (
             <div className="border-b border-white/5 px-6 py-3 flex items-center justify-end">
@@ -724,6 +733,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             onChange={setNewMessage}
             onSend={handleSendMessage}
             isStreaming={isStreaming}
+            disabled={usageStatus.sendDisabled}
             showIdeas={showIdeas}
             onToggleIdeas={() => setShowIdeas(!showIdeas)}
             onSelectPrompt={handleFillPrompt}

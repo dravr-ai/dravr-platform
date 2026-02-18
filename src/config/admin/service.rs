@@ -1513,6 +1513,523 @@ impl AdminConfigService {
             },
         );
 
+        // Usage Quotas — per-user and per-tenant limits
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.max_coaches_per_user".to_owned(),
+                display_name: "Max Coaches Per User".to_owned(),
+                description: "Maximum number of coaches a single user can subscribe to".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(3),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(1),
+                    max: serde_json::json!(20),
+                    step: Some(1.0),
+                }),
+                enum_options: None,
+                units: Some("coaches".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.max_active_conversations".to_owned(),
+                display_name: "Max Active Conversations".to_owned(),
+                description: "Maximum concurrent active conversations per user".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(2),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(1),
+                    max: serde_json::json!(10),
+                    step: Some(1.0),
+                }),
+                enum_options: None,
+                units: Some("conversations".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.daily_message_cap".to_owned(),
+                display_name: "Daily Message Cap".to_owned(),
+                description: "Maximum chat messages a user can send per day".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(50),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(5),
+                    max: serde_json::json!(1000),
+                    step: Some(5.0),
+                }),
+                enum_options: None,
+                units: Some("messages/day".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.weekly_message_cap".to_owned(),
+                display_name: "Weekly Message Cap".to_owned(),
+                description: "Maximum chat messages a user can send per week".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(250),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(25),
+                    max: serde_json::json!(5000),
+                    step: Some(25.0),
+                }),
+                enum_options: None,
+                units: Some("messages/week".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.daily_tool_call_limit".to_owned(),
+                display_name: "Daily Tool Call Limit".to_owned(),
+                description: "Maximum MCP tool calls a user can trigger per day".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(100),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(10),
+                    max: serde_json::json!(5000),
+                    step: Some(10.0),
+                }),
+                enum_options: None,
+                units: Some("calls/day".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.weekly_tool_call_limit".to_owned(),
+                display_name: "Weekly Tool Call Limit".to_owned(),
+                description: "Maximum MCP tool calls a user can trigger per week".to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(500),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(50),
+                    max: serde_json::json!(25000),
+                    step: Some(50.0),
+                }),
+                enum_options: None,
+                units: Some("calls/week".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.daily_token_budget".to_owned(),
+                display_name: "Daily Token Budget".to_owned(),
+                description: "Maximum total LLM tokens (prompt + completion) per user per day"
+                    .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(500_000),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(10_000),
+                    max: serde_json::json!(10_000_000),
+                    step: Some(10_000.0),
+                }),
+                enum_options: None,
+                units: Some("tokens/day".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.weekly_token_budget".to_owned(),
+                display_name: "Weekly Token Budget".to_owned(),
+                description: "Maximum total LLM tokens (prompt + completion) per user per week"
+                    .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(2_000_000),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(50_000),
+                    max: serde_json::json!(50_000_000),
+                    step: Some(50_000.0),
+                }),
+                enum_options: None,
+                units: Some("tokens/week".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.burst_multiplier".to_owned(),
+                display_name: "Burst Multiplier".to_owned(),
+                description:
+                    "Multiplier applied to daily limits during burst periods (e.g. 1.5 = 50% extra)"
+                        .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(1.5),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(1.0),
+                    max: serde_json::json!(5.0),
+                    step: Some(0.1),
+                }),
+                enum_options: None,
+                units: Some("x".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.warning_threshold_percent".to_owned(),
+                display_name: "Warning Threshold".to_owned(),
+                description:
+                    "Percentage of quota usage at which the user receives a warning notification"
+                        .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(80),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(50),
+                    max: serde_json::json!(99),
+                    step: Some(1.0),
+                }),
+                enum_options: None,
+                units: Some("%".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // ====================================================================
+        // LLM Pricing Parameters
+        // ====================================================================
+
+        // Google Gemini 2.0 Flash
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.0-flash.input_per_million".to_owned(),
+                display_name: "Gemini 2.0 Flash Input Price".to_owned(),
+                description: "USD per million input tokens for Google Gemini 2.0 Flash".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.075),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.0-flash.output_per_million".to_owned(),
+                display_name: "Gemini 2.0 Flash Output Price".to_owned(),
+                description: "USD per million output tokens for Google Gemini 2.0 Flash".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.30),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // Google Gemini 2.5 Pro
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.5-pro.input_per_million".to_owned(),
+                display_name: "Gemini 2.5 Pro Input Price".to_owned(),
+                description: "USD per million input tokens for Google Gemini 2.5 Pro".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(1.25),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.5-pro.output_per_million".to_owned(),
+                display_name: "Gemini 2.5 Pro Output Price".to_owned(),
+                description: "USD per million output tokens for Google Gemini 2.5 Pro".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(10.0),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // Google Gemini 2.5 Flash
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.5-flash.input_per_million".to_owned(),
+                display_name: "Gemini 2.5 Flash Input Price".to_owned(),
+                description: "USD per million input tokens for Google Gemini 2.5 Flash".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.15),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.gemini.gemini-2.5-flash.output_per_million".to_owned(),
+                display_name: "Gemini 2.5 Flash Output Price".to_owned(),
+                description: "USD per million output tokens for Google Gemini 2.5 Flash".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.60),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // Groq LLaMA 3.3 70B
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.llama-3.3-70b.input_per_million".to_owned(),
+                display_name: "LLaMA 3.3 70B Input Price".to_owned(),
+                description: "USD per million input tokens for Groq LLaMA 3.3 70B".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.59),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.llama-3.3-70b.output_per_million".to_owned(),
+                display_name: "LLaMA 3.3 70B Output Price".to_owned(),
+                description: "USD per million output tokens for Groq LLaMA 3.3 70B".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.79),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // Groq Mixtral
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.mixtral.input_per_million".to_owned(),
+                display_name: "Mixtral Input Price".to_owned(),
+                description: "USD per million input tokens for Groq Mixtral".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.24),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.mixtral.output_per_million".to_owned(),
+                display_name: "Mixtral Output Price".to_owned(),
+                description: "USD per million output tokens for Groq Mixtral".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.24),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.01),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
+        // Groq LLaMA 3.1 8B
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.llama-3.1-8b.input_per_million".to_owned(),
+                display_name: "LLaMA 3.1 8B Input Price".to_owned(),
+                description: "USD per million input tokens for Groq LLaMA 3.1 8B".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.05),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "llm_pricing.groq.llama-3.1-8b.output_per_million".to_owned(),
+                display_name: "LLaMA 3.1 8B Output Price".to_owned(),
+                description: "USD per million output tokens for Groq LLaMA 3.1 8B".to_owned(),
+                category: "llm_pricing".to_owned(),
+                data_type: ConfigDataType::Float,
+                default_value: serde_json::json!(0.08),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(0.0),
+                    max: serde_json::json!(100.0),
+                    step: Some(0.001),
+                }),
+                enum_options: None,
+                units: Some("$/M tokens".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
         // Acquire lock briefly and insert all definitions at once
         let def_count = defs.len();
         self.definitions.write().await.extend(defs);

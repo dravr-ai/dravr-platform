@@ -237,6 +237,9 @@ pub struct Coach {
     /// Author profile ID (for published coaches)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author_id: Option<String>,
+    /// Maximum tool call iterations for this coach (overrides global config)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tool_iterations: Option<i32>,
 }
 
 /// Coach with computed context-dependent fields for list responses
@@ -427,6 +430,7 @@ impl CoachesManager {
             install_count: 0,
             icon_url: None,
             author_id: None,
+            max_tool_iterations: None,
         })
     }
 
@@ -771,6 +775,7 @@ impl CoachesManager {
             install_count: 0,
             icon_url: None,
             author_id: None,
+            max_tool_iterations: None,
         })
     }
 
@@ -1124,6 +1129,7 @@ impl CoachesManager {
             install_count: 0,
             icon_url: None,
             author_id: None,
+            max_tool_iterations: None,
         })
     }
 
@@ -3027,6 +3033,37 @@ impl CoachesManager {
 
         Ok(row.and_then(|(q,)| q))
     }
+
+    /// Get the `max_tool_iterations` override for a coach by matching its system prompt.
+    ///
+    /// Used to resolve per-coach tool iteration limits in the chat tool loop.
+    /// Returns `None` if no coach matches or the coach has no override set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn get_max_tool_iterations_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<i32>> {
+        let row: Option<(Option<i32>,)> = sqlx::query_as(
+            r"
+            SELECT max_tool_iterations
+            FROM coaches
+            WHERE system_prompt = $1
+              AND (tenant_id = $2 OR is_system = 1)
+            LIMIT 1
+            ",
+        )
+        .bind(system_prompt)
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get max_tool_iterations: {e}")))?;
+
+        Ok(row.and_then(|(v,)| v))
+    }
 }
 
 /// Compute SHA-256 hash of content for version tracking
@@ -3185,6 +3222,7 @@ fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
     let install_count: i64 = row.try_get("install_count").unwrap_or(0);
     let icon_url: Option<String> = row.try_get("icon_url").ok().flatten();
     let author_id: Option<String> = row.try_get("author_id").ok().flatten();
+    let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
 
     Ok(Coach {
         id: Uuid::parse_str(&id_str)
@@ -3233,6 +3271,7 @@ fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         install_count: install_count as u32,
         icon_url,
         author_id,
+        max_tool_iterations,
     })
 }
 

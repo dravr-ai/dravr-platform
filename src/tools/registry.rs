@@ -23,11 +23,36 @@ use tracing::{debug, info, warn};
 
 use crate::errors::AppResult;
 use crate::mcp::schema::ToolSchema;
+use serde::Serialize;
 
 use super::context::ToolExecutionContext;
 use super::errors::ToolError;
 use super::result::ToolResult;
 use super::traits::{McpTool, ToolBundle, ToolCapabilities};
+
+/// Per-tool schema size measurement
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolSchemaSize {
+    /// Tool name
+    pub name: String,
+    /// Serialized schema byte size
+    pub bytes: usize,
+    /// Estimated token count (chars / 4)
+    pub tokens: usize,
+}
+
+/// Aggregate schema token estimate for all registered tools
+#[derive(Debug, Clone, Serialize)]
+pub struct SchemaTokenEstimate {
+    /// Total serialized byte size of all tool schemas
+    pub total_bytes: usize,
+    /// Estimated total token count
+    pub estimated_tokens: usize,
+    /// Number of registered tools
+    pub tool_count: usize,
+    /// Per-tool breakdown sorted by token cost descending
+    pub per_tool: Vec<ToolSchemaSize>,
+}
 
 /// Central registry for MCP tools.
 ///
@@ -673,6 +698,48 @@ impl ToolRegistry {
             "Registered mobility tools (registry now has {} tools)",
             self.tools.len()
         );
+    }
+
+    /// Calculate the total serialized schema size and estimated token count for all tools.
+    ///
+    /// Returns `(total_bytes, estimated_tokens, tool_count, per_tool)` where `per_tool`
+    /// contains `(name, bytes, tokens)` for each registered tool.
+    #[must_use]
+    pub fn total_schema_token_estimate(&self) -> SchemaTokenEstimate {
+        use crate::formatters::TokenEfficiencyMetrics;
+
+        let mut per_tool = Vec::with_capacity(self.tools.len());
+        let mut total_bytes: usize = 0;
+        let mut total_estimated_tokens: usize = 0;
+
+        for tool in self.tools.values() {
+            let schema = serde_json::json!({
+                "name": tool.name(),
+                "description": tool.description(),
+                "inputSchema": tool.input_schema(),
+            });
+            let serialized = serde_json::to_string(&schema).unwrap_or_default();
+            let bytes = serialized.len();
+            let tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
+
+            total_bytes += bytes;
+            total_estimated_tokens += tokens;
+            per_tool.push(ToolSchemaSize {
+                name: tool.name().to_owned(),
+                bytes,
+                tokens,
+            });
+        }
+
+        // Sort by token cost descending for easy identification of largest tools
+        per_tool.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+
+        SchemaTokenEstimate {
+            total_bytes,
+            estimated_tokens: total_estimated_tokens,
+            tool_count: self.tools.len(),
+            per_tool,
+        }
     }
 
     /// Register store tools (browse, search, install coaches)
