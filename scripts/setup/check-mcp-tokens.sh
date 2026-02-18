@@ -15,11 +15,11 @@ if [ -z "$GITHUB_PERSONAL_ACCESS_TOKEN" ]; then
 fi
 
 if [ ${#missing_tokens[@]} -gt 0 ]; then
-  echo "MCP_TOKEN_SETUP_REQUIRED: The following MCP tokens are missing from the environment:"
+  echo "MCP_TOKENS_MISSING: The following MCP tokens are not in the environment:"
   for token in "${missing_tokens[@]}"; do
     echo "  - $token"
   done
-  echo "ACTION: Use AskUserQuestion to ask the user to provide these tokens. After receiving them, export each token using the Bash tool (e.g., export LINEAR_API_KEY=<value>). The tokens are needed by MCP servers configured in .mcp.json."
+  echo "NOTE: DO NOT ask the user for these tokens. MCP tools that require them will be unavailable — use fallback methods instead (e.g., WebFetch for GitHub, direct file reads for Linear issues). Only mention missing tokens if the user explicitly tries to use a feature that requires them."
 fi
 
 # Check Fougere/Copilot CLI availability
