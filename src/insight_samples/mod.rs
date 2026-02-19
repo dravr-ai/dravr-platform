@@ -36,6 +36,6 @@
 pub mod parser;
 
 pub use parser::{
-    parse_insight_sample_content, parse_insight_sample_file, InsightSampleDefinition,
-    InsightSampleFrontmatter, InsightSampleSections, TierBehavior,
+    parse_insight_sample_file, InsightSampleDefinition, InsightSampleFrontmatter,
+    InsightSampleSections, TierBehavior,
 };

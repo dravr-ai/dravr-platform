@@ -108,6 +108,6 @@ pub mod responses;
 pub use context::{AuthMethod, ToolExecutionContext};
 pub use decorators::AuditedTool;
 pub use errors::ToolError;
-pub use registry::{register_external_tool, ToolRegistry};
+pub use registry::ToolRegistry;
 pub use result::{NotificationType, ToolNotification, ToolResult};
-pub use traits::{McpTool, ToolBundle, ToolCapabilities, ToolDescriptor, ToolFactory};
+pub use traits::{McpTool, ToolCapabilities};

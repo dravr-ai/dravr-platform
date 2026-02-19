@@ -625,7 +625,7 @@ async fn test_register_external_tool() {
     }
 
     let mut registry = ToolRegistry::new();
-    registry.register_external_tool(Arc::new(ExternalTestTool));
+    registry.register(Arc::new(ExternalTestTool));
 
     assert!(registry.contains("external_test_tool"));
     assert_eq!(registry.len(), 1);
@@ -675,7 +675,7 @@ async fn test_external_tool_with_builtin_tools() {
     registry.register_builtin_tools();
     let builtin_count = registry.len();
 
-    registry.register_external_tool(Arc::new(CustomTool));
+    registry.register(Arc::new(CustomTool));
 
     assert_eq!(registry.len(), builtin_count + 1);
     assert!(registry.contains("custom_integration_tool"));

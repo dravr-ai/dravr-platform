@@ -139,7 +139,7 @@ impl InsightSampleDefinition {
 ///
 /// # Errors
 /// Returns error if frontmatter delimiters are missing or YAML is invalid
-pub fn parse_frontmatter(content: &str) -> AppResult<InsightSampleFrontmatter> {
+fn parse_frontmatter(content: &str) -> AppResult<InsightSampleFrontmatter> {
     let content = content.trim();
 
     if !content.starts_with("---") {
@@ -171,7 +171,7 @@ pub fn parse_frontmatter(content: &str) -> AppResult<InsightSampleFrontmatter> {
 ///
 /// # Errors
 /// Returns error if required sections (Content) are missing
-pub fn parse_sections(content: &str) -> AppResult<InsightSampleSections> {
+fn parse_sections(content: &str) -> AppResult<InsightSampleSections> {
     let content = content.trim();
 
     // Skip frontmatter to get to sections
@@ -281,36 +281,6 @@ pub fn parse_insight_sample_file(path: &Path) -> AppResult<InsightSampleDefiniti
         .map(|s| s.to_string_lossy())
         .collect::<Vec<_>>()
         .join("/");
-
-    Ok(InsightSampleDefinition {
-        frontmatter,
-        sections,
-        source_file,
-        content_hash,
-    })
-}
-
-/// Parse insight sample definition from markdown string content
-///
-/// # Arguments
-/// * `content` - Markdown content with YAML frontmatter
-/// * `source_name` - Optional source identifier for the content
-///
-/// # Errors
-/// Returns error if content is invalid
-pub fn parse_insight_sample_content(
-    content: &str,
-    source_name: Option<&str>,
-) -> AppResult<InsightSampleDefinition> {
-    let frontmatter = parse_frontmatter(content)?;
-    let sections = parse_sections(content)?;
-
-    let content_hash = InsightSampleDefinition::calculate_hash(content);
-
-    let source_file = source_name.map_or_else(
-        || format!("imported/{}.md", frontmatter.name),
-        ToString::to_string,
-    );
 
     Ok(InsightSampleDefinition {
         frontmatter,
