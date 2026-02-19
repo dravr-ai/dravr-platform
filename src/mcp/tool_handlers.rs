@@ -19,6 +19,7 @@ use crate::constants::{
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
 };
 use crate::database::llm_usage::InsertLlmUsage;
+use crate::database::repositories::TenantRepository;
 use crate::database_plugins::factory::Database;
 use crate::database_plugins::DatabaseProvider;
 use crate::errors::{AppError, ErrorCode};
@@ -545,6 +546,7 @@ impl ToolHandlers {
     /// Returns `Some(McpResponse)` with a JSON-RPC error if any quota is exceeded,
     /// or `None` if execution is allowed. Uses the same `daily_tool_calls` and
     /// `weekly_tool_calls` counters as the chat route for shared budget enforcement.
+    /// Admin and owner roles bypass quota enforcement entirely.
     async fn check_tool_quota(
         resources: &Arc<ServerResources>,
         tenant_context: &TenantContext,
@@ -555,6 +557,22 @@ impl ToolHandlers {
             debug!("Admin config not available, skipping MCP tool quota check");
             return None;
         };
+
+        // Admin role bypasses quota enforcement for debugging and testing.
+        // Owners (tenant creators) remain subject to quotas as cost control.
+        if let Ok(Some(role)) = resources
+            .database
+            .get_user_role(auth_result.user_id, tenant_context.tenant_id)
+            .await
+        {
+            if role == "admin" {
+                debug!(
+                    "Skipping MCP tool quota check for admin user {}",
+                    auth_result.user_id
+                );
+                return None;
+            }
+        }
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();

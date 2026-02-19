@@ -1847,6 +1847,30 @@ impl AdminConfigService {
             },
         );
 
+        Self::add_definition(
+            &mut defs,
+            ParameterDefinition {
+                key: "usage_quotas.counter_retention_days".to_owned(),
+                display_name: "Counter Retention Days".to_owned(),
+                description: "Number of days to retain old usage counter records before pruning"
+                    .to_owned(),
+                category: "usage_quotas".to_owned(),
+                data_type: ConfigDataType::Integer,
+                default_value: serde_json::json!(90),
+                valid_range: Some(ParameterRange {
+                    min: serde_json::json!(7),
+                    max: serde_json::json!(365),
+                    step: Some(1.0),
+                }),
+                enum_options: None,
+                units: Some("days".to_owned()),
+                scientific_basis: None,
+                env_variable: None,
+                is_runtime_configurable: true,
+                requires_restart: false,
+            },
+        );
+
         // ====================================================================
         // LLM Pricing Parameters
         // ====================================================================

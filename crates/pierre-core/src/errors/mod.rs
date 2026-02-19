@@ -256,6 +256,9 @@ pub struct AppError {
     pub message: String,
     /// Optional request `ID` for tracing
     pub request_id: Option<String>,
+    /// Optional structured details for client consumption (e.g., quota limit info).
+    /// Boxed to keep `AppError` within clippy's `result_large_err` threshold.
+    pub details: Option<Box<serde_json::Value>>,
 }
 
 impl AppError {
@@ -266,6 +269,7 @@ impl AppError {
             code,
             message: message.into(),
             request_id: None,
+            details: None,
         }
     }
 
@@ -347,6 +351,9 @@ pub struct ErrorResponse {
     /// Optional request ID for error tracking
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Structured error details for programmatic consumption (e.g., quota info)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
     /// RFC3339 timestamp when the error occurred
     pub timestamp: String,
 }
@@ -360,6 +367,7 @@ impl From<AppError> for ErrorResponse {
             code: error.code,
             message: error.sanitized_message(), // Use sanitized message for client
             request_id: error.request_id,
+            details: error.details.map(|d| *d),
             timestamp: Utc::now().to_rfc3339(),
         }
     }
@@ -464,13 +472,22 @@ impl AppError {
         )
     }
 
-    /// Usage quota exceeded with limit details for 429 response
+    /// Usage quota exceeded with limit details for 429 response.
+    /// Includes structured `details` with `limit_type`, `current`, `limit`, and `resets_at`
+    /// so frontends can parse quota information without string manipulation.
     #[must_use]
     pub fn quota_exceeded(limit_type: &str, current: i64, limit: i64, resets_at: &str) -> Self {
-        Self::new(
+        let mut err = Self::new(
             ErrorCode::QuotaExceeded,
             format!("{limit_type} quota exceeded: {current}/{limit}, resets at {resets_at}"),
-        )
+        );
+        err.details = Some(Box::new(serde_json::json!({
+            "limit_type": limit_type,
+            "current": current,
+            "limit": limit,
+            "resets_at": resets_at,
+        })));
+        err
     }
 
     /// Resource already exists (conflict)
