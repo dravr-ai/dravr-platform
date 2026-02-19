@@ -74,12 +74,8 @@ async fn create_test_db() -> SqlitePool {
             category TEXT NOT NULL DEFAULT 'custom',
             tags TEXT,
             token_count INTEGER NOT NULL DEFAULT 0,
-            is_favorite INTEGER NOT NULL DEFAULT 0,
-            use_count INTEGER NOT NULL DEFAULT 0,
-            last_used_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 0,
             is_system INTEGER NOT NULL DEFAULT 0,
             visibility TEXT NOT NULL DEFAULT 'private',
             sample_prompts TEXT,
@@ -94,15 +90,8 @@ async fn create_test_db() -> SqlitePool {
             source_file TEXT,
             content_hash TEXT,
             forked_from TEXT,
-            publish_status TEXT DEFAULT 'draft',
-            published_at TEXT,
-            review_submitted_at TEXT,
-            review_decision_at TEXT,
-            review_decision_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-            rejection_reason TEXT,
-            install_count INTEGER DEFAULT 0,
-            icon_url TEXT,
-            author_id TEXT,
+            startup_query TEXT,
+            max_tool_iterations INTEGER DEFAULT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
         ",
@@ -135,6 +124,27 @@ async fn create_test_db() -> SqlitePool {
     sqlx::query(
         r"
         CREATE INDEX IF NOT EXISTS idx_coach_versions_coach ON coach_versions(coach_id, version DESC)
+        ",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Create coach_assignments table (needed for auto-assignment on coach create)
+    sqlx::query(
+        r"
+        CREATE TABLE IF NOT EXISTS coach_assignments (
+            id TEXT PRIMARY KEY,
+            coach_id TEXT NOT NULL REFERENCES coaches(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 0,
+            use_count INTEGER NOT NULL DEFAULT 0,
+            last_used_at TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(coach_id, user_id)
+        )
         ",
     )
     .execute(&pool)
