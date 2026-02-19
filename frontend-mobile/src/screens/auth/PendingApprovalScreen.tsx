@@ -5,13 +5,14 @@ import React from 'react';
 import {
   View,
   Text,
-  SafeAreaView,
+
   TouchableOpacity,
   Image,
   ScrollView,
   type ImageStyle,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../../components/ui';
 import { spacing, glassCard, gradients } from '../../constants/theme';

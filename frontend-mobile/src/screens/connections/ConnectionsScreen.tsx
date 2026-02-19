@@ -5,12 +5,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  SafeAreaView,
+
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';

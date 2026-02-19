@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  SafeAreaView,
+
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -13,6 +13,7 @@ import {
   Alert,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAsyncAction } from '@pierre/ui-logic';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
