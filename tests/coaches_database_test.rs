@@ -61,7 +61,7 @@ async fn create_test_db() -> SqlitePool {
     .await
     .unwrap();
 
-    // Create coaches table
+    // Create coaches table (preference fields moved to coach_assignments per DRAVR-593)
     sqlx::query(
         r"
         CREATE TABLE IF NOT EXISTS coaches (
@@ -74,12 +74,8 @@ async fn create_test_db() -> SqlitePool {
             category TEXT NOT NULL DEFAULT 'custom',
             tags TEXT,
             token_count INTEGER NOT NULL DEFAULT 0,
-            is_favorite INTEGER NOT NULL DEFAULT 0,
-            use_count INTEGER NOT NULL DEFAULT 0,
-            last_used_at TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            is_active INTEGER NOT NULL DEFAULT 0,
             is_system INTEGER NOT NULL DEFAULT 0,
             visibility TEXT NOT NULL DEFAULT 'private',
             sample_prompts TEXT,
@@ -103,6 +99,7 @@ async fn create_test_db() -> SqlitePool {
             install_count INTEGER DEFAULT 0,
             icon_url TEXT,
             author_id TEXT,
+            max_tool_iterations INTEGER,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
         ",
@@ -131,7 +128,7 @@ async fn create_test_db() -> SqlitePool {
     .await
     .unwrap();
 
-    // Create coach_assignments table (for system coaches)
+    // Create coach_assignments table (user preferences + assignments per DRAVR-593)
     sqlx::query(
         r"
         CREATE TABLE IF NOT EXISTS coach_assignments (
@@ -140,6 +137,10 @@ async fn create_test_db() -> SqlitePool {
             user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             assigned_by TEXT REFERENCES users(id) ON DELETE SET NULL,
             created_at TEXT NOT NULL,
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 0,
+            use_count INTEGER NOT NULL DEFAULT 0,
+            last_used_at TEXT,
             UNIQUE(coach_id, user_id)
         )
         ",
@@ -255,10 +256,7 @@ async fn test_create_coach() {
     assert_eq!(coach.system_prompt, "You are an expert marathon coach.");
     assert_eq!(coach.category, CoachCategory::Training);
     assert_eq!(coach.tags, vec!["running", "marathon"]);
-    assert!(!coach.is_favorite);
-    assert!(!coach.is_active);
-    assert_eq!(coach.use_count, 0);
-    assert!(coach.last_used_at.is_none());
+    // Preference fields (is_favorite, is_active, use_count, last_used_at) now live in coach_assignments
     // Token count should be estimated (~4 chars per token)
     assert!(coach.token_count > 0);
 }
@@ -494,7 +492,7 @@ async fn test_list_coaches_favorites_only() {
         .unwrap();
 
     assert_eq!(coaches.len(), 1);
-    assert!(coaches[0].coach.is_favorite);
+    assert!(coaches[0].is_favorite);
 }
 
 #[tokio::test]
@@ -833,7 +831,7 @@ async fn test_toggle_favorite() {
         .create(test_user_id(), test_tenant(), &request)
         .await
         .unwrap();
-    assert!(!coach.is_favorite);
+    // Preference fields live in coach_assignments, not Coach struct
 
     // Toggle to favorite
     let is_favorite = manager
@@ -842,13 +840,17 @@ async fn test_toggle_favorite() {
         .unwrap();
     assert_eq!(is_favorite, Some(true));
 
-    // Verify
-    let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+    // Verify via list with favorites filter
+    let filter = ListCoachesFilter {
+        favorites_only: true,
+        ..Default::default()
+    };
+    let favorites = manager
+        .list(test_user_id(), test_tenant(), &filter)
         .await
-        .unwrap()
         .unwrap();
-    assert!(fetched.is_favorite);
+    assert_eq!(favorites.len(), 1);
+    assert!(favorites[0].is_favorite);
 
     // Toggle back
     let is_favorite = manager
@@ -857,13 +859,12 @@ async fn test_toggle_favorite() {
         .unwrap();
     assert_eq!(is_favorite, Some(false));
 
-    // Verify
-    let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+    // Verify no favorites
+    let favorites = manager
+        .list(test_user_id(), test_tenant(), &filter)
         .await
-        .unwrap()
         .unwrap();
-    assert!(!fetched.is_favorite);
+    assert!(favorites.is_empty());
 }
 
 #[tokio::test]
@@ -901,17 +902,22 @@ async fn test_activate_coach() {
         .create(test_user_id(), test_tenant(), &request)
         .await
         .unwrap();
-    assert!(!coach.is_active);
+    // Preference fields live in coach_assignments, not Coach struct
 
     // Activate
     let activated = manager
         .activate_coach(&coach.id.to_string(), test_user_id(), test_tenant())
         .await
         .unwrap();
-
     assert!(activated.is_some());
-    let activated = activated.unwrap();
-    assert!(activated.is_active);
+
+    // Verify via get_active_coach
+    let active = manager
+        .get_active_coach(test_user_id(), test_tenant())
+        .await
+        .unwrap();
+    assert!(active.is_some());
+    assert_eq!(active.unwrap().id, coach.id);
 }
 
 #[tokio::test]
@@ -952,13 +958,13 @@ async fn test_activate_coach_deactivates_others() {
         .await
         .unwrap();
 
-    // Verify first is active
-    let fetched1 = manager
-        .get(&coach1.id.to_string(), test_user_id(), test_tenant())
+    // Verify first is active via get_active_coach
+    let active = manager
+        .get_active_coach(test_user_id(), test_tenant())
         .await
-        .unwrap()
         .unwrap();
-    assert!(fetched1.is_active);
+    assert!(active.is_some());
+    assert_eq!(active.unwrap().id, coach1.id);
 
     // Activate second coach
     manager
@@ -966,20 +972,13 @@ async fn test_activate_coach_deactivates_others() {
         .await
         .unwrap();
 
-    // Verify second is active and first is not
-    let fetched1 = manager
-        .get(&coach1.id.to_string(), test_user_id(), test_tenant())
+    // Verify second is now active (first was deactivated)
+    let active = manager
+        .get_active_coach(test_user_id(), test_tenant())
         .await
-        .unwrap()
         .unwrap();
-    assert!(!fetched1.is_active);
-
-    let fetched2 = manager
-        .get(&coach2.id.to_string(), test_user_id(), test_tenant())
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(fetched2.is_active);
+    assert!(active.is_some());
+    assert_eq!(active.unwrap().id, coach2.id);
 }
 
 #[tokio::test]
@@ -1014,13 +1013,12 @@ async fn test_deactivate_coach() {
         .unwrap();
     assert!(deactivated);
 
-    // Verify
-    let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+    // Verify no active coach
+    let active = manager
+        .get_active_coach(test_user_id(), test_tenant())
         .await
-        .unwrap()
         .unwrap();
-    assert!(!fetched.is_active);
+    assert!(active.is_none());
 }
 
 #[tokio::test]
@@ -1076,7 +1074,6 @@ async fn test_get_active_coach() {
     assert!(active.is_some());
     let active = active.unwrap();
     assert_eq!(active.title, "Active Coach");
-    assert!(active.is_active);
 }
 
 #[tokio::test]
@@ -1139,8 +1136,17 @@ async fn test_record_usage() {
         .create(test_user_id(), test_tenant(), &request)
         .await
         .unwrap();
-    assert_eq!(coach.use_count, 0);
-    assert!(coach.last_used_at.is_none());
+    // Preference fields live in coach_assignments, not Coach struct
+
+    // Verify initial state via list
+    let filter = ListCoachesFilter::default();
+    let items = manager
+        .list(test_user_id(), test_tenant(), &filter)
+        .await
+        .unwrap();
+    let item = items.iter().find(|i| i.coach.id == coach.id).unwrap();
+    assert_eq!(item.use_count, 0);
+    assert!(item.last_used_at.is_none());
 
     // Record usage
     let recorded = manager
@@ -1149,14 +1155,14 @@ async fn test_record_usage() {
         .unwrap();
     assert!(recorded);
 
-    // Verify
-    let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+    // Verify via list
+    let items = manager
+        .list(test_user_id(), test_tenant(), &filter)
         .await
-        .unwrap()
         .unwrap();
-    assert_eq!(fetched.use_count, 1);
-    assert!(fetched.last_used_at.is_some());
+    let item = items.iter().find(|i| i.coach.id == coach.id).unwrap();
+    assert_eq!(item.use_count, 1);
+    assert!(item.last_used_at.is_some());
 
     // Record again
     manager
@@ -1164,12 +1170,12 @@ async fn test_record_usage() {
         .await
         .unwrap();
 
-    let fetched = manager
-        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+    let items = manager
+        .list(test_user_id(), test_tenant(), &filter)
         .await
-        .unwrap()
         .unwrap();
-    assert_eq!(fetched.use_count, 2);
+    let item = items.iter().find(|i| i.coach.id == coach.id).unwrap();
+    assert_eq!(item.use_count, 2);
 }
 
 // ============================================================================
@@ -1733,10 +1739,17 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
 
     assert_eq!(coaches.len(), 2);
 
-    // One should be assigned (system coach)
-    let assigned_coaches: Vec<_> = coaches.iter().filter(|c| c.is_assigned).collect();
-    assert_eq!(assigned_coaches.len(), 1);
-    assert_eq!(assigned_coaches[0].coach.title, "System Coach");
+    // Both should be assigned: personal coach via self-assignment from create(),
+    // system coach via explicit assign_coach() call
+    let assigned_count = coaches.iter().filter(|c| c.is_assigned).count();
+    assert_eq!(assigned_count, 2);
+
+    // Verify the system coach is in the list and assigned
+    let system_coach = coaches
+        .iter()
+        .find(|c| c.coach.title == "System Coach")
+        .unwrap();
+    assert!(system_coach.is_assigned);
 }
 
 // ============================================================================

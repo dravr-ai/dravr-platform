@@ -42,6 +42,8 @@ pub mod repositories;
 pub mod seed_coaches;
 /// Social features (friend connections, shared insights)
 pub mod social;
+/// Store listings for coach publishing workflow
+pub mod store_listings;
 /// Synthetic provider activities storage
 pub mod synthetic_activities;
 /// System settings for admin-configurable options
@@ -77,6 +79,7 @@ pub use mobility::{
     StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };
 pub use oauth_notifications::OAuthNotification;
+pub use store_listings::{CoachWithListing, StoreListing, StoreListingsManager};
 pub use user_mcp_tokens::{
     CreateUserMcpTokenRequest, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
 };

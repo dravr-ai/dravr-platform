@@ -146,11 +146,11 @@ pub fn handle_list_coaches(
                     "category": item.coach.category.as_str(),
                     "tags": item.coach.tags,
                     "token_count": item.coach.token_count,
-                    "is_favorite": item.coach.is_favorite,
+                    "is_favorite": item.is_favorite,
                     "is_system": item.coach.is_system,
                     "is_assigned": item.is_assigned,
-                    "use_count": item.coach.use_count,
-                    "last_used_at": item.coach.last_used_at.map(|dt| dt.to_rfc3339()),
+                    "use_count": item.use_count,
+                    "last_used_at": item.last_used_at.map(|dt| dt.to_rfc3339()),
                     "updated_at": item.coach.updated_at.to_rfc3339(),
                 })
             })
@@ -309,9 +309,9 @@ pub fn handle_get_coach(
                         "category": c.category.as_str(),
                         "tags": c.tags,
                         "token_count": c.token_count,
-                        "is_favorite": c.is_favorite,
-                        "use_count": c.use_count,
-                        "last_used_at": c.last_used_at.map(|dt| dt.to_rfc3339()),
+                        "is_favorite": false,
+                        "use_count": 0,
+                        "last_used_at": Option::<String>::None,
                         "created_at": c.created_at.to_rfc3339(),
                         "updated_at": c.updated_at.to_rfc3339(),
                     })),
@@ -434,7 +434,6 @@ pub fn handle_update_coach(
                     "category": c.category.as_str(),
                     "tags": c.tags,
                     "token_count": c.token_count,
-                    "is_favorite": c.is_favorite,
                     "updated_at": c.updated_at.to_rfc3339(),
                 })),
                 error: None,
@@ -654,7 +653,6 @@ pub fn handle_search_coaches(
                     "category": c.category.as_str(),
                     "tags": c.tags,
                     "token_count": c.token_count,
-                    "is_favorite": c.is_favorite,
                 })
             })
             .collect();
@@ -853,9 +851,6 @@ pub fn handle_get_active_coach(
                             "category": c.category.as_str(),
                             "tags": c.tags,
                             "token_count": c.token_count,
-                            "is_favorite": c.is_favorite,
-                            "use_count": c.use_count,
-                            "last_used_at": c.last_used_at.map(|dt| dt.to_rfc3339()),
                         }
                     })),
                     error: None,

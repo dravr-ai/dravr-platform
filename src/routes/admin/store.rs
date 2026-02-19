@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use crate::{
     admin::models::{AdminPermission, ValidatedAdminToken},
-    database::CoachesManager,
+    database::StoreListingsManager,
     errors::{AppError, AppResult},
     models::TenantId,
 };
@@ -48,13 +48,13 @@ pub(super) async fn handle_list_pending_coaches(
         .database
         .sqlite_pool()
         .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let coaches_manager = CoachesManager::new(pool.clone());
+    let store_manager = StoreListingsManager::new(pool.clone());
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coaches = coaches_manager
+    let coaches = store_manager
         .get_pending_review_coaches(tenant_id, query.limit, query.offset)
         .await?;
 
@@ -96,13 +96,13 @@ pub(super) async fn handle_approve_coach(
         .database
         .sqlite_pool()
         .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let coaches_manager = CoachesManager::new(pool.clone());
+    let store_manager = StoreListingsManager::new(pool.clone());
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coach = coaches_manager
+    let coach = store_manager
         .approve_coach(&coach_id, tenant_id, None::<Uuid>)
         .await?;
 
@@ -150,13 +150,13 @@ pub(super) async fn handle_reject_coach(
         .database
         .sqlite_pool()
         .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let coaches_manager = CoachesManager::new(pool.clone());
+    let store_manager = StoreListingsManager::new(pool.clone());
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coach = coaches_manager
+    let coach = store_manager
         .reject_coach(&coach_id, tenant_id, None::<Uuid>, &request.reason)
         .await?;
 
