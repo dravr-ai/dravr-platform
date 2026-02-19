@@ -728,6 +728,15 @@ impl ChatRoutes {
         // Track activity list across iterations (to prepend to final response)
         let mut captured_activity_list: Option<String> = None;
         let mut tool_calls_count: u32 = 0;
+        // Accumulate token usage across ALL iterations, not just the final one.
+        // Each iteration makes a separate LLM call, and intermediate iterations
+        // (with tool calls) consume real tokens that must be counted for quota
+        // enforcement and cost analytics.
+        let mut cumulative_usage = TokenUsage {
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+        };
 
         for iteration in 0..params.max_iterations {
             let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
@@ -735,6 +744,13 @@ impl ChatRoutes {
                 .provider
                 .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
                 .await?;
+
+            // Accumulate token usage from every LLM call
+            if let Some(ref usage) = response.usage {
+                cumulative_usage.prompt_tokens += usage.prompt_tokens;
+                cumulative_usage.completion_tokens += usage.completion_tokens;
+                cumulative_usage.total_tokens += usage.total_tokens;
+            }
 
             // Check for function calls
             if let Some(ref function_calls) = response.function_calls {
@@ -783,17 +799,22 @@ impl ChatRoutes {
                 .unwrap_or_default();
             return Ok(ToolLoopResult {
                 content,
-                usage: response.usage,
+                usage: Some(cumulative_usage),
                 finish_reason: response.finish_reason,
                 activity_list: captured_activity_list,
                 tool_calls_count,
             });
         }
 
-        // Max iterations reached - return empty response
+        // Max iterations reached - return accumulated usage from all iterations
+        let usage = if cumulative_usage.total_tokens > 0 {
+            Some(cumulative_usage)
+        } else {
+            None
+        };
         Ok(ToolLoopResult {
             content: String::new(),
-            usage: None,
+            usage,
             finish_reason: Some("max_iterations".to_owned()),
             activity_list: captured_activity_list,
             tool_calls_count,
@@ -952,7 +973,7 @@ impl ChatRoutes {
                 .ok()
                 .flatten()
                 .and_then(|v| v.as_i64())
-                .unwrap_or(50);
+                .unwrap_or(2);
 
             let current_count = resources
                 .database
@@ -1180,8 +1201,14 @@ impl ChatRoutes {
         let tenant_id_str = tenant_id.to_string();
 
         // Pre-chat quota check: verify message and token quotas before LLM dispatch
-        let usage_warning =
-            Self::check_pre_chat_quotas(&resources, &tenant_id_str, &user_id_str).await?;
+        let usage_warning = Self::check_pre_chat_quotas(
+            &resources,
+            &tenant_id_str,
+            &user_id_str,
+            auth.user_id,
+            tenant_id,
+        )
+        .await?;
 
         // Verify ownership and persist user message (crash-safe: saved before LLM dispatch)
         let msg_result = chat_orchestration::persist_user_message(
@@ -1373,15 +1400,31 @@ impl ChatRoutes {
     ///
     /// Checks daily messages (with burst), weekly tokens (hard cap), and daily tokens (with burst).
     /// Returns `Err` with 429 if any hard limit is exceeded.
+    /// Admin and owner roles bypass quota enforcement entirely.
     async fn check_pre_chat_quotas(
         resources: &Arc<ServerResources>,
         tenant_id: &str,
         user_id: &str,
+        user_uuid: Uuid,
+        tenant_uuid: TenantId,
     ) -> Result<Option<(&'static str, i64, i64, String)>, AppError> {
         let Some(ref admin_config) = resources.admin_config else {
             debug!("Admin config not available, skipping quota check");
             return Ok(None);
         };
+
+        // Admin role bypasses quota enforcement for debugging and testing.
+        // Owners (tenant creators) remain subject to quotas as cost control.
+        if let Ok(Some(role)) = resources
+            .database
+            .get_user_role(user_uuid, tenant_uuid)
+            .await
+        {
+            if role == "admin" {
+                debug!("Skipping quota check for admin user {user_id}");
+                return Ok(None);
+            }
+        }
 
         let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
 

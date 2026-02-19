@@ -644,7 +644,7 @@ impl CoachesRoutes {
                 .ok()
                 .flatten()
                 .and_then(|v| v.as_i64())
-                .unwrap_or(20);
+                .unwrap_or(3);
 
             let current_count = i64::from(manager.count(auth.user_id, tenant_id).await?);
             if current_count >= max_coaches {
