@@ -215,17 +215,16 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       contentType: 'application/json',
       body: JSON.stringify({
         daily: {
-          messages: { current: 0, limit: 50, warning: false },
-          tool_calls: { current: 0, limit: 100, warning: false },
-          tokens: { current: 0, limit: 500000, warning: false, burst_zone: false },
+          messages: { allowed: true, current: 0, limit: 50, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
+          tool_calls: { allowed: true, current: 0, limit: 100, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
+          tokens: { allowed: true, current: 0, limit: 500000, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
         },
         weekly: {
-          messages: { current: 0, limit: 250, warning: false },
-          tool_calls: { current: 0, limit: 500, warning: false },
-          tokens: { current: 0, limit: 2000000, warning: false },
+          messages: { allowed: true, current: 0, limit: 250, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
+          tool_calls: { allowed: true, current: 0, limit: 500, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
+          tokens: { allowed: true, current: 0, limit: 2000000, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
         },
-        resources: { coaches: { current: 0, limit: 3 }, active_conversations: { current: 0, limit: 20 } },
-        resets: { daily: '2026-02-19T00:00:00Z', weekly: '2026-02-23T00:00:00Z' },
+        resources: { coaches: 0, max_coaches: 3, conversations: 0, max_conversations: 20 },
       }),
     });
   });

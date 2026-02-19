@@ -225,6 +225,27 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
       }),
     });
   });
+
+  // Mock usage status endpoint (used by UserSettings usage quota card)
+  await page.route('**/api/usage/status', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        daily: {
+          messages: { allowed: true, current: 5, limit: 50, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
+          tool_calls: { allowed: true, current: 2, limit: 100, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
+          tokens: { allowed: true, current: 12000, limit: 500000, warning: false, burst_zone: false, resets_at: '2026-02-19T00:00:00Z' },
+        },
+        weekly: {
+          messages: { allowed: true, current: 15, limit: 250, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
+          tool_calls: { allowed: true, current: 8, limit: 500, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
+          tokens: { allowed: true, current: 45000, limit: 2000000, warning: false, burst_zone: false, resets_at: '2026-02-23T00:00:00Z' },
+        },
+        resources: { coaches: 1, max_coaches: 3, conversations: 2, max_conversations: 20 },
+      }),
+    });
+  });
 }
 
 async function loginAndNavigateToSettings(
