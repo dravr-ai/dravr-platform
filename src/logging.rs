@@ -20,7 +20,7 @@ use crate::errors::AppResult;
 use serde_json::json;
 use std::env;
 use std::io;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
     layer::SubscriberExt,
@@ -354,104 +354,4 @@ pub fn init_default() -> AppResult<()> {
 /// Returns an error if logging initialization fails
 pub fn init_from_env() -> AppResult<()> {
     LoggingConfig::from_env().init()
-}
-
-/// Application-specific logging utilities
-pub struct AppLogger;
-
-impl AppLogger {
-    /// Log user authentication events
-    pub fn log_auth_event(user_id: &str, event: &str, success: bool, details: Option<&str>) {
-        info!(
-            user.id = %user_id,
-            auth.event = %event,
-            auth.success = %success,
-            auth.details = details.unwrap_or(""),
-            "Authentication event"
-        );
-    }
-
-    /// Log `OAuth` events
-    pub fn log_oauth_event(user_id: &str, provider: &str, event: &str, success: bool) {
-        info!(
-            user.id = %user_id,
-            oauth.provider = %provider,
-            oauth.event = %event,
-            oauth.success = %success,
-            "OAuth event"
-        );
-    }
-
-    /// Log `API` requests
-    pub fn log_api_request(
-        method: &str,
-        path: &str,
-        status: u16,
-        duration_ms: u64,
-        user_id: Option<&str>,
-    ) {
-        info!(
-            http.method = %method,
-            http.path = %path,
-            http.status = %status,
-            http.duration_ms = %duration_ms,
-            user.id = user_id.unwrap_or("anonymous"),
-            "HTTP request"
-        );
-    }
-
-    /// Log MCP tool calls
-    pub fn log_mcp_tool_call(user_id: &str, tool_name: &str, success: bool, duration_ms: u64) {
-        info!(
-            user.id = %user_id,
-            mcp.tool = %tool_name,
-            mcp.success = %success,
-            mcp.duration_ms = %duration_ms,
-            "MCP tool call"
-        );
-    }
-
-    /// Log database operations
-    pub fn log_database_operation(operation: &str, table: &str, success: bool, duration_ms: u64) {
-        info!(
-            db.operation = %operation,
-            db.table = %table,
-            db.success = %success,
-            db.duration_ms = %duration_ms,
-            "Database operation"
-        );
-    }
-
-    /// Log security events
-    pub fn log_security_event(
-        event_type: &str,
-        severity: &str,
-        details: &str,
-        user_id: Option<&str>,
-    ) {
-        warn!(
-            security.event = %event_type,
-            security.severity = %severity,
-            security.details = %details,
-            user.id = user_id.unwrap_or("unknown"),
-            "Security event"
-        );
-    }
-
-    /// Log performance metrics
-    pub fn log_performance_metric(
-        metric_name: &str,
-        value: f64,
-        unit: &str,
-        tags: Option<&serde_json::Value>,
-    ) {
-        let default_tags = json!({});
-        info!(
-            metric.name = %metric_name,
-            metric.value = %value,
-            metric.unit = %unit,
-            metric.tags = %tags.unwrap_or(&default_tags),
-            "Performance metric"
-        );
-    }
 }

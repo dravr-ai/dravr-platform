@@ -28,7 +28,7 @@ use serde::Serialize;
 use super::context::ToolExecutionContext;
 use super::errors::ToolError;
 use super::result::ToolResult;
-use super::traits::{McpTool, ToolBundle, ToolCapabilities};
+use super::traits::{McpTool, ToolCapabilities};
 
 /// Per-tool schema size measurement
 #[derive(Debug, Clone, Serialize)]
@@ -59,7 +59,7 @@ pub struct SchemaTokenEstimate {
 /// Provides thread-safe registration and lookup of tools with support for:
 /// - Capability-based filtering (admin vs user access)
 /// - Feature-flag-based conditional registration
-/// - External tool registration via `register_external_tool()`
+/// - External tool registration
 ///
 /// # Thread Safety
 ///
@@ -126,28 +126,6 @@ impl ToolRegistry {
                 .entry(category.to_owned())
                 .or_default()
                 .push(name);
-        }
-    }
-
-    /// Register an external tool (for compile-time plugin inclusion)
-    ///
-    /// This method is the public API for external crates to register tools.
-    pub fn register_external_tool(&mut self, tool: Arc<dyn McpTool>) {
-        let name = tool.name();
-        if self.register(tool) {
-            info!("Registered external tool: {}", name);
-        }
-    }
-
-    /// Register a tool bundle (descriptor + factory)
-    pub fn register_bundle(&mut self, bundle: &ToolBundle) {
-        let tool = bundle.create_tool();
-        let category = bundle.descriptor.category();
-
-        if let Some(cat) = category {
-            self.register_with_category(Arc::from(tool), cat);
-        } else {
-            self.register(Arc::from(tool));
         }
     }
 
@@ -778,24 +756,4 @@ impl fmt::Debug for ToolRegistry {
             .field("categories", &self.categories())
             .finish()
     }
-}
-
-/// Register an external tool with the global registry.
-///
-/// This is the primary API for external crates to register tools.
-/// The tool will be available for discovery and execution after registration.
-///
-/// # Example
-///
-/// ```text
-/// use pierre_mcp_server::tools::registry::{register_external_tool, ToolRegistry};
-/// use pierre_mcp_server::tools::traits::McpTool;
-/// use std::sync::Arc;
-///
-/// fn example(registry: &mut ToolRegistry, my_tool: Arc<dyn McpTool>) {
-///     register_external_tool(registry, my_tool);
-/// }
-/// ```
-pub fn register_external_tool(registry: &mut ToolRegistry, tool: Arc<dyn McpTool>) {
-    registry.register_external_tool(tool);
 }

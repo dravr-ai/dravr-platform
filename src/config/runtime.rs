@@ -90,47 +90,6 @@ pub struct ConfigChange {
     pub reason: Option<String>,
 }
 
-/// Trait for configuration-aware components
-pub trait ConfigAware {
-    /// Get the runtime configuration
-    fn get_runtime_config(&self) -> &RuntimeConfig;
-
-    /// Get a configuration value with fallback to default
-    fn get_config_value(&self, key: &str, default: f64) -> f64 {
-        self.get_runtime_config()
-            .get_value(key)
-            .and_then(|v| match v {
-                ConfigValue::Float(f) => Some(f),
-                #[allow(clippy::cast_precision_loss)]
-                ConfigValue::Integer(i) => Some(i as f64), // Cast needed for interface compatibility
-                _ => None,
-            })
-            .unwrap_or(default)
-    }
-
-    /// Get a threshold adjusted for athlete level
-    fn get_threshold_for_athlete(&self, key: &str, default: f64) -> f64 {
-        let config = self.get_runtime_config();
-        let base_value = self.get_config_value(key, default);
-
-        // Apply profile-based adjustments
-        match &config.active_profile {
-            ConfigProfile::Elite {
-                performance_factor, ..
-            } => base_value * performance_factor,
-            ConfigProfile::Recreational {
-                threshold_tolerance,
-                ..
-            } => base_value * threshold_tolerance,
-            ConfigProfile::Beginner {
-                threshold_reduction,
-                ..
-            } => base_value * threshold_reduction,
-            _ => base_value,
-        }
-    }
-}
-
 impl RuntimeConfig {
     /// Create a new runtime configuration with defaults
     #[must_use]

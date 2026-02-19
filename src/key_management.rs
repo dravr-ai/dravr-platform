@@ -309,54 +309,6 @@ impl KeyManager {
         Ok(())
     }
 
-    /// Load DEK from database or generate new one
-    async fn load_or_generate_dek(
-        database: &Database,
-        mek: &MasterEncryptionKey,
-    ) -> AppResult<DatabaseEncryptionKey> {
-        if let Ok(encrypted_dek_base64) =
-            database.get_system_secret("database_encryption_key").await
-        {
-            info!("Loading existing Database Encryption Key from database");
-            let encrypted_dek = Self::decode_encrypted_dek(&encrypted_dek_base64)?;
-            return DatabaseEncryptionKey::decrypt_with_mek(&encrypted_dek, mek).map_err(|e| {
-                // Check if this is a decryption failure (key mismatch)
-                if e.message.contains("Decryption failed") {
-                    let database_url =
-                        env::var("DATABASE_URL").unwrap_or_else(|_| "unknown".to_owned());
-                    AppError::encryption_key_mismatch(&database_url)
-                } else {
-                    e
-                }
-            });
-        }
-
-        info!("No existing DEK found, generating new Database Encryption Key");
-        let dek = DatabaseEncryptionKey::generate();
-        let encrypted_dek = dek.encrypt_with_mek(mek)?;
-        Self::store_dek(database, &encrypted_dek).await?;
-        info!("Generated and stored new Database Encryption Key");
-        Ok(dek)
-    }
-
-    /// Initialize key manager with MEK from environment and DEK from database (for existing systems)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - MEK loading fails
-    /// - Database operations fail
-    /// - DEK encryption/decryption fails
-    pub async fn initialize(database: &Database) -> AppResult<Self> {
-        info!("Initializing two-tier key management system");
-
-        let mek = MasterEncryptionKey::load_or_generate()?;
-        let dek = Self::load_or_generate_dek(database, &mek).await?;
-
-        info!("Two-tier key management system initialized successfully");
-        Ok(Self { mek, dek })
-    }
-
     /// Get the DEK for database operations (what we previously called "encryption key")
     #[must_use]
     pub const fn database_key(&self) -> &[u8; 32] {
@@ -367,32 +319,5 @@ impl KeyManager {
     #[must_use]
     pub const fn master_key(&self) -> &MasterEncryptionKey {
         &self.mek
-    }
-
-    /// Rotate the DEK (generate new one, encrypt with MEK, store in database)
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - DEK encryption fails
-    /// - Database storage fails
-    pub async fn rotate_database_key(&mut self, database: &Database) -> AppResult<()> {
-        info!("Rotating Database Encryption Key");
-
-        // Generate new DEK
-        self.dek = DatabaseEncryptionKey::generate();
-
-        // Encrypt new DEK with MEK
-        let encrypted_dek = self.dek.encrypt_with_mek(&self.mek)?;
-
-        // Store encrypted DEK in database
-        let encrypted_dek_base64 = Base64Standard.encode(&encrypted_dek);
-        database
-            .update_system_secret("database_encryption_key", &encrypted_dek_base64)
-            .await?;
-
-        info!("Database Encryption Key rotated successfully");
-
-        Ok(())
     }
 }

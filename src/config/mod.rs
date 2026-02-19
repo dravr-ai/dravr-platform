@@ -147,7 +147,7 @@ pub use catalog::{CatalogBuilder, ConfigCatalog, ConfigParameter, ParameterType}
 pub use profiles::{ConfigProfile, FitnessLevel, ProfileTemplates, ZoneGranularity};
 
 // Re-export runtime configuration types
-pub use runtime::{ConfigAware, ConfigChange, ConfigExport, ConfigValue, RuntimeConfig};
+pub use runtime::{ConfigChange, ConfigExport, ConfigValue, RuntimeConfig};
 
 // Re-export validation types
 pub use validation::{ConfigValidator, ImpactAnalysis, RiskLevel, ValidationResult};
