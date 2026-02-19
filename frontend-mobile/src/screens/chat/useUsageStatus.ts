@@ -10,7 +10,7 @@ import { apiClient } from '../../services/api';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 
 /** Single counter limit check result from the backend */
-interface LimitCheckResult {
+export interface LimitCheckResult {
   allowed: boolean;
   current: number;
   limit: number;
@@ -20,7 +20,7 @@ interface LimitCheckResult {
 }
 
 /** Usage status response */
-interface UsageStatusResponse {
+export interface UsageStatusResponse {
   daily: {
     messages: LimitCheckResult;
     tokens: LimitCheckResult;
@@ -154,6 +154,7 @@ export function useUsageStatus() {
   }, [queryClient]);
 
   return {
+    data,
     isLoading,
     ...warningState,
     invalidate,

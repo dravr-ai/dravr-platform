@@ -8,7 +8,7 @@ export {
   INSIGHT_TYPE_LABELS,
   INSIGHT_TYPE_ICONS,
   REACTION_TYPE_LABELS,
-} from './social.js';
+} from './social';
 
 // Design system (colors, typography, spacing, effects)
 export {
@@ -29,10 +29,10 @@ export {
   FONT_SIZE,
   FONT_WEIGHT,
   DESIGN_SYSTEM,
-} from './design-system.js';
+} from './design-system';
 
-export type { DesignSystem } from './design-system.js';
+export type { DesignSystem } from './design-system';
 
 // React Query keys (for consistent cache key management)
-export { QUERY_KEYS } from './query-keys.js';
-export type { QueryKeys } from './query-keys.js';
+export { QUERY_KEYS } from './query-keys';
+export type { QueryKeys } from './query-keys';
