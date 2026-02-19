@@ -61,16 +61,20 @@ fn format_coach_summary(item: &CoachListItem) -> Value {
         "category": item.coach.category.as_str(),
         "tags": item.coach.tags,
         "token_count": item.coach.token_count,
-        "is_favorite": item.coach.is_favorite,
+        "is_favorite": item.is_favorite,
         "is_system": item.coach.is_system,
         "is_assigned": item.is_assigned,
-        "use_count": item.coach.use_count,
-        "last_used_at": item.coach.last_used_at.map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339()),
+        "use_count": item.use_count,
+        "last_used_at": item.last_used_at.map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339()),
         "updated_at": item.coach.updated_at.to_rfc3339(),
     })
 }
 
 /// Format a full coach for detailed response
+///
+/// Preference fields (`is_favorite`, `is_active`, `use_count`, `last_used_at`)
+/// are no longer on the Coach struct; they live in `coach_assignments`.
+/// For single-coach responses, defaults are returned.
 fn format_coach_full(coach: &Coach) -> Value {
     json!({
         "id": coach.id.to_string(),
@@ -81,18 +85,20 @@ fn format_coach_full(coach: &Coach) -> Value {
         "tags": coach.tags,
         "sample_prompts": coach.sample_prompts,
         "token_count": coach.token_count,
-        "is_favorite": coach.is_favorite,
-        "is_active": coach.is_active,
+        "is_favorite": false,
+        "is_active": false,
         "is_system": coach.is_system,
         "visibility": coach.visibility.as_str(),
-        "use_count": coach.use_count,
-        "last_used_at": coach.last_used_at.map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339()),
+        "use_count": 0,
+        "last_used_at": Option::<String>::None,
         "created_at": coach.created_at.to_rfc3339(),
         "updated_at": coach.updated_at.to_rfc3339(),
     })
 }
 
 /// Format a coach for search results (without assignment info)
+///
+/// Preference fields default since search returns `Coach` without assignment context.
 fn format_coach_for_search(coach: &Coach) -> Value {
     json!({
         "id": coach.id.to_string(),
@@ -101,10 +107,10 @@ fn format_coach_for_search(coach: &Coach) -> Value {
         "category": coach.category.as_str(),
         "tags": coach.tags,
         "token_count": coach.token_count,
-        "is_favorite": coach.is_favorite,
+        "is_favorite": false,
         "is_system": coach.is_system,
-        "use_count": coach.use_count,
-        "last_used_at": coach.last_used_at.map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339()),
+        "use_count": 0,
+        "last_used_at": Option::<String>::None,
         "updated_at": coach.updated_at.to_rfc3339(),
     })
 }

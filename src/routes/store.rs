@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthResult,
-    database::{Coach, CoachCategory, CoachesManager, PublishStatus},
+    database::{CoachCategory, CoachWithListing, PublishStatus, StoreListingsManager},
     errors::AppError,
     mcp::resources::ServerResources,
     models::TenantId,
@@ -82,20 +82,20 @@ pub struct StoreCoach {
     pub author_id: Option<String>,
 }
 
-impl From<Coach> for StoreCoach {
-    fn from(coach: Coach) -> Self {
+impl From<CoachWithListing> for StoreCoach {
+    fn from(cwl: CoachWithListing) -> Self {
         Self {
-            id: coach.id,
-            title: coach.title,
-            description: coach.description,
-            category: coach.category,
-            tags: coach.tags,
-            sample_prompts: coach.sample_prompts,
-            token_count: coach.token_count,
-            install_count: coach.install_count,
-            icon_url: coach.icon_url,
-            published_at: coach.published_at.map(|dt| dt.to_rfc3339()),
-            author_id: coach.author_id,
+            id: cwl.coach.id,
+            title: cwl.coach.title,
+            description: cwl.coach.description,
+            category: cwl.coach.category,
+            tags: cwl.coach.tags,
+            sample_prompts: cwl.coach.sample_prompts,
+            token_count: cwl.coach.token_count,
+            install_count: cwl.listing.install_count,
+            icon_url: cwl.listing.icon_url,
+            published_at: cwl.listing.published_at.map(|dt| dt.to_rfc3339()),
+            author_id: cwl.listing.author_id,
         }
     }
 }
@@ -114,13 +114,16 @@ pub struct StoreCoachDetail {
     pub publish_status: PublishStatus,
 }
 
-impl From<Coach> for StoreCoachDetail {
-    fn from(coach: Coach) -> Self {
+impl From<CoachWithListing> for StoreCoachDetail {
+    fn from(cwl: CoachWithListing) -> Self {
+        let system_prompt = cwl.coach.system_prompt.clone();
+        let created_at = cwl.coach.created_at.to_rfc3339();
+        let publish_status = cwl.listing.publish_status;
         Self {
-            system_prompt: coach.system_prompt.clone(),
-            created_at: coach.created_at.to_rfc3339(),
-            publish_status: coach.publish_status,
-            coach: coach.into(),
+            system_prompt,
+            created_at,
+            publish_status,
+            coach: cwl.into(),
         }
     }
 }
@@ -245,9 +248,11 @@ impl StoreRoutes {
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
-    /// Get coaches manager from server resources
-    fn get_coaches_manager(resources: &Arc<ServerResources>) -> Result<CoachesManager, AppError> {
-        resources.coaches_manager()
+    /// Get store listings manager from server resources
+    fn get_store_manager(
+        resources: &Arc<ServerResources>,
+    ) -> Result<StoreListingsManager, AppError> {
+        resources.store_listings_manager()
     }
 
     /// Build response metadata
@@ -266,7 +271,7 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         let category = query.category.as_ref().map(|c| CoachCategory::parse(c));
         let sort_by = query
@@ -309,24 +314,24 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         // Parse coach ID to validate format
         Uuid::parse_str(&coach_id)
             .map_err(|_| AppError::invalid_input(format!("Invalid coach ID: {coach_id}")))?;
 
         // Get the published coach (cross-tenant - any published coach is visible)
-        let coach = manager
+        let cwl = manager
             .get_published_coach(&coach_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
 
         info!(
             "User {} viewed store coach: {} ({})",
-            auth.user_id, coach.title, coach_id
+            auth.user_id, cwl.coach.title, coach_id
         );
 
-        let detail: StoreCoachDetail = coach.into();
+        let detail: StoreCoachDetail = cwl.into();
         Ok((StatusCode::OK, Json(detail)).into_response())
     }
 
@@ -337,7 +342,7 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         // Use optimized single-query category count (replaces 7 queries with 1)
         let counts = manager.get_category_counts().await?;
@@ -399,7 +404,7 @@ impl StoreRoutes {
             return Err(AppError::invalid_input("Search query cannot be empty"));
         }
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         // Search across all tenants (global Store)
         let coaches = manager
@@ -433,7 +438,7 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         // Validate coach ID format
         Uuid::parse_str(&coach_id)
@@ -449,9 +454,24 @@ impl StoreRoutes {
             auth.user_id, installed.title, coach_id
         );
 
+        // For the install response, we return an InstalledCoach (no listing data)
+        let store_coach = StoreCoach {
+            id: installed.id,
+            title: installed.title,
+            description: installed.description,
+            category: installed.category,
+            tags: installed.tags,
+            sample_prompts: installed.sample_prompts,
+            token_count: installed.token_count,
+            install_count: 0,
+            icon_url: None,
+            published_at: None,
+            author_id: None,
+        };
+
         let response = InstallCoachResponse {
-            message: format!("Successfully installed '{}'", installed.title),
-            coach: installed.into(),
+            message: format!("Successfully installed '{}'", store_coach.title),
+            coach: store_coach,
             metadata: Self::build_metadata(),
         };
 
@@ -467,7 +487,7 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         // Validate coach ID format
         Uuid::parse_str(&coach_id)
@@ -500,13 +520,29 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_coaches_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources)?;
 
         let coaches = manager
             .get_installed_coaches(auth.user_id, tenant_id)
             .await?;
 
-        let store_coaches: Vec<StoreCoach> = coaches.into_iter().map(StoreCoach::from).collect();
+        // Installed coaches are personal copies without listing data
+        let store_coaches: Vec<StoreCoach> = coaches
+            .into_iter()
+            .map(|c| StoreCoach {
+                id: c.id,
+                title: c.title,
+                description: c.description,
+                category: c.category,
+                tags: c.tags,
+                sample_prompts: c.sample_prompts,
+                token_count: c.token_count,
+                install_count: 0,
+                icon_url: None,
+                published_at: None,
+                author_id: None,
+            })
+            .collect();
 
         info!(
             "User {} listed {} installed coaches",

@@ -23,6 +23,7 @@ use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
 use crate::database::coaches::CoachesManager;
 use crate::database::recipes::RecipeManager;
+use crate::database::store_listings::StoreListingsManager;
 use crate::database_plugins::factory::Database;
 use crate::database_plugins::DatabaseProvider;
 use crate::errors::{AppError, AppResult};
@@ -604,6 +605,22 @@ impl ServerResources {
             .sqlite_pool()
             .ok_or_else(|| AppError::internal("SQLite database required for coaches"))?;
         Ok(CoachesManager::new(pool.clone()))
+    }
+
+    /// Get a `StoreListingsManager` backed by the `SQLite` pool.
+    ///
+    /// Routes and tool handlers should use this instead of constructing
+    /// `StoreListingsManager` directly from `database.sqlite_pool()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the database backend is not `SQLite`.
+    pub fn store_listings_manager(&self) -> AppResult<StoreListingsManager> {
+        let pool = self
+            .database
+            .sqlite_pool()
+            .ok_or_else(|| AppError::internal("SQLite database required for store listings"))?;
+        Ok(StoreListingsManager::new(pool.clone()))
     }
 
     /// Get a `RecipeManager` backed by the `SQLite` pool.

@@ -22,7 +22,7 @@ use pierre_mcp_server::{
     database::coaches::{
         CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
     },
-    database::Coach,
+    database::{Coach, StoreListingsManager},
     database_plugins::{factory::Database, DatabaseProvider},
     mcp::ToolSelectionService,
     models::TenantId,
@@ -175,7 +175,8 @@ impl StoreAdminTestSetup {
     /// Create a coach in `pending_review` status
     async fn create_pending_review_coach(&self, title: &str) -> Result<Coach> {
         let sqlite_pool = self.database.sqlite_pool().unwrap().clone();
-        let coaches_manager = CoachesManager::new(sqlite_pool);
+        let coaches_manager = CoachesManager::new(sqlite_pool.clone());
+        let store_listings_manager = StoreListingsManager::new(sqlite_pool);
 
         let system_request = CreateSystemCoachRequest {
             title: title.to_owned(),
@@ -191,8 +192,8 @@ impl StoreAdminTestSetup {
             .create_system_coach(self.user_id, self.tenant_id, &system_request)
             .await?;
 
-        // Submit for review
-        coaches_manager
+        // Submit for review via StoreListingsManager
+        store_listings_manager
             .submit_for_review(&coach.id.to_string(), self.user_id, self.tenant_id)
             .await?;
 
@@ -410,7 +411,9 @@ async fn test_approve_coach_success() -> Result<()> {
     let result: Value = response.json();
     assert!(result["message"].as_str().unwrap().contains("approved"));
     assert_eq!(
-        result["coach"]["publish_status"].as_str().unwrap(),
+        result["coach"]["listing"]["publish_status"]
+            .as_str()
+            .unwrap(),
         "published"
     );
     Ok(())
@@ -540,7 +543,9 @@ async fn test_reject_coach_success() -> Result<()> {
     let result: Value = response.json();
     assert!(result["message"].as_str().unwrap().contains("rejected"));
     assert_eq!(
-        result["coach"]["publish_status"].as_str().unwrap(),
+        result["coach"]["listing"]["publish_status"]
+            .as_str()
+            .unwrap(),
         "rejected"
     );
     Ok(())
@@ -721,7 +726,15 @@ async fn test_full_approval_workflow() -> Result<()> {
 
     // Create coach in pending review
     let coach = setup.create_pending_review_coach("Workflow Coach").await?;
-    assert_eq!(coach.publish_status, PublishStatus::PendingReview);
+
+    // Verify the listing is in pending_review status via StoreListingsManager
+    let sqlite_pool = setup.database.sqlite_pool().unwrap().clone();
+    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let listing = store_listings_manager
+        .get_listing(&coach.id.to_string())
+        .await?
+        .unwrap();
+    assert_eq!(listing.publish_status, PublishStatus::PendingReview);
 
     // List pending - should find coach
     let response = AxumTestRequest::get(&format!(
@@ -775,7 +788,15 @@ async fn test_full_rejection_workflow() -> Result<()> {
     let coach = setup
         .create_pending_review_coach("Rejection Workflow Coach")
         .await?;
-    assert_eq!(coach.publish_status, PublishStatus::PendingReview);
+
+    // Verify the listing is in pending_review status via StoreListingsManager
+    let sqlite_pool = setup.database.sqlite_pool().unwrap().clone();
+    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    let listing = store_listings_manager
+        .get_listing(&coach.id.to_string())
+        .await?
+        .unwrap();
+    assert_eq!(listing.publish_status, PublishStatus::PendingReview);
 
     // Reject coach
     let response = AxumTestRequest::post(&format!(
@@ -792,7 +813,9 @@ async fn test_full_rejection_workflow() -> Result<()> {
     assert_eq!(response.status(), 200);
     let result: Value = response.json();
     assert_eq!(
-        result["coach"]["publish_status"].as_str().unwrap(),
+        result["coach"]["listing"]["publish_status"]
+            .as_str()
+            .unwrap(),
         "rejected"
     );
 

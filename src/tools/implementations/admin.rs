@@ -82,6 +82,9 @@ async fn verify_user_in_tenant(
 }
 
 /// Format a system coach for JSON response
+///
+/// System coaches do not have per-user preference fields directly.
+/// Those live in `coach_assignments` per user.
 fn format_system_coach(coach: &Coach) -> Value {
     json!({
         "id": coach.id.to_string(),
@@ -93,8 +96,6 @@ fn format_system_coach(coach: &Coach) -> Value {
         "sample_prompts": coach.sample_prompts,
         "token_count": coach.token_count,
         "visibility": coach.visibility.as_str(),
-        "use_count": coach.use_count,
-        "last_used_at": coach.last_used_at.map(|dt| dt.to_rfc3339()),
         "created_at": coach.created_at.to_rfc3339(),
         "updated_at": coach.updated_at.to_rfc3339(),
     })
@@ -109,7 +110,6 @@ fn format_system_coach_summary(coach: &Coach) -> Value {
         "category": coach.category.as_str(),
         "tags": coach.tags,
         "visibility": coach.visibility.as_str(),
-        "use_count": coach.use_count,
         "updated_at": coach.updated_at.to_rfc3339(),
     })
 }

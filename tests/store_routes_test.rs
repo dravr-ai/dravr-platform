@@ -18,7 +18,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
 };
-use pierre_mcp_server::database::Coach;
+use pierre_mcp_server::database::{Coach, StoreListingsManager};
 use pierre_mcp_server::database_plugins::DatabaseProvider;
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::TenantId;
@@ -57,7 +57,8 @@ async fn create_published_coach(
     category: CoachCategory,
 ) -> Coach {
     let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let coaches_manager = CoachesManager::new(sqlite_pool.clone());
+    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
 
     // Create as system coach first (can set visibility)
     let system_request = CreateSystemCoachRequest {
@@ -77,15 +78,17 @@ async fn create_published_coach(
 
     // Submit for review and approve to publish
     // Note: We use the same user_id as admin to avoid FK constraint issues in tests
-    coaches_manager
+    store_listings_manager
         .submit_for_review(&coach.id.to_string(), user_id, tenant_id)
         .await
         .unwrap();
 
-    coaches_manager
+    let coach_with_listing = store_listings_manager
         .approve_coach(&coach.id.to_string(), tenant_id, user_id)
         .await
-        .unwrap()
+        .unwrap();
+
+    coach_with_listing.coach
 }
 
 // ============================================================================
@@ -305,7 +308,7 @@ async fn test_cursor_pagination_with_popular_sort() {
 
     // Create coaches with different install counts
     let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
+    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
 
     for i in 1..=5 {
         let coach = create_published_coach(
@@ -319,7 +322,7 @@ async fn test_cursor_pagination_with_popular_sort() {
 
         // Give each coach a different install count
         for _ in 0..(6 - i) {
-            coaches_manager
+            store_listings_manager
                 .increment_install_count(&coach.id.to_string())
                 .await
                 .unwrap();
@@ -514,12 +517,12 @@ async fn test_browse_store_sort_by_popular() {
 
     // Simulate installs to make coach2 more popular
     let sqlite_pool = resources.database.sqlite_pool().unwrap().clone();
-    let coaches_manager = CoachesManager::new(sqlite_pool);
-    coaches_manager
+    let store_listings_manager = StoreListingsManager::new(sqlite_pool);
+    store_listings_manager
         .increment_install_count(&coach2.id.to_string())
         .await
         .unwrap();
-    coaches_manager
+    store_listings_manager
         .increment_install_count(&coach2.id.to_string())
         .await
         .unwrap();
@@ -914,7 +917,8 @@ async fn test_install_increments_install_count() {
         CoachCategory::Training,
     )
     .await;
-    let original_count = coach.install_count;
+    // Freshly published coaches start with install_count 0 in their StoreListing
+    let original_count = 0;
 
     // Create a second user to install
     let (_user2_id, user2) = create_test_user_with_email(&resources.database, "user2@example.com")
