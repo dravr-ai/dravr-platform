@@ -21,6 +21,28 @@ jest.mock('../src/services/api', () => ({
 
 jest.spyOn(Alert, 'alert');
 
+// Helper to create an Axios-shaped error for quota testing
+function createAxiosQuotaError() {
+  const { AxiosError, AxiosHeaders } = jest.requireActual('axios');
+  const err = new AxiosError('Request failed');
+  err.response = {
+    status: 429,
+    statusText: 'Too Many Requests',
+    headers: {},
+    config: { headers: new AxiosHeaders() },
+    data: {
+      code: 'QuotaExceeded',
+      message: 'max_active_conversations quota exceeded: 2/2',
+      details: {
+        limit_type: 'max_active_conversations',
+        current: 2,
+        limit: 2,
+      },
+    },
+  };
+  return err;
+}
+
 import { useCoachSelection } from '../src/screens/chat/useCoachSelection';
 import type { Coach, Message, Conversation } from '../src/types';
 
@@ -297,8 +319,8 @@ describe('useCoachSelection', () => {
 
       // Should still call setIsSending(false) in finally block
       expect(setIsSending).toHaveBeenLastCalledWith(false);
-      // Should show alert
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to start conversation with coach');
+      // Should show alert with the error message
+      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to create conversation');
       // Should NOT call sendMessage
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -326,7 +348,36 @@ describe('useCoachSelection', () => {
 
       // Should still reset sending state
       expect(setIsSending).toHaveBeenLastCalledWith(false);
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to start conversation with coach');
+      // extractErrorMessage returns the Error.message for standard errors
+      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Network error');
+    });
+
+    it('should show quota-aware message on 429 error', async () => {
+      const coach = createMockCoach();
+      const conversation = createMockConversation();
+      const createConversation = jest.fn().mockResolvedValue(conversation);
+      const setMessages = jest.fn();
+      const setIsSending = jest.fn();
+      const scrollToBottom = jest.fn();
+
+      mockSendMessage.mockRejectedValue(createAxiosQuotaError());
+
+      const { result } = renderHook(() => useCoachSelection());
+
+      await act(async () => {
+        await result.current.startCoachConversation(coach, {
+          createConversation,
+          setMessages,
+          setIsSending,
+          scrollToBottom,
+        });
+      });
+
+      expect(setIsSending).toHaveBeenLastCalledWith(false);
+      expect(Alert.alert).toHaveBeenCalledWith(
+        'Error',
+        'Conversation limit reached (2/2). Delete an existing conversation to start a new one.'
+      );
     });
 
     it('should use fallback message when coach has no description', async () => {

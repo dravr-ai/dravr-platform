@@ -105,6 +105,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
   }, [conversations.currentConversation]);
 
   // Handle navigation params for conversation selection
+  // Depends on route.params (object ref) so tab re-tap with same conversationId still triggers
   useEffect(() => {
     const conversationId = route.params?.conversationId;
     if (conversationId === undefined && conversations.currentConversation !== null) {
@@ -113,7 +114,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
     }
     // Only depend on route params - this should only run when user navigates
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.params?.conversationId]);
+  }, [route.params]);
 
   useEffect(() => {
     const conversationId = route.params?.conversationId;
@@ -398,7 +399,6 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           currentConversation={conversations.currentConversation}
           actionMenuVisible={actionMenuVisible}
           insetTop={insets.top}
-          onBackPress={handleNewChat}
           onHistoryPress={() => navigation.navigate('Conversations')}
           onTitlePress={showTitleActionMenu}
           onNewChatPress={handleNewChat}

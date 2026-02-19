@@ -4,6 +4,7 @@
 import React, { useState, useCallback } from 'react';
 import { Alert } from 'react-native';
 import { chatApi, coachesApi } from '../../services/api';
+import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Coach, Message, Conversation } from '../../types';
 
 export interface CoachSelectionState {
@@ -157,10 +158,10 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       });
       options.scrollToBottom();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to start coach conversation';
+      const errorMessage = extractErrorMessage(err, 'Failed to start coach conversation');
       setError(errorMessage);
       console.error('Failed to start coach conversation:', err);
-      Alert.alert('Error', 'Failed to start conversation with coach');
+      Alert.alert('Error', errorMessage);
     } finally {
       options.setIsSending(false);
     }
