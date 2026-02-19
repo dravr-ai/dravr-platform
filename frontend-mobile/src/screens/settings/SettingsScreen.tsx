@@ -1,7 +1,7 @@
 // ABOUTME: Profile & Settings screen with Stitch UX design
 // ABOUTME: Shows profile header, stats, connected services, and settings sections
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { colors, spacing, borderRadius } from '../../constants/theme';
 import { Input } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
+import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
 import type { McpToken, ExtendedProviderStatus } from '../../types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { SettingsStackParamList } from '../../navigation/MainTabs';
@@ -43,6 +44,40 @@ const settingsRowStyle: ViewStyle = {
   paddingVertical: 14,
   paddingHorizontal: 16,
 };
+
+/** Format large numbers compactly (e.g. 145000 -> "145.0K") */
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return value.toLocaleString();
+}
+
+/** Return hex color based on usage percentage: green < 70%, amber 70-90%, red > 90% */
+function getUsageBarColor(current: number, limit: number): string {
+  if (limit <= 0) return colors.pierre.activity;
+  const pct = (current / limit) * 100;
+  if (pct > 90) return colors.pierre.red;
+  if (pct > 70) return colors.pierre.nutrition;
+  return colors.pierre.activity;
+}
+
+/** Format ISO 8601 reset time in user's local timezone */
+function formatResetTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(date);
+  } catch {
+    return 'midnight UTC';
+  }
+}
 
 export function SettingsScreen({ navigation }: SettingsScreenProps) {
   const { user, logout, isAuthenticated } = useAuth();
@@ -174,6 +209,18 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
       ]
     );
   };
+
+  // Usage quota status
+  const { data: usageData, isLoading: usageLoading } = useUsageStatus();
+
+  const usageBars = useMemo(() => {
+    if (!usageData) return [];
+    return [
+      { label: 'Daily Messages', counter: usageData.daily.messages, compact: false },
+      { label: 'Daily Tokens', counter: usageData.daily.tokens, compact: true },
+      { label: 'Weekly Messages', counter: usageData.weekly.messages, compact: false },
+    ] as { label: string; counter: LimitCheckResult; compact: boolean }[];
+  }, [usageData]);
 
   const displayName = user?.display_name || user?.email?.split('@')[0] || 'Athlete';
 
@@ -311,6 +358,74 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Usage Section */}
+        <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-usage-section">
+          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Usage</Text>
+          <View style={glassCardStyle}>
+            {usageLoading ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={colors.pierre.violet} />
+              </View>
+            ) : !usageData ? (
+              <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                <Text style={{ fontSize: 14, color: colors.text.tertiary }}>Usage data unavailable</Text>
+              </View>
+            ) : (
+              <View style={{ padding: 16 }}>
+                {/* Progress bars */}
+                {usageBars.map(({ label, counter, compact }) => {
+                  const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
+                  return (
+                    <View key={label} style={{ marginBottom: 16 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.secondary }}>{label}</Text>
+                        <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
+                          {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
+                          {' / '}
+                          {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
+                        </Text>
+                      </View>
+                      <View style={{ height: 8, backgroundColor: 'rgba(255, 255, 255, 0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                        <View
+                          style={{
+                            height: '100%',
+                            width: `${pct}%`,
+                            backgroundColor: getUsageBarColor(counter.current, counter.limit),
+                            borderRadius: 4,
+                          }}
+                        />
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {/* Reset time */}
+                <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 16 }}>
+                  Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
+                </Text>
+
+                {/* Resource counts */}
+                <View style={{ borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.1)', paddingTop: 16 }}>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
+                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Coaches</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#ffffff' }}>
+                        {usageData.resources.coaches} / {usageData.resources.max_coaches}
+                      </Text>
+                    </View>
+                    <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
+                      <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Conversations</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#ffffff' }}>
+                        {usageData.resources.conversations} / {usageData.resources.max_conversations}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
         </View>
 

@@ -16,6 +16,8 @@ import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import LlmSettingsTab from './LlmSettingsTab';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useUsageStatus } from '../hooks/useUsageStatus';
+import type { LimitCheckResult } from '../services/api/usage';
 
 interface OAuthApp {
   provider: string;
@@ -44,6 +46,40 @@ const PROVIDERS = [
 ];
 
 const MIN_PASSWORD_LENGTH = 8;
+
+/** Format large numbers compactly (e.g. 145000 -> "145.0K", 2000000 -> "2.0M") */
+function formatCompactNumber(value: number): string {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`;
+  }
+  return value.toLocaleString();
+}
+
+/** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
+function getUsageBarColor(current: number, limit: number): string {
+  if (limit <= 0) return 'bg-pierre-activity';
+  const pct = (current / limit) * 100;
+  if (pct > 90) return 'bg-pierre-red-500';
+  if (pct > 70) return 'bg-pierre-nutrition';
+  return 'bg-pierre-activity';
+}
+
+/** Format ISO 8601 reset time in user's local timezone */
+function formatResetTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(date);
+  } catch {
+    return 'midnight UTC';
+  }
+}
 
 type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'about' | 'account';
 
@@ -174,6 +210,9 @@ export default function UserSettings() {
     queryFn: () => userApi.getMcpTokens(),
     enabled: isAuthenticated,
   });
+
+  // Fetch usage quota status
+  const { data: usageData, isLoading: usageLoading } = useUsageStatus();
 
   const oauthApps: OAuthApp[] = oauthAppsResponse?.apps || [];
   const tokens: McpToken[] = tokensResponse?.tokens || [];
@@ -1135,6 +1174,86 @@ Authorization: Bearer <your-token-here>`}
                   </span>
                 </div>
               </div>
+            </Card>
+
+            {/* Usage Quota Card */}
+            <Card variant="dark">
+              <div className="flex items-start gap-4 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Usage</h2>
+                  <p className="text-sm text-zinc-400">Your current quota consumption</p>
+                </div>
+              </div>
+
+              {usageLoading ? (
+                <div className="flex justify-center py-6">
+                  <div className="pierre-spinner w-6 h-6"></div>
+                </div>
+              ) : !usageData ? (
+                <p className="text-sm text-zinc-500 text-center py-4">Usage data unavailable</p>
+              ) : (
+                <div className="space-y-5">
+                  {/* Progress bars */}
+                  <div className="space-y-4">
+                    {([
+                      { label: 'Daily Messages', counter: usageData.daily.messages },
+                      { label: 'Daily Tokens', counter: usageData.daily.tokens, compact: true },
+                      { label: 'Weekly Messages', counter: usageData.weekly.messages },
+                    ] as { label: string; counter: LimitCheckResult; compact?: boolean }[]).map(({ label, counter, compact }) => {
+                      const pct = counter.limit > 0 ? Math.min((counter.current / counter.limit) * 100, 100) : 0;
+                      return (
+                        <div key={label}>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <span className="text-sm font-medium text-zinc-300">{label}</span>
+                            <span className="text-sm text-zinc-400">
+                              {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
+                              {' / '}
+                              {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div
+                              className={clsx(
+                                'h-full rounded-full transition-all duration-300',
+                                getUsageBarColor(counter.current, counter.limit),
+                              )}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Reset time */}
+                  <p className="text-xs text-zinc-500">
+                    Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
+                  </p>
+
+                  {/* Resource counts */}
+                  <div className="border-t border-white/10 pt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-3 bg-white/5 rounded-lg">
+                        <p className="text-xs text-zinc-500 mb-1">Coaches</p>
+                        <p className="text-sm font-medium text-white">
+                          {usageData.resources.coaches} / {usageData.resources.max_coaches}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-white/5 rounded-lg">
+                        <p className="text-xs text-zinc-500 mb-1">Conversations</p>
+                        <p className="text-sm font-medium text-white">
+                          {usageData.resources.conversations} / {usageData.resources.max_conversations}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card variant="dark">

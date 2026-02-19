@@ -25,6 +25,37 @@ vi.mock('../LlmSettingsTab', () => ({
   default: () => <div data-testid="llm-settings">LLM Settings</div>,
 }));
 
+vi.mock('../../hooks/useUsageStatus', () => ({
+  useUsageStatus: () => ({
+    data: {
+      daily: {
+        messages: { allowed: true, current: 42, limit: 100, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
+        tokens: { allowed: true, current: 145000, limit: 500000, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
+        tool_calls: { allowed: true, current: 10, limit: 50, warning: false, burst_zone: false, resets_at: '2026-02-19T05:00:00Z' },
+      },
+      weekly: {
+        messages: { allowed: true, current: 200, limit: 500, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
+        tokens: { allowed: true, current: 900000, limit: 2000000, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
+        tool_calls: { allowed: true, current: 40, limit: 200, warning: false, burst_zone: false, resets_at: '2026-02-24T05:00:00Z' },
+      },
+      resources: {
+        conversations: 5,
+        max_conversations: 10,
+        coaches: 2,
+        max_coaches: 3,
+      },
+    },
+    isLoading: false,
+    error: null,
+    level: 'none',
+    sendDisabled: false,
+    message: '',
+    resetsAt: '',
+    triggerCounter: null,
+    invalidate: vi.fn(),
+  }),
+}));
+
 // Mock auth context
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
@@ -280,6 +311,55 @@ describe('UserSettings Component', () => {
       // The inline error should appear on the confirm field (no submit needed)
       await waitFor(() => {
         expect(screen.getByText(/passwords do not match/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should render usage card with quota meter labels', async () => {
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      await user.click(screen.getByText('Account'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Usage')).toBeInTheDocument();
+        expect(screen.getByText('Daily Messages')).toBeInTheDocument();
+        expect(screen.getByText('Daily Tokens')).toBeInTheDocument();
+        expect(screen.getByText('Weekly Messages')).toBeInTheDocument();
+      });
+    });
+
+    it('should display token counts in compact format', async () => {
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      await user.click(screen.getByText('Account'));
+
+      await waitFor(() => {
+        // 145000 -> "145.0K" and 500000 -> "500.0K"
+        expect(screen.getByText('145.0K / 500.0K')).toBeInTheDocument();
+      });
+    });
+
+    it('should display resource counts for coaches and conversations', async () => {
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings();
+      });
+
+      await user.click(screen.getByText('Account'));
+
+      await waitFor(() => {
+        expect(screen.getByText('Coaches')).toBeInTheDocument();
+        expect(screen.getByText('2 / 3')).toBeInTheDocument();
+        expect(screen.getByText('Conversations')).toBeInTheDocument();
+        expect(screen.getByText('5 / 10')).toBeInTheDocument();
       });
     });
 
