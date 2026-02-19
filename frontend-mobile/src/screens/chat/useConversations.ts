@@ -4,6 +4,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { Alert } from 'react-native';
 import { chatApi } from '../../services/api';
+import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Conversation } from '../../types';
 
 export interface ConversationsState {
@@ -70,10 +71,10 @@ export function useConversations(): ConversationsState & ConversationsActions {
       setCurrentConversation(conversation);
       return conversation;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create conversation';
+      const errorMessage = extractErrorMessage(err, 'Failed to create conversation');
       setError(errorMessage);
       console.error('Failed to create conversation:', err);
-      Alert.alert('Error', 'Failed to create conversation');
+      Alert.alert('Error', errorMessage);
       return null;
     }
   }, []);

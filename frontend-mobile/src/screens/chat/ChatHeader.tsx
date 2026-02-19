@@ -27,7 +27,6 @@ interface ChatHeaderProps {
   currentConversation: Conversation | null;
   actionMenuVisible: boolean;
   insetTop: number;
-  onBackPress: () => void;
   onHistoryPress: () => void;
   onTitlePress: () => void;
   onNewChatPress: () => void;
@@ -40,7 +39,6 @@ export function ChatHeader({
   currentConversation,
   actionMenuVisible,
   insetTop,
-  onBackPress,
   onHistoryPress,
   onTitlePress,
   onNewChatPress,
@@ -54,14 +52,14 @@ export function ChatHeader({
         className="flex-row items-center px-4 py-2 border-b border-border-subtle"
         style={{ paddingTop: insetTop + spacing.sm }}
       >
-        {/* Back arrow or history button */}
+        {/* History button */}
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center"
-          onPress={currentConversation ? onBackPress : onHistoryPress}
+          onPress={onHistoryPress}
           testID="history-button"
         >
           <Ionicons
-            name={currentConversation ? 'arrow-back' : 'time-outline'}
+            name="time-outline"
             size={24}
             color={colors.text.primary}
           />

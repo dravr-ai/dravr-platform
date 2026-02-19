@@ -220,6 +220,12 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
           if (!isFocused && !event.defaultPrevented) {
             navigation.navigate(route.name);
+          } else if (isFocused && route.name === 'ChatTab') {
+            // Re-tapping Chat tab resets to coach selection (New Chat)
+            navigation.navigate(route.name, {
+              screen: 'ChatMain',
+              params: { conversationId: undefined },
+            } as never);
           }
         };
 
