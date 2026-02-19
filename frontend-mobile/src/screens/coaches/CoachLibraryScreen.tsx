@@ -5,7 +5,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  SafeAreaView,
+
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
@@ -17,6 +17,7 @@ import {
   Platform,
   type ViewStyle,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
