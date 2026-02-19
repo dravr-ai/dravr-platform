@@ -230,6 +230,30 @@ TOTAL_ARCS=$(rg "Arc::" src/ | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Note: globs need **/ prefix to match paths within subdirectories of src/
 MAGIC_NUMBERS=$(rg "\b[0-9]{4,}\b" src/ -g '*.rs' -g '!**/constants/**' -g '!**/config/**' | grep -v -E "(Licensed|http://|https://|Duration|timestamp|//.*[0-9]|seconds|minutes|hours|Version|\.[0-9]|[0-9]\.|test|mock|example|error.*code|status.*code|port|timeout|limit|capacity|-32[0-9]{3}|1000\.0|60\.0|24\.0|7\.0|365\.0|METERS_PER|PER_METER|conversion|unit|\.60934|12345|0000-0000|202[0-9]-[0-9]{2}-[0-9]{2}|Some\([0-9]+\)|Trial.*1000|Standard.*10000|RFC [0-9]|ISO [0-9]|scientific_basis|backoff|cache_|RSA|key_size|unwrap_or\([0-9]|\.into\(\)|max_entries|max_tokens|DIVISOR|SECONDS)" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 
+# Repository pattern — detect nominal (defined but unwired) repository traits
+# A trait defined in repositories/mod.rs with zero occurrences elsewhere in src/ is dead weight:
+# no blanket impl, no direct impl, no call site. This is the "defined but not wired" anti-pattern.
+NOMINAL_REPOS_COUNT=0
+NOMINAL_REPOS_LIST=""
+REPOS_MOD="src/database/repositories/mod.rs"
+if [ -f "$REPOS_MOD" ]; then
+    while IFS= read -r trait_name; do
+        [ -z "$trait_name" ] && continue
+        USAGE_COUNT=$(rg "\b${trait_name}\b" src/ \
+            --glob '!src/database/repositories/mod.rs' \
+            --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+        if [ "$USAGE_COUNT" -eq 0 ]; then
+            NOMINAL_REPOS_COUNT=$((NOMINAL_REPOS_COUNT + 1))
+            if [ -z "$NOMINAL_REPOS_LIST" ]; then
+                NOMINAL_REPOS_LIST="$trait_name"
+            else
+                NOMINAL_REPOS_LIST="$NOMINAL_REPOS_LIST, $trait_name"
+            fi
+        fi
+    done < <(rg "^pub trait \w+Repository" "$REPOS_MOD" --no-filename -o 2>/dev/null \
+        | sed 's/pub trait //' | sed 's/[: ].*//')
+fi
+
 # Unsafe and dangerous patterns
 UNSAFE_BLOCKS=$(rg "unsafe \{" src/ -g "!src/health.rs" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
@@ -391,6 +415,32 @@ if [ "$TOTAL_ALGORITHM_VIOLATIONS" -gt 0 ]; then
     fail_validation "Use enum-based DI in src/intelligence/algorithms/"
 else
     pass_validation "Algorithm DI architecture compliance"
+fi
+
+# ============================================================================
+# REPOSITORY PATTERN ENFORCEMENT (Nominal trait detection)
+# ============================================================================
+
+echo -e "${BLUE}Validating repository trait wiring...${NC}"
+
+if [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
+    echo -e "${RED}❌ REPOSITORY PATTERN VIOLATION: $NOMINAL_REPOS_COUNT nominal (unwired) repository traits${NC}"
+    echo -e "${RED}These traits are defined in repositories/mod.rs but have zero implementations${NC}"
+    echo -e "${RED}and zero call sites anywhere in src/ — they are purely dead API surface:${NC}"
+    echo ""
+    IFS=', ' read -ra REPO_NAMES <<< "$NOMINAL_REPOS_LIST"
+    for repo in "${REPO_NAMES[@]}"; do
+        echo -e "${RED}  - $repo${NC}"
+    done
+    echo ""
+    echo -e "${RED}Each nominal trait MUST have:${NC}"
+    echo -e "${RED}  1. An implementation in src/database/repositories/blanket_impls.rs${NC}"
+    echo -e "${RED}     (or a direct impl on Database if the method delegation differs)${NC}"
+    echo -e "${RED}  2. At least one call site in src/ outside repositories/mod.rs${NC}"
+    echo -e "${RED}     (route handlers or services must import and use the trait)${NC}"
+    fail_validation "Wire all repository traits before committing"
+else
+    pass_validation "All repository traits are implemented and used"
 fi
 
 # ============================================================================
@@ -690,6 +740,13 @@ if [ "$TOTAL_ALGORITHM_VIOLATIONS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Using enum-based DI pattern"
 else
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$(truncate_text "$ALGORITHMS_WITH_VIOLATIONS" 37)"
+fi
+
+printf "│ %-35s │ %5d │ " "Nominal repository traits" "$NOMINAL_REPOS_COUNT"
+if [ "$NOMINAL_REPOS_COUNT" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "All repo traits wired"
+else
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$(truncate_text "$NOMINAL_REPOS_LIST" 37)"
 fi
 
 echo "├─────────────────────────────────────┼───────┼──────────┼─────────────────────────────────────────┤"
