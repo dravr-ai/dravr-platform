@@ -1,13 +1,8 @@
-// ABOUTME: Route handlers for Social Features REST API (coach-mediated sharing)
-// ABOUTME: Friend connections, shared insights, reactions, and social feed
+// ABOUTME: Insight sharing, reactions, and adaptation route handlers for the Social API
+// ABOUTME: Handles coach-mediated sharing, insight generation, reactions, and adapted insights
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-
-//! Social routes
-//!
-//! This module handles social feature endpoints for coach-mediated sharing.
-//! All endpoints require JWT authentication to identify the user.
 
 use std::str::FromStr;
 
@@ -15,8 +10,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post, put},
-    Json, Router,
+    Json,
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -26,7 +20,6 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    auth::AuthResult,
     config::{environment::default_provider, SocialInsightsConfig},
     database::repositories::UserRepository,
     database::social::SocialManager,
@@ -45,178 +38,18 @@ use crate::{
     },
     mcp::resources::ServerResources,
     models::{
-        Activity, AdaptedInsight, FriendConnection, FriendStatus, InsightReaction, InsightType,
-        ReactionType, ShareVisibility, SharedInsight, TenantId, TrainingPhase, UserSocialSettings,
+        Activity, AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility,
+        SharedInsight, TenantId, TrainingPhase,
     },
     protocols::universal::auth_service::AuthService,
-    security::cookies::get_cookie_value,
     services::social_insights,
 };
+
+use super::{SocialMetadata, SocialRoutes};
 
 // ============================================================================
 // Response Types
 // ============================================================================
-
-/// Response for a friend connection
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FriendConnectionResponse {
-    /// Connection ID
-    pub id: String,
-    /// User who initiated the request
-    pub initiator_id: String,
-    /// User who received the request
-    pub receiver_id: String,
-    /// Current status
-    pub status: String,
-    /// When the request was created
-    pub created_at: String,
-    /// When the connection was last updated
-    pub updated_at: String,
-    /// When the request was accepted (if accepted)
-    pub accepted_at: Option<String>,
-}
-
-impl From<FriendConnection> for FriendConnectionResponse {
-    fn from(conn: FriendConnection) -> Self {
-        Self {
-            id: conn.id.to_string(),
-            initiator_id: conn.initiator_id.to_string(),
-            receiver_id: conn.receiver_id.to_string(),
-            status: conn.status.as_str().to_owned(),
-            created_at: conn.created_at.to_rfc3339(),
-            updated_at: conn.updated_at.to_rfc3339(),
-            accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
-        }
-    }
-}
-
-/// Response for a friend connection with user info
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FriendWithInfoResponse {
-    /// Connection ID
-    pub id: String,
-    /// User who initiated the request
-    pub initiator_id: String,
-    /// User who received the request
-    pub receiver_id: String,
-    /// Current status
-    pub status: String,
-    /// When the request was created
-    pub created_at: String,
-    /// When the connection was last updated
-    pub updated_at: String,
-    /// When the request was accepted (if accepted)
-    pub accepted_at: Option<String>,
-    /// Friend's display name
-    pub friend_display_name: Option<String>,
-    /// Friend's email
-    pub friend_email: String,
-    /// Friend's user ID
-    pub friend_user_id: String,
-}
-
-/// Response for listing friends
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct ListFriendsResponse {
-    /// List of friend connections with user info
-    pub friends: Vec<FriendWithInfoResponse>,
-    /// Total count
-    pub total: usize,
-    /// Cursor for next page (if any)
-    pub next_cursor: Option<String>,
-    /// Whether more items are available
-    pub has_more: bool,
-    /// Metadata
-    pub metadata: SocialMetadata,
-}
-
-/// Response for a pending friend request with user info
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct PendingRequestWithInfoResponse {
-    /// Connection ID
-    pub id: String,
-    /// User who initiated the request
-    pub initiator_id: String,
-    /// User who received the request
-    pub receiver_id: String,
-    /// Current status
-    pub status: String,
-    /// When the request was created
-    pub created_at: String,
-    /// When the connection was last updated
-    pub updated_at: String,
-    /// When the request was accepted (if accepted)
-    pub accepted_at: Option<String>,
-    /// The other user's display name (initiator for received, receiver for sent)
-    pub user_display_name: Option<String>,
-    /// The other user's email
-    pub user_email: String,
-    /// The other user's ID
-    pub user_id: String,
-}
-
-/// Response for pending friend requests
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct PendingRequestsResponse {
-    /// Requests sent by the user (includes receiver's info)
-    pub sent: Vec<PendingRequestWithInfoResponse>,
-    /// Requests received by the user (includes initiator's info)
-    pub received: Vec<PendingRequestWithInfoResponse>,
-    /// Metadata
-    pub metadata: SocialMetadata,
-}
-
-/// Response for user social settings
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SocialSettingsResponse {
-    /// Whether user can be found in search
-    pub discoverable: bool,
-    /// Default visibility for new insights
-    pub default_visibility: String,
-    /// Activity types to suggest for sharing
-    pub share_activity_types: Vec<String>,
-    /// Notification preferences
-    pub notifications: NotificationPreferencesResponse,
-    /// When settings were created
-    pub created_at: String,
-    /// When settings were last updated
-    pub updated_at: String,
-}
-
-/// Notification preferences in response
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct NotificationPreferencesResponse {
-    /// Receive notifications for friend requests
-    pub friend_requests: bool,
-    /// Receive notifications for reactions
-    pub insight_reactions: bool,
-    /// Receive notifications when insights are adapted
-    pub adapted_insights: bool,
-}
-
-impl From<UserSocialSettings> for SocialSettingsResponse {
-    fn from(settings: UserSocialSettings) -> Self {
-        Self {
-            discoverable: settings.discoverable,
-            default_visibility: settings.default_visibility.as_str().to_owned(),
-            share_activity_types: settings.share_activity_types,
-            notifications: NotificationPreferencesResponse {
-                friend_requests: settings.notifications.friend_requests,
-                insight_reactions: settings.notifications.insight_reactions,
-                adapted_insights: settings.notifications.adapted_insights,
-            },
-            created_at: settings.created_at.to_rfc3339(),
-            updated_at: settings.updated_at.to_rfc3339(),
-        }
-    }
-}
 
 /// Response for a shared insight
 #[derive(Debug, Serialize, Deserialize)]
@@ -284,64 +117,6 @@ pub struct ListInsightsResponse {
     pub insights: Vec<SharedInsightResponse>,
     /// Total count
     pub total: usize,
-    /// Cursor for next page (if any)
-    pub next_cursor: Option<String>,
-    /// Whether more items are available
-    pub has_more: bool,
-    /// Metadata
-    pub metadata: SocialMetadata,
-}
-
-/// Author information for feed display
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FeedAuthorResponse {
-    /// User ID
-    pub user_id: String,
-    /// Display name
-    pub display_name: Option<String>,
-    /// Email
-    pub email: String,
-}
-
-/// Reaction counts by type
-#[derive(Debug, Serialize, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct ReactionCountsResponse {
-    /// Number of likes
-    pub like: i32,
-    /// Number of celebrations
-    pub celebrate: i32,
-    /// Number of inspires
-    pub inspire: i32,
-    /// Number of supports
-    pub support: i32,
-    /// Total reactions
-    pub total: i32,
-}
-
-/// A feed item with full metadata
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FeedItemResponse {
-    /// The shared insight
-    pub insight: SharedInsightResponse,
-    /// Author information
-    pub author: FeedAuthorResponse,
-    /// Reaction counts
-    pub reactions: ReactionCountsResponse,
-    /// Current user's reaction type (if any)
-    pub user_reaction: Option<String>,
-    /// Whether current user has adapted this insight
-    pub user_has_adapted: bool,
-}
-
-/// Response for social feed
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FeedResponse {
-    /// Feed items with full metadata
-    pub items: Vec<FeedItemResponse>,
     /// Cursor for next page (if any)
     pub next_cursor: Option<String>,
     /// Whether more items are available
@@ -466,43 +241,6 @@ pub struct AdaptInsightResultResponse {
     pub metadata: SocialMetadata,
 }
 
-/// User profile for search results
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct UserProfileResponse {
-    /// User ID
-    pub id: String,
-    /// Display name
-    pub display_name: Option<String>,
-    /// Email (only visible to connected friends for privacy)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    /// Whether the current user is friends with this user
-    pub is_friend: bool,
-    /// Whether there's a pending request
-    pub has_pending_request: bool,
-}
-
-/// Response for user search
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SearchUsersResponse {
-    /// List of users
-    pub users: Vec<UserProfileResponse>,
-    /// Total count
-    pub total: usize,
-}
-
-/// Metadata for social responses
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SocialMetadata {
-    /// Response timestamp
-    pub timestamp: String,
-    /// API version
-    pub api_version: String,
-}
-
 /// Response for a coach-generated insight suggestion
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -549,51 +287,19 @@ pub struct ListSuggestionsResponse {
     pub metadata: SocialMetadata,
 }
 
+/// Response for generated insight
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct GenerateInsightResponse {
+    /// The generated shareable content
+    pub content: String,
+    /// Metadata
+    pub metadata: SocialMetadata,
+}
+
 // ============================================================================
 // Request Types
 // ============================================================================
-
-/// Request to send a friend request
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SendFriendRequestBody {
-    /// ID of the user to send request to
-    pub receiver_id: String,
-}
-
-/// Request to respond to a friend request
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct RespondFriendRequestBody {
-    /// Whether to accept the request
-    pub accept: bool,
-}
-
-/// Request to update social settings
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct UpdateSocialSettingsBody {
-    /// Whether user can be found in search
-    pub discoverable: Option<bool>,
-    /// Default visibility for new insights
-    pub default_visibility: Option<String>,
-    /// Activity types to suggest for sharing
-    pub share_activity_types: Option<Vec<String>>,
-    /// Notification preferences
-    pub notifications: Option<UpdateNotificationPreferencesBody>,
-}
-
-/// Request to update notification preferences
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct UpdateNotificationPreferencesBody {
-    /// Receive notifications for friend requests
-    pub friend_requests: Option<bool>,
-    /// Receive notifications for reactions
-    pub insight_reactions: Option<bool>,
-    /// Receive notifications when insights are adapted
-    pub adapted_insights: Option<bool>,
-}
 
 /// Request to share an insight
 #[derive(Debug, Deserialize)]
@@ -619,16 +325,6 @@ pub struct ShareInsightBody {
 pub struct GenerateInsightBody {
     /// The analysis content to transform into a shareable insight
     pub content: String,
-}
-
-/// Response for generated insight
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct GenerateInsightResponse {
-    /// The generated shareable content
-    pub content: String,
-    /// Metadata
-    pub metadata: SocialMetadata,
 }
 
 /// Request to react to an insight
@@ -693,26 +389,6 @@ pub struct ListInsightsQuery {
     pub offset: Option<i64>,
 }
 
-/// Query parameters for user search
-#[derive(Debug, Deserialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SearchUsersQuery {
-    /// Search query string
-    pub q: String,
-    /// Maximum results
-    pub limit: Option<i64>,
-}
-
-/// Query parameters for feed
-#[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct FeedQuery {
-    /// Maximum results
-    pub limit: Option<i64>,
-    /// Offset for pagination
-    pub offset: Option<i64>,
-}
-
 /// Query parameters for insight suggestions
 #[derive(Debug, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -729,16 +405,6 @@ pub struct SuggestionsQuery {
     pub activity_limit: Option<usize>,
 }
 
-/// Query parameters for listing friends
-#[derive(Debug, Deserialize, Default)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct ListFriendsQuery {
-    /// Maximum results
-    pub limit: Option<i64>,
-    /// Offset for pagination
-    pub offset: Option<i64>,
-}
-
 /// Query parameters for listing adapted insights
 #[derive(Debug, Deserialize, Default)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -750,142 +416,14 @@ pub struct ListAdaptedQuery {
 }
 
 // ============================================================================
-// Routes
+// Handlers
 // ============================================================================
 
-/// Social routes handler
-pub struct SocialRoutes;
-
 impl SocialRoutes {
-    /// Create all social routes
-    pub fn routes(resources: Arc<ServerResources>) -> Router {
-        Router::new()
-            // Friend connections
-            .route("/api/social/friends", get(Self::handle_list_friends))
-            .route("/api/social/friends", post(Self::handle_send_request))
-            .route(
-                "/api/social/friends/pending",
-                get(Self::handle_pending_requests),
-            )
-            .route(
-                "/api/social/friends/:id/accept",
-                post(Self::handle_accept_request),
-            )
-            .route(
-                "/api/social/friends/:id/decline",
-                post(Self::handle_decline_request),
-            )
-            .route("/api/social/friends/:id", delete(Self::handle_unfriend))
-            // Social settings
-            .route("/api/social/settings", get(Self::handle_get_settings))
-            .route("/api/social/settings", put(Self::handle_update_settings))
-            // Insights
-            .route("/api/social/insights", get(Self::handle_list_insights))
-            .route("/api/social/insights", post(Self::handle_share_insight))
-            .route(
-                "/api/social/insights/suggestions",
-                get(Self::handle_get_suggestions),
-            )
-            .route(
-                "/api/social/insights/from-activity",
-                post(Self::handle_share_from_activity),
-            )
-            .route(
-                "/api/social/insights/generate",
-                post(Self::handle_generate_insight),
-            )
-            .route("/api/social/insights/:id", get(Self::handle_get_insight))
-            .route(
-                "/api/social/insights/:id",
-                delete(Self::handle_delete_insight),
-            )
-            // Reactions
-            .route(
-                "/api/social/insights/:id/reactions",
-                get(Self::handle_list_reactions),
-            )
-            .route(
-                "/api/social/insights/:id/reactions",
-                post(Self::handle_add_reaction),
-            )
-            .route(
-                "/api/social/insights/:id/reactions/:reaction_type",
-                delete(Self::handle_remove_reaction),
-            )
-            // Feed
-            .route("/api/social/feed", get(Self::handle_get_feed))
-            // Adapted insights
-            .route(
-                "/api/social/insights/:id/adapt",
-                post(Self::handle_adapt_insight),
-            )
-            .route("/api/social/adapted", get(Self::handle_list_adapted))
-            .route(
-                "/api/social/adapted/:id/helpful",
-                put(Self::handle_update_helpful),
-            )
-            // Discovery
-            .route("/api/social/users/search", get(Self::handle_search_users))
-            .with_state(resources)
-    }
-
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
-    ) -> Result<AuthResult, AppError> {
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
-    /// Build metadata for responses
-    fn build_metadata() -> SocialMetadata {
-        SocialMetadata {
-            timestamp: Utc::now().to_rfc3339(),
-            api_version: "1.0".to_owned(),
-        }
-    }
-
-    /// Get social manager from the `SQLite` pool
-    fn get_social_manager(resources: &Arc<ServerResources>) -> Result<SocialManager, AppError> {
-        let pool = resources
-            .database
-            .sqlite_pool()
-            .ok_or_else(|| AppError::internal("SQLite database required for social features"))?;
-        Ok(SocialManager::new(pool.clone()))
-    }
-
-    /// Get LLM provider from resources or create from environment
-    ///
-    /// Uses injected provider if available (for testing), otherwise falls back to
-    /// `ChatProvider::from_env()` which reads API keys from environment variables.
-    async fn get_llm_provider(
-        resources: &Arc<ServerResources>,
-    ) -> Result<Arc<dyn LlmProvider>, AppError> {
-        match &resources.llm_provider {
-            Some(provider) => Ok(provider.clone()),
-            None => Ok(Arc::new(ChatProvider::from_env().await?)),
-        }
-    }
-
     /// Validate content for sharing based on user tier and sharing policy
     ///
     /// Returns the validated (and potentially improved/redacted) content, or an error if rejected.
-    async fn validate_content_for_sharing(
+    pub(crate) async fn validate_content_for_sharing(
         resources: &Arc<ServerResources>,
         social: &SocialManager,
         user_id: Uuid,
@@ -933,356 +471,21 @@ impl SocialRoutes {
         }
     }
 
-    // ========================================================================
-    // Friend Connections
-    // ========================================================================
-
-    /// Handle GET /api/social/friends - List friends
-    async fn handle_list_friends(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Query(query): Query<ListFriendsQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let limit = query.limit.unwrap_or(50).clamp(1, 100);
-        let offset = query.offset.unwrap_or(0).max(0);
-
-        let friends = social
-            .get_friends_paginated(auth.user_id, limit, offset)
-            .await?;
-
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_possible_truncation)] // limit is clamped to small values
-        let limit_usize = limit as usize;
-        let has_more = friends.len() >= limit_usize;
-        let next_cursor = if has_more {
-            Some((offset + limit).to_string())
-        } else {
-            None
-        };
-
-        // Build response with friend user info
-        let mut friends_with_info = Vec::with_capacity(friends.len());
-        for conn in friends {
-            // Determine who the friend is (the other person in the connection)
-            let friend_id = if conn.initiator_id == auth.user_id {
-                conn.receiver_id
-            } else {
-                conn.initiator_id
-            };
-
-            // Fetch friend's user info (social connections enforce tenant scope)
-            let friend_user = resources.database.get_global(friend_id).await?;
-            let (friend_display_name, friend_email) = match friend_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{friend_id}")),
-            };
-
-            friends_with_info.push(FriendWithInfoResponse {
-                id: conn.id.to_string(),
-                initiator_id: conn.initiator_id.to_string(),
-                receiver_id: conn.receiver_id.to_string(),
-                status: conn.status.as_str().to_owned(),
-                created_at: conn.created_at.to_rfc3339(),
-                updated_at: conn.updated_at.to_rfc3339(),
-                accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
-                friend_display_name,
-                friend_email,
-                friend_user_id: friend_id.to_string(),
-            });
+    /// Get LLM provider from resources or create from environment
+    ///
+    /// Uses injected provider if available (for testing), otherwise falls back to
+    /// `ChatProvider::from_env()` which reads API keys from environment variables.
+    pub(crate) async fn get_llm_provider(
+        resources: &Arc<ServerResources>,
+    ) -> Result<Arc<dyn LlmProvider>, AppError> {
+        match &resources.llm_provider {
+            Some(provider) => Ok(provider.clone()),
+            None => Ok(Arc::new(ChatProvider::from_env().await?)),
         }
-
-        let response = ListFriendsResponse {
-            total: friends_with_info.len(),
-            friends: friends_with_info,
-            next_cursor,
-            has_more,
-            metadata: Self::build_metadata(),
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
     }
-
-    /// Handle POST /api/social/friends - Send friend request
-    async fn handle_send_request(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Json(body): Json<SendFriendRequestBody>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let receiver_id = Uuid::parse_str(&body.receiver_id)
-            .map_err(|_| AppError::invalid_input("Invalid receiver_id format"))?;
-
-        let result =
-            social_insights::create_friend_request(&social, auth.user_id, receiver_id).await?;
-
-        let response: FriendConnectionResponse = result.connection.into();
-        Ok((StatusCode::CREATED, Json(response)).into_response())
-    }
-
-    /// Handle GET /api/social/friends/pending - Get pending requests
-    async fn handle_pending_requests(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let pending = social.get_pending_friend_requests(auth.user_id).await?;
-
-        let (sent_conns, received_conns): (Vec<_>, Vec<_>) = pending
-            .into_iter()
-            .partition(|conn| conn.initiator_id == auth.user_id);
-
-        // Build sent requests with receiver's user info
-        let mut sent = Vec::with_capacity(sent_conns.len());
-        for conn in sent_conns {
-            let receiver_id_str = conn.receiver_id.to_string();
-            let receiver_user = resources.database.get_global(conn.receiver_id).await?;
-            let (user_display_name, user_email) = match receiver_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{receiver_id_str}")),
-            };
-
-            sent.push(PendingRequestWithInfoResponse {
-                id: conn.id.to_string(),
-                initiator_id: conn.initiator_id.to_string(),
-                receiver_id: conn.receiver_id.to_string(),
-                status: conn.status.as_str().to_owned(),
-                created_at: conn.created_at.to_rfc3339(),
-                updated_at: conn.updated_at.to_rfc3339(),
-                accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
-                user_display_name,
-                user_email,
-                user_id: conn.receiver_id.to_string(),
-            });
-        }
-
-        // Build received requests with initiator's user info
-        let mut received = Vec::with_capacity(received_conns.len());
-        for conn in received_conns {
-            let initiator_id_str = conn.initiator_id.to_string();
-            let initiator_user = resources.database.get_global(conn.initiator_id).await?;
-            let (user_display_name, user_email) = match initiator_user {
-                Some(user) => (user.display_name, user.email),
-                None => (None, format!("user-{initiator_id_str}")),
-            };
-
-            received.push(PendingRequestWithInfoResponse {
-                id: conn.id.to_string(),
-                initiator_id: conn.initiator_id.to_string(),
-                receiver_id: conn.receiver_id.to_string(),
-                status: conn.status.as_str().to_owned(),
-                created_at: conn.created_at.to_rfc3339(),
-                updated_at: conn.updated_at.to_rfc3339(),
-                accepted_at: conn.accepted_at.map(|dt| dt.to_rfc3339()),
-                user_display_name,
-                user_email,
-                user_id: conn.initiator_id.to_string(),
-            });
-        }
-
-        let response = PendingRequestsResponse {
-            sent,
-            received,
-            metadata: Self::build_metadata(),
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    /// Handle POST /api/social/friends/:id/accept - Accept friend request
-    async fn handle_accept_request(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Path(id): Path<String>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let connection_id = Uuid::parse_str(&id)
-            .map_err(|_| AppError::invalid_input("Invalid connection ID format"))?;
-
-        // Get the connection and verify user can accept it
-        let connection = social
-            .get_friend_connection(connection_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Friend request {id}")))?;
-
-        // Only receiver can accept
-        if connection.receiver_id != auth.user_id {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Only the receiver can accept a friend request",
-            ));
-        }
-
-        if connection.status != FriendStatus::Pending {
-            return Err(AppError::invalid_input(format!(
-                "Cannot accept request with status: {}",
-                connection.status
-            )));
-        }
-
-        social
-            .update_friend_connection_status(connection_id, auth.user_id, FriendStatus::Accepted)
-            .await?;
-
-        let updated = social
-            .get_friend_connection(connection_id)
-            .await?
-            .ok_or_else(|| AppError::internal("Failed to fetch updated connection"))?;
-
-        let response: FriendConnectionResponse = updated.into();
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    /// Handle POST /api/social/friends/:id/decline - Decline friend request
-    async fn handle_decline_request(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Path(id): Path<String>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let connection_id = Uuid::parse_str(&id)
-            .map_err(|_| AppError::invalid_input("Invalid connection ID format"))?;
-
-        let connection = social
-            .get_friend_connection(connection_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Friend request {id}")))?;
-
-        // Only receiver can decline
-        if connection.receiver_id != auth.user_id {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Only the receiver can decline a friend request",
-            ));
-        }
-
-        if connection.status != FriendStatus::Pending {
-            return Err(AppError::invalid_input(format!(
-                "Cannot decline request with status: {}",
-                connection.status
-            )));
-        }
-
-        social
-            .update_friend_connection_status(connection_id, auth.user_id, FriendStatus::Declined)
-            .await?;
-
-        Ok((StatusCode::NO_CONTENT, ()).into_response())
-    }
-
-    /// Handle DELETE /api/social/friends/:id - Remove friend
-    async fn handle_unfriend(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Path(id): Path<String>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let connection_id = Uuid::parse_str(&id)
-            .map_err(|_| AppError::invalid_input("Invalid connection ID format"))?;
-
-        let connection = social
-            .get_friend_connection(connection_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Friend connection {id}")))?;
-
-        // Either party can unfriend
-        if !connection.involves_user(auth.user_id) {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "You are not part of this connection",
-            ));
-        }
-
-        social
-            .delete_friend_connection(connection_id, auth.user_id)
-            .await?;
-
-        Ok((StatusCode::NO_CONTENT, ()).into_response())
-    }
-
-    // ========================================================================
-    // Social Settings
-    // ========================================================================
-
-    /// Handle GET /api/social/settings - Get social settings
-    async fn handle_get_settings(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let settings = social
-            .get_user_social_settings(auth.user_id)
-            .await?
-            .unwrap_or_else(|| UserSocialSettings::default_for_user(auth.user_id));
-
-        let response: SocialSettingsResponse = settings.into();
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    /// Handle PUT /api/social/settings - Update social settings
-    async fn handle_update_settings(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Json(body): Json<UpdateSocialSettingsBody>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        // Get existing settings or create defaults
-        let mut settings = social
-            .get_user_social_settings(auth.user_id)
-            .await?
-            .unwrap_or_else(|| UserSocialSettings::default_for_user(auth.user_id));
-
-        // Apply updates
-        if let Some(discoverable) = body.discoverable {
-            settings.discoverable = discoverable;
-        }
-        if let Some(ref visibility) = body.default_visibility {
-            settings.default_visibility = ShareVisibility::from_str(visibility)?;
-        }
-        if let Some(activity_types) = body.share_activity_types {
-            settings.share_activity_types = activity_types;
-        }
-        if let Some(notifications) = body.notifications {
-            if let Some(friend_requests) = notifications.friend_requests {
-                settings.notifications.friend_requests = friend_requests;
-            }
-            if let Some(insight_reactions) = notifications.insight_reactions {
-                settings.notifications.insight_reactions = insight_reactions;
-            }
-            if let Some(adapted_insights) = notifications.adapted_insights {
-                settings.notifications.adapted_insights = adapted_insights;
-            }
-        }
-        settings.updated_at = Utc::now();
-
-        social.upsert_user_social_settings(&settings).await?;
-
-        let response: SocialSettingsResponse = settings.into();
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    // ========================================================================
-    // Shared Insights
-    // ========================================================================
 
     /// Handle GET /api/social/insights - List user's shared insights
-    async fn handle_list_insights(
+    pub(crate) async fn handle_list_insights(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Query(query): Query<ListInsightsQuery>,
@@ -1324,7 +527,7 @@ impl SocialRoutes {
     }
 
     /// Handle POST /api/social/insights - Share a new insight
-    async fn handle_share_insight(
+    pub(crate) async fn handle_share_insight(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Json(body): Json<ShareInsightBody>,
@@ -1366,7 +569,7 @@ impl SocialRoutes {
     }
 
     /// Handle GET /api/social/insights/:id - Get a specific insight
-    async fn handle_get_insight(
+    pub(crate) async fn handle_get_insight(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -1401,7 +604,7 @@ impl SocialRoutes {
     }
 
     /// Handle DELETE /api/social/insights/:id - Delete an insight
-    async fn handle_delete_insight(
+    pub(crate) async fn handle_delete_insight(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -1440,7 +643,7 @@ impl SocialRoutes {
     ///
     /// Returns suggestions based on user's recent activities. If no activities
     /// can be fetched (e.g., no OAuth token connected), returns an empty list.
-    async fn handle_get_suggestions(
+    pub(crate) async fn handle_get_suggestions(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Query(query): Query<SuggestionsQuery>,
@@ -1496,7 +699,7 @@ impl SocialRoutes {
     }
 
     /// Handle POST /api/social/insights/from-activity - Share coach-mediated insight
-    async fn handle_share_from_activity(
+    pub(crate) async fn handle_share_from_activity(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Json(body): Json<ShareFromActivityBody>,
@@ -1599,7 +802,7 @@ impl SocialRoutes {
     /// Transforms analysis content into a concise, inspiring social post format
     /// using the insight generation prompt. Returns only the shareable content
     /// without any preamble or explanatory text.
-    async fn handle_generate_insight(
+    pub(crate) async fn handle_generate_insight(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Json(body): Json<GenerateInsightBody>,
@@ -1645,7 +848,7 @@ impl SocialRoutes {
     ///
     /// Uses the insight validation prompt to check content quality and improve if needed.
     /// Returns the validated (possibly improved) content.
-    async fn validate_insight_content(
+    pub(crate) async fn validate_insight_content(
         resources: &Arc<ServerResources>,
         content: &str,
     ) -> Result<String, AppError> {
@@ -1667,7 +870,7 @@ impl SocialRoutes {
     /// Parse JSON response from insight generation prompt
     ///
     /// Expected format: `{"content": "..."}`
-    fn parse_generation_json_response(raw_content: &str) -> String {
+    pub(crate) fn parse_generation_json_response(raw_content: &str) -> String {
         #[derive(Deserialize)]
         struct GenerationResponse {
             content: String,
@@ -1700,7 +903,7 @@ impl SocialRoutes {
     /// Parse JSON response from insight validation prompt
     ///
     /// Expected format: `{"verdict": "valid|improved|rejected", "reason": "...", "improved_content": "..."}`
-    fn parse_validation_json_response(
+    pub(crate) fn parse_validation_json_response(
         raw_content: &str,
         original_content: &str,
     ) -> Result<String, AppError> {
@@ -1764,7 +967,7 @@ impl SocialRoutes {
     ///
     /// Uses `AuthService` to get a valid OAuth token and creates a configured provider
     /// with tenant-scoped credential resolution to fetch recent activities.
-    async fn fetch_activities_from_provider(
+    pub(crate) async fn fetch_activities_from_provider(
         resources: &Arc<ServerResources>,
         user_id: Uuid,
         provider_name: &str,
@@ -1819,7 +1022,7 @@ impl SocialRoutes {
     ///
     /// # Arguments
     /// * `activity_limit` - Optional client-requested limit (capped by server config)
-    async fn build_insight_context(
+    pub(crate) async fn build_insight_context(
         resources: &Arc<ServerResources>,
         user_id: Uuid,
         provider_name: &str,
@@ -1852,7 +1055,7 @@ impl SocialRoutes {
     }
 
     /// Build user training context for insight adaptation
-    async fn build_user_training_context(
+    pub(crate) async fn build_user_training_context(
         resources: &Arc<ServerResources>,
         user_id: Uuid,
         provider_name: &str,
@@ -1909,7 +1112,7 @@ impl SocialRoutes {
     // ========================================================================
 
     /// Handle GET /api/social/insights/:id/reactions - List reactions
-    async fn handle_list_reactions(
+    pub(crate) async fn handle_list_reactions(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -1950,7 +1153,7 @@ impl SocialRoutes {
     }
 
     /// Handle POST /api/social/insights/:id/reactions - Add reaction
-    async fn handle_add_reaction(
+    pub(crate) async fn handle_add_reaction(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -1993,7 +1196,7 @@ impl SocialRoutes {
     }
 
     /// Handle DELETE /api/social/insights/:id/reactions/:type - Remove reaction
-    async fn handle_remove_reaction(
+    pub(crate) async fn handle_remove_reaction(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path((id, reaction_type_str)): Path<(String, String)>,
@@ -2015,74 +1218,11 @@ impl SocialRoutes {
     }
 
     // ========================================================================
-    // Feed
-    // ========================================================================
-
-    /// Handle GET /api/social/feed - Get social feed
-    async fn handle_get_feed(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Query(query): Query<FeedQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        let limit = query.limit.unwrap_or(50).clamp(1, 100);
-        let offset = query.offset.unwrap_or(0).max(0);
-
-        // Get full feed items with author, reactions, and user-specific state
-        let feed_items = social
-            .get_friend_insights_feed_full(auth.user_id, limit, offset)
-            .await?;
-
-        // Convert to response format
-        let items: Vec<FeedItemResponse> = feed_items
-            .into_iter()
-            .map(|item| FeedItemResponse {
-                insight: item.insight.into(),
-                author: FeedAuthorResponse {
-                    user_id: item.author.user_id.to_string(),
-                    display_name: item.author.display_name,
-                    email: item.author.email,
-                },
-                reactions: ReactionCountsResponse {
-                    like: item.reactions.like_count,
-                    celebrate: item.reactions.celebrate_count,
-                    inspire: item.reactions.inspire_count,
-                    support: item.reactions.support_count,
-                    total: item.reactions.total,
-                },
-                user_reaction: item.user_reaction.map(|r| r.as_str().to_owned()),
-                user_has_adapted: item.user_has_adapted,
-            })
-            .collect();
-
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        #[allow(clippy::cast_possible_truncation)] // limit is clamped to small values
-        let limit_usize = limit as usize;
-        let has_more = items.len() >= limit_usize;
-        let next_cursor = if has_more {
-            Some((offset + limit).to_string())
-        } else {
-            None
-        };
-
-        let response = FeedResponse {
-            items,
-            next_cursor,
-            has_more,
-            metadata: Self::build_metadata(),
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
-    }
-
-    // ========================================================================
     // Adapted Insights
     // ========================================================================
 
     /// Handle POST /api/social/insights/:id/adapt - Adapt an insight
-    async fn handle_adapt_insight(
+    pub(crate) async fn handle_adapt_insight(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -2132,7 +1272,7 @@ impl SocialRoutes {
     }
 
     /// Handle GET /api/social/adapted - List user's adapted insights
-    async fn handle_list_adapted(
+    pub(crate) async fn handle_list_adapted(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Query(query): Query<ListAdaptedQuery>,
@@ -2169,7 +1309,7 @@ impl SocialRoutes {
     }
 
     /// Handle PUT /api/social/adapted/:id/helpful - Update helpful status
-    async fn handle_update_helpful(
+    pub(crate) async fn handle_update_helpful(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
         Path(id): Path<String>,
@@ -2190,44 +1330,5 @@ impl SocialRoutes {
         }
 
         Ok((StatusCode::NO_CONTENT, ()).into_response())
-    }
-
-    // ========================================================================
-    // Discovery
-    // ========================================================================
-
-    /// Handle GET /api/social/users/search - Search for users
-    async fn handle_search_users(
-        State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
-        Query(query): Query<SearchUsersQuery>,
-    ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
-        let social = Self::get_social_manager(&resources)?;
-
-        // Safe cast: limit is clamped to [1, 50] which fits in u32
-        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-        let limit = query.limit.unwrap_or(20).clamp(1, 50) as u32;
-        let enriched =
-            social_insights::search_users_with_status(&social, auth.user_id, &query.q, limit)
-                .await?;
-
-        let results: Vec<UserProfileResponse> = enriched
-            .into_iter()
-            .map(|u| UserProfileResponse {
-                id: u.user_id.to_string(),
-                display_name: u.display_name,
-                email: u.visible_email,
-                is_friend: u.is_friend,
-                has_pending_request: u.has_pending_request,
-            })
-            .collect();
-
-        let response = SearchUsersResponse {
-            total: results.len(),
-            users: results,
-        };
-
-        Ok((StatusCode::OK, Json(response)).into_response())
     }
 }
