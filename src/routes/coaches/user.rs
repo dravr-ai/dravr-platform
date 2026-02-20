@@ -7,12 +7,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    coaches::{parse_coach_content, to_markdown, CoachPrerequisites},
-    database::{
-        coaches::{CoachCategory, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest},
-        repositories::OAuthTokenRepository,
-        ChatManager,
-    },
+    coaches::{parse_coach_content, to_markdown},
+    database::{repositories::OAuthTokenRepository, ChatManager},
     errors::AppError,
     llm::{get_coach_generation_prompt, ChatMessage, ChatProvider, ChatRequest},
     mcp::resources::ServerResources,
@@ -23,6 +19,9 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
+};
+use pierre_core::models::coaches::{
+    CoachCategory, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
 use std::sync::Arc;
 

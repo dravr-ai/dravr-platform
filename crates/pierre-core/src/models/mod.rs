@@ -30,6 +30,7 @@
 //! - `SportType`: Enumeration of supported activity types
 
 // Domain modules
+pub mod a2a;
 mod activity;
 mod athlete;
 mod health;
@@ -72,8 +73,15 @@ pub use oauth::{
     ProviderConnection, UserOAuthApp, UserOAuthToken, UserSession,
 };
 
+// OAuth client state for provider authorization flows
+mod oauth_client;
+pub use oauth_client::OAuthClientState;
+
 // Tenant domain
-pub use tenant::{AuthorizationCode, OAuthApp, OAuthAppParams, Tenant, TenantId};
+pub use tenant::{
+    AuthorizationCode, LlmCredentialRecord, LlmCredentialSummary, OAuthApp, OAuthAppParams, Tenant,
+    TenantId, TenantOAuthCredentials,
+};
 
 // Tool selection domain
 pub use tool_selection::{
@@ -101,7 +109,7 @@ pub use user_mcp_token::{
 
 // Chat conversation and message record types
 mod conversation;
-pub use conversation::{ConversationRecord, ConversationSummary, MessageRecord};
+pub use conversation::{AddMessageParams, ConversationRecord, ConversationSummary, MessageRecord};
 
 // Security audit event types
 mod audit;
@@ -116,4 +124,28 @@ mod api_key;
 pub use api_key::{
     ApiKey, ApiKeyData, ApiKeyResponse, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats,
     CreateApiKeyRequest, CreateApiKeyRequestSimple, RateLimitStatus,
+};
+
+// A2A protocol data types
+pub use a2a::{A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus};
+
+/// Usage, dashboard, and quota tracking types.
+pub mod usage;
+pub use usage::{
+    InsertLlmUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog,
+    ToolUsage, UsageCounterRecord,
+};
+
+/// Coach (AI persona) data types for custom AI coaching personas
+pub mod coaches;
+/// Mobility domain types for stretching and yoga
+pub mod mobility;
+pub use coaches::{
+    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
+    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
+    PublishStatus, StoreAdminStats, UpdateCoachRequest,
+};
+pub use mobility::{
+    ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter,
+    StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,
 };

@@ -6,3 +6,6 @@
 
 /// Admin data models (tokens, permissions, usage)
 pub mod models;
+
+/// JWT signing abstraction for admin token creation
+pub mod jwt;

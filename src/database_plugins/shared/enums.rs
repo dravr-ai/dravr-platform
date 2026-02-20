@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::a2a::protocol::TaskStatus;
 use crate::constants::tiers;
 use crate::models::{UserStatus, UserTier};
 use crate::permissions::UserRole;
+use pierre_core::models::a2a::TaskStatus;
 
 /// Convert `UserTier` enum to database string representation
 ///
@@ -98,7 +98,7 @@ pub fn str_to_user_status(s: &str) -> UserStatus {
 ///
 /// # Examples
 /// ```
-/// use pierre_mcp_server::a2a::protocol::TaskStatus;
+/// use pierre_core::models::a2a::TaskStatus;
 /// use pierre_mcp_server::database_plugins::shared::enums::task_status_to_str;
 ///
 /// assert_eq!(task_status_to_str(&TaskStatus::Pending), "pending");
@@ -109,13 +109,14 @@ pub fn str_to_user_status(s: &str) -> UserStatus {
 /// ```
 #[must_use]
 #[inline]
-pub const fn task_status_to_str(status: &TaskStatus) -> &'static str {
+pub fn task_status_to_str(status: &TaskStatus) -> &'static str {
     match status {
-        TaskStatus::Pending => "pending",
         TaskStatus::Running => "running",
         TaskStatus::Completed => "completed",
         TaskStatus::Failed => "failed",
         TaskStatus::Cancelled => "cancelled",
+        // Pending is the default; wildcard required by #[non_exhaustive]
+        TaskStatus::Pending | _ => "pending",
     }
 }
 
@@ -125,7 +126,7 @@ pub const fn task_status_to_str(status: &TaskStatus) -> &'static str {
 ///
 /// # Examples
 /// ```
-/// use pierre_mcp_server::a2a::protocol::TaskStatus;
+/// use pierre_core::models::a2a::TaskStatus;
 /// use pierre_mcp_server::database_plugins::shared::enums::str_to_task_status;
 ///
 /// assert_eq!(str_to_task_status("running"), TaskStatus::Running);

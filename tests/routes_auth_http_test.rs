@@ -92,7 +92,7 @@ impl AuthTestSetup {
     /// Create a test admin token for authentication
     async fn create_admin_token(&self) -> anyhow::Result<String> {
         use pierre_mcp_server::admin::models::CreateAdminTokenRequest;
-        use pierre_mcp_server::database_plugins::DatabaseProvider;
+        use pierre_mcp_server::database_plugins::AdminDbOps;
 
         // Create admin token request
         let request = CreateAdminTokenRequest {

@@ -6,7 +6,7 @@
 
 use crate::{
     constants::oauth_providers::{FITBIT, STRAVA},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, OAuthDbOps, TenantDbOps},
     errors::AppError,
     models::TenantId,
     providers::CoreFitnessProvider,

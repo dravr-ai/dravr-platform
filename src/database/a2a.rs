@@ -7,79 +7,18 @@
 use std::fmt::Write;
 
 use super::Database;
-use crate::a2a::{
-    auth::A2AClient,
-    client::A2ASession,
-    protocol::{A2ATask, TaskStatus},
-};
 use crate::database_plugins::shared::transactions::SqliteTransactionGuard;
 use crate::database_plugins::shared::{enums, mappers};
 use crate::errors::{AppError, AppResult};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use serde::{Deserialize, Serialize};
+pub use pierre_core::models::a2a::{
+    A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use tracing::{debug, warn};
 use uuid::Uuid;
-
-/// Records of A2A protocol usage for analytics and billing
-#[derive(Debug, Serialize, Deserialize)]
-pub struct A2AUsage {
-    /// Database record ID (None for new records)
-    pub id: Option<i64>,
-    /// A2A client identifier
-    pub client_id: String,
-    /// Optional session token for this request
-    pub session_token: Option<String>,
-    /// When the request was made
-    pub timestamp: DateTime<Utc>,
-    /// Name of the tool/endpoint called
-    pub tool_name: String,
-    /// Response time in milliseconds
-    pub response_time_ms: Option<u32>,
-    /// HTTP status code returned
-    pub status_code: u16,
-    /// Error message if request failed
-    pub error_message: Option<String>,
-    /// Request payload size in bytes
-    pub request_size_bytes: Option<u32>,
-    /// Response payload size in bytes
-    pub response_size_bytes: Option<u32>,
-    /// Client IP address
-    pub ip_address: Option<String>,
-    /// Client user agent string
-    pub user_agent: Option<String>,
-    /// A2A protocol version used
-    pub protocol_version: String,
-    /// List of capabilities advertised by client
-    pub client_capabilities: Vec<String>,
-    /// OAuth scopes granted for this request
-    pub granted_scopes: Vec<String>,
-}
-
-/// Aggregated statistics for A2A usage over a time period
-#[derive(Debug, Serialize, Deserialize)]
-pub struct A2AUsageStats {
-    /// A2A client identifier
-    pub client_id: String,
-    /// Start of the statistics period
-    pub period_start: DateTime<Utc>,
-    /// End of the statistics period
-    pub period_end: DateTime<Utc>,
-    /// Total number of requests in period
-    pub total_requests: u32,
-    /// Number of successful requests (2xx status)
-    pub successful_requests: u32,
-    /// Number of failed requests (4xx/5xx status)
-    pub failed_requests: u32,
-    /// Average response time across all requests (ms)
-    pub avg_response_time_ms: Option<u32>,
-    /// Total bytes sent in requests
-    pub total_request_bytes: Option<u64>,
-    /// Total bytes sent in responses
-    pub total_response_bytes: Option<u64>,
-}
 
 /// Helper functions for safe type conversions
 fn safe_u32_to_i32(value: u32) -> AppResult<i32> {

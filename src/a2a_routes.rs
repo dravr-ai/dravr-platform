@@ -10,7 +10,7 @@
 
 use crate::a2a::{
     agent_card::AgentCard,
-    auth::{A2AAuthenticator, A2AClient},
+    auth::A2AAuthenticator,
     client::{
         A2AClientManager, A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest,
         ClientUsageStats,
@@ -18,12 +18,13 @@ use crate::a2a::{
     protocol::A2AError,
 };
 use crate::constants::time::DAY_SECONDS;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::A2ADbOps;
 use crate::mcp::resources::ServerResources;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::utils::auth::extract_bearer_token;
 use chrono::Utc;
+use pierre_core::models::a2a::A2AClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};

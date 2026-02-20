@@ -24,7 +24,7 @@ use crate::config::{
     validation::{ConfigValidator, ValidationResult},
 };
 use crate::constants::physiology;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::UserDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::types::json_schemas;

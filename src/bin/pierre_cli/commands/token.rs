@@ -9,7 +9,7 @@ use pierre_mcp_server::{
         jwks::JwksManager,
         models::{AdminPermission, CreateAdminTokenRequest},
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps},
     errors::{AppError, AppResult},
 };
 

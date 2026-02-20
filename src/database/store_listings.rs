@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::database::coaches::{
-    Coach, CoachCategory, CoachVisibility, PublishStatus, StoreAdminStats,
-};
 use crate::errors::{AppError, AppResult};
 use crate::pagination::{Cursor, CursorPage, StoreCursor, StoreSortOrder};
 use chrono::{DateTime, Utc};
+use pierre_core::models::coaches::{
+    Coach, CoachCategory, CoachVisibility, PublishStatus, StoreAdminStats,
+};
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};

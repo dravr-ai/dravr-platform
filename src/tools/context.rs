@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::cache::factory::Cache;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::UserDbOps;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::intelligence::ActivityIntelligence;
 use crate::mcp::resources::ServerResources;

@@ -11,7 +11,7 @@
 use chrono::Utc;
 use pierre_mcp_server::{
     database::AddMessageParams,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ChatDbOps, TenantDbOps, UserDbOps},
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,
 };

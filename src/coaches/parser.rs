@@ -9,27 +9,12 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::database::coaches::{CoachCategory, CoachVisibility};
+use pierre_core::models::coaches::{CoachCategory, CoachPrerequisites, CoachVisibility};
+
 use crate::errors::{AppError, AppResult, ErrorCode};
 
 /// Token estimation constant: average characters per token for system prompts
 const CHARS_PER_TOKEN: usize = 4;
-
-/// Prerequisites required to use a coach
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CoachPrerequisites {
-    /// Required OAuth providers (e.g., strava, garmin)
-    #[serde(default)]
-    pub providers: Vec<String>,
-
-    /// Minimum number of activities required
-    #[serde(default)]
-    pub min_activities: u32,
-
-    /// Required activity types (e.g., Run, Ride, Swim)
-    #[serde(default)]
-    pub activity_types: Vec<String>,
-}
 
 /// Startup configuration for coach conversations
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

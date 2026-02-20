@@ -1075,6 +1075,7 @@ impl SocialManager {
     pub async fn search_discoverable_users(
         &self,
         query: &str,
+        exclude_user_id: Uuid,
         limit: i64,
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>> {
         let search_pattern = format!("%{query}%");
@@ -1086,11 +1087,13 @@ impl SocialManager {
             LEFT JOIN user_social_settings uss ON u.id = uss.user_id
             WHERE (uss.discoverable = 1 OR uss.discoverable IS NULL)
               AND u.user_status = 'active'
-              AND (u.email LIKE $1 OR u.display_name LIKE $1)
+              AND u.id != $1
+              AND (u.email LIKE $2 OR u.display_name LIKE $2)
             ORDER BY u.display_name, u.email
-            LIMIT $2
+            LIMIT $3
             ",
         )
+        .bind(exclude_user_id.to_string())
         .bind(&search_pattern)
         .bind(limit)
         .fetch_all(&self.pool)
@@ -1110,5 +1113,118 @@ impl SocialManager {
         }
 
         Ok(results)
+    }
+
+    // ========================================================================
+    // Methods required by SocialRepository trait
+    // ========================================================================
+
+    /// Get outgoing friend requests sent by the user
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_sent_friend_requests(
+        &self,
+        user_id: Uuid,
+    ) -> AppResult<Vec<FriendConnection>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at
+            FROM friend_connections
+            WHERE initiator_id = $1 AND status = 'pending'
+            ORDER BY created_at DESC
+            ",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get sent friend requests: {e}")))?;
+
+        rows.iter().map(Self::row_to_friend_connection).collect()
+    }
+
+    /// Check whether two users are friends (have an accepted connection)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn are_friends(&self, user_a: Uuid, user_b: Uuid) -> AppResult<bool> {
+        let row = sqlx::query(
+            r"
+            SELECT COUNT(*) as cnt FROM friend_connections
+            WHERE ((initiator_id = $1 AND receiver_id = $2)
+                OR (initiator_id = $2 AND receiver_id = $1))
+              AND status = 'accepted'
+            ",
+        )
+        .bind(user_a.to_string())
+        .bind(user_b.to_string())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to check friendship: {e}")))?;
+
+        let count: i64 = row.get("cnt");
+        Ok(count > 0)
+    }
+
+    /// Get social settings for a user, creating defaults if not found
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_or_create_social_settings(
+        &self,
+        user_id: Uuid,
+    ) -> AppResult<UserSocialSettings> {
+        if let Some(settings) = self.get_user_social_settings(user_id).await? {
+            return Ok(settings);
+        }
+
+        let defaults = UserSocialSettings::default_for_user(user_id);
+        self.upsert_user_social_settings(&defaults).await?;
+        Ok(defaults)
+    }
+
+    /// Get an adapted insight by its primary key
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_adapted_insight(&self, id: Uuid) -> AppResult<Option<AdaptedInsight>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, source_insight_id, user_id, adapted_content, adaptation_context,
+                   was_helpful, created_at
+            FROM adapted_insights
+            WHERE id = $1
+            ",
+        )
+        .bind(id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
+
+        row.as_ref().map(Self::row_to_adapted_insight).transpose()
+    }
+
+    /// Get total friend count for a user (accepted connections only)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64> {
+        let row = sqlx::query(
+            r"
+            SELECT COUNT(*) as cnt FROM friend_connections
+            WHERE (initiator_id = $1 OR receiver_id = $1) AND status = 'accepted'
+            ",
+        )
+        .bind(user_id.to_string())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count friends: {e}")))?;
+
+        Ok(row.get("cnt"))
     }
 }

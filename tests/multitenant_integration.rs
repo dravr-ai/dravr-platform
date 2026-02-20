@@ -161,7 +161,7 @@ use pierre_mcp_server::{
     constants::oauth_providers,
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, OAuthDbOps, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,

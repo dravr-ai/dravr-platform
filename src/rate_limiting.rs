@@ -15,40 +15,12 @@ use std::collections::HashMap;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
-use uuid::Uuid;
 
 use crate::api_keys::{ApiKey, ApiKeyTier};
 use crate::config::environment::RateLimitConfig;
 use crate::constants::tiers;
 use crate::models::TenantId;
 use crate::models::{Tenant, User, UserTier};
-
-/// JWT token usage record for tracking
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JwtUsage {
-    /// Unique identifier for this usage record
-    pub id: Option<i64>,
-    /// ID of the user who made the request
-    pub user_id: Uuid,
-    /// When the request was made
-    pub timestamp: DateTime<Utc>,
-    /// API endpoint that was accessed
-    pub endpoint: String,
-    /// HTTP method used (GET, POST, etc.)
-    pub method: String,
-    /// HTTP status code returned
-    pub status_code: u16,
-    /// Response time in milliseconds
-    pub response_time_ms: Option<u32>,
-    /// Request payload size in bytes
-    pub request_size_bytes: Option<u32>,
-    /// Response payload size in bytes
-    pub response_size_bytes: Option<u32>,
-    /// Client IP address
-    pub ip_address: Option<String>,
-    /// Client user agent string
-    pub user_agent: Option<String>,
-}
 
 /// Rate limit information for any authentication method
 #[derive(Debug, Clone, Serialize)]

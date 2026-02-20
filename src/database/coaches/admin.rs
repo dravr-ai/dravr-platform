@@ -4,9 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::coaches::CoachPrerequisites;
 use crate::errors::{AppError, AppResult};
 use chrono::Utc;
+use pierre_core::models::coaches::CoachPrerequisites;
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 

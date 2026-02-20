@@ -21,8 +21,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
+
 use crate::{
-    database::llm_usage::{LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageGroupBy},
+    database::llm_usage::LlmUsageGroupBy,
     database::repositories::{LlmUsageRepository, TenantRepository},
     errors::AppError,
     llm::pricing::calculate_cost,

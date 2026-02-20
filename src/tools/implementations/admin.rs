@@ -25,17 +25,18 @@ use chrono::Utc;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::database::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachVisibility, CoachesManager,
-    CreateSystemCoachRequest, UpdateCoachRequest,
-};
-use crate::database_plugins::DatabaseProvider;
+use crate::database::coaches::CoachesManager;
+use crate::database_plugins::TenantDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_core::models::coaches::{
+    Coach, CoachAssignment, CoachCategory, CoachVisibility, CreateSystemCoachRequest,
+    UpdateCoachRequest,
+};
 
 // ============================================================================
 // Helper functions

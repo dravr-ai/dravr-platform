@@ -161,7 +161,7 @@ use pierre_mcp_server::{
     },
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, DatabaseProvider, TenantDbOps, UserDbOps},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},

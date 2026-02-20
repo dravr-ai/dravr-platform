@@ -22,7 +22,7 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
     intelligence::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,

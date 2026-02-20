@@ -11,13 +11,12 @@
 
 use crate::a2a::{client::ClientRegistrationRequest, A2AError};
 use crate::auth::{AuthMethod, AuthResult};
-use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
-use crate::constants::time::HOUR_SECONDS;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{A2ADbOps, TenantDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::providers::errors::ProviderError;
 use crate::rate_limiting::UnifiedRateLimitInfo;
+pub use pierre_core::models::a2a::A2AClient;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::debug;
@@ -35,55 +34,6 @@ pub struct A2AToken {
     pub expires_at: chrono::DateTime<chrono::Utc>,
     /// When this token was created
     pub created_at: chrono::DateTime<chrono::Utc>,
-}
-
-/// A2A Client registration information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2AClient {
-    /// Unique client identifier
-    pub id: String,
-    /// User ID for session tracking and consistency
-    pub user_id: uuid::Uuid,
-    /// Human-readable client name
-    pub name: String,
-    /// Description of the client application
-    pub description: String,
-    /// Public key for signature verification
-    pub public_key: String,
-    /// List of capabilities this client can access
-    pub capabilities: Vec<String>,
-    /// Allowed OAuth redirect URIs
-    pub redirect_uris: Vec<String>,
-    /// Whether this client is active
-    pub is_active: bool,
-    /// When this client was created
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    // Additional fields for database compatibility
-    /// List of permissions granted to this client
-    #[serde(default = "default_permissions")]
-    pub permissions: Vec<String>,
-    /// Maximum requests allowed per window
-    #[serde(default = "default_rate_limit_requests")]
-    pub rate_limit_requests: u32,
-    /// Rate limit window duration in seconds
-    #[serde(default = "default_rate_limit_window")]
-    pub rate_limit_window_seconds: u32,
-    /// When this client was last updated
-    #[serde(default = "chrono::Utc::now")]
-    pub updated_at: chrono::DateTime<chrono::Utc>,
-}
-
-fn default_permissions() -> Vec<String> {
-    vec!["read_activities".into()]
-}
-
-const fn default_rate_limit_requests() -> u32 {
-    DEFAULT_BURST_LIMIT * 10
-}
-
-#[allow(clippy::cast_possible_truncation)] // Safe: HOUR_SECONDS is 3600, well within u32 range
-const fn default_rate_limit_window() -> u32 {
-    HOUR_SECONDS as u32
 }
 
 /// A2A Authenticator

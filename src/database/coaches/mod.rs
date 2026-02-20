@@ -17,9 +17,9 @@ mod versions;
 
 pub use types::*;
 
-use crate::coaches::CoachPrerequisites;
 use crate::errors::{AppError, AppResult};
 use chrono::{DateTime, Utc};
+use pierre_core::models::coaches::CoachPrerequisites;
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 use uuid::Uuid;
 

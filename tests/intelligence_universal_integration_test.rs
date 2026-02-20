@@ -14,7 +14,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_mcp_server::{
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     intelligence::{
         insights::ActivityContext, ActivityAnalyzer, FitnessLevel, MetricsCalculator,
         TimeAvailability, UserFitnessProfile, UserPreferences,

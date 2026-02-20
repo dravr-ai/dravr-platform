@@ -8,10 +8,10 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::models::JwtUsage;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SocialDbOps, UsageDbOps, UserDbOps},
     models::User,
-    rate_limiting::JwtUsage,
 };
 use uuid::Uuid;
 

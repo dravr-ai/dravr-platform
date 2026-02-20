@@ -15,7 +15,7 @@
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     mcp::multitenant::MultiTenantMcpServer,
     models::{EncryptedToken, User, UserStatus, UserTier},
     permissions::UserRole,

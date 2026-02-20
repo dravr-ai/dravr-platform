@@ -22,7 +22,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_mcp_server::database_plugins::DatabaseProvider;
+use pierre_mcp_server::database_plugins::TenantDbOps;
 use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;

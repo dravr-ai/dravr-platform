@@ -27,7 +27,7 @@ use pierre_mcp_server::{
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::User,
     rate_limiting::UnifiedRateLimitInfo,

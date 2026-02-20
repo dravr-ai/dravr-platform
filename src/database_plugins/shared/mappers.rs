@@ -9,7 +9,6 @@
 //! This module provides generic database row parsing functions that work with both
 //! PostgreSQL and SQLite, eliminating duplicate row parsing logic.
 
-use crate::a2a::protocol::A2ATask;
 use crate::admin::models::{AdminAction, AdminPermissions, AdminToken, AdminTokenUsage};
 use crate::database::UserMcpToken;
 use crate::errors::{AppError, AppResult};
@@ -17,6 +16,7 @@ use crate::models::User;
 use crate::permissions::impersonation::ImpersonationSession;
 use crate::permissions::UserRole;
 use chrono::{DateTime, Utc};
+use pierre_core::models::a2a::A2ATask;
 use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;

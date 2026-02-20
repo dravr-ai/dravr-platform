@@ -28,7 +28,7 @@ use pierre_mcp_server::{
             CreateAdminTokenRequest,
         },
     },
-    database_plugins::DatabaseProvider,
+    database_plugins::AdminDbOps,
 };
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_token_creation_in_tests";

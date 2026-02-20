@@ -6,7 +6,7 @@
 
 use crate::{
     auth::AuthResult,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
     errors::{AppError, AppResult},
     models::{Tenant, TenantId},
 };

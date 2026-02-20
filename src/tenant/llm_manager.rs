@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::TenantId;
+use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
 use std::env;
 use std::fmt;
 
@@ -14,7 +14,8 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::LlmProviderType;
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::TenantDbOps;
+use crate::database_plugins::{factory::Database, SecurityDbOps};
 use crate::errors::{AppError, AppResult};
 
 /// Environment variable names for LLM provider API keys
@@ -151,33 +152,6 @@ pub struct StoreLlmCredentialsRequest {
     pub base_url: Option<String>,
     /// Default model
     pub default_model: Option<String>,
-}
-
-/// Database record for LLM credentials
-#[derive(Debug, Clone)]
-pub struct LlmCredentialRecord {
-    /// Record ID
-    pub id: Uuid,
-    /// Tenant ID
-    pub tenant_id: TenantId,
-    /// User ID (None = tenant default)
-    pub user_id: Option<Uuid>,
-    /// Provider name
-    pub provider: String,
-    /// Encrypted API key
-    pub api_key_encrypted: String,
-    /// Base URL (for local providers)
-    pub base_url: Option<String>,
-    /// Default model
-    pub default_model: Option<String>,
-    /// Is this credential active
-    pub is_active: bool,
-    /// Created timestamp
-    pub created_at: String,
-    /// Updated timestamp
-    pub updated_at: String,
-    /// Created by user ID
-    pub created_by: Uuid,
 }
 
 /// Manager for tenant and user LLM credentials
@@ -583,27 +557,4 @@ impl TenantLlmManager {
             provider.as_str()
         )
     }
-}
-
-/// Summary of LLM credentials (for listing, without decrypted key)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LlmCredentialSummary {
-    /// Record ID
-    pub id: Uuid,
-    /// User ID (None = tenant default)
-    pub user_id: Option<Uuid>,
-    /// Provider name
-    pub provider: String,
-    /// Whether this is a user-specific or tenant-level credential
-    pub scope: String,
-    /// Base URL (for local providers)
-    pub base_url: Option<String>,
-    /// Default model
-    pub default_model: Option<String>,
-    /// Is active
-    pub is_active: bool,
-    /// Created timestamp
-    pub created_at: String,
-    /// Updated timestamp
-    pub updated_at: String,
 }

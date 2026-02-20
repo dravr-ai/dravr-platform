@@ -5,10 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::{
-    database::{
-        coaches::UpdateCoachRequest,
-        store_listings::{CoachWithListing, StoreListingsManager},
-    },
+    database::store_listings::{CoachWithListing, StoreListingsManager},
     errors::AppError,
     mcp::resources::ServerResources,
     middleware::require_admin,
@@ -20,6 +17,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use pierre_core::models::coaches::UpdateCoachRequest;
 use std::sync::Arc;
 
 use super::types::{

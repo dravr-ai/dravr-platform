@@ -26,16 +26,16 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::database::coaches::{
-    Coach, CoachCategory, CoachListItem, CoachesManager, CreateCoachRequest, ListCoachesFilter,
-    UpdateCoachRequest,
-};
+use crate::database::coaches::CoachesManager;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use pierre_core::models::coaches::{
+    Coach, CoachCategory, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
+};
 
 // ============================================================================
 // Helper functions

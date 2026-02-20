@@ -35,7 +35,8 @@ use crate::constants::{
     get_server_config, http_status::UNAUTHORIZED, service_names::PIERRE_MCP_SERVER,
     time::HOUR_SECONDS,
 };
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::ApiKeyDbOps;
+use crate::database_plugins::{factory::Database, UserDbOps};
 use crate::errors::AppResult;
 use crate::utils::http_client::get_health_check_timeout_secs;
 

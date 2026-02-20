@@ -26,7 +26,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{User, UserStatus},
     routes::auth::AuthRoutes,

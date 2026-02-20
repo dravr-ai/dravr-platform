@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{OAuthDbOps, TenantDbOps, UserDbOps};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;

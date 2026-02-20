@@ -19,7 +19,7 @@ use pierre_mcp_server::{
         OAuthConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
         SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},

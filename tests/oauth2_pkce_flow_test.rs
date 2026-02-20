@@ -15,7 +15,7 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     auth::AuthManager,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, DatabaseProvider, TenantDbOps, UserDbOps},
     models::{Tenant, TenantId, User},
     oauth2_server::{
         client_registration::ClientRegistrationManager,

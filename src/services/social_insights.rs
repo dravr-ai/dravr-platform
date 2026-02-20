@@ -98,7 +98,7 @@ pub async fn search_users_with_status(
     limit: u32,
 ) -> AppResult<Vec<EnrichedUserResult>> {
     let users = social
-        .search_discoverable_users(query, i64::from(limit))
+        .search_discoverable_users(query, searcher_id, i64::from(limit))
         .await?;
 
     let mut results = Vec::with_capacity(users.len());

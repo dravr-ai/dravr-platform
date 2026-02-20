@@ -21,7 +21,7 @@ use pierre_mcp_server::config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig,
 };
 use pierre_mcp_server::database_plugins::factory::Database;
-use pierre_mcp_server::database_plugins::DatabaseProvider;
+use pierre_mcp_server::database_plugins::UserDbOps;
 use pierre_mcp_server::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,

@@ -5,11 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
-use crate::dashboard_routes::ToolUsage;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use crate::rate_limiting::JwtUsage;
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::models::{JwtUsage, ToolUsage};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tracing::{error, warn};

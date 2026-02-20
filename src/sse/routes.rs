@@ -6,7 +6,7 @@
 
 use super::manager::SseManager;
 use crate::config::environment::SseBufferStrategy;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::A2ADbOps;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::utils::auth::extract_bearer_token_owned as extract_token;

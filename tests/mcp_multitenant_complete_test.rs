@@ -25,7 +25,7 @@ use pierre_mcp_server::{
     },
     constants::tools::PUBLIC_DISCOVERY_TOOLS,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SecurityDbOps, TenantDbOps, UserDbOps},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},

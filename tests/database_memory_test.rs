@@ -13,7 +13,7 @@ use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::database::generate_encryption_key;
-use pierre_mcp_server::database_plugins::{factory::Database, DatabaseProvider};
+use pierre_mcp_server::database_plugins::{factory::Database, UserDbOps};
 use pierre_mcp_server::models::User;
 use std::env;
 use std::fs;

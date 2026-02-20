@@ -13,7 +13,6 @@
 //! Handles registration, management, and monitoring of A2A clients
 //! that connect to Pierre for agent-to-agent communication.
 
-use crate::a2a::auth::A2AClient;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::a2a::{map_db_error, A2AError};
 use crate::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
@@ -21,12 +20,12 @@ use crate::constants::rate_limits::DEFAULT_BURST_LIMIT;
 use crate::constants::tiers;
 use crate::constants::time::HOUR_SECONDS;
 use crate::crypto::A2AKeyManager;
-use crate::database::A2AUsage;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{A2ADbOps, ApiKeyDbOps};
 use crate::errors::{AppError, AppResult};
 use chrono::Timelike;
 use chrono::{DateTime, Datelike, TimeZone, Utc};
+pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -137,27 +136,6 @@ pub struct A2ARateLimitStatus {
     pub reset_at: Option<DateTime<Utc>>,
     /// Current rate limit tier
     pub tier: A2AClientTier,
-}
-
-/// A2A Active session information
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2ASession {
-    /// Unique session identifier
-    pub id: String,
-    /// Client ID that owns this session
-    pub client_id: String,
-    /// User ID if the session is user-scoped
-    pub user_id: Option<uuid::Uuid>,
-    /// `OAuth2` scopes granted to this session
-    pub granted_scopes: Vec<String>,
-    /// When the session was created
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    /// When the session expires
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-    /// Timestamp of the last API activity
-    pub last_activity: chrono::DateTime<chrono::Utc>,
-    /// Total number of requests made in this session
-    pub requests_count: u64,
 }
 
 /// Parameters for detailed A2A usage recording

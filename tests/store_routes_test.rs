@@ -19,7 +19,7 @@ use pierre_mcp_server::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
 };
 use pierre_mcp_server::database::{Coach, StoreListingsManager};
-use pierre_mcp_server::database_plugins::DatabaseProvider;
+use pierre_mcp_server::database_plugins::TenantDbOps;
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::TenantId;
 use pierre_mcp_server::routes::store::{

@@ -17,7 +17,7 @@ use axum::{
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SecurityDbOps, UserDbOps},
     logging::LoggingConfig,
     middleware::{request_id_middleware, RequestId},
     models::{User, UserStatus, UserTier},

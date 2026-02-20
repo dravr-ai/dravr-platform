@@ -20,7 +20,7 @@ use pierre_mcp_server::{
     cache::factory::Cache,
     config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig},
     constants::init_server_config,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SecurityDbOps, UserDbOps},
     errors::{AppError, AppResult},
     features::FeatureConfig,
     key_management::KeyManager,

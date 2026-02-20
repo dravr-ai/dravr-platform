@@ -10,9 +10,10 @@
 use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, AppResult};
 use crate::oauth2_client::client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
-use crate::tenant::oauth_manager::{CredentialConfig, TenantOAuthCredentials, TenantOAuthManager};
+use crate::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use crate::tenant::TenantContext;
 use pierre_core::models::TenantId;
+use pierre_core::models::TenantOAuthCredentials;
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;

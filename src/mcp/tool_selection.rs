@@ -6,7 +6,7 @@
 
 use crate::config::ToolSelectionConfig;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::TenantDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     CategorySummary, EffectiveTool, TenantPlan, TenantToolOverride, ToolAvailabilitySummary,

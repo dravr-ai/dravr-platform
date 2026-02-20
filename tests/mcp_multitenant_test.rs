@@ -156,7 +156,7 @@ use pierre_mcp_server::{
     auth::{AuthManager, JwtValidationError},
     config::environment::RateLimitConfig,
     constants::oauth_providers,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, OAuthDbOps, UserDbOps},
     mcp::multitenant::MultiTenantMcpServer,
     middleware::McpAuthMiddleware,
     models::{TenantId, User, UserOAuthToken, UserTier},

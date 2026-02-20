@@ -21,7 +21,7 @@ use pierre_mcp_server::{
     },
     auth::AuthManager,
     database,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SecurityDbOps},
     models::User,
 };
 use std::{sync::Arc, time::Duration};

@@ -16,7 +16,7 @@ use chrono::Utc;
 use pierre_mcp_server::{
     admin::jwks::JwksManager,
     auth::AuthManager,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
     mcp::{
         multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},
         resources::ServerResources,

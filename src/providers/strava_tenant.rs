@@ -12,7 +12,8 @@ use crate::constants::api_provider_limits;
 use crate::database_plugins::DatabaseProvider;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Activity, Athlete, PersonalRecord, Stats};
-use crate::tenant::{TenantContext, TenantOAuthClient, TenantOAuthCredentials};
+use crate::tenant::{TenantContext, TenantOAuthClient};
+use pierre_core::models::TenantOAuthCredentials;
 
 /// Strava API v3 base URL
 const STRAVA_API_BASE: &str = "https://www.strava.com/api/v3";

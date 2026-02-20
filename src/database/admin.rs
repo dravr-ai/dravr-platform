@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
-use crate::admin::jwks::JwksManager;
 use crate::admin::jwt::AdminJwtManager;
 use crate::admin::models::{
     AdminAction, AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
@@ -13,6 +12,7 @@ use crate::admin::models::{
 };
 use crate::errors::{AppError, AppResult};
 use chrono::{DateTime, Utc};
+use pierre_core::admin::jwt::JwtSigner;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use tracing::debug;
@@ -31,7 +31,7 @@ impl Database {
         &self,
         request: &CreateAdminTokenRequest,
         admin_jwt_secret: &str,
-        jwks_manager: &JwksManager,
+        jwks_manager: &dyn JwtSigner,
     ) -> AppResult<GeneratedAdminToken> {
         // Generate unique token ID
         let uuid = Uuid::new_v4().simple();

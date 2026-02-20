@@ -16,7 +16,7 @@ use crate::{
     database::repositories::{
         ChatRepository, LlmUsageRepository, ProviderConnectionRepository, TenantRepository,
     },
-    database::{llm_usage::InsertLlmUsage, AddMessageParams, ConversationRecord, MessageRecord},
+    database::{ConversationRecord, MessageRecord},
     errors::AppError,
     llm::{
         get_insight_generation_prompt, get_pierre_system_prompt, ChatMessage, ChatProvider,
@@ -37,6 +37,8 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use pierre_core::models::usage::InsertLlmUsage;
+use pierre_core::models::AddMessageParams;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt::Write, sync::Arc, time::Instant};
 use tracing::{debug, info, warn};

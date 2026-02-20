@@ -23,6 +23,7 @@ use crate::admin::jwks::JwksManager;
 use crate::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
 use crate::constants::service_names;
 use crate::errors::{AppError, AppResult};
+use pierre_core::admin::jwt::JwtSigner;
 
 /// JWT token manager for admin authentication
 #[derive(Clone)]
@@ -71,7 +72,7 @@ impl AdminJwtManager {
         permissions: &AdminPermissions,
         is_super_admin: bool,
         expires_at: Option<DateTime<Utc>>,
-        jwks_manager: &JwksManager,
+        jwks_manager: &dyn JwtSigner,
     ) -> AppResult<String> {
         let now = Utc::now();
         let exp = expires_at.unwrap_or_else(|| now + Duration::days(365));
@@ -93,9 +94,12 @@ impl AdminJwtManager {
             token_type: "admin".into(),
         };
 
-        // Sign with RS256 using JWKS
+        // Serialize claims to JSON and sign with RS256 via JwtSigner
+        let claims_value = serde_json::to_value(&claims).map_err(|e| {
+            AppError::internal(format!("Failed to serialize admin JWT claims: {e}"))
+        })?;
         jwks_manager
-            .sign_admin_token(&claims)
+            .sign_token(&claims_value)
             .map_err(|e| AppError::internal(format!("Failed to generate RS256 admin JWT: {e}")))
     }
 

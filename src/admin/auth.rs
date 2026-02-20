@@ -24,7 +24,7 @@ use crate::admin::{
     jwt::AdminJwtManager,
     models::{AdminAction, AdminPermission, AdminTokenUsage, ValidatedAdminToken},
 };
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::{factory::Database, AdminDbOps};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::utils::auth::extract_bearer_token_owned;
 

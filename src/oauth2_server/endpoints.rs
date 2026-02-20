@@ -15,7 +15,7 @@ use super::models::{
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{OAuthDbOps, TenantDbOps, UserDbOps};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};

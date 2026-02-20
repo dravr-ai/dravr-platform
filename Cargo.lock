@@ -2429,6 +2429,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-database"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "pierre-core",
+ "pierre-intelligence",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-intelligence"
 version = "0.1.0"
 dependencies = [
@@ -2503,6 +2515,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "pierre-core",
+ "pierre-database",
  "pierre-intelligence",
  "pierre-providers",
  "rand 0.8.5",

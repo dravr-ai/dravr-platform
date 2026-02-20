@@ -13,7 +13,7 @@ use common::{create_test_server_resources, create_test_user, create_test_user_wi
 use pierre_mcp_server::database::coach_authors::{
     CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
 };
-use pierre_mcp_server::database_plugins::DatabaseProvider;
+use pierre_mcp_server::database_plugins::TenantDbOps;
 use pierre_mcp_server::models::TenantId;
 use uuid::Uuid;
 
