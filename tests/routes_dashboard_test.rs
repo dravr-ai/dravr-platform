@@ -166,10 +166,10 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    dashboard_routes::DashboardRoutes,
-    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps},
+    database_plugins::{factory::Database, DatabaseProvider},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     rate_limiting::UnifiedRateLimitInfo,
+    routes::dashboard::service::DashboardRoutes,
 };
 use std::{sync::Arc, time::Instant};
 use uuid::Uuid;

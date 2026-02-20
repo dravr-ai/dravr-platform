@@ -1,5 +1,5 @@
-// ABOUTME: HTTP route handlers for A2A protocol endpoints and client management
-// ABOUTME: Implements REST API endpoints for A2A authentication, tool execution, and client administration
+// ABOUTME: Service layer for A2A protocol endpoints and client management
+// ABOUTME: Implements business logic for A2A authentication, tool execution, and client administration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

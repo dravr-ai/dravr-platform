@@ -1,5 +1,5 @@
-// ABOUTME: HTTP route handlers for API key management and user self-service operations
-// ABOUTME: Provides endpoints for trial key requests, API key status, and user API key management
+// ABOUTME: Service layer for API key management and user self-service operations
+// ABOUTME: Provides business logic for trial key requests, API key status, and user API key management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

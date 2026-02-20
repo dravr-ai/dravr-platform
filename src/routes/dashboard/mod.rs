@@ -9,9 +9,12 @@
 //! This module provides endpoints for viewing usage statistics, rate limit status,
 //! request logs, and other monitoring data. All handlers require valid JWT authentication.
 
+/// Service layer for dashboard data and analytics operations
+pub mod service;
+
 use crate::{
-    auth::AuthResult, dashboard_routes::DashboardRoutes as DashboardService, errors::AppError,
-    mcp::resources::ServerResources, security::cookies::get_cookie_value,
+    auth::AuthResult, errors::AppError, mcp::resources::ServerResources,
+    security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Query, State},
@@ -21,6 +24,7 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use service::DashboardRoutes as DashboardService;
 use std::sync::Arc;
 
 /// Query parameters for usage analytics

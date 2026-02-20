@@ -9,6 +9,9 @@
 //! This module provides endpoints for A2A client management and protocol operations.
 //! All client management routes require valid JWT authentication.
 
+/// Service layer for A2A protocol operations
+pub mod service;
+
 use crate::{
     a2a::{agent_card::AgentCard, client::ClientRegistrationRequest},
     auth::AuthResult,

@@ -1,5 +1,5 @@
-// ABOUTME: Dashboard web interface routes for user fitness data visualization
-// ABOUTME: Provides HTTP endpoints for dashboard UI, charts, and interactive fitness analytics
+// ABOUTME: Service layer for dashboard data visualization and analytics
+// ABOUTME: Provides business logic for dashboard overview, usage analytics, and request log queries
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

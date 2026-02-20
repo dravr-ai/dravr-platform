@@ -1,4 +1,4 @@
-// ABOUTME: HTTP REST API routes for multi-tenant management
+// ABOUTME: Service layer for multi-tenant management
 // ABOUTME: Handles tenant creation and listing with tenant-isolated authentication flows
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
