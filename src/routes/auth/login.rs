@@ -724,11 +724,10 @@ pub(super) async fn handle_firebase_login(
             let user_id = uuid::Uuid::parse_str(&response.user.user_id)
                 .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
 
-            // Generate CSRF token
+            // Generate CSRF token (stateless HMAC — no server storage)
             let csrf_token = resources
                 .csrf_manager
                 .generate_token(user_id)
-                .await
                 .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
 
             // Set response CSRF token
@@ -740,8 +739,8 @@ pub(super) async fn handle_firebase_login(
             // Set httpOnly auth cookie (24 hour expiry to match JWT)
             set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
 
-            // Set CSRF cookie (30 minute expiry to match CSRF token)
-            set_csrf_cookie(&mut headers, &csrf_token, 30 * 60);
+            // Set CSRF cookie (24 hour expiry to match CSRF token TTL)
+            set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
 
             Ok((StatusCode::OK, headers, Json(response)).into_response())
         }
@@ -780,11 +779,10 @@ pub(super) async fn handle_refresh(
             let user_id = uuid::Uuid::parse_str(&response.user.user_id)
                 .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
 
-            // Generate new CSRF token
+            // Generate new CSRF token (stateless HMAC — no server storage)
             let csrf_token = resources
                 .csrf_manager
                 .generate_token(user_id)
-                .await
                 .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
 
             // Set response CSRF token
@@ -796,8 +794,8 @@ pub(super) async fn handle_refresh(
             // Set httpOnly auth cookie (24 hour expiry to match JWT)
             set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
 
-            // Set CSRF cookie (30 minute expiry to match CSRF token)
-            set_csrf_cookie(&mut headers, &csrf_token, 30 * 60);
+            // Set CSRF cookie (24 hour expiry to match CSRF token TTL)
+            set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
 
             Ok((StatusCode::OK, headers, Json(response)).into_response())
         }
@@ -879,17 +877,16 @@ pub(super) async fn handle_session(
         )
         .map_err(|e| AppError::auth_invalid(format!("Failed to generate token: {e}")))?;
 
-    // Generate fresh CSRF token
+    // Generate fresh CSRF token (stateless HMAC — no server storage)
     let csrf_token = resources
         .csrf_manager
         .generate_token(user_id)
-        .await
         .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
 
     // Refresh the httpOnly auth cookie with the new JWT
     let mut response_headers = HeaderMap::new();
     set_auth_cookie(&mut response_headers, &jwt_token, 24 * 60 * 60);
-    set_csrf_cookie(&mut response_headers, &csrf_token, 30 * 60);
+    set_csrf_cookie(&mut response_headers, &csrf_token, 24 * 60 * 60);
 
     Span::current().record("success", true);
     info!("Session restored for user: {}", user_id);
@@ -1195,13 +1192,12 @@ pub(super) async fn handle_oauth2_token(
                 );
             let expires_in = (expires_at - chrono::Utc::now()).num_seconds();
 
-            // Generate CSRF token for web clients
+            // Generate CSRF token for web clients (stateless HMAC — no server storage)
             let user_id = uuid::Uuid::parse_str(&response.user.user_id)
                 .map_err(|e| AppError::internal(format!("Invalid user ID format: {e}")))?;
             let csrf_token = resources
                 .csrf_manager
                 .generate_token(user_id)
-                .await
                 .map_err(|e| AppError::internal(format!("Failed to generate CSRF token: {e}")))?;
 
             let oauth2_response = OAuth2TokenResponse {
@@ -1218,7 +1214,7 @@ pub(super) async fn handle_oauth2_token(
             // Build response with secure cookies for web clients
             let mut headers = HeaderMap::new();
             set_auth_cookie(&mut headers, &jwt_token, 24 * 60 * 60);
-            set_csrf_cookie(&mut headers, &csrf_token, 30 * 60);
+            set_csrf_cookie(&mut headers, &csrf_token, 24 * 60 * 60);
 
             Ok((StatusCode::OK, headers, Json(oauth2_response)).into_response())
         }
