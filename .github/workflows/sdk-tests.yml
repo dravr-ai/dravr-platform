@@ -92,12 +92,11 @@ jobs:
           # Stop server
           kill $SERVER_PID 2>/dev/null || true
 
-          # Check for changes
-          if ! git diff --quiet packages/mcp-types/src/tools.ts; then
+          # Check for changes in all generated type files
+          if ! git diff --exit-code packages/mcp-types/src/; then
             echo ""
-            echo "::error::SDK types are out of date. Run 'bun run generate-types'."
+            echo "::error::SDK types are out of sync with server schemas. Run 'bun run generate-types' in sdk/ and commit the result."
             echo ""
-            git diff packages/mcp-types/src/tools.ts
             exit 1
           fi
 
