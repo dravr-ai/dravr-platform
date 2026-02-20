@@ -149,12 +149,13 @@ impl TssAlgorithm {
     /// # Errors
     ///
     /// Returns `AppError::MissingData` if power stream is unavailable or too short
-    fn calculate_normalized_power(_activity: &Activity, window_seconds: u32) -> AppResult<f64> {
-        // Check if we have power stream data
-        // This would come from activity.streams or similar field
-        // For now, we return an error indicating stream data is needed
+    fn calculate_normalized_power(activity: &Activity, window_seconds: u32) -> AppResult<f64> {
+        // Power stream data from the Activity model is not yet available.
+        // Once activity.power_stream() or similar accessor is implemented,
+        // this function will compute NP using the 30s rolling average method.
         Err(AppError::not_found(format!(
-            "Power stream data required for NP calculation (need ≥{window_seconds}s of data)"
+            "Power stream data required for NP calculation of activity {} (need ≥{window_seconds}s of data)",
+            activity.id()
         )))
     }
 
