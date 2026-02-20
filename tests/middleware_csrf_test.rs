@@ -10,58 +10,50 @@ use pierre_mcp_server::security::csrf::CsrfTokenManager;
 use std::sync::Arc;
 use uuid::Uuid;
 
-#[tokio::test]
-async fn test_csrf_middleware_get_request() -> anyhow::Result<()> {
-    let csrf_manager = Arc::new(CsrfTokenManager::new());
+#[test]
+fn test_csrf_middleware_get_request() {
+    let csrf_manager = Arc::new(CsrfTokenManager::default());
     let middleware = CsrfMiddleware::new(csrf_manager);
 
     let headers = HeaderMap::new();
     let user_id = Uuid::new_v4();
 
     // GET requests should not require CSRF token
-    let result = middleware
-        .validate_csrf(&headers, &Method::GET, user_id)
-        .await;
+    let result = middleware.validate_csrf(&headers, &Method::GET, user_id);
 
     assert!(result.is_ok(), "GET request should not require CSRF token");
-    Ok(())
 }
 
-#[tokio::test]
-async fn test_csrf_middleware_post_without_token() -> anyhow::Result<()> {
-    let csrf_manager = Arc::new(CsrfTokenManager::new());
+#[test]
+fn test_csrf_middleware_post_without_token() {
+    let csrf_manager = Arc::new(CsrfTokenManager::default());
     let middleware = CsrfMiddleware::new(csrf_manager);
 
     let headers = HeaderMap::new();
     let user_id = Uuid::new_v4();
 
     // POST without CSRF token should fail
-    let result = middleware
-        .validate_csrf(&headers, &Method::POST, user_id)
-        .await;
+    let result = middleware.validate_csrf(&headers, &Method::POST, user_id);
 
     assert!(
         result.is_err(),
         "POST request without CSRF token should fail"
     );
-    Ok(())
 }
 
-#[tokio::test]
-async fn test_csrf_middleware_post_with_valid_token() -> anyhow::Result<()> {
-    let csrf_manager = Arc::new(CsrfTokenManager::new());
+#[test]
+fn test_csrf_middleware_post_with_valid_token() -> anyhow::Result<()> {
+    let csrf_manager = Arc::new(CsrfTokenManager::default());
     let middleware = CsrfMiddleware::new(Arc::clone(&csrf_manager));
 
     let user_id = Uuid::new_v4();
-    let token = csrf_manager.generate_token(user_id).await?;
+    let token = csrf_manager.generate_token(user_id)?;
 
     let mut headers = HeaderMap::new();
     headers.insert("X-CSRF-Token", token.parse()?);
 
     // POST with valid CSRF token should succeed
-    let result = middleware
-        .validate_csrf(&headers, &Method::POST, user_id)
-        .await;
+    let result = middleware.validate_csrf(&headers, &Method::POST, user_id);
 
     assert!(
         result.is_ok(),
@@ -70,9 +62,9 @@ async fn test_csrf_middleware_post_with_valid_token() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_csrf_middleware_post_with_invalid_token() -> anyhow::Result<()> {
-    let csrf_manager = Arc::new(CsrfTokenManager::new());
+#[test]
+fn test_csrf_middleware_post_with_invalid_token() -> anyhow::Result<()> {
+    let csrf_manager = Arc::new(CsrfTokenManager::default());
     let middleware = CsrfMiddleware::new(csrf_manager);
 
     let user_id = Uuid::new_v4();
@@ -81,9 +73,7 @@ async fn test_csrf_middleware_post_with_invalid_token() -> anyhow::Result<()> {
     headers.insert("X-CSRF-Token", "invalid_token".parse()?);
 
     // POST with invalid CSRF token should fail
-    let result = middleware
-        .validate_csrf(&headers, &Method::POST, user_id)
-        .await;
+    let result = middleware.validate_csrf(&headers, &Method::POST, user_id);
 
     assert!(
         result.is_err(),
@@ -92,8 +82,8 @@ async fn test_csrf_middleware_post_with_invalid_token() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_csrf_middleware_requires_validation() {
+#[test]
+fn test_csrf_middleware_requires_validation() {
     assert!(
         CsrfMiddleware::requires_csrf_validation(&Method::POST),
         "POST should require CSRF validation"

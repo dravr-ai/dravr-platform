@@ -265,8 +265,8 @@ impl ServerResources {
             config.rate_limiting.clone(),
         ));
 
-        // Create CSRF token manager for request forgery protection
-        let csrf_manager = Arc::new(CsrfTokenManager::new());
+        // Create stateless CSRF token manager (HMAC-signed, derived from admin JWT secret)
+        let csrf_manager = Arc::new(CsrfTokenManager::from_jwt_secret(admin_jwt_secret));
 
         // Create CSRF validation middleware
         let csrf_middleware = Arc::new(CsrfMiddleware::new(csrf_manager.clone()));

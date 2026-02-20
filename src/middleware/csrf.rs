@@ -1,5 +1,5 @@
 // ABOUTME: CSRF validation middleware for state-changing HTTP requests
-// ABOUTME: Validates X-CSRF-Token header against user-scoped tokens to prevent request forgery
+// ABOUTME: Validates X-CSRF-Token header against HMAC-signed tokens to prevent request forgery
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -43,7 +43,7 @@ impl CsrfMiddleware {
     /// - CSRF token header is missing for state-changing request
     /// - CSRF token is invalid or expired
     /// - CSRF token doesn't match the user
-    pub async fn validate_csrf(
+    pub fn validate_csrf(
         &self,
         headers: &HeaderMap,
         method: &Method,
@@ -71,10 +71,9 @@ impl CsrfMiddleware {
                 AppError::auth_invalid("CSRF token required for this operation")
             })?;
 
-        // Validate token
+        // Validate token (stateless HMAC verification)
         self.csrf_manager
             .validate_token(csrf_token, user_id)
-            .await
             .map_err(|e| {
                 warn!(
                     user_id = %user_id,
@@ -180,11 +179,10 @@ pub async fn csrf_protection_layer(
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| AppError::auth_invalid("Invalid user ID in authentication token"))?;
 
-    // Validate CSRF token
+    // Validate CSRF token (synchronous — no server-side storage needed)
     resources
         .csrf_middleware
-        .validate_csrf(&headers, &method, user_id)
-        .await?;
+        .validate_csrf(&headers, &method, user_id)?;
 
     Ok(next.run(request).await)
 }
