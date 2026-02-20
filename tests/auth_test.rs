@@ -17,7 +17,7 @@ use pierre_mcp_server::{
     auth::{generate_jwt_secret, AuthManager, AuthMethod, Claims, JwtValidationError},
     config::environment::RateLimitConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     middleware::McpAuthMiddleware,
     models::{AuthRequest, User, UserStatus, UserTier},
     utils::uuid::parse_uuid,

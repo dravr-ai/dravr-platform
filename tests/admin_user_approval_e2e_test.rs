@@ -18,7 +18,7 @@ use pierre_mcp_server::{
     admin::AdminAuthService,
     auth::AuthManager,
     constants::system_config::STARTER_MONTHLY_LIMIT,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
     mcp::ToolSelectionService,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,

@@ -224,6 +224,7 @@ lto = "fat"
 [dependencies]
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "crates/pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon"] }
+pierre-database = { version = "0.1.0", path = "crates/pierre-database" }
 pierre-intelligence = { version = "0.1.0", path = "crates/pierre-intelligence" }
 pierre-providers = { version = "0.1.0", path = "crates/pierre-providers" }
 

@@ -25,7 +25,7 @@ use crate::config::environment::TrainingZonesConfig;
 use crate::config::profiles::ProfileTemplates;
 use crate::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use crate::constants::limits::METERS_PER_KILOMETER;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::UserDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::physiological_constants::configuration_validation;
 use crate::intelligence::physiological_constants::heart_rate_zones::{

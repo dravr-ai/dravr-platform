@@ -13,7 +13,7 @@
 //! - Security audit logging
 
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::SecurityDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::security::key_rotation::KeyVersion;
 use pierre_core::models::TenantId;

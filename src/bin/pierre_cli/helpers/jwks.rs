@@ -6,7 +6,7 @@
 
 use pierre_mcp_server::{
     admin::jwks::JwksManager,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, SecurityDbOps},
     errors::AppError,
 };
 use tracing::{info, warn};

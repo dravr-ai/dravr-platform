@@ -10,10 +10,11 @@ use crate::constants::rate_limits::{
     STRAVA_DEFAULT_DAILY_RATE_LIMIT, TERRA_DEFAULT_DAILY_RATE_LIMIT,
     WHOOP_DEFAULT_DAILY_RATE_LIMIT,
 };
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::TenantDbOps;
+use crate::database_plugins::{factory::Database, OAuthDbOps};
 use crate::errors::{AppError, AppResult};
 use chrono::Utc;
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, TenantOAuthCredentials};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -33,25 +34,6 @@ pub struct CredentialConfig {
     pub scopes: Vec<String>,
     /// User who configured these credentials
     pub configured_by: Uuid,
-}
-
-/// Per-tenant OAuth credentials with decrypted secret
-#[derive(Debug, Clone)]
-pub struct TenantOAuthCredentials {
-    /// Tenant ID that owns these credentials
-    pub tenant_id: TenantId,
-    /// OAuth provider name
-    pub provider: String,
-    /// OAuth client ID (public)
-    pub client_id: String,
-    /// OAuth client secret (decrypted)
-    pub client_secret: String,
-    /// OAuth redirect URI
-    pub redirect_uri: String,
-    /// OAuth scopes
-    pub scopes: Vec<String>,
-    /// Daily rate limit for this tenant
-    pub rate_limit_per_day: u32,
 }
 
 /// Manager for tenant-specific OAuth credentials

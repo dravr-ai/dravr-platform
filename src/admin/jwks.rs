@@ -53,6 +53,7 @@ use serde_json::to_string_pretty;
 
 use crate::constants::service_names::{ADMIN_API, PIERRE_MCP_SERVER};
 use crate::errors::{AppError, AppResult};
+use pierre_core::admin::jwt::JwtSigner;
 
 /// RSA key size in bits for RS256 (2048 bits minimum, 4096 bits recommended)
 const RSA_KEY_SIZE: usize = 4096;
@@ -489,5 +490,11 @@ impl JwksManager {
 impl Default for JwksManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl JwtSigner for JwksManager {
+    fn sign_token(&self, claims: &serde_json::Value) -> AppResult<String> {
+        self.sign_admin_token(claims)
     }
 }

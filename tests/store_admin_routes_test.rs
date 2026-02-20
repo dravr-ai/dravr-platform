@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
     },
     database::{Coach, StoreListingsManager},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps},
     mcp::ToolSelectionService,
     models::TenantId,
     routes::admin::{AdminApiContext, AdminRoutes},

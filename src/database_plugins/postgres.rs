@@ -8,11 +8,10 @@
 //! This module provides `PostgreSQL` support for cloud deployments,
 //! implementing the same interface as the `SQLite` version.
 
-use super::{shared, DatabaseProvider};
-use crate::a2a::auth::A2AClient;
-use crate::a2a::client::A2ASession;
-use crate::a2a::protocol::{A2ATask, TaskStatus};
-use crate::admin::jwks::JwksManager;
+use super::{
+    shared, A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, DatabaseProvider, OAuthDbOps,
+    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+};
 use crate::admin::jwt::AdminJwtManager;
 use crate::admin::models::{
     AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest, GeneratedAdminToken,
@@ -22,12 +21,6 @@ use crate::config::environment::PostgresPoolConfig;
 use crate::config::fitness::FitnessConfig;
 use crate::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use crate::constants::tiers;
-use crate::dashboard_routes::{RequestLog, ToolUsage};
-use crate::database::chat::AddMessageParams;
-use crate::database::llm_usage::{
-    InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord,
-};
-use crate::database::usage_counters::UsageCounterRecord;
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -45,17 +38,22 @@ use crate::oauth2_server::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshTo
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::permissions::impersonation::ImpersonationSession;
 use crate::permissions::UserRole;
-use crate::rate_limiting::JwtUsage;
 use crate::security::audit::{AuditEvent, AuditEventType, AuditSeverity};
 use crate::security::key_rotation::KeyVersion;
-use crate::tenant::llm_manager::{LlmCredentialRecord, LlmCredentialSummary};
-use crate::tenant::TenantOAuthCredentials;
 use crate::utils::uuid::parse_uuid;
 use async_trait::async_trait;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as Base64Engine;
 use chrono::{DateTime, Utc};
-use pierre_core::models::TenantId;
+use pierre_core::admin::jwt::JwtSigner;
+use pierre_core::models::a2a::{A2AClient, A2ASession, A2ATask, TaskStatus};
+use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::{
+    AddMessageParams, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
+};
+use pierre_core::models::{
+    LlmCredentialRecord, LlmCredentialSummary, TenantId, TenantOAuthCredentials,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::postgres::{PgPoolOptions, PgRow};
@@ -340,34 +338,7 @@ impl PostgresDatabase {
 }
 
 #[async_trait]
-impl DatabaseProvider for PostgresDatabase {
-    async fn new(database_url: &str, encryption_key: Vec<u8>) -> AppResult<Self> {
-        // Use default pool configuration when called through trait
-        // In practice, the Database factory calls the inherent impl's new() directly with config
-        let pool_config = PostgresPoolConfig::default();
-        Self::new_impl(database_url, encryption_key, &pool_config).await
-    }
-
-    async fn migrate(&self) -> AppResult<()> {
-        self.create_users_table().await?;
-        self.create_user_profiles_table().await?;
-        self.create_goals_table().await?;
-        self.create_insights_table().await?;
-        self.create_api_keys_tables().await?;
-        self.create_a2a_tables().await?;
-        self.create_admin_tables().await?;
-        self.create_jwt_usage_table().await?;
-        self.create_oauth_notifications_table().await?;
-        self.create_rsa_keypairs_table().await?;
-        self.create_tenant_tables().await?;
-        self.create_tool_selection_tables().await?;
-        self.create_chat_tables().await?;
-        self.create_llm_usage_table().await?;
-        self.create_usage_counters_table().await?;
-        self.create_indexes().await?;
-        Ok(())
-    }
-
+impl UserDbOps for PostgresDatabase {
     async fn create_user(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
@@ -1206,74 +1177,1286 @@ impl DatabaseProvider for PostgresDatabase {
         Ok(())
     }
 
-    async fn store_insight(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
-        let insight_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-        let insight_json = serde_json::to_string(&insight_data)
-            .map_err(|e| AppError::database(format!("Failed to serialize insight: {e}")))?;
+    async fn user_has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM synthetic_activities WHERE user_id = $1 LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+}
+
+#[async_trait]
+impl OAuthDbOps for PostgresDatabase {
+    async fn get_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        let last_sync: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT last_sync FROM user_oauth_tokens WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
+        )
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get provider last sync: {e}")))?;
+
+        Ok(last_sync)
+    }
+
+    async fn update_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        sync_time: DateTime<Utc>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "UPDATE user_oauth_tokens SET last_sync = $1 WHERE user_id = $2 AND tenant_id = $3 AND provider = $4",
+        )
+        .bind(sync_time)
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update provider last sync: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Store authorization code
+    async fn store_authorization_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        scope: &str,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        // Use the provided user_id from auth context
+        let expires_at = Utc::now() + chrono::Duration::minutes(10); // OAuth codes expire in 10 minutes
 
         sqlx::query(
             r"
-            INSERT INTO insights (id, user_id, insight_type, insight_data, created_at)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO authorization_codes 
+                (code, client_id, user_id, redirect_uri, scope, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
             ",
         )
-        .bind(&insight_id)
+        .bind(code)
+        .bind(client_id)
         .bind(user_id)
-        .bind("general") // Default insight type since it's not provided separately
-        .bind(&insight_json)
-        .bind(&now)
+        .bind(redirect_uri)
+        .bind(scope)
+        .bind(expires_at)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to store insight: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to store authorization code: {e}")))?;
 
-        Ok(insight_id)
+        Ok(())
     }
 
-    async fn get_user_insights(
-        &self,
-        user_id: Uuid,
-        insight_type: Option<&str>,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<Value>> {
-        let limit = limit.unwrap_or(50);
+    /// Get authorization code data
+    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Uuid,
+                String,
+                String,
+                DateTime<Utc>,
+                DateTime<Utc>,
+            ),
+        >(
+            r"
+            SELECT code, client_id, user_id, redirect_uri, scope, created_at, expires_at
+            FROM authorization_codes
+            WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP
+            ",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
 
-        let rows = if let Some(insight_type) = insight_type {
+        match row {
+            Some((code, client_id, user_id, redirect_uri, scope, created_at, expires_at)) => {
+                Ok(AuthorizationCode {
+                    code,
+                    client_id,
+                    redirect_uri,
+                    scope,
+                    user_id: Some(user_id),
+                    expires_at,
+                    created_at,
+                    is_used: false, // Will be marked as used when deleted
+                })
+            }
+            None => Err(AppError::not_found(
+                "Authorization code not found or expired".to_owned(),
+            )),
+        }
+    }
+
+    /// Delete authorization code
+    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM authorization_codes
+            WHERE code = $1
+            ",
+        )
+        .bind(code)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete authorization code: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            warn!("Authorization code not found for deletion (code redacted)");
+        }
+
+        Ok(())
+    }
+
+    // UserOAuthToken Methods - PostgreSQL implementations
+    // ================================
+
+    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+        // SECURITY: Encrypt OAuth tokens at rest with AAD binding (AES-256-GCM)
+        let encrypted_access_token = shared::encryption::encrypt_oauth_token(
+            self,
+            &token.access_token,
+            &token.tenant_id,
+            token.user_id,
+            &token.provider,
+        )?;
+
+        let encrypted_refresh_token = token
+            .refresh_token
+            .as_ref()
+            .map(|rt| {
+                shared::encryption::encrypt_oauth_token(
+                    self,
+                    rt,
+                    &token.tenant_id,
+                    token.user_id,
+                    &token.provider,
+                )
+            })
+            .transpose()?;
+
+        sqlx::query(
+            r"
+            INSERT INTO user_oauth_tokens (
+                id, user_id, tenant_id, provider, access_token, refresh_token,
+                token_type, expires_at, scope, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT (user_id, tenant_id, provider)
+            DO UPDATE SET
+                id = EXCLUDED.id,
+                access_token = EXCLUDED.access_token,
+                refresh_token = EXCLUDED.refresh_token,
+                token_type = EXCLUDED.token_type,
+                expires_at = EXCLUDED.expires_at,
+                scope = EXCLUDED.scope,
+                updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(&token.id)
+        .bind(token.user_id)
+        .bind(&token.tenant_id)
+        .bind(&token.provider)
+        .bind(&encrypted_access_token)
+        .bind(encrypted_refresh_token.as_deref())
+        .bind(&token.token_type)
+        .bind(token.expires_at)
+        .bind(token.scope.as_deref().unwrap_or(""))
+        .bind(token.created_at)
+        .bind(token.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_user_oauth_token(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthToken>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
+                   token_type, expires_at, scope, created_at, updated_at
+            FROM user_oauth_tokens
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        row.map_or_else(
+            || Ok(None),
+            |row| Ok(Some(self.row_to_user_oauth_token(&row)?)),
+        )
+    }
+
+    async fn get_user_oauth_tokens(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT content
-                FROM insights
-                WHERE user_id = $1 AND insight_type = $2
+                SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
+                       token_type, expires_at, scope, created_at, updated_at
+                FROM user_oauth_tokens
+                WHERE user_id = $1 AND tenant_id = $2
                 ORDER BY created_at DESC
-                LIMIT $3
                 ",
             )
             .bind(user_id)
-            .bind(insight_type)
-            .bind(i64::from(limit))
+            .bind(tid.to_string())
             .fetch_all(&self.pool)
             .await
-            .map_err(|e| AppError::database(format!("Failed to get user insights by type: {e}")))?
+        } else {
+            // Intentional cross-tenant view for OAuth status checks (e.g. admin views)
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
+                       token_type, expires_at, scope, created_at, updated_at
+                FROM user_oauth_tokens
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                ",
+            )
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let mut tokens = Vec::with_capacity(rows.len());
+        for row in rows {
+            tokens.push(self.row_to_user_oauth_token(&row)?);
+        }
+        Ok(tokens)
+    }
+
+    async fn get_tenant_provider_tokens(
+        &self,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
+                   token_type, expires_at, scope, created_at, updated_at
+            FROM user_oauth_tokens
+            WHERE tenant_id = $1 AND provider = $2
+            ORDER BY created_at DESC
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let mut tokens = Vec::with_capacity(rows.len());
+        for row in rows {
+            tokens.push(self.row_to_user_oauth_token(&row)?);
+        }
+        Ok(tokens)
+    }
+
+    async fn delete_user_oauth_token(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            DELETE FROM user_oauth_tokens
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn delete_user_oauth_tokens(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            DELETE FROM user_oauth_tokens
+            WHERE user_id = $1 AND tenant_id = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn refresh_user_oauth_token(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> AppResult<()> {
+        // SECURITY: Encrypt OAuth tokens at rest with AAD binding (AES-256-GCM)
+        let tid = tenant_id.to_string();
+        let encrypted_access_token =
+            shared::encryption::encrypt_oauth_token(self, access_token, &tid, user_id, provider)?;
+
+        let encrypted_refresh_token = refresh_token
+            .map(|rt| shared::encryption::encrypt_oauth_token(self, rt, &tid, user_id, provider))
+            .transpose()?;
+
+        sqlx::query(
+            r"
+            UPDATE user_oauth_tokens
+            SET access_token = $4,
+                refresh_token = $5,
+                expires_at = $6,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+            ",
+        )
+        .bind(user_id)
+        .bind(tenant_id.to_string())
+        .bind(provider)
+        .bind(&encrypted_access_token)
+        .bind(encrypted_refresh_token.as_deref())
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    // ================================
+    // User OAuth App Credentials Implementation
+    // ================================
+
+    /// Store user OAuth app credentials (`client_id`, `client_secret`)
+    async fn store_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        client_id: &str,
+        client_secret: &str,
+        redirect_uri: &str,
+    ) -> AppResult<()> {
+        // Create user_oauth_apps table if it doesn't exist
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS user_oauth_apps (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                client_id TEXT NOT NULL,
+                client_secret TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(user_id, provider)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        // Insert or update OAuth app credentials
+        sqlx::query(
+            r"
+            INSERT INTO user_oauth_apps (user_id, provider, client_id, client_secret, redirect_uri)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (user_id, provider)
+            DO UPDATE SET 
+                client_id = EXCLUDED.client_id,
+                client_secret = EXCLUDED.client_secret,
+                redirect_uri = EXCLUDED.redirect_uri,
+                updated_at = NOW()
+            ",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .bind(client_id)
+        .bind(client_secret)
+        .bind(redirect_uri)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Get user OAuth app credentials for a provider
+    async fn get_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthApp>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
+            FROM user_oauth_apps
+            WHERE user_id = $1 AND provider = $2
+            "
+        )
+        .bind(user_id)
+        .bind(provider)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        row.map_or_else(
+            || Ok(None),
+            |row| {
+                Ok(Some(UserOAuthApp {
+                    id: row.get("id"),
+                    user_id: row.get("user_id"),
+                    provider: row.get("provider"),
+                    client_id: row.get("client_id"),
+                    client_secret: row.get("client_secret"),
+                    redirect_uri: row.get("redirect_uri"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                }))
+            },
+        )
+    }
+
+    /// List all OAuth app providers configured for a user
+    async fn list_user_oauth_apps(&self, user_id: Uuid) -> AppResult<Vec<UserOAuthApp>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
+            FROM user_oauth_apps
+            WHERE user_id = $1
+            ORDER BY provider
+            "
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let mut apps = Vec::new();
+        for row in rows {
+            apps.push(UserOAuthApp {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                provider: row.get("provider"),
+                client_id: row.get("client_id"),
+                client_secret: row.get("client_secret"),
+                redirect_uri: row.get("redirect_uri"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+            });
+        }
+
+        Ok(apps)
+    }
+
+    /// Remove user OAuth app credentials for a provider
+    async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
+        sqlx::query(
+            r"
+            DELETE FROM user_oauth_apps
+            WHERE user_id = $1 AND provider = $2
+            ",
+        )
+        .bind(user_id)
+        .bind(provider)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(&client.id)
+        .bind(&client.client_id)
+        .bind(&client.client_secret_hash)
+        .bind(serde_json::to_string(&client.redirect_uris)?)
+        .bind(serde_json::to_string(&client.grant_types)?)
+        .bind(serde_json::to_string(&client.response_types)?)
+        .bind(&client.client_name)
+        .bind(&client.client_uri)
+        .bind(&client.scope)
+        .bind(client.created_at)
+        .bind(client.expires_at)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+        let row = sqlx::query(
+            "SELECT id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at
+             FROM oauth2_clients WHERE client_id = $1"
+        )
+        .bind(client_id)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = row {
+            let redirect_uris: Vec<String> =
+                serde_json::from_str(&row.get::<String, _>("redirect_uris"))?;
+            let grant_types: Vec<String> =
+                serde_json::from_str(&row.get::<String, _>("grant_types"))?;
+            let response_types: Vec<String> =
+                serde_json::from_str(&row.get::<String, _>("response_types"))?;
+
+            Ok(Some(OAuth2Client {
+                id: row.get("id"),
+                client_id: row.get("client_id"),
+                client_secret_hash: row.get("client_secret_hash"),
+                redirect_uris,
+                grant_types,
+                response_types,
+                client_name: row.get("client_name"),
+                client_uri: row.get("client_uri"),
+                scope: row.get("scope"),
+                created_at: row.get("created_at"),
+                expires_at: row.get("expires_at"),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(&auth_code.code)
+        .bind(&auth_code.client_id)
+        .bind(auth_code.user_id)
+        .bind(&auth_code.tenant_id)
+        .bind(&auth_code.redirect_uri)
+        .bind(&auth_code.scope)
+        .bind(auth_code.expires_at)
+        .bind(auth_code.used)
+        .bind(&auth_code.state)
+        .bind(&auth_code.code_challenge)
+        .bind(&auth_code.code_challenge_method)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+        let row = sqlx::query(
+            "SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
+             FROM oauth2_auth_codes WHERE code = $1",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        row.map_or_else(
+            || Ok(None),
+            |row| {
+                Ok(Some(OAuth2AuthCode {
+                    code: row.get("code"),
+                    client_id: row.get("client_id"),
+                    user_id: row.get("user_id"),
+                    tenant_id: row.get("tenant_id"),
+                    redirect_uri: row.get("redirect_uri"),
+                    scope: row.get("scope"),
+                    expires_at: row.get("expires_at"),
+                    used: row.get("used"),
+                    state: row.get("state"),
+                    code_challenge: row.get("code_challenge"),
+                    code_challenge_method: row.get("code_challenge_method"),
+                }))
+            },
+        )
+    }
+
+    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        sqlx::query("UPDATE oauth2_auth_codes SET used = $1 WHERE code = $2")
+            .bind(auth_code.used)
+            .bind(&auth_code.code)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Store OAuth 2.0 refresh token
+    ///
+    /// The refresh token value is HMAC-SHA256 hashed before storage so that
+    /// plaintext tokens are never persisted to disk.
+    async fn store_oauth2_refresh_token(
+        &self,
+        refresh_token: &OAuth2RefreshToken,
+    ) -> AppResult<()> {
+        let token_hash = HasEncryption::hash_token_for_storage(self, &refresh_token.token)?;
+
+        sqlx::query(
+            "INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+        )
+        .bind(&token_hash)
+        .bind(&refresh_token.client_id)
+        .bind(refresh_token.user_id)
+        .bind(&refresh_token.tenant_id)
+        .bind(&refresh_token.scope)
+        .bind(refresh_token.expires_at)
+        .bind(refresh_token.created_at)
+        .bind(refresh_token.revoked)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Get OAuth 2.0 refresh token
+    ///
+    /// The input token is HMAC-SHA256 hashed before querying.
+    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+
+        let row = sqlx::query(
+            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
+             FROM oauth2_refresh_tokens
+             WHERE token = $1",
+        )
+        .bind(&token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(OAuth2RefreshToken {
+                token: row.try_get("token").map_err(|e| {
+                    AppError::database(format!("Failed to parse token column: {e}"))
+                })?,
+                client_id: row.try_get("client_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse client_id column: {e}"))
+                })?,
+                user_id: row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?,
+                scope: row.try_get("scope").map_err(|e| {
+                    AppError::database(format!("Failed to parse scope column: {e}"))
+                })?,
+                expires_at: row.try_get("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                revoked: row.try_get("revoked").map_err(|e| {
+                    AppError::database(format!("Failed to parse revoked column: {e}"))
+                })?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Revoke OAuth 2.0 refresh token
+    ///
+    /// The input token is HMAC-SHA256 hashed before querying.
+    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
+        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+
+        sqlx::query("UPDATE oauth2_refresh_tokens SET revoked = true WHERE token = $1")
+            .bind(&token_hash)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Atomically consume OAuth 2.0 authorization code
+    ///
+    /// Implements atomic check-and-set using UPDATE...RETURNING
+    /// to prevent TOCTOU race conditions in concurrent token exchange requests.
+    async fn consume_auth_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2AuthCode>> {
+        let row = sqlx::query(
+            "UPDATE oauth2_auth_codes
+             SET used = true
+             WHERE code = $1
+               AND client_id = $2
+               AND redirect_uri = $3
+               AND used = false
+               AND expires_at > $4
+             RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method"
+        )
+        .bind(code)
+        .bind(client_id)
+        .bind(redirect_uri)
+        .bind(now)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        row.map_or_else(
+            || Ok(None),
+            |row| {
+                use sqlx::Row;
+                Ok(Some(OAuth2AuthCode {
+                    code: row.get("code"),
+                    client_id: row.get("client_id"),
+                    user_id: row.get("user_id"),
+                    tenant_id: row.get("tenant_id"),
+                    redirect_uri: row.get("redirect_uri"),
+                    scope: row.get("scope"),
+                    expires_at: row.get("expires_at"),
+                    used: row.get("used"),
+                    state: row.get("state"),
+                    code_challenge: row.get("code_challenge"),
+                    code_challenge_method: row.get("code_challenge_method"),
+                }))
+            },
+        )
+    }
+
+    /// Atomically consume OAuth 2.0 refresh token
+    ///
+    /// Implements atomic check-and-revoke using UPDATE...RETURNING
+    /// to prevent TOCTOU race conditions in concurrent refresh requests.
+    /// The input token is HMAC-SHA256 hashed before querying.
+    async fn consume_refresh_token(
+        &self,
+        token: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+
+        let row = sqlx::query(
+            "UPDATE oauth2_refresh_tokens
+             SET revoked = true
+             WHERE token = $1
+               AND client_id = $2
+               AND revoked = false
+               AND expires_at > $3
+             RETURNING token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked",
+        )
+        .bind(&token_hash)
+        .bind(client_id)
+        .bind(now)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(OAuth2RefreshToken {
+                token: row.try_get("token").map_err(|e| {
+                    AppError::database(format!("Failed to parse token column: {e}"))
+                })?,
+                client_id: row.try_get("client_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse client_id column: {e}"))
+                })?,
+                user_id: row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?,
+                scope: row.try_get("scope").map_err(|e| {
+                    AppError::database(format!("Failed to parse scope column: {e}"))
+                })?,
+                expires_at: row.try_get("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                revoked: row.try_get("revoked").map_err(|e| {
+                    AppError::database(format!("Failed to parse revoked column: {e}"))
+                })?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Look up a refresh token by value (without `client_id` constraint)
+    ///
+    /// The input token is HMAC-SHA256 hashed before querying.
+    async fn get_refresh_token_by_value(
+        &self,
+        token: &str,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
+
+        let row = sqlx::query(
+            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
+             FROM oauth2_refresh_tokens
+             WHERE token = $1",
+        )
+        .bind(&token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(OAuth2RefreshToken {
+                token: row.try_get("token").map_err(|e| {
+                    AppError::database(format!("Failed to parse token column: {e}"))
+                })?,
+                client_id: row.try_get("client_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse client_id column: {e}"))
+                })?,
+                user_id: row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?,
+                scope: row.try_get("scope").map_err(|e| {
+                    AppError::database(format!("Failed to parse scope column: {e}"))
+                })?,
+                expires_at: row.try_get("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                revoked: row.try_get("revoked").map_err(|e| {
+                    AppError::database(format!("Failed to parse revoked column: {e}"))
+                })?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Store `OAuth2` state for CSRF protection
+    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO oauth2_states (state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+        )
+        .bind(&state.state)
+        .bind(&state.client_id)
+        .bind(state.user_id)
+        .bind(&state.tenant_id)
+        .bind(&state.redirect_uri)
+        .bind(&state.scope)
+        .bind(&state.code_challenge)
+        .bind(&state.code_challenge_method)
+        .bind(state.created_at)
+        .bind(state.expires_at)
+        .bind(state.used)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Consume `OAuth2` state (atomically check and mark as used)
+    async fn consume_oauth2_state(
+        &self,
+        state_value: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2State>> {
+        let row = sqlx::query(
+            "UPDATE oauth2_states
+             SET used = true
+             WHERE state = $1
+               AND client_id = $2
+               AND used = false
+               AND expires_at > $3
+             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used",
+        )
+        .bind(state_value)
+        .bind(client_id)
+        .bind(now)
+        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(OAuth2State {
+                state: row.try_get("state").map_err(|e| {
+                    AppError::database(format!("Failed to parse state column: {e}"))
+                })?,
+                client_id: row.try_get("client_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse client_id column: {e}"))
+                })?,
+                user_id: row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?,
+                redirect_uri: row.try_get("redirect_uri").map_err(|e| {
+                    AppError::database(format!("Failed to parse redirect_uri column: {e}"))
+                })?,
+                scope: row.try_get("scope").map_err(|e| {
+                    AppError::database(format!("Failed to parse scope column: {e}"))
+                })?,
+                code_challenge: row.try_get("code_challenge").map_err(|e| {
+                    AppError::database(format!("Failed to parse code_challenge column: {e}"))
+                })?,
+                code_challenge_method: row.try_get("code_challenge_method").map_err(|e| {
+                    AppError::database(format!("Failed to parse code_challenge_method column: {e}"))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                expires_at: row.try_get("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
+                used: row
+                    .try_get("used")
+                    .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ================================
+    // OAuth Client State (CSRF + PKCE)
+    // ================================
+
+    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
+        sqlx::query(
+            "INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        )
+        .bind(&state.state)
+        .bind(&state.provider)
+        .bind(state.user_id)
+        .bind(&state.tenant_id)
+        .bind(&state.redirect_uri)
+        .bind(&state.scope)
+        .bind(&state.pkce_code_verifier)
+        .bind(state.created_at)
+        .bind(state.expires_at)
+        .bind(state.used)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store OAuth client state: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn consume_oauth_client_state(
+        &self,
+        state_value: &str,
+        provider: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuthClientState>> {
+        let row = sqlx::query(
+            "UPDATE oauth_client_states
+             SET used = true
+             WHERE state = $1
+               AND provider = $2
+               AND used = false
+               AND expires_at > $3
+             RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used",
+        )
+        .bind(state_value)
+        .bind(provider)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to consume OAuth client state: {e}")))?;
+
+        if let Some(row) = row {
+            use sqlx::Row;
+            Ok(Some(OAuthClientState {
+                state: row.try_get("state").map_err(|e| {
+                    AppError::database(format!("Failed to parse state column: {e}"))
+                })?,
+                provider: row.try_get("provider").map_err(|e| {
+                    AppError::database(format!("Failed to parse provider column: {e}"))
+                })?,
+                user_id: row.try_get("user_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse user_id column: {e}"))
+                })?,
+                tenant_id: row.try_get("tenant_id").map_err(|e| {
+                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
+                })?,
+                redirect_uri: row.try_get("redirect_uri").map_err(|e| {
+                    AppError::database(format!("Failed to parse redirect_uri column: {e}"))
+                })?,
+                scope: row.try_get("scope").map_err(|e| {
+                    AppError::database(format!("Failed to parse scope column: {e}"))
+                })?,
+                pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
+                    AppError::database(format!("Failed to parse pkce_code_verifier column: {e}"))
+                })?,
+                created_at: row.try_get("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                expires_at: row.try_get("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
+                used: row
+                    .try_get("used")
+                    .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ================================
+    // Provider Connections (PostgreSQL implementation)
+    // ================================
+
+    async fn register_provider_connection(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        connection_type: &ConnectionType,
+        metadata: Option<&str>,
+    ) -> AppResult<()> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        let conn_type_str = connection_type.as_str();
+
+        sqlx::query(
+            r"
+            INSERT INTO provider_connections (id, user_id, tenant_id, provider, connection_type, connected_at, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET
+                connection_type = EXCLUDED.connection_type,
+                connected_at = EXCLUDED.connected_at,
+                metadata = EXCLUDED.metadata
+            ",
+        )
+        .bind(&id)
+        .bind(user_id.to_string())
+        .bind(tenant_id.0)
+        .bind(provider)
+        .bind(conn_type_str)
+        .bind(now.to_rfc3339())
+        .bind(metadata)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn remove_provider_connection(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            "DELETE FROM provider_connections WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
+        )
+        .bind(user_id.to_string())
+        .bind(tenant_id.0)
+        .bind(provider)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_user_provider_connections(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<ProviderConnection>> {
+        let rows = if let Some(tid) = tenant_id {
+            sqlx::query(
+                r"
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                FROM provider_connections
+                WHERE user_id = $1 AND tenant_id = $2
+                ORDER BY connected_at DESC
+                ",
+            )
+            .bind(user_id.to_string())
+            .bind(tid.to_string())
+            .fetch_all(&self.pool)
+            .await?
         } else {
             sqlx::query(
                 r"
-                SELECT content
-                FROM insights
+                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
+                FROM provider_connections
                 WHERE user_id = $1
-                ORDER BY created_at DESC
-                LIMIT $2
+                ORDER BY connected_at DESC
                 ",
             )
-            .bind(user_id)
-            .bind(i64::from(limit))
+            .bind(user_id.to_string())
             .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user insights: {e}")))?
+            .await?
         };
 
-        Ok(rows.into_iter().map(|row| row.get("content")).collect())
+        let mut connections = Vec::with_capacity(rows.len());
+        for row in rows {
+            let conn_type_str: String = row.get("connection_type");
+            let connected_at_str: String = row.get("connected_at");
+            let connected_at = DateTime::parse_from_rfc3339(&connected_at_str)
+                .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+
+            let user_id_from_db: String = row.get("user_id");
+            let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
+
+            connections.push(ProviderConnection {
+                id: row.get("id"),
+                user_id: parsed_user_id,
+                tenant_id: row.get("tenant_id"),
+                provider: row.get("provider"),
+                connection_type: ConnectionType::from_str_value(&conn_type_str)
+                    .unwrap_or(ConnectionType::Manual),
+                connected_at,
+                metadata: row.get("metadata"),
+            });
+        }
+
+        Ok(connections)
     }
 
+    async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM provider_connections WHERE user_id = $1 AND provider = $2",
+        )
+        .bind(user_id.to_string())
+        .bind(provider)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+
+    async fn store_password_reset_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+    ) -> AppResult<Uuid> {
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::hours(1);
+
+        sqlx::query(
+            r"
+            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ",
+        )
+        .bind(id.to_string())
+        .bind(user_id.to_string())
+        .bind(token_hash)
+        .bind(expires_at.to_rfc3339())
+        .bind(created_by)
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
+
+        Ok(id)
+    }
+
+    async fn consume_password_reset_token(&self, token_hash: &str) -> AppResult<Uuid> {
+        let now = Utc::now().to_rfc3339();
+
+        let row = sqlx::query(
+            r"
+            UPDATE password_reset_tokens
+            SET used_at = $1
+            WHERE token_hash = $2
+              AND used_at IS NULL
+              AND expires_at > $1
+            RETURNING user_id
+            ",
+        )
+        .bind(&now)
+        .bind(token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to consume reset token: {e}")))?;
+
+        row.map_or_else(
+            || {
+                Err(AppError::not_found(
+                    "Password reset token is invalid, expired, or already used",
+                ))
+            },
+            |row| {
+                let user_id_str: String = row.get("user_id");
+                Uuid::parse_str(&user_id_str)
+                    .map_err(|e| AppError::internal(format!("Invalid user_id in reset token: {e}")))
+            },
+        )
+    }
+
+    async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            UPDATE password_reset_tokens
+            SET used_at = $1
+            WHERE user_id = $2
+              AND used_at IS NULL
+            ",
+        )
+        .bind(&now)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ApiKeyDbOps for PostgresDatabase {
     async fn create_api_key(&self, api_key: &ApiKey) -> AppResult<()> {
         sqlx::query(
             r"
@@ -1649,7 +2832,10 @@ impl DatabaseProvider for PostgresDatabase {
             })
             .collect())
     }
+}
 
+#[async_trait]
+impl UsageDbOps for PostgresDatabase {
     async fn record_api_key_usage(&self, usage: &ApiKeyUsage) -> AppResult<()> {
         sqlx::query(
             r"
@@ -1970,6 +3156,299 @@ impl DatabaseProvider for PostgresDatabase {
         Ok((user_count, api_key_count))
     }
 
+    async fn get_top_tools_analysis(
+        &self,
+        user_id: Uuid,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> AppResult<Vec<ToolUsage>> {
+        let rows = sqlx::query(
+            r"
+            SELECT endpoint, COUNT(*) as usage_count,
+                   AVG(response_time_ms) as avg_response_time,
+                   COUNT(CASE WHEN status_code < 400 THEN 1 END) as success_count,
+                   COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count
+            FROM api_key_usage aku
+            JOIN api_keys ak ON aku.api_key_id = ak.id
+            WHERE ak.user_id = $1 AND aku.timestamp BETWEEN $2 AND $3
+            GROUP BY endpoint
+            ORDER BY usage_count DESC
+            LIMIT 10
+            ",
+        )
+        .bind(user_id)
+        .bind(start_time)
+        .bind(end_time)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get top tools analysis: {e}")))?;
+
+        let mut tool_usage = Vec::new();
+        for row in rows {
+            use sqlx::Row;
+
+            let endpoint: String = row.try_get("endpoint").unwrap_or_else(|_| "unknown".into());
+            let usage_count: i64 = row.try_get("usage_count").unwrap_or(0);
+            let avg_response_time: Option<f64> = row.try_get("avg_response_time").ok();
+            let success_count: i64 = row.try_get("success_count").unwrap_or(0);
+            let error_count: i64 = row.try_get("error_count").unwrap_or(0);
+
+            // Log error rate for monitoring
+            if error_count > 0 {
+                let error_rate = f64::from(u32::try_from(error_count.max(0)).unwrap_or(0))
+                    / f64::from(u32::try_from(usage_count.max(1)).unwrap_or(1));
+                if error_rate > 0.1 {
+                    warn!(
+                        "High error rate for endpoint {}: {:.2}% ({} errors out of {} requests)",
+                        endpoint,
+                        error_rate * 100.0,
+                        error_count,
+                        usage_count
+                    );
+                }
+            }
+
+            tool_usage.push(ToolUsage {
+                tool_name: endpoint,
+                request_count: u64::try_from(usage_count.max(0)).unwrap_or(0),
+                success_rate: if usage_count > 0 {
+                    f64::from(u32::try_from(success_count.max(0)).unwrap_or(0))
+                        / f64::from(u32::try_from(usage_count.max(1)).unwrap_or(1))
+                } else {
+                    0.0
+                },
+                average_response_time: avg_response_time.unwrap_or(0.0),
+            });
+        }
+
+        Ok(tool_usage)
+    }
+
+    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, execution_time_ms, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ",
+        )
+        .bind(&id)
+        .bind(params.tenant_id)
+        .bind(params.user_id)
+        .bind(params.conversation_id)
+        .bind(params.provider)
+        .bind(params.model)
+        .bind(params.prompt_tokens)
+        .bind(params.completion_tokens)
+        .bind(params.total_tokens)
+        .bind(params.call_type)
+        .bind(params.tool_calls_count)
+        .bind(params.execution_time_ms)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to insert LLM usage: {e}")))?;
+
+        Ok(LlmUsageRecord {
+            id,
+            tenant_id: params.tenant_id.to_owned(),
+            user_id: params.user_id.to_owned(),
+            conversation_id: params.conversation_id.map(ToOwned::to_owned),
+            provider: params.provider.to_owned(),
+            model: params.model.to_owned(),
+            prompt_tokens: params.prompt_tokens,
+            completion_tokens: params.completion_tokens,
+            total_tokens: params.total_tokens,
+            call_type: params.call_type.to_owned(),
+            tool_calls_count: params.tool_calls_count,
+            execution_time_ms: params.execution_time_ms,
+            created_at: now,
+        })
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64)>(
+            r"
+            SELECT provider, model, call_type,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as total_tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE tenant_id = $1 AND created_at >= $2
+            GROUP BY provider, model, call_type
+            ORDER BY total_tokens DESC
+            ",
+        )
+        .bind(tenant_id)
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    provider,
+                    model,
+                    call_type,
+                    total_tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                )| {
+                    LlmUsageAggregateRow {
+                        provider,
+                        model,
+                        call_type,
+                        total_tokens,
+                        prompt_tokens,
+                        completion_tokens,
+                        calls,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>> {
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+            r"
+            SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE tenant_id = $1 AND created_at >= $2
+            GROUP BY created_at::DATE
+            ORDER BY date ASC
+            ",
+        )
+        .bind(tenant_id)
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage daily series: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
+                    date,
+                    tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                },
+            )
+            .collect())
+    }
+
+    async fn increment_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, user_id, counter_key, period)
+            DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .bind(amount)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
+
+        self.get_usage_counter(tenant_id, user_id, counter_key, period)
+            .await
+    }
+
+    async fn get_usage_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord> {
+        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
+            r"
+            SELECT tenant_id, user_id, counter_key, period, value, updated_at
+            FROM usage_counters
+            WHERE tenant_id = $1 AND user_id = $2 AND counter_key = $3 AND period = $4
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get usage counter: {e}")))?;
+
+        match row {
+            Some((tid, uid, key, per, val, updated)) => Ok(UsageCounterRecord {
+                tenant_id: tid,
+                user_id: uid,
+                counter_key: key,
+                period: per,
+                value: val,
+                updated_at: updated,
+            }),
+            None => Ok(UsageCounterRecord {
+                tenant_id: tenant_id.to_owned(),
+                user_id: user_id.to_owned(),
+                counter_key: counter_key.to_owned(),
+                period: period.to_owned(),
+                value: 0,
+                updated_at: String::new(),
+            }),
+        }
+    }
+
+    /// System-level housekeeping: intentionally cross-tenant pruning of expired counters
+    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM usage_counters
+            WHERE period < $1
+            ",
+        )
+        .bind(period_before)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl A2ADbOps for PostgresDatabase {
     // A2A methods
     async fn create_a2a_client(
         &self,
@@ -2760,115 +4239,10 @@ impl DatabaseProvider for PostgresDatabase {
 
         Ok(result)
     }
+}
 
-    async fn get_provider_last_sync(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>> {
-        let last_sync: Option<DateTime<Utc>> = sqlx::query_scalar(
-            "SELECT last_sync FROM user_oauth_tokens WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
-        )
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get provider last sync: {e}")))?;
-
-        Ok(last_sync)
-    }
-
-    async fn update_provider_last_sync(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        sync_time: DateTime<Utc>,
-    ) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE user_oauth_tokens SET last_sync = $1 WHERE user_id = $2 AND tenant_id = $3 AND provider = $4",
-        )
-        .bind(sync_time)
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to update provider last sync: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn get_top_tools_analysis(
-        &self,
-        user_id: Uuid,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-    ) -> AppResult<Vec<ToolUsage>> {
-        let rows = sqlx::query(
-            r"
-            SELECT endpoint, COUNT(*) as usage_count,
-                   AVG(response_time_ms) as avg_response_time,
-                   COUNT(CASE WHEN status_code < 400 THEN 1 END) as success_count,
-                   COUNT(CASE WHEN status_code >= 400 THEN 1 END) as error_count
-            FROM api_key_usage aku
-            JOIN api_keys ak ON aku.api_key_id = ak.id
-            WHERE ak.user_id = $1 AND aku.timestamp BETWEEN $2 AND $3
-            GROUP BY endpoint
-            ORDER BY usage_count DESC
-            LIMIT 10
-            ",
-        )
-        .bind(user_id)
-        .bind(start_time)
-        .bind(end_time)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get top tools analysis: {e}")))?;
-
-        let mut tool_usage = Vec::new();
-        for row in rows {
-            use sqlx::Row;
-
-            let endpoint: String = row.try_get("endpoint").unwrap_or_else(|_| "unknown".into());
-            let usage_count: i64 = row.try_get("usage_count").unwrap_or(0);
-            let avg_response_time: Option<f64> = row.try_get("avg_response_time").ok();
-            let success_count: i64 = row.try_get("success_count").unwrap_or(0);
-            let error_count: i64 = row.try_get("error_count").unwrap_or(0);
-
-            // Log error rate for monitoring
-            if error_count > 0 {
-                let error_rate = f64::from(u32::try_from(error_count.max(0)).unwrap_or(0))
-                    / f64::from(u32::try_from(usage_count.max(1)).unwrap_or(1));
-                if error_rate > 0.1 {
-                    warn!(
-                        "High error rate for endpoint {}: {:.2}% ({} errors out of {} requests)",
-                        endpoint,
-                        error_rate * 100.0,
-                        error_count,
-                        usage_count
-                    );
-                }
-            }
-
-            tool_usage.push(ToolUsage {
-                tool_name: endpoint,
-                request_count: u64::try_from(usage_count.max(0)).unwrap_or(0),
-                success_rate: if usage_count > 0 {
-                    f64::from(u32::try_from(success_count.max(0)).unwrap_or(0))
-                        / f64::from(u32::try_from(usage_count.max(1)).unwrap_or(1))
-                } else {
-                    0.0
-                },
-                average_response_time: avg_response_time.unwrap_or(0.0),
-            });
-        }
-
-        Ok(tool_usage)
-    }
-
+#[async_trait]
+impl AdminDbOps for PostgresDatabase {
     // ================================
     // Admin Token Management (PostgreSQL)
     // ================================
@@ -2877,7 +4251,7 @@ impl DatabaseProvider for PostgresDatabase {
         &self,
         request: &CreateAdminTokenRequest,
         admin_jwt_secret: &str,
-        jwks_manager: &JwksManager,
+        jwks_manager: &dyn JwtSigner,
     ) -> AppResult<GeneratedAdminToken> {
         use uuid::Uuid;
 
@@ -3260,75 +4634,370 @@ impl DatabaseProvider for PostgresDatabase {
     }
 
     // ================================
-    // RSA Key Persistence for JWT Signing
+    // Impersonation Session Management
     // ================================
 
-    /// Save RSA keypair to database for persistence across restarts
-    async fn save_rsa_keypair(
-        &self,
-        kid: &str,
-        private_key_pem: &str,
-        public_key_pem: &str,
-        created_at: DateTime<Utc>,
-        is_active: bool,
-        key_size_bits: i32,
-    ) -> AppResult<()> {
-        sqlx::query(
-            r"
-            INSERT INTO rsa_keypairs (kid, private_key_pem, public_key_pem, created_at, is_active, key_size_bits)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT(kid) DO UPDATE SET
-                private_key_pem = EXCLUDED.private_key_pem,
-                public_key_pem = EXCLUDED.public_key_pem,
-                is_active = EXCLUDED.is_active
-            ",
-        )
-        .bind(kid)
-        .bind(private_key_pem)
-        .bind(public_key_pem)
-        .bind(created_at)
-        .bind(is_active)
-        .bind(key_size_bits)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+    async fn create_impersonation_session(&self, session: &ImpersonationSession) -> AppResult<()> {
+        let query = r"
+            INSERT INTO impersonation_sessions (
+                id, impersonator_id, target_user_id, reason,
+                started_at, ended_at, is_active, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ";
 
-        Ok(())
-    }
-
-    /// Load all RSA keypairs from database
-    async fn load_rsa_keypairs(
-        &self,
-    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
-        let rows = sqlx::query(
-            "SELECT kid, private_key_pem, public_key_pem, created_at, is_active FROM rsa_keypairs ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut keypairs = Vec::new();
-        for row in rows {
-            let kid: String = row.get("kid");
-            let private_key_pem: String = row.get("private_key_pem");
-            let public_key_pem: String = row.get("public_key_pem");
-            let created_at: DateTime<Utc> = row.get("created_at");
-            let is_active: bool = row.get("is_active");
-
-            keypairs.push((kid, private_key_pem, public_key_pem, created_at, is_active));
-        }
-
-        Ok(keypairs)
-    }
-
-    /// Update active status of RSA keypair
-    async fn update_rsa_keypair_active_status(&self, kid: &str, is_active: bool) -> AppResult<()> {
-        sqlx::query("UPDATE rsa_keypairs SET is_active = $1 WHERE kid = $2")
-            .bind(is_active)
-            .bind(kid)
+        sqlx::query(query)
+            .bind(&session.id)
+            .bind(session.impersonator_id.to_string())
+            .bind(session.target_user_id.to_string())
+            .bind(&session.reason)
+            .bind(session.started_at)
+            .bind(session.ended_at)
+            .bind(session.is_active)
+            .bind(session.created_at)
             .execute(&self.pool)
             .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+            .map_err(|e| {
+                AppError::database(format!("Failed to create impersonation session: {e}"))
+            })?;
 
         Ok(())
     }
 
+    async fn get_impersonation_session(
+        &self,
+        session_id: &str,
+    ) -> AppResult<Option<ImpersonationSession>> {
+        let query = r"
+            SELECT id, impersonator_id, target_user_id, reason,
+                   started_at, ended_at, is_active, created_at
+            FROM impersonation_sessions WHERE id = $1
+        ";
+
+        let row = sqlx::query(query)
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get impersonation session: {e}")))?;
+
+        row.map(|r| shared::mappers::parse_impersonation_session_from_row(&r))
+            .transpose()
+    }
+
+    async fn get_active_impersonation_session(
+        &self,
+        user_id: Uuid,
+    ) -> AppResult<Option<ImpersonationSession>> {
+        let query = r"
+            SELECT id, impersonator_id, target_user_id, reason,
+                   started_at, ended_at, is_active, created_at
+            FROM impersonation_sessions
+            WHERE (impersonator_id = $1 OR target_user_id = $2) AND is_active = true
+            ORDER BY started_at DESC LIMIT 1
+        ";
+
+        let user_id_str = user_id.to_string();
+        let row = sqlx::query(query)
+            .bind(&user_id_str)
+            .bind(&user_id_str)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to get active impersonation session: {e}"))
+            })?;
+
+        row.map(|r| shared::mappers::parse_impersonation_session_from_row(&r))
+            .transpose()
+    }
+
+    async fn end_impersonation_session(&self, session_id: &str) -> AppResult<()> {
+        let query = r"
+            UPDATE impersonation_sessions
+            SET is_active = false, ended_at = $1
+            WHERE id = $2
+        ";
+
+        let ended_at = chrono::Utc::now();
+        sqlx::query(query)
+            .bind(ended_at)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to end impersonation session: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn end_all_impersonation_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
+        let query = r"
+            UPDATE impersonation_sessions
+            SET is_active = false, ended_at = $1
+            WHERE impersonator_id = $2 AND is_active = true
+        ";
+
+        let ended_at = chrono::Utc::now();
+        let result = sqlx::query(query)
+            .bind(ended_at)
+            .bind(impersonator_id.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to end impersonation sessions: {e}"))
+            })?;
+
+        Ok(result.rows_affected())
+    }
+
+    async fn list_impersonation_sessions(
+        &self,
+        impersonator_id: Option<Uuid>,
+        target_user_id: Option<Uuid>,
+        active_only: bool,
+        limit: u32,
+    ) -> AppResult<Vec<ImpersonationSession>> {
+        use std::fmt::Write;
+
+        // Build dynamic query based on filters
+        let mut query = String::from(
+            r"
+            SELECT id, impersonator_id, target_user_id, reason,
+                   started_at, ended_at, is_active, created_at
+            FROM impersonation_sessions WHERE 1=1
+            ",
+        );
+
+        let mut param_idx = 1u32;
+
+        if impersonator_id.is_some() {
+            let _ = write!(query, " AND impersonator_id = ${param_idx}");
+            param_idx += 1;
+        }
+        if target_user_id.is_some() {
+            let _ = write!(query, " AND target_user_id = ${param_idx}");
+            param_idx += 1;
+        }
+        if active_only {
+            query.push_str(" AND is_active = true");
+        }
+        let _ = write!(query, " ORDER BY started_at DESC LIMIT ${param_idx}");
+
+        let mut sql_query = sqlx::query(&query);
+
+        if let Some(id) = impersonator_id {
+            sql_query = sql_query.bind(id.to_string());
+        }
+        if let Some(id) = target_user_id {
+            sql_query = sql_query.bind(id.to_string());
+        }
+        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+        let limit_i32 = limit as i32;
+        sql_query = sql_query.bind(limit_i32);
+
+        let rows = sql_query.fetch_all(&self.pool).await.map_err(|e| {
+            AppError::database(format!("Failed to list impersonation sessions: {e}"))
+        })?;
+
+        rows.iter()
+            .map(shared::mappers::parse_impersonation_session_from_row)
+            .collect()
+    }
+
+    // ================================
+    // User MCP Token Management
+    // ================================
+
+    async fn create_user_mcp_token(
+        &self,
+        user_id: Uuid,
+        request: &CreateUserMcpTokenRequest,
+    ) -> AppResult<UserMcpTokenCreated> {
+        let token_value = Self::generate_mcp_token();
+        let token_hash = Self::hash_mcp_token(&token_value);
+        let token_prefix = token_value.chars().take(12).collect::<String>();
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+
+        let expires_at = request
+            .expires_in_days
+            .map(|days| now + chrono::Duration::days(i64::from(days)));
+
+        sqlx::query(
+            r"
+            INSERT INTO user_mcp_tokens (
+                id, user_id, name, token_hash, token_prefix,
+                expires_at, last_used_at, usage_count, is_revoked, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, false, $7)
+            ",
+        )
+        .bind(&id)
+        .bind(user_id.to_string())
+        .bind(&request.name)
+        .bind(&token_hash)
+        .bind(&token_prefix)
+        .bind(expires_at)
+        .bind(now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create user MCP token: {e}")))?;
+
+        let token = UserMcpToken {
+            id,
+            user_id,
+            name: request.name.clone(),
+            token_hash,
+            token_prefix,
+            expires_at,
+            last_used_at: None,
+            usage_count: 0,
+            is_revoked: false,
+            created_at: now,
+        };
+
+        Ok(UserMcpTokenCreated { token, token_value })
+    }
+
+    async fn validate_user_mcp_token(&self, token_value: &str) -> AppResult<Uuid> {
+        use sqlx::Row;
+
+        let token_hash = Self::hash_mcp_token(token_value);
+        let token_prefix = token_value.chars().take(12).collect::<String>();
+
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, expires_at, is_revoked
+            FROM user_mcp_tokens
+            WHERE token_prefix = $1 AND token_hash = $2
+            ",
+        )
+        .bind(&token_prefix)
+        .bind(&token_hash)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to validate user MCP token: {e}")))?;
+
+        let row = row.ok_or_else(|| AppError::auth_invalid("Invalid MCP token"))?;
+        let is_revoked: bool = row.get("is_revoked");
+        if is_revoked {
+            return Err(AppError::auth_invalid("MCP token has been revoked"));
+        }
+
+        let expires_at: Option<chrono::DateTime<chrono::Utc>> = row.get("expires_at");
+        if let Some(exp) = expires_at {
+            if exp < chrono::Utc::now() {
+                return Err(AppError::auth_invalid("MCP token has expired"));
+            }
+        }
+
+        let token_id: String = row.get("id");
+        self.update_user_mcp_token_usage(&token_id).await?;
+
+        let user_id_str: String = row.get("user_id");
+        Uuid::parse_str(&user_id_str)
+            .map_err(|e| AppError::internal(format!("Failed to parse user_id UUID: {e}")))
+    }
+
+    async fn list_user_mcp_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+        use sqlx::Row;
+
+        let rows = sqlx::query(
+            r"
+            SELECT id, name, token_prefix, expires_at, last_used_at,
+                   usage_count, is_revoked, created_at
+            FROM user_mcp_tokens
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            ",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list user MCP tokens: {e}")))?;
+        rows.iter()
+            .map(|row| {
+                Ok(UserMcpTokenInfo {
+                    id: row.get("id"),
+                    name: row.get("name"),
+                    token_prefix: row.get("token_prefix"),
+                    expires_at: row.get("expires_at"),
+                    last_used_at: row.get("last_used_at"),
+                    usage_count: u32::try_from(row.get::<i32, _>("usage_count")).map_err(|e| {
+                        AppError::internal(format!(
+                            "Integer conversion failed for usage_count: {e}"
+                        ))
+                    })?,
+                    is_revoked: row.get("is_revoked"),
+                    created_at: row.get("created_at"),
+                })
+            })
+            .collect()
+    }
+
+    async fn revoke_user_mcp_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE user_mcp_tokens
+            SET is_revoked = true
+            WHERE id = $1 AND user_id = $2
+            ",
+        )
+        .bind(token_id)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to revoke user MCP token: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found("MCP token not found or unauthorized"));
+        }
+
+        Ok(())
+    }
+
+    async fn get_user_mcp_token(
+        &self,
+        token_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<Option<UserMcpToken>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, name, token_hash, token_prefix,
+                   expires_at, last_used_at, usage_count, is_revoked, created_at
+            FROM user_mcp_tokens
+            WHERE id = $1 AND user_id = $2
+            ",
+        )
+        .bind(token_id)
+        .bind(user_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get user MCP token: {e}")))?;
+
+        row.map(|r| shared::mappers::parse_user_mcp_token_from_row(&r))
+            .transpose()
+    }
+
+    async fn cleanup_expired_user_mcp_tokens(&self) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            UPDATE user_mcp_tokens
+            SET is_revoked = true
+            WHERE expires_at IS NOT NULL
+            AND expires_at < $1
+            AND is_revoked = false
+            ",
+        )
+        .bind(chrono::Utc::now())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to cleanup expired user MCP tokens: {e}"))
+        })?;
+
+        Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl TenantDbOps for PostgresDatabase {
     // ================================
     // Multi-Tenant Management
     // ================================
@@ -3786,353 +5455,6 @@ impl DatabaseProvider for PostgresDatabase {
         Ok(apps)
     }
 
-    /// Store authorization code
-    async fn store_authorization_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        scope: &str,
-        user_id: Uuid,
-    ) -> AppResult<()> {
-        // Use the provided user_id from auth context
-        let expires_at = Utc::now() + chrono::Duration::minutes(10); // OAuth codes expire in 10 minutes
-
-        sqlx::query(
-            r"
-            INSERT INTO authorization_codes 
-                (code, client_id, user_id, redirect_uri, scope, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
-            ",
-        )
-        .bind(code)
-        .bind(client_id)
-        .bind(user_id)
-        .bind(redirect_uri)
-        .bind(scope)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store authorization code: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Get authorization code data
-    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
-        let row = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                Uuid,
-                String,
-                String,
-                DateTime<Utc>,
-                DateTime<Utc>,
-            ),
-        >(
-            r"
-            SELECT code, client_id, user_id, redirect_uri, scope, created_at, expires_at
-            FROM authorization_codes
-            WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP
-            ",
-        )
-        .bind(code)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        match row {
-            Some((code, client_id, user_id, redirect_uri, scope, created_at, expires_at)) => {
-                Ok(AuthorizationCode {
-                    code,
-                    client_id,
-                    redirect_uri,
-                    scope,
-                    user_id: Some(user_id),
-                    expires_at,
-                    created_at,
-                    is_used: false, // Will be marked as used when deleted
-                })
-            }
-            None => Err(AppError::not_found(
-                "Authorization code not found or expired".to_owned(),
-            )),
-        }
-    }
-
-    /// Delete authorization code
-    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            DELETE FROM authorization_codes
-            WHERE code = $1
-            ",
-        )
-        .bind(code)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to delete authorization code: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            warn!("Authorization code not found for deletion (code redacted)");
-        }
-
-        Ok(())
-    }
-
-    // ================================
-    // Key Rotation & Security - PostgreSQL implementations
-    // ================================
-
-    async fn store_key_version(&self, version: &KeyVersion) -> AppResult<()> {
-        let query = r"
-            INSERT INTO key_versions (tenant_id, version, created_at, expires_at, is_active, algorithm)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (tenant_id, version) DO UPDATE SET
-                expires_at = EXCLUDED.expires_at,
-                is_active = EXCLUDED.is_active,
-                algorithm = EXCLUDED.algorithm
-        ";
-
-        sqlx::query(query)
-            .bind(version.tenant_id.map(|id| id.to_string()))
-            .bind(i32::try_from(version.version).unwrap_or(0)) // Safe: version ranges are controlled by application
-            .bind(version.created_at)
-            .bind(version.expires_at)
-            .bind(version.is_active)
-            .bind(&version.algorithm)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to store key version: {e}")))?;
-
-        debug!(
-            "Stored key version {} for tenant {:?}",
-            version.version, version.tenant_id
-        );
-        Ok(())
-    }
-
-    async fn get_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<Vec<KeyVersion>> {
-        let query = match tenant_id {
-            Some(_) => {
-                r"
-                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
-                FROM key_versions 
-                WHERE tenant_id = $1
-                ORDER BY version DESC
-            "
-            }
-            None => {
-                r"
-                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
-                FROM key_versions 
-                WHERE tenant_id IS NULL
-                ORDER BY version DESC
-            "
-            }
-        };
-
-        let rows = if let Some(tid) = tenant_id {
-            sqlx::query(query)
-                .bind(tid.to_string())
-                .fetch_all(&self.pool)
-                .await
-        } else {
-            sqlx::query(query).fetch_all(&self.pool).await
-        }
-        .map_err(|e| AppError::database(format!("Failed to fetch key versions: {e}")))?;
-
-        let mut versions = Vec::new();
-        for row in rows {
-            let tenant_id_str: Option<String> = row.get("tenant_id");
-            let tenant_id = if let Some(tid) = tenant_id_str {
-                Some(TenantId::from_uuid(parse_uuid(&tid)?))
-            } else {
-                None
-            };
-
-            let version = KeyVersion {
-                tenant_id,
-                version: u32::try_from(row.get::<i32, _>("version")).unwrap_or(0), // Safe: stored versions are always positive
-                created_at: row.get("created_at"),
-                expires_at: row.get("expires_at"),
-                is_active: row.get("is_active"),
-                algorithm: row.get("algorithm"),
-            };
-            versions.push(version);
-        }
-
-        Ok(versions)
-    }
-
-    async fn get_current_key_version(
-        &self,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<KeyVersion>> {
-        let query = match tenant_id {
-            Some(_) => {
-                r"
-                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
-                FROM key_versions 
-                WHERE tenant_id = $1 AND is_active = true
-                ORDER BY version DESC
-                LIMIT 1
-            "
-            }
-            None => {
-                r"
-                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
-                FROM key_versions 
-                WHERE tenant_id IS NULL AND is_active = true
-                ORDER BY version DESC
-                LIMIT 1
-            "
-            }
-        };
-
-        let row = if let Some(tid) = tenant_id {
-            sqlx::query(query)
-                .bind(tid.to_string())
-                .fetch_optional(&self.pool)
-                .await
-        } else {
-            sqlx::query(query).fetch_optional(&self.pool).await
-        }
-        .map_err(|e| AppError::database(format!("Failed to fetch current key version: {e}")))?;
-
-        if let Some(row) = row {
-            let tenant_id_str: Option<String> = row.get("tenant_id");
-            let tenant_id = if let Some(tid) = tenant_id_str {
-                Some(TenantId::from_uuid(parse_uuid(&tid)?))
-            } else {
-                None
-            };
-
-            let version = KeyVersion {
-                tenant_id,
-                version: u32::try_from(row.get::<i32, _>("version")).unwrap_or(0), // Safe: stored versions are always positive
-                created_at: row.get("created_at"),
-                expires_at: row.get("expires_at"),
-                is_active: row.get("is_active"),
-                algorithm: row.get("algorithm"),
-            };
-            Ok(Some(version))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn update_key_version_status(
-        &self,
-        tenant_id: Option<TenantId>,
-        version: u32,
-        is_active: bool,
-    ) -> AppResult<()> {
-        let query = match tenant_id {
-            Some(_) => {
-                r"
-                UPDATE key_versions 
-                SET is_active = $3
-                WHERE tenant_id = $1 AND version = $2
-            "
-            }
-            None => {
-                r"
-                UPDATE key_versions 
-                SET is_active = $2
-                WHERE tenant_id IS NULL AND version = $1
-            "
-            }
-        };
-
-        let result = if let Some(tid) = tenant_id {
-            sqlx::query(query)
-                .bind(tid.to_string())
-                .bind(i32::try_from(version).unwrap_or(0)) // Safe: version ranges are controlled by application
-                .bind(is_active)
-                .execute(&self.pool)
-                .await
-        } else {
-            sqlx::query(query)
-                .bind(i32::try_from(version).unwrap_or(0)) // Safe: version ranges are controlled by application
-                .bind(is_active)
-                .execute(&self.pool)
-                .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to update key version status: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            warn!(
-                "No key version found to update: tenant={:?}, version={}",
-                tenant_id, version
-            );
-        } else {
-            debug!(
-                "Updated key version {} status to {} for tenant {:?}",
-                version, is_active, tenant_id
-            );
-        }
-
-        Ok(())
-    }
-
-    async fn delete_old_key_versions(
-        &self,
-        tenant_id: Option<TenantId>,
-        keep_count: u32,
-    ) -> AppResult<u64> {
-        let query = match tenant_id {
-            Some(_) => {
-                r"
-                DELETE FROM key_versions 
-                WHERE tenant_id = $1 
-                AND version NOT IN (
-                    SELECT version FROM key_versions 
-                    WHERE tenant_id = $1
-                    ORDER BY version DESC 
-                    LIMIT $2
-                )
-            "
-            }
-            None => {
-                r"
-                DELETE FROM key_versions 
-                WHERE tenant_id IS NULL 
-                AND version NOT IN (
-                    SELECT version FROM key_versions 
-                    WHERE tenant_id IS NULL
-                    ORDER BY version DESC 
-                    LIMIT $1
-                )
-            "
-            }
-        };
-
-        let result = if let Some(tid) = tenant_id {
-            sqlx::query(query)
-                .bind(tid.to_string())
-                .bind(i32::try_from(keep_count).unwrap_or(0)) // Safe: keep_count ranges are controlled by application
-                .execute(&self.pool)
-                .await
-        } else {
-            sqlx::query(query)
-                .bind(i32::try_from(keep_count).unwrap_or(0)) // Safe: keep_count ranges are controlled by application
-                .execute(&self.pool)
-                .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to delete old key versions: {e}")))?;
-
-        let deleted_count = result.rows_affected();
-        debug!(
-            "Deleted {} old key versions for tenant {:?}, kept {} most recent",
-            deleted_count, tenant_id, keep_count
-        );
-
-        Ok(deleted_count)
-    }
-
     async fn get_all_tenants(&self) -> AppResult<Vec<Tenant>> {
         let query = r"
             SELECT id, slug, name, domain, plan, owner_user_id, created_at, updated_at
@@ -4188,434 +5510,6 @@ impl DatabaseProvider for PostgresDatabase {
         Ok(tenants)
     }
 
-    async fn store_audit_event(&self, event: &AuditEvent) -> AppResult<()> {
-        let query = r"
-            INSERT INTO audit_events (
-                id, event_type, severity, message, source, result, 
-                tenant_id, user_id, ip_address, user_agent, metadata, timestamp
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10, $11, $12)
-        ";
-
-        let event_type_str = format!("{:?}", event.event_type);
-        let severity_str = format!("{:?}", event.severity);
-        let metadata_json = serde_json::to_string(&event.metadata)?;
-
-        sqlx::query(query)
-            .bind(event.event_id.to_string())
-            .bind(&event_type_str)
-            .bind(&severity_str)
-            .bind(&event.description)
-            .bind("security") // source - using generic security source
-            .bind(&event.result)
-            .bind(event.tenant_id.map(|id| id.to_string()))
-            .bind(event.user_id.map(|id| id.to_string()))
-            .bind(&event.source_ip)
-            .bind(&event.user_agent)
-            .bind(&metadata_json)
-            .bind(event.timestamp)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Complex audit query with dynamic filtering, pagination, and exhaustive enum mapping
-    ///
-    /// JUSTIFICATION for `#[allow(clippy::too_many_lines)]`:
-    /// - Dynamic SQL query building with optional filters (`tenant_id`, `event_type`, `limit`)
-    /// - Exhaustive match for 25+ `AuditEventType` variants (cannot be extracted without loss of context)
-    /// - Exhaustive match for `AuditSeverity` variants
-    /// - Row-to-struct mapping with UUID parsing and JSON deserialization
-    /// - Refactoring would fragment audit event construction logic across multiple functions
-    #[allow(clippy::too_many_lines)]
-    async fn get_audit_events(
-        &self,
-        tenant_id: Option<TenantId>,
-        event_type: Option<&str>,
-        limit: Option<u32>,
-    ) -> AppResult<Vec<AuditEvent>> {
-        use std::fmt::Write;
-
-        let mut query = r"
-            SELECT id, event_type, severity, message, source, result,
-                   tenant_id, user_id, ip_address, user_agent, metadata, timestamp
-            FROM audit_events
-            WHERE true
-        "
-        .to_owned();
-
-        let mut bind_count = 0;
-        if tenant_id.is_some() {
-            bind_count += 1;
-            if write!(query, " AND tenant_id = ${bind_count}").is_err() {
-                return Err(AppError::database(
-                    "Failed to write tenant_id clause to query".to_owned(),
-                ));
-            }
-        }
-        if event_type.is_some() {
-            bind_count += 1;
-            if write!(query, " AND event_type = ${bind_count}").is_err() {
-                return Err(AppError::database(
-                    "Failed to write event_type clause to query".to_owned(),
-                ));
-            }
-        }
-
-        query.push_str(" ORDER BY timestamp DESC");
-
-        if limit.is_some() {
-            bind_count += 1;
-            if write!(query, " LIMIT ${bind_count}").is_err() {
-                return Err(AppError::database(
-                    "Failed to write LIMIT clause to query".to_owned(),
-                ));
-            }
-        }
-
-        let mut sql_query = sqlx::query(&query);
-
-        if let Some(tid) = tenant_id {
-            sql_query = sql_query.bind(tid.to_string());
-        }
-        if let Some(et) = event_type {
-            sql_query = sql_query.bind(et);
-        }
-        if let Some(l) = limit {
-            sql_query = sql_query.bind(i32::try_from(l).unwrap_or(0)); // Safe: limit ranges are controlled by application
-        }
-
-        let rows = sql_query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get audit events: {e}")))?;
-
-        let mut events = Vec::new();
-        for row in rows {
-            let event_id_str: String = row.get("id");
-            let event_id = uuid::Uuid::parse_str(&event_id_str)
-                .map_err(|e| AppError::database(format!("Invalid audit event UUID: {e}")))?;
-
-            let event_type_str: String = row.get("event_type");
-            let event_type = match event_type_str.as_str() {
-                "UserLogin" => AuditEventType::UserLogin,
-                "UserLogout" => AuditEventType::UserLogout,
-                "AuthenticationFailed" => AuditEventType::AuthenticationFailed,
-                "ApiKeyUsed" => AuditEventType::ApiKeyUsed,
-                "OAuthCredentialsAccessed" => AuditEventType::OAuthCredentialsAccessed,
-                "OAuthCredentialsModified" => AuditEventType::OAuthCredentialsModified,
-                "OAuthCredentialsCreated" => AuditEventType::OAuthCredentialsCreated,
-                "OAuthCredentialsDeleted" => AuditEventType::OAuthCredentialsDeleted,
-                "TokenRefreshed" => AuditEventType::TokenRefreshed,
-                "TenantCreated" => AuditEventType::TenantCreated,
-                "TenantModified" => AuditEventType::TenantModified,
-                "TenantDeleted" => AuditEventType::TenantDeleted,
-                "TenantUserAdded" => AuditEventType::TenantUserAdded,
-                "TenantUserRemoved" => AuditEventType::TenantUserRemoved,
-                "TenantUserRoleChanged" => AuditEventType::TenantUserRoleChanged,
-                "DataEncrypted" => AuditEventType::DataEncrypted,
-                "DataDecrypted" => AuditEventType::DataDecrypted,
-                "KeyRotated" => AuditEventType::KeyRotated,
-                "EncryptionFailed" => AuditEventType::EncryptionFailed,
-                "ToolExecutionFailed" => AuditEventType::ToolExecutionFailed,
-                "ProviderApiCalled" => AuditEventType::ProviderApiCalled,
-                "ConfigurationChanged" => AuditEventType::ConfigurationChanged,
-                "SystemMaintenance" => AuditEventType::SystemMaintenance,
-                "SecurityPolicyViolation" => AuditEventType::SecurityPolicyViolation,
-                _ => AuditEventType::ToolExecuted, // Default fallback
-            };
-
-            let severity_str: String = row.get("severity");
-            let severity = match severity_str.as_str() {
-                "Warning" => AuditSeverity::Warning,
-                "Error" => AuditSeverity::Error,
-                "Critical" => AuditSeverity::Critical,
-                _ => AuditSeverity::Info, // Default fallback
-            };
-
-            let tenant_id_str: Option<String> = row.get("tenant_id");
-            let tenant_id = if let Some(tid) = tenant_id_str {
-                Some(TenantId::from_uuid(parse_uuid(&tid)?))
-            } else {
-                None
-            };
-
-            let user_id_str: Option<String> = row.get("user_id");
-            let user_id = if let Some(uid) = user_id_str {
-                Some(parse_uuid(&uid)?)
-            } else {
-                None
-            };
-
-            let metadata_json: String = row.get("metadata");
-            let metadata: serde_json::Value = serde_json::from_str(&metadata_json)
-                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
-
-            let event = AuditEvent {
-                event_id,
-                event_type,
-                severity,
-                timestamp: row.get("timestamp"),
-                user_id,
-                tenant_id,
-                source_ip: row.get("ip_address"),
-                user_agent: row.get("user_agent"),
-                session_id: None, // Not stored in current schema
-                description: row.get("message"),
-                metadata,
-                resource: None,             // Not stored in current schema
-                action: "audit".to_owned(), // Default action
-                result: row.get("result"),
-            };
-            events.push(event);
-        }
-
-        Ok(events)
-    }
-
-    // UserOAuthToken Methods - PostgreSQL implementations
-    // ================================
-
-    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
-        // SECURITY: Encrypt OAuth tokens at rest with AAD binding (AES-256-GCM)
-        let encrypted_access_token = shared::encryption::encrypt_oauth_token(
-            self,
-            &token.access_token,
-            &token.tenant_id,
-            token.user_id,
-            &token.provider,
-        )?;
-
-        let encrypted_refresh_token = token
-            .refresh_token
-            .as_ref()
-            .map(|rt| {
-                shared::encryption::encrypt_oauth_token(
-                    self,
-                    rt,
-                    &token.tenant_id,
-                    token.user_id,
-                    &token.provider,
-                )
-            })
-            .transpose()?;
-
-        sqlx::query(
-            r"
-            INSERT INTO user_oauth_tokens (
-                id, user_id, tenant_id, provider, access_token, refresh_token,
-                token_type, expires_at, scope, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (user_id, tenant_id, provider)
-            DO UPDATE SET
-                id = EXCLUDED.id,
-                access_token = EXCLUDED.access_token,
-                refresh_token = EXCLUDED.refresh_token,
-                token_type = EXCLUDED.token_type,
-                expires_at = EXCLUDED.expires_at,
-                scope = EXCLUDED.scope,
-                updated_at = EXCLUDED.updated_at
-            ",
-        )
-        .bind(&token.id)
-        .bind(token.user_id)
-        .bind(&token.tenant_id)
-        .bind(&token.provider)
-        .bind(&encrypted_access_token)
-        .bind(encrypted_refresh_token.as_deref())
-        .bind(&token.token_type)
-        .bind(token.expires_at)
-        .bind(token.scope.as_deref().unwrap_or(""))
-        .bind(token.created_at)
-        .bind(token.updated_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn get_user_oauth_token(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Option<UserOAuthToken>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, created_at, updated_at
-            FROM user_oauth_tokens
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-            ",
-        )
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        row.map_or_else(
-            || Ok(None),
-            |row| Ok(Some(self.row_to_user_oauth_token(&row)?)),
-        )
-    }
-
-    async fn get_user_oauth_tokens(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Vec<UserOAuthToken>> {
-        let rows = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
-                SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, created_at, updated_at
-                FROM user_oauth_tokens
-                WHERE user_id = $1 AND tenant_id = $2
-                ORDER BY created_at DESC
-                ",
-            )
-            .bind(user_id)
-            .bind(tid.to_string())
-            .fetch_all(&self.pool)
-            .await
-        } else {
-            // Intentional cross-tenant view for OAuth status checks (e.g. admin views)
-            sqlx::query(
-                r"
-                SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                       token_type, expires_at, scope, created_at, updated_at
-                FROM user_oauth_tokens
-                WHERE user_id = $1
-                ORDER BY created_at DESC
-                ",
-            )
-            .bind(user_id)
-            .fetch_all(&self.pool)
-            .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut tokens = Vec::with_capacity(rows.len());
-        for row in rows {
-            tokens.push(self.row_to_user_oauth_token(&row)?);
-        }
-        Ok(tokens)
-    }
-
-    async fn get_tenant_provider_tokens(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Vec<UserOAuthToken>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, tenant_id, provider, access_token, refresh_token,
-                   token_type, expires_at, scope, created_at, updated_at
-            FROM user_oauth_tokens
-            WHERE tenant_id = $1 AND provider = $2
-            ORDER BY created_at DESC
-            ",
-        )
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut tokens = Vec::with_capacity(rows.len());
-        for row in rows {
-            tokens.push(self.row_to_user_oauth_token(&row)?);
-        }
-        Ok(tokens)
-    }
-
-    async fn delete_user_oauth_token(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<()> {
-        sqlx::query(
-            r"
-            DELETE FROM user_oauth_tokens
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-            ",
-        )
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn delete_user_oauth_tokens(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<()> {
-        sqlx::query(
-            r"
-            DELETE FROM user_oauth_tokens
-            WHERE user_id = $1 AND tenant_id = $2
-            ",
-        )
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn refresh_user_oauth_token(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        access_token: &str,
-        refresh_token: Option<&str>,
-        expires_at: Option<DateTime<Utc>>,
-    ) -> AppResult<()> {
-        // SECURITY: Encrypt OAuth tokens at rest with AAD binding (AES-256-GCM)
-        let tid = tenant_id.to_string();
-        let encrypted_access_token =
-            shared::encryption::encrypt_oauth_token(self, access_token, &tid, user_id, provider)?;
-
-        let encrypted_refresh_token = refresh_token
-            .map(|rt| shared::encryption::encrypt_oauth_token(self, rt, &tid, user_id, provider))
-            .transpose()?;
-
-        sqlx::query(
-            r"
-            UPDATE user_oauth_tokens
-            SET access_token = $4,
-                refresh_token = $5,
-                expires_at = $6,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
-            ",
-        )
-        .bind(user_id)
-        .bind(tenant_id.to_string())
-        .bind(provider)
-        .bind(&encrypted_access_token)
-        .bind(encrypted_refresh_token.as_deref())
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
     /// Get user role for a specific tenant
     async fn get_user_tenant_role(
         &self,
@@ -4632,358 +5526,6 @@ impl DatabaseProvider for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
 
         Ok(row.map(|r| r.0))
-    }
-
-    // ================================
-    // User OAuth App Credentials Implementation
-    // ================================
-
-    /// Store user OAuth app credentials (`client_id`, `client_secret`)
-    async fn store_user_oauth_app(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        client_id: &str,
-        client_secret: &str,
-        redirect_uri: &str,
-    ) -> AppResult<()> {
-        // Create user_oauth_apps table if it doesn't exist
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS user_oauth_apps (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                provider TEXT NOT NULL,
-                client_id TEXT NOT NULL,
-                client_secret TEXT NOT NULL,
-                redirect_uri TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE(user_id, provider)
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        // Insert or update OAuth app credentials
-        sqlx::query(
-            r"
-            INSERT INTO user_oauth_apps (user_id, provider, client_id, client_secret, redirect_uri)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (user_id, provider)
-            DO UPDATE SET 
-                client_id = EXCLUDED.client_id,
-                client_secret = EXCLUDED.client_secret,
-                redirect_uri = EXCLUDED.redirect_uri,
-                updated_at = NOW()
-            ",
-        )
-        .bind(user_id)
-        .bind(provider)
-        .bind(client_id)
-        .bind(client_secret)
-        .bind(redirect_uri)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Get user OAuth app credentials for a provider
-    async fn get_user_oauth_app(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> AppResult<Option<UserOAuthApp>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
-            FROM user_oauth_apps
-            WHERE user_id = $1 AND provider = $2
-            "
-        )
-        .bind(user_id)
-        .bind(provider)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        row.map_or_else(
-            || Ok(None),
-            |row| {
-                Ok(Some(UserOAuthApp {
-                    id: row.get("id"),
-                    user_id: row.get("user_id"),
-                    provider: row.get("provider"),
-                    client_id: row.get("client_id"),
-                    client_secret: row.get("client_secret"),
-                    redirect_uri: row.get("redirect_uri"),
-                    created_at: row.get("created_at"),
-                    updated_at: row.get("updated_at"),
-                }))
-            },
-        )
-    }
-
-    /// List all OAuth app providers configured for a user
-    async fn list_user_oauth_apps(&self, user_id: Uuid) -> AppResult<Vec<UserOAuthApp>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
-            FROM user_oauth_apps
-            WHERE user_id = $1
-            ORDER BY provider
-            "
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut apps = Vec::new();
-        for row in rows {
-            apps.push(UserOAuthApp {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                provider: row.get("provider"),
-                client_id: row.get("client_id"),
-                client_secret: row.get("client_secret"),
-                redirect_uri: row.get("redirect_uri"),
-                created_at: row.get("created_at"),
-                updated_at: row.get("updated_at"),
-            });
-        }
-
-        Ok(apps)
-    }
-
-    /// Remove user OAuth app credentials for a provider
-    async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
-        sqlx::query(
-            r"
-            DELETE FROM user_oauth_apps
-            WHERE user_id = $1 AND provider = $2
-            ",
-        )
-        .bind(user_id)
-        .bind(provider)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    // ================================
-    // System Secret Management Implementation
-    // ================================
-
-    /// Get or create system secret (generates if not exists)
-    async fn get_or_create_system_secret(&self, secret_type: &str) -> AppResult<String> {
-        // Try to get existing secret
-        if let Ok(secret) = self.get_system_secret(secret_type).await {
-            return Ok(secret);
-        }
-
-        // Generate new secret
-        let secret_value = match secret_type {
-            "admin_jwt_secret" => AdminJwtManager::generate_jwt_secret(),
-            _ => {
-                return Err(AppError::invalid_input(format!(
-                    "Unknown secret type: {secret_type}"
-                )))
-            }
-        };
-
-        // Store in database
-        let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query("INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) VALUES ($1, $2, $3, $4)")
-            .bind(secret_type)
-            .bind(&secret_value)
-            .bind(&now)
-            .bind(&now)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(secret_value)
-    }
-
-    /// Get existing system secret
-    async fn get_system_secret(&self, secret_type: &str) -> AppResult<String> {
-        let row = sqlx::query("SELECT secret_value FROM system_secrets WHERE secret_type = $1")
-            .bind(secret_type)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
-
-        Ok(row
-            .try_get("secret_value")
-            .map_err(|e| AppError::database(format!("Failed to parse secret_value column: {e}")))?)
-    }
-
-    /// Update or insert system secret (supports both initial storage and rotation)
-    async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()> {
-        let now = chrono::Utc::now().to_rfc3339();
-        sqlx::query(
-            "INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4) \
-             ON CONFLICT(secret_type) DO UPDATE SET secret_value = EXCLUDED.secret_value, updated_at = EXCLUDED.updated_at",
-        )
-        .bind(secret_type)
-        .bind(new_value)
-        .bind(&now)
-        .bind(&now)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    // ================================
-    // OAuth Notifications
-    // ================================
-
-    async fn store_oauth_notification(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        success: bool,
-        message: &str,
-        expires_at: Option<&str>,
-    ) -> AppResult<String> {
-        let notification_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO oauth_notifications (id, user_id, provider, success, message, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ",
-        )
-        .bind(&notification_id)
-        .bind(user_id.to_string())
-        .bind(provider)
-        .bind(success)
-        .bind(message)
-        .bind(expires_at)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(notification_id)
-    }
-
-    async fn get_unread_oauth_notifications(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, provider, success, message, expires_at, created_at, read_at
-            FROM oauth_notifications
-            WHERE user_id = $1 AND read_at IS NULL
-            ORDER BY created_at DESC
-            ",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut notifications = Vec::new();
-        for row in rows {
-            notifications.push(OAuthNotification {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                provider: row.get("provider"),
-                success: row.get("success"),
-                message: row.get("message"),
-                expires_at: row.get("expires_at"),
-                created_at: row.get("created_at"),
-                read_at: row.get("read_at"),
-            });
-        }
-
-        Ok(notifications)
-    }
-
-    async fn mark_oauth_notification_read(
-        &self,
-        notification_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<bool> {
-        let result = sqlx::query(
-            r"
-            UPDATE oauth_notifications 
-            SET read_at = CURRENT_TIMESTAMP
-            WHERE id = $1 AND user_id = $2 AND read_at IS NULL
-            ",
-        )
-        .bind(notification_id)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
-        let result = sqlx::query(
-            r"
-            UPDATE oauth_notifications 
-            SET read_at = CURRENT_TIMESTAMP
-            WHERE user_id = $1 AND read_at IS NULL
-            ",
-        )
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(result.rows_affected())
-    }
-
-    async fn get_all_oauth_notifications(
-        &self,
-        user_id: Uuid,
-        limit: Option<i64>,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        let mut query_str = String::from(
-            r"
-            SELECT id, user_id, provider, success, message, expires_at, created_at, read_at
-            FROM oauth_notifications
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            ",
-        );
-
-        if let Some(l) = limit {
-            write!(query_str, " LIMIT {l}")
-                .map_err(|e| AppError::internal(format!("Format error: {e}")))?;
-        }
-
-        let rows = sqlx::query(&query_str)
-            .bind(user_id.to_string())
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let mut notifications = Vec::new();
-        for row in rows {
-            notifications.push(OAuthNotification {
-                id: row.get("id"),
-                user_id: row.get("user_id"),
-                provider: row.get("provider"),
-                success: row.get("success"),
-                message: row.get("message"),
-                expires_at: row.get("expires_at"),
-                created_at: row.get("created_at"),
-                read_at: row.get("read_at"),
-            });
-        }
-
-        Ok(notifications)
     }
 
     // ================================
@@ -5221,906 +5763,6 @@ impl DatabaseProvider for PostgresDatabase {
         Ok(rows_affected.rows_affected() > 0)
     }
 
-    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-        )
-        .bind(&client.id)
-        .bind(&client.client_id)
-        .bind(&client.client_secret_hash)
-        .bind(serde_json::to_string(&client.redirect_uris)?)
-        .bind(serde_json::to_string(&client.grant_types)?)
-        .bind(serde_json::to_string(&client.response_types)?)
-        .bind(&client.client_name)
-        .bind(&client.client_uri)
-        .bind(&client.scope)
-        .bind(client.created_at)
-        .bind(client.expires_at)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
-        let row = sqlx::query(
-            "SELECT id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at
-             FROM oauth2_clients WHERE client_id = $1"
-        )
-        .bind(client_id)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = row {
-            let redirect_uris: Vec<String> =
-                serde_json::from_str(&row.get::<String, _>("redirect_uris"))?;
-            let grant_types: Vec<String> =
-                serde_json::from_str(&row.get::<String, _>("grant_types"))?;
-            let response_types: Vec<String> =
-                serde_json::from_str(&row.get::<String, _>("response_types"))?;
-
-            Ok(Some(OAuth2Client {
-                id: row.get("id"),
-                client_id: row.get("client_id"),
-                client_secret_hash: row.get("client_secret_hash"),
-                redirect_uris,
-                grant_types,
-                response_types,
-                client_name: row.get("client_name"),
-                client_uri: row.get("client_uri"),
-                scope: row.get("scope"),
-                created_at: row.get("created_at"),
-                expires_at: row.get("expires_at"),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-        )
-        .bind(&auth_code.code)
-        .bind(&auth_code.client_id)
-        .bind(auth_code.user_id)
-        .bind(&auth_code.tenant_id)
-        .bind(&auth_code.redirect_uri)
-        .bind(&auth_code.scope)
-        .bind(auth_code.expires_at)
-        .bind(auth_code.used)
-        .bind(&auth_code.state)
-        .bind(&auth_code.code_challenge)
-        .bind(&auth_code.code_challenge_method)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
-        let row = sqlx::query(
-            "SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
-             FROM oauth2_auth_codes WHERE code = $1",
-        )
-        .bind(code)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        row.map_or_else(
-            || Ok(None),
-            |row| {
-                Ok(Some(OAuth2AuthCode {
-                    code: row.get("code"),
-                    client_id: row.get("client_id"),
-                    user_id: row.get("user_id"),
-                    tenant_id: row.get("tenant_id"),
-                    redirect_uri: row.get("redirect_uri"),
-                    scope: row.get("scope"),
-                    expires_at: row.get("expires_at"),
-                    used: row.get("used"),
-                    state: row.get("state"),
-                    code_challenge: row.get("code_challenge"),
-                    code_challenge_method: row.get("code_challenge_method"),
-                }))
-            },
-        )
-    }
-
-    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        sqlx::query("UPDATE oauth2_auth_codes SET used = $1 WHERE code = $2")
-            .bind(auth_code.used)
-            .bind(&auth_code.code)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Store OAuth 2.0 refresh token
-    ///
-    /// The refresh token value is HMAC-SHA256 hashed before storage so that
-    /// plaintext tokens are never persisted to disk.
-    async fn store_oauth2_refresh_token(
-        &self,
-        refresh_token: &OAuth2RefreshToken,
-    ) -> AppResult<()> {
-        let token_hash = HasEncryption::hash_token_for_storage(self, &refresh_token.token)?;
-
-        sqlx::query(
-            "INSERT INTO oauth2_refresh_tokens (token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
-        )
-        .bind(&token_hash)
-        .bind(&refresh_token.client_id)
-        .bind(refresh_token.user_id)
-        .bind(&refresh_token.tenant_id)
-        .bind(&refresh_token.scope)
-        .bind(refresh_token.expires_at)
-        .bind(refresh_token.created_at)
-        .bind(refresh_token.revoked)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Get OAuth 2.0 refresh token
-    ///
-    /// The input token is HMAC-SHA256 hashed before querying.
-    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
-        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
-
-        let row = sqlx::query(
-            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
-             FROM oauth2_refresh_tokens
-             WHERE token = $1",
-        )
-        .bind(&token_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = row {
-            use sqlx::Row;
-            Ok(Some(OAuth2RefreshToken {
-                token: row.try_get("token").map_err(|e| {
-                    AppError::database(format!("Failed to parse token column: {e}"))
-                })?,
-                client_id: row.try_get("client_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse client_id column: {e}"))
-                })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
-                })?,
-                scope: row.try_get("scope").map_err(|e| {
-                    AppError::database(format!("Failed to parse scope column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                revoked: row.try_get("revoked").map_err(|e| {
-                    AppError::database(format!("Failed to parse revoked column: {e}"))
-                })?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Revoke OAuth 2.0 refresh token
-    ///
-    /// The input token is HMAC-SHA256 hashed before querying.
-    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
-        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
-
-        sqlx::query("UPDATE oauth2_refresh_tokens SET revoked = true WHERE token = $1")
-            .bind(&token_hash)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Atomically consume OAuth 2.0 authorization code
-    ///
-    /// Implements atomic check-and-set using UPDATE...RETURNING
-    /// to prevent TOCTOU race conditions in concurrent token exchange requests.
-    async fn consume_auth_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2AuthCode>> {
-        let row = sqlx::query(
-            "UPDATE oauth2_auth_codes
-             SET used = true
-             WHERE code = $1
-               AND client_id = $2
-               AND redirect_uri = $3
-               AND used = false
-               AND expires_at > $4
-             RETURNING code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method"
-        )
-        .bind(code)
-        .bind(client_id)
-        .bind(redirect_uri)
-        .bind(now)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        row.map_or_else(
-            || Ok(None),
-            |row| {
-                use sqlx::Row;
-                Ok(Some(OAuth2AuthCode {
-                    code: row.get("code"),
-                    client_id: row.get("client_id"),
-                    user_id: row.get("user_id"),
-                    tenant_id: row.get("tenant_id"),
-                    redirect_uri: row.get("redirect_uri"),
-                    scope: row.get("scope"),
-                    expires_at: row.get("expires_at"),
-                    used: row.get("used"),
-                    state: row.get("state"),
-                    code_challenge: row.get("code_challenge"),
-                    code_challenge_method: row.get("code_challenge_method"),
-                }))
-            },
-        )
-    }
-
-    /// Atomically consume OAuth 2.0 refresh token
-    ///
-    /// Implements atomic check-and-revoke using UPDATE...RETURNING
-    /// to prevent TOCTOU race conditions in concurrent refresh requests.
-    /// The input token is HMAC-SHA256 hashed before querying.
-    async fn consume_refresh_token(
-        &self,
-        token: &str,
-        client_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2RefreshToken>> {
-        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
-
-        let row = sqlx::query(
-            "UPDATE oauth2_refresh_tokens
-             SET revoked = true
-             WHERE token = $1
-               AND client_id = $2
-               AND revoked = false
-               AND expires_at > $3
-             RETURNING token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked",
-        )
-        .bind(&token_hash)
-        .bind(client_id)
-        .bind(now)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = row {
-            use sqlx::Row;
-            Ok(Some(OAuth2RefreshToken {
-                token: row.try_get("token").map_err(|e| {
-                    AppError::database(format!("Failed to parse token column: {e}"))
-                })?,
-                client_id: row.try_get("client_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse client_id column: {e}"))
-                })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
-                })?,
-                scope: row.try_get("scope").map_err(|e| {
-                    AppError::database(format!("Failed to parse scope column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                revoked: row.try_get("revoked").map_err(|e| {
-                    AppError::database(format!("Failed to parse revoked column: {e}"))
-                })?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Look up a refresh token by value (without `client_id` constraint)
-    ///
-    /// The input token is HMAC-SHA256 hashed before querying.
-    async fn get_refresh_token_by_value(
-        &self,
-        token: &str,
-    ) -> AppResult<Option<OAuth2RefreshToken>> {
-        let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
-
-        let row = sqlx::query(
-            "SELECT token, client_id, user_id, tenant_id, scope, expires_at, created_at, revoked
-             FROM oauth2_refresh_tokens
-             WHERE token = $1",
-        )
-        .bind(&token_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = row {
-            use sqlx::Row;
-            Ok(Some(OAuth2RefreshToken {
-                token: row.try_get("token").map_err(|e| {
-                    AppError::database(format!("Failed to parse token column: {e}"))
-                })?,
-                client_id: row.try_get("client_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse client_id column: {e}"))
-                })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
-                })?,
-                scope: row.try_get("scope").map_err(|e| {
-                    AppError::database(format!("Failed to parse scope column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                revoked: row.try_get("revoked").map_err(|e| {
-                    AppError::database(format!("Failed to parse revoked column: {e}"))
-                })?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Store `OAuth2` state for CSRF protection
-    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO oauth2_states (state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-        )
-        .bind(&state.state)
-        .bind(&state.client_id)
-        .bind(state.user_id)
-        .bind(&state.tenant_id)
-        .bind(&state.redirect_uri)
-        .bind(&state.scope)
-        .bind(&state.code_challenge)
-        .bind(&state.code_challenge_method)
-        .bind(state.created_at)
-        .bind(state.expires_at)
-        .bind(state.used)
-        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Consume `OAuth2` state (atomically check and mark as used)
-    async fn consume_oauth2_state(
-        &self,
-        state_value: &str,
-        client_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2State>> {
-        let row = sqlx::query(
-            "UPDATE oauth2_states
-             SET used = true
-             WHERE state = $1
-               AND client_id = $2
-               AND used = false
-               AND expires_at > $3
-             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used",
-        )
-        .bind(state_value)
-        .bind(client_id)
-        .bind(now)
-        .fetch_optional(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = row {
-            use sqlx::Row;
-            Ok(Some(OAuth2State {
-                state: row.try_get("state").map_err(|e| {
-                    AppError::database(format!("Failed to parse state column: {e}"))
-                })?,
-                client_id: row.try_get("client_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse client_id column: {e}"))
-                })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
-                })?,
-                redirect_uri: row.try_get("redirect_uri").map_err(|e| {
-                    AppError::database(format!("Failed to parse redirect_uri column: {e}"))
-                })?,
-                scope: row.try_get("scope").map_err(|e| {
-                    AppError::database(format!("Failed to parse scope column: {e}"))
-                })?,
-                code_challenge: row.try_get("code_challenge").map_err(|e| {
-                    AppError::database(format!("Failed to parse code_challenge column: {e}"))
-                })?,
-                code_challenge_method: row.try_get("code_challenge_method").map_err(|e| {
-                    AppError::database(format!("Failed to parse code_challenge_method column: {e}"))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
-                used: row
-                    .try_get("used")
-                    .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    // ================================
-    // OAuth Client State (CSRF + PKCE)
-    // ================================
-
-    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
-        sqlx::query(
-            "INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-        )
-        .bind(&state.state)
-        .bind(&state.provider)
-        .bind(state.user_id)
-        .bind(&state.tenant_id)
-        .bind(&state.redirect_uri)
-        .bind(&state.scope)
-        .bind(&state.pkce_code_verifier)
-        .bind(state.created_at)
-        .bind(state.expires_at)
-        .bind(state.used)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store OAuth client state: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn consume_oauth_client_state(
-        &self,
-        state_value: &str,
-        provider: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuthClientState>> {
-        let row = sqlx::query(
-            "UPDATE oauth_client_states
-             SET used = true
-             WHERE state = $1
-               AND provider = $2
-               AND used = false
-               AND expires_at > $3
-             RETURNING state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used",
-        )
-        .bind(state_value)
-        .bind(provider)
-        .bind(now)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to consume OAuth client state: {e}")))?;
-
-        if let Some(row) = row {
-            use sqlx::Row;
-            Ok(Some(OAuthClientState {
-                state: row.try_get("state").map_err(|e| {
-                    AppError::database(format!("Failed to parse state column: {e}"))
-                })?,
-                provider: row.try_get("provider").map_err(|e| {
-                    AppError::database(format!("Failed to parse provider column: {e}"))
-                })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
-                tenant_id: row.try_get("tenant_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse tenant_id column: {e}"))
-                })?,
-                redirect_uri: row.try_get("redirect_uri").map_err(|e| {
-                    AppError::database(format!("Failed to parse redirect_uri column: {e}"))
-                })?,
-                scope: row.try_get("scope").map_err(|e| {
-                    AppError::database(format!("Failed to parse scope column: {e}"))
-                })?,
-                pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
-                    AppError::database(format!("Failed to parse pkce_code_verifier column: {e}"))
-                })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
-                used: row
-                    .try_get("used")
-                    .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    // ================================
-    // Impersonation Session Management
-    // ================================
-
-    async fn create_impersonation_session(&self, session: &ImpersonationSession) -> AppResult<()> {
-        let query = r"
-            INSERT INTO impersonation_sessions (
-                id, impersonator_id, target_user_id, reason,
-                started_at, ended_at, is_active, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ";
-
-        sqlx::query(query)
-            .bind(&session.id)
-            .bind(session.impersonator_id.to_string())
-            .bind(session.target_user_id.to_string())
-            .bind(&session.reason)
-            .bind(session.started_at)
-            .bind(session.ended_at)
-            .bind(session.is_active)
-            .bind(session.created_at)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to create impersonation session: {e}"))
-            })?;
-
-        Ok(())
-    }
-
-    async fn get_impersonation_session(
-        &self,
-        session_id: &str,
-    ) -> AppResult<Option<ImpersonationSession>> {
-        let query = r"
-            SELECT id, impersonator_id, target_user_id, reason,
-                   started_at, ended_at, is_active, created_at
-            FROM impersonation_sessions WHERE id = $1
-        ";
-
-        let row = sqlx::query(query)
-            .bind(session_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get impersonation session: {e}")))?;
-
-        row.map(|r| shared::mappers::parse_impersonation_session_from_row(&r))
-            .transpose()
-    }
-
-    async fn get_active_impersonation_session(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Option<ImpersonationSession>> {
-        let query = r"
-            SELECT id, impersonator_id, target_user_id, reason,
-                   started_at, ended_at, is_active, created_at
-            FROM impersonation_sessions
-            WHERE (impersonator_id = $1 OR target_user_id = $2) AND is_active = true
-            ORDER BY started_at DESC LIMIT 1
-        ";
-
-        let user_id_str = user_id.to_string();
-        let row = sqlx::query(query)
-            .bind(&user_id_str)
-            .bind(&user_id_str)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to get active impersonation session: {e}"))
-            })?;
-
-        row.map(|r| shared::mappers::parse_impersonation_session_from_row(&r))
-            .transpose()
-    }
-
-    async fn end_impersonation_session(&self, session_id: &str) -> AppResult<()> {
-        let query = r"
-            UPDATE impersonation_sessions
-            SET is_active = false, ended_at = $1
-            WHERE id = $2
-        ";
-
-        let ended_at = chrono::Utc::now();
-        sqlx::query(query)
-            .bind(ended_at)
-            .bind(session_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to end impersonation session: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn end_all_impersonation_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
-        let query = r"
-            UPDATE impersonation_sessions
-            SET is_active = false, ended_at = $1
-            WHERE impersonator_id = $2 AND is_active = true
-        ";
-
-        let ended_at = chrono::Utc::now();
-        let result = sqlx::query(query)
-            .bind(ended_at)
-            .bind(impersonator_id.to_string())
-            .execute(&self.pool)
-            .await
-            .map_err(|e| {
-                AppError::database(format!("Failed to end impersonation sessions: {e}"))
-            })?;
-
-        Ok(result.rows_affected())
-    }
-
-    async fn list_impersonation_sessions(
-        &self,
-        impersonator_id: Option<Uuid>,
-        target_user_id: Option<Uuid>,
-        active_only: bool,
-        limit: u32,
-    ) -> AppResult<Vec<ImpersonationSession>> {
-        use std::fmt::Write;
-
-        // Build dynamic query based on filters
-        let mut query = String::from(
-            r"
-            SELECT id, impersonator_id, target_user_id, reason,
-                   started_at, ended_at, is_active, created_at
-            FROM impersonation_sessions WHERE 1=1
-            ",
-        );
-
-        let mut param_idx = 1u32;
-
-        if impersonator_id.is_some() {
-            let _ = write!(query, " AND impersonator_id = ${param_idx}");
-            param_idx += 1;
-        }
-        if target_user_id.is_some() {
-            let _ = write!(query, " AND target_user_id = ${param_idx}");
-            param_idx += 1;
-        }
-        if active_only {
-            query.push_str(" AND is_active = true");
-        }
-        let _ = write!(query, " ORDER BY started_at DESC LIMIT ${param_idx}");
-
-        let mut sql_query = sqlx::query(&query);
-
-        if let Some(id) = impersonator_id {
-            sql_query = sql_query.bind(id.to_string());
-        }
-        if let Some(id) = target_user_id {
-            sql_query = sql_query.bind(id.to_string());
-        }
-        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-        let limit_i32 = limit as i32;
-        sql_query = sql_query.bind(limit_i32);
-
-        let rows = sql_query.fetch_all(&self.pool).await.map_err(|e| {
-            AppError::database(format!("Failed to list impersonation sessions: {e}"))
-        })?;
-
-        rows.iter()
-            .map(shared::mappers::parse_impersonation_session_from_row)
-            .collect()
-    }
-
-    // ================================
-    // User MCP Token Management
-    // ================================
-
-    async fn create_user_mcp_token(
-        &self,
-        user_id: Uuid,
-        request: &CreateUserMcpTokenRequest,
-    ) -> AppResult<UserMcpTokenCreated> {
-        let token_value = Self::generate_mcp_token();
-        let token_hash = Self::hash_mcp_token(&token_value);
-        let token_prefix = token_value.chars().take(12).collect::<String>();
-        let id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now();
-
-        let expires_at = request
-            .expires_in_days
-            .map(|days| now + chrono::Duration::days(i64::from(days)));
-
-        sqlx::query(
-            r"
-            INSERT INTO user_mcp_tokens (
-                id, user_id, name, token_hash, token_prefix,
-                expires_at, last_used_at, usage_count, is_revoked, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NULL, 0, false, $7)
-            ",
-        )
-        .bind(&id)
-        .bind(user_id.to_string())
-        .bind(&request.name)
-        .bind(&token_hash)
-        .bind(&token_prefix)
-        .bind(expires_at)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to create user MCP token: {e}")))?;
-
-        let token = UserMcpToken {
-            id,
-            user_id,
-            name: request.name.clone(),
-            token_hash,
-            token_prefix,
-            expires_at,
-            last_used_at: None,
-            usage_count: 0,
-            is_revoked: false,
-            created_at: now,
-        };
-
-        Ok(UserMcpTokenCreated { token, token_value })
-    }
-
-    async fn validate_user_mcp_token(&self, token_value: &str) -> AppResult<Uuid> {
-        use sqlx::Row;
-
-        let token_hash = Self::hash_mcp_token(token_value);
-        let token_prefix = token_value.chars().take(12).collect::<String>();
-
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, expires_at, is_revoked
-            FROM user_mcp_tokens
-            WHERE token_prefix = $1 AND token_hash = $2
-            ",
-        )
-        .bind(&token_prefix)
-        .bind(&token_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to validate user MCP token: {e}")))?;
-
-        let row = row.ok_or_else(|| AppError::auth_invalid("Invalid MCP token"))?;
-        let is_revoked: bool = row.get("is_revoked");
-        if is_revoked {
-            return Err(AppError::auth_invalid("MCP token has been revoked"));
-        }
-
-        let expires_at: Option<chrono::DateTime<chrono::Utc>> = row.get("expires_at");
-        if let Some(exp) = expires_at {
-            if exp < chrono::Utc::now() {
-                return Err(AppError::auth_invalid("MCP token has expired"));
-            }
-        }
-
-        let token_id: String = row.get("id");
-        self.update_user_mcp_token_usage(&token_id).await?;
-
-        let user_id_str: String = row.get("user_id");
-        Uuid::parse_str(&user_id_str)
-            .map_err(|e| AppError::internal(format!("Failed to parse user_id UUID: {e}")))
-    }
-
-    async fn list_user_mcp_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
-        use sqlx::Row;
-
-        let rows = sqlx::query(
-            r"
-            SELECT id, name, token_prefix, expires_at, last_used_at,
-                   usage_count, is_revoked, created_at
-            FROM user_mcp_tokens
-            WHERE user_id = $1
-            ORDER BY created_at DESC
-            ",
-        )
-        .bind(user_id.to_string())
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list user MCP tokens: {e}")))?;
-        rows.iter()
-            .map(|row| {
-                Ok(UserMcpTokenInfo {
-                    id: row.get("id"),
-                    name: row.get("name"),
-                    token_prefix: row.get("token_prefix"),
-                    expires_at: row.get("expires_at"),
-                    last_used_at: row.get("last_used_at"),
-                    usage_count: u32::try_from(row.get::<i32, _>("usage_count")).map_err(|e| {
-                        AppError::internal(format!(
-                            "Integer conversion failed for usage_count: {e}"
-                        ))
-                    })?,
-                    is_revoked: row.get("is_revoked"),
-                    created_at: row.get("created_at"),
-                })
-            })
-            .collect()
-    }
-
-    async fn revoke_user_mcp_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE user_mcp_tokens
-            SET is_revoked = true
-            WHERE id = $1 AND user_id = $2
-            ",
-        )
-        .bind(token_id)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to revoke user MCP token: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found("MCP token not found or unauthorized"));
-        }
-
-        Ok(())
-    }
-
-    async fn get_user_mcp_token(
-        &self,
-        token_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserMcpToken>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, name, token_hash, token_prefix,
-                   expires_at, last_used_at, usage_count, is_revoked, created_at
-            FROM user_mcp_tokens
-            WHERE id = $1 AND user_id = $2
-            ",
-        )
-        .bind(token_id)
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user MCP token: {e}")))?;
-
-        row.map(|r| shared::mappers::parse_user_mcp_token_from_row(&r))
-            .transpose()
-    }
-
-    async fn cleanup_expired_user_mcp_tokens(&self) -> AppResult<u64> {
-        let result = sqlx::query(
-            r"
-            UPDATE user_mcp_tokens
-            SET is_revoked = true
-            WHERE expires_at IS NOT NULL
-            AND expires_at < $1
-            AND is_revoked = false
-            ",
-        )
-        .bind(chrono::Utc::now())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| {
-            AppError::database(format!("Failed to cleanup expired user MCP tokens: {e}"))
-        })?;
-
-        Ok(result.rows_affected())
-    }
-
     // ================================
     // LLM Credentials Management
     // ================================
@@ -6325,18 +5967,6 @@ impl DatabaseProvider for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to get admin config override: {e}")))?;
 
         Ok(row.map(|r| r.get::<String, _>("config_value")))
-    }
-
-    // ================================
-    // Encryption Interface (delegates to HasEncryption trait)
-    // ================================
-
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-        shared::encryption::HasEncryption::encrypt_data_with_aad(self, data, aad)
-    }
-
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-        shared::encryption::HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
     }
 
     // ================================
@@ -6562,144 +6192,10 @@ impl DatabaseProvider for PostgresDatabase {
 
         Ok(count)
     }
+}
 
-    async fn user_has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM synthetic_activities WHERE user_id = $1 LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(count > 0)
-    }
-
-    // ================================
-    // Provider Connections (PostgreSQL implementation)
-    // ================================
-
-    async fn register_provider_connection(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        connection_type: &ConnectionType,
-        metadata: Option<&str>,
-    ) -> AppResult<()> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now();
-        let conn_type_str = connection_type.as_str();
-
-        sqlx::query(
-            r"
-            INSERT INTO provider_connections (id, user_id, tenant_id, provider, connection_type, connected_at, metadata)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET
-                connection_type = EXCLUDED.connection_type,
-                connected_at = EXCLUDED.connected_at,
-                metadata = EXCLUDED.metadata
-            ",
-        )
-        .bind(&id)
-        .bind(user_id.to_string())
-        .bind(tenant_id.0)
-        .bind(provider)
-        .bind(conn_type_str)
-        .bind(now.to_rfc3339())
-        .bind(metadata)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn remove_provider_connection(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<()> {
-        sqlx::query(
-            "DELETE FROM provider_connections WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
-        )
-        .bind(user_id.to_string())
-        .bind(tenant_id.0)
-        .bind(provider)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    async fn get_user_provider_connections(
-        &self,
-        user_id: Uuid,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Vec<ProviderConnection>> {
-        let rows = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
-                FROM provider_connections
-                WHERE user_id = $1 AND tenant_id = $2
-                ORDER BY connected_at DESC
-                ",
-            )
-            .bind(user_id.to_string())
-            .bind(tid.to_string())
-            .fetch_all(&self.pool)
-            .await?
-        } else {
-            sqlx::query(
-                r"
-                SELECT id, user_id, tenant_id, provider, connection_type, connected_at, metadata
-                FROM provider_connections
-                WHERE user_id = $1
-                ORDER BY connected_at DESC
-                ",
-            )
-            .bind(user_id.to_string())
-            .fetch_all(&self.pool)
-            .await?
-        };
-
-        let mut connections = Vec::with_capacity(rows.len());
-        for row in rows {
-            let conn_type_str: String = row.get("connection_type");
-            let connected_at_str: String = row.get("connected_at");
-            let connected_at = DateTime::parse_from_rfc3339(&connected_at_str)
-                .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
-
-            let user_id_from_db: String = row.get("user_id");
-            let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
-
-            connections.push(ProviderConnection {
-                id: row.get("id"),
-                user_id: parsed_user_id,
-                tenant_id: row.get("tenant_id"),
-                provider: row.get("provider"),
-                connection_type: ConnectionType::from_str_value(&conn_type_str)
-                    .unwrap_or(ConnectionType::Manual),
-                connected_at,
-                metadata: row.get("metadata"),
-            });
-        }
-
-        Ok(connections)
-    }
-
-    async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM provider_connections WHERE user_id = $1 AND provider = $2",
-        )
-        .bind(user_id.to_string())
-        .bind(provider)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(count > 0)
-    }
-
+#[async_trait]
+impl ChatDbOps for PostgresDatabase {
     // ================================
     // Chat Conversations & Messages (PostgreSQL implementation)
     // ================================
@@ -7110,309 +6606,841 @@ impl DatabaseProvider for PostgresDatabase {
         #[allow(clippy::cast_possible_wrap)]
         Ok(result.rows_affected() as i64)
     }
+}
 
-    async fn store_password_reset_token(
+#[async_trait]
+impl SecurityDbOps for PostgresDatabase {
+    // ================================
+    // RSA Key Persistence for JWT Signing
+    // ================================
+
+    /// Save RSA keypair to database for persistence across restarts
+    async fn save_rsa_keypair(
         &self,
-        user_id: Uuid,
-        token_hash: &str,
-        created_by: &str,
-    ) -> AppResult<Uuid> {
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        let expires_at = now + chrono::Duration::hours(1);
-
+        kid: &str,
+        private_key_pem: &str,
+        public_key_pem: &str,
+        created_at: DateTime<Utc>,
+        is_active: bool,
+        key_size_bits: i32,
+    ) -> AppResult<()> {
         sqlx::query(
             r"
-            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
+            INSERT INTO rsa_keypairs (kid, private_key_pem, public_key_pem, created_at, is_active, key_size_bits)
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT(kid) DO UPDATE SET
+                private_key_pem = EXCLUDED.private_key_pem,
+                public_key_pem = EXCLUDED.public_key_pem,
+                is_active = EXCLUDED.is_active
             ",
         )
-        .bind(id.to_string())
-        .bind(user_id.to_string())
-        .bind(token_hash)
-        .bind(expires_at.to_rfc3339())
-        .bind(created_by)
-        .bind(now.to_rfc3339())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
-
-        Ok(id)
-    }
-
-    async fn consume_password_reset_token(&self, token_hash: &str) -> AppResult<Uuid> {
-        let now = Utc::now().to_rfc3339();
-
-        let row = sqlx::query(
-            r"
-            UPDATE password_reset_tokens
-            SET used_at = $1
-            WHERE token_hash = $2
-              AND used_at IS NULL
-              AND expires_at > $1
-            RETURNING user_id
-            ",
-        )
-        .bind(&now)
-        .bind(token_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to consume reset token: {e}")))?;
-
-        row.map_or_else(
-            || {
-                Err(AppError::not_found(
-                    "Password reset token is invalid, expired, or already used",
-                ))
-            },
-            |row| {
-                let user_id_str: String = row.get("user_id");
-                Uuid::parse_str(&user_id_str)
-                    .map_err(|e| AppError::internal(format!("Invalid user_id in reset token: {e}")))
-            },
-        )
-    }
-
-    async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()> {
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            UPDATE password_reset_tokens
-            SET used_at = $1
-            WHERE user_id = $2
-              AND used_at IS NULL
-            ",
-        )
-        .bind(&now)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
+        .bind(kid)
+        .bind(private_key_pem)
+        .bind(public_key_pem)
+        .bind(created_at)
+        .bind(is_active)
+        .bind(key_size_bits)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
 
         Ok(())
     }
 
-    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
-        let id = Uuid::new_v4().to_string();
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, execution_time_ms, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-            ",
+    /// Load all RSA keypairs from database
+    async fn load_rsa_keypairs(
+        &self,
+    ) -> AppResult<Vec<(String, String, String, DateTime<Utc>, bool)>> {
+        let rows = sqlx::query(
+            "SELECT kid, private_key_pem, public_key_pem, created_at, is_active FROM rsa_keypairs ORDER BY created_at DESC",
         )
-        .bind(&id)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.conversation_id)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.prompt_tokens)
-        .bind(params.completion_tokens)
-        .bind(params.total_tokens)
-        .bind(params.call_type)
-        .bind(params.tool_calls_count)
-        .bind(params.execution_time_ms)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to insert LLM usage: {e}")))?;
+        .fetch_all(&self.pool).await.map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
 
-        Ok(LlmUsageRecord {
-            id,
-            tenant_id: params.tenant_id.to_owned(),
-            user_id: params.user_id.to_owned(),
-            conversation_id: params.conversation_id.map(ToOwned::to_owned),
-            provider: params.provider.to_owned(),
-            model: params.model.to_owned(),
-            prompt_tokens: params.prompt_tokens,
-            completion_tokens: params.completion_tokens,
-            total_tokens: params.total_tokens,
-            call_type: params.call_type.to_owned(),
-            tool_calls_count: params.tool_calls_count,
-            execution_time_ms: params.execution_time_ms,
-            created_at: now,
-        })
+        let mut keypairs = Vec::new();
+        for row in rows {
+            let kid: String = row.get("kid");
+            let private_key_pem: String = row.get("private_key_pem");
+            let public_key_pem: String = row.get("public_key_pem");
+            let created_at: DateTime<Utc> = row.get("created_at");
+            let is_active: bool = row.get("is_active");
+
+            keypairs.push((kid, private_key_pem, public_key_pem, created_at, is_active));
+        }
+
+        Ok(keypairs)
     }
 
-    async fn get_llm_usage_aggregates(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64)>(
-            r"
-            SELECT provider, model, call_type,
-                   COALESCE(SUM(total_tokens), 0)::BIGINT as total_tokens,
-                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
-                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
-                   COUNT(*)::BIGINT as calls
-            FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
-            GROUP BY provider, model, call_type
-            ORDER BY total_tokens DESC
-            ",
-        )
-        .bind(tenant_id)
-        .bind(since)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    provider,
-                    model,
-                    call_type,
-                    total_tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
-                )| {
-                    LlmUsageAggregateRow {
-                        provider,
-                        model,
-                        call_type,
-                        total_tokens,
-                        prompt_tokens,
-                        completion_tokens,
-                        calls,
-                    }
-                },
-            )
-            .collect())
-    }
-
-    async fn get_llm_usage_daily_series(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
-            r"
-            SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
-                   COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
-                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
-                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
-                   COUNT(*)::BIGINT as calls
-            FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
-            GROUP BY created_at::DATE
-            ORDER BY date ASC
-            ",
-        )
-        .bind(tenant_id)
-        .bind(since)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to query LLM usage daily series: {e}")))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
-                    date,
-                    tokens,
-                    prompt_tokens,
-                    completion_tokens,
-                    calls,
-                },
-            )
-            .collect())
-    }
-
-    async fn increment_usage_counter(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        counter_key: &str,
-        period: &str,
-        amount: i64,
-    ) -> AppResult<UsageCounterRecord> {
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (tenant_id, user_id, counter_key, period)
-            DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
-            ",
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(counter_key)
-        .bind(period)
-        .bind(amount)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
-
-        self.get_usage_counter(tenant_id, user_id, counter_key, period)
+    /// Update active status of RSA keypair
+    async fn update_rsa_keypair_active_status(&self, kid: &str, is_active: bool) -> AppResult<()> {
+        sqlx::query("UPDATE rsa_keypairs SET is_active = $1 WHERE kid = $2")
+            .bind(is_active)
+            .bind(kid)
+            .execute(&self.pool)
             .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
     }
 
-    async fn get_usage_counter(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        counter_key: &str,
-        period: &str,
-    ) -> AppResult<UsageCounterRecord> {
-        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
-            r"
-            SELECT tenant_id, user_id, counter_key, period, value, updated_at
-            FROM usage_counters
-            WHERE tenant_id = $1 AND user_id = $2 AND counter_key = $3 AND period = $4
-            ",
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(counter_key)
-        .bind(period)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get usage counter: {e}")))?;
+    // ================================
+    // Key Rotation & Security - PostgreSQL implementations
+    // ================================
 
-        match row {
-            Some((tid, uid, key, per, val, updated)) => Ok(UsageCounterRecord {
-                tenant_id: tid,
-                user_id: uid,
-                counter_key: key,
-                period: per,
-                value: val,
-                updated_at: updated,
-            }),
-            None => Ok(UsageCounterRecord {
-                tenant_id: tenant_id.to_owned(),
-                user_id: user_id.to_owned(),
-                counter_key: counter_key.to_owned(),
-                period: period.to_owned(),
-                value: 0,
-                updated_at: String::new(),
-            }),
+    async fn store_key_version(&self, version: &KeyVersion) -> AppResult<()> {
+        let query = r"
+            INSERT INTO key_versions (tenant_id, version, created_at, expires_at, is_active, algorithm)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, version) DO UPDATE SET
+                expires_at = EXCLUDED.expires_at,
+                is_active = EXCLUDED.is_active,
+                algorithm = EXCLUDED.algorithm
+        ";
+
+        sqlx::query(query)
+            .bind(version.tenant_id.map(|id| id.to_string()))
+            .bind(i32::try_from(version.version).unwrap_or(0)) // Safe: version ranges are controlled by application
+            .bind(version.created_at)
+            .bind(version.expires_at)
+            .bind(version.is_active)
+            .bind(&version.algorithm)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to store key version: {e}")))?;
+
+        debug!(
+            "Stored key version {} for tenant {:?}",
+            version.version, version.tenant_id
+        );
+        Ok(())
+    }
+
+    async fn get_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<Vec<KeyVersion>> {
+        let query = match tenant_id {
+            Some(_) => {
+                r"
+                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
+                FROM key_versions 
+                WHERE tenant_id = $1
+                ORDER BY version DESC
+            "
+            }
+            None => {
+                r"
+                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
+                FROM key_versions 
+                WHERE tenant_id IS NULL
+                ORDER BY version DESC
+            "
+            }
+        };
+
+        let rows = if let Some(tid) = tenant_id {
+            sqlx::query(query)
+                .bind(tid.to_string())
+                .fetch_all(&self.pool)
+                .await
+        } else {
+            sqlx::query(query).fetch_all(&self.pool).await
+        }
+        .map_err(|e| AppError::database(format!("Failed to fetch key versions: {e}")))?;
+
+        let mut versions = Vec::new();
+        for row in rows {
+            let tenant_id_str: Option<String> = row.get("tenant_id");
+            let tenant_id = if let Some(tid) = tenant_id_str {
+                Some(TenantId::from_uuid(parse_uuid(&tid)?))
+            } else {
+                None
+            };
+
+            let version = KeyVersion {
+                tenant_id,
+                version: u32::try_from(row.get::<i32, _>("version")).unwrap_or(0), // Safe: stored versions are always positive
+                created_at: row.get("created_at"),
+                expires_at: row.get("expires_at"),
+                is_active: row.get("is_active"),
+                algorithm: row.get("algorithm"),
+            };
+            versions.push(version);
+        }
+
+        Ok(versions)
+    }
+
+    async fn get_current_key_version(
+        &self,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<KeyVersion>> {
+        let query = match tenant_id {
+            Some(_) => {
+                r"
+                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
+                FROM key_versions 
+                WHERE tenant_id = $1 AND is_active = true
+                ORDER BY version DESC
+                LIMIT 1
+            "
+            }
+            None => {
+                r"
+                SELECT tenant_id, version, created_at, expires_at, is_active, algorithm
+                FROM key_versions 
+                WHERE tenant_id IS NULL AND is_active = true
+                ORDER BY version DESC
+                LIMIT 1
+            "
+            }
+        };
+
+        let row = if let Some(tid) = tenant_id {
+            sqlx::query(query)
+                .bind(tid.to_string())
+                .fetch_optional(&self.pool)
+                .await
+        } else {
+            sqlx::query(query).fetch_optional(&self.pool).await
+        }
+        .map_err(|e| AppError::database(format!("Failed to fetch current key version: {e}")))?;
+
+        if let Some(row) = row {
+            let tenant_id_str: Option<String> = row.get("tenant_id");
+            let tenant_id = if let Some(tid) = tenant_id_str {
+                Some(TenantId::from_uuid(parse_uuid(&tid)?))
+            } else {
+                None
+            };
+
+            let version = KeyVersion {
+                tenant_id,
+                version: u32::try_from(row.get::<i32, _>("version")).unwrap_or(0), // Safe: stored versions are always positive
+                created_at: row.get("created_at"),
+                expires_at: row.get("expires_at"),
+                is_active: row.get("is_active"),
+                algorithm: row.get("algorithm"),
+            };
+            Ok(Some(version))
+        } else {
+            Ok(None)
         }
     }
 
-    /// System-level housekeeping: intentionally cross-tenant pruning of expired counters
-    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
-        let result = sqlx::query(
+    async fn update_key_version_status(
+        &self,
+        tenant_id: Option<TenantId>,
+        version: u32,
+        is_active: bool,
+    ) -> AppResult<()> {
+        let query = match tenant_id {
+            Some(_) => {
+                r"
+                UPDATE key_versions 
+                SET is_active = $3
+                WHERE tenant_id = $1 AND version = $2
+            "
+            }
+            None => {
+                r"
+                UPDATE key_versions 
+                SET is_active = $2
+                WHERE tenant_id IS NULL AND version = $1
+            "
+            }
+        };
+
+        let result = if let Some(tid) = tenant_id {
+            sqlx::query(query)
+                .bind(tid.to_string())
+                .bind(i32::try_from(version).unwrap_or(0)) // Safe: version ranges are controlled by application
+                .bind(is_active)
+                .execute(&self.pool)
+                .await
+        } else {
+            sqlx::query(query)
+                .bind(i32::try_from(version).unwrap_or(0)) // Safe: version ranges are controlled by application
+                .bind(is_active)
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to update key version status: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            warn!(
+                "No key version found to update: tenant={:?}, version={}",
+                tenant_id, version
+            );
+        } else {
+            debug!(
+                "Updated key version {} status to {} for tenant {:?}",
+                version, is_active, tenant_id
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn delete_old_key_versions(
+        &self,
+        tenant_id: Option<TenantId>,
+        keep_count: u32,
+    ) -> AppResult<u64> {
+        let query = match tenant_id {
+            Some(_) => {
+                r"
+                DELETE FROM key_versions 
+                WHERE tenant_id = $1 
+                AND version NOT IN (
+                    SELECT version FROM key_versions 
+                    WHERE tenant_id = $1
+                    ORDER BY version DESC 
+                    LIMIT $2
+                )
+            "
+            }
+            None => {
+                r"
+                DELETE FROM key_versions 
+                WHERE tenant_id IS NULL 
+                AND version NOT IN (
+                    SELECT version FROM key_versions 
+                    WHERE tenant_id IS NULL
+                    ORDER BY version DESC 
+                    LIMIT $1
+                )
+            "
+            }
+        };
+
+        let result = if let Some(tid) = tenant_id {
+            sqlx::query(query)
+                .bind(tid.to_string())
+                .bind(i32::try_from(keep_count).unwrap_or(0)) // Safe: keep_count ranges are controlled by application
+                .execute(&self.pool)
+                .await
+        } else {
+            sqlx::query(query)
+                .bind(i32::try_from(keep_count).unwrap_or(0)) // Safe: keep_count ranges are controlled by application
+                .execute(&self.pool)
+                .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete old key versions: {e}")))?;
+
+        let deleted_count = result.rows_affected();
+        debug!(
+            "Deleted {} old key versions for tenant {:?}, kept {} most recent",
+            deleted_count, tenant_id, keep_count
+        );
+
+        Ok(deleted_count)
+    }
+
+    async fn store_audit_event(&self, event: &AuditEvent) -> AppResult<()> {
+        let query = r"
+            INSERT INTO audit_events (
+                id, event_type, severity, message, source, result, 
+                tenant_id, user_id, ip_address, user_agent, metadata, timestamp
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10, $11, $12)
+        ";
+
+        let event_type_str = format!("{:?}", event.event_type);
+        let severity_str = format!("{:?}", event.severity);
+        let metadata_json = serde_json::to_string(&event.metadata)?;
+
+        sqlx::query(query)
+            .bind(event.event_id.to_string())
+            .bind(&event_type_str)
+            .bind(&severity_str)
+            .bind(&event.description)
+            .bind("security") // source - using generic security source
+            .bind(&event.result)
+            .bind(event.tenant_id.map(|id| id.to_string()))
+            .bind(event.user_id.map(|id| id.to_string()))
+            .bind(&event.source_ip)
+            .bind(&event.user_agent)
+            .bind(&metadata_json)
+            .bind(event.timestamp)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Complex audit query with dynamic filtering, pagination, and exhaustive enum mapping
+    ///
+    /// JUSTIFICATION for `#[allow(clippy::too_many_lines)]`:
+    /// - Dynamic SQL query building with optional filters (`tenant_id`, `event_type`, `limit`)
+    /// - Exhaustive match for 25+ `AuditEventType` variants (cannot be extracted without loss of context)
+    /// - Exhaustive match for `AuditSeverity` variants
+    /// - Row-to-struct mapping with UUID parsing and JSON deserialization
+    /// - Refactoring would fragment audit event construction logic across multiple functions
+    #[allow(clippy::too_many_lines)]
+    async fn get_audit_events(
+        &self,
+        tenant_id: Option<TenantId>,
+        event_type: Option<&str>,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<AuditEvent>> {
+        use std::fmt::Write;
+
+        let mut query = r"
+            SELECT id, event_type, severity, message, source, result,
+                   tenant_id, user_id, ip_address, user_agent, metadata, timestamp
+            FROM audit_events
+            WHERE true
+        "
+        .to_owned();
+
+        let mut bind_count = 0;
+        if tenant_id.is_some() {
+            bind_count += 1;
+            if write!(query, " AND tenant_id = ${bind_count}").is_err() {
+                return Err(AppError::database(
+                    "Failed to write tenant_id clause to query".to_owned(),
+                ));
+            }
+        }
+        if event_type.is_some() {
+            bind_count += 1;
+            if write!(query, " AND event_type = ${bind_count}").is_err() {
+                return Err(AppError::database(
+                    "Failed to write event_type clause to query".to_owned(),
+                ));
+            }
+        }
+
+        query.push_str(" ORDER BY timestamp DESC");
+
+        if limit.is_some() {
+            bind_count += 1;
+            if write!(query, " LIMIT ${bind_count}").is_err() {
+                return Err(AppError::database(
+                    "Failed to write LIMIT clause to query".to_owned(),
+                ));
+            }
+        }
+
+        let mut sql_query = sqlx::query(&query);
+
+        if let Some(tid) = tenant_id {
+            sql_query = sql_query.bind(tid.to_string());
+        }
+        if let Some(et) = event_type {
+            sql_query = sql_query.bind(et);
+        }
+        if let Some(l) = limit {
+            sql_query = sql_query.bind(i32::try_from(l).unwrap_or(0)); // Safe: limit ranges are controlled by application
+        }
+
+        let rows = sql_query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get audit events: {e}")))?;
+
+        let mut events = Vec::new();
+        for row in rows {
+            let event_id_str: String = row.get("id");
+            let event_id = uuid::Uuid::parse_str(&event_id_str)
+                .map_err(|e| AppError::database(format!("Invalid audit event UUID: {e}")))?;
+
+            let event_type_str: String = row.get("event_type");
+            let event_type = match event_type_str.as_str() {
+                "UserLogin" => AuditEventType::UserLogin,
+                "UserLogout" => AuditEventType::UserLogout,
+                "AuthenticationFailed" => AuditEventType::AuthenticationFailed,
+                "ApiKeyUsed" => AuditEventType::ApiKeyUsed,
+                "OAuthCredentialsAccessed" => AuditEventType::OAuthCredentialsAccessed,
+                "OAuthCredentialsModified" => AuditEventType::OAuthCredentialsModified,
+                "OAuthCredentialsCreated" => AuditEventType::OAuthCredentialsCreated,
+                "OAuthCredentialsDeleted" => AuditEventType::OAuthCredentialsDeleted,
+                "TokenRefreshed" => AuditEventType::TokenRefreshed,
+                "TenantCreated" => AuditEventType::TenantCreated,
+                "TenantModified" => AuditEventType::TenantModified,
+                "TenantDeleted" => AuditEventType::TenantDeleted,
+                "TenantUserAdded" => AuditEventType::TenantUserAdded,
+                "TenantUserRemoved" => AuditEventType::TenantUserRemoved,
+                "TenantUserRoleChanged" => AuditEventType::TenantUserRoleChanged,
+                "DataEncrypted" => AuditEventType::DataEncrypted,
+                "DataDecrypted" => AuditEventType::DataDecrypted,
+                "KeyRotated" => AuditEventType::KeyRotated,
+                "EncryptionFailed" => AuditEventType::EncryptionFailed,
+                "ToolExecutionFailed" => AuditEventType::ToolExecutionFailed,
+                "ProviderApiCalled" => AuditEventType::ProviderApiCalled,
+                "ConfigurationChanged" => AuditEventType::ConfigurationChanged,
+                "SystemMaintenance" => AuditEventType::SystemMaintenance,
+                "SecurityPolicyViolation" => AuditEventType::SecurityPolicyViolation,
+                _ => AuditEventType::ToolExecuted, // Default fallback
+            };
+
+            let severity_str: String = row.get("severity");
+            let severity = match severity_str.as_str() {
+                "Warning" => AuditSeverity::Warning,
+                "Error" => AuditSeverity::Error,
+                "Critical" => AuditSeverity::Critical,
+                _ => AuditSeverity::Info, // Default fallback
+            };
+
+            let tenant_id_str: Option<String> = row.get("tenant_id");
+            let tenant_id = if let Some(tid) = tenant_id_str {
+                Some(TenantId::from_uuid(parse_uuid(&tid)?))
+            } else {
+                None
+            };
+
+            let user_id_str: Option<String> = row.get("user_id");
+            let user_id = if let Some(uid) = user_id_str {
+                Some(parse_uuid(&uid)?)
+            } else {
+                None
+            };
+
+            let metadata_json: String = row.get("metadata");
+            let metadata: serde_json::Value = serde_json::from_str(&metadata_json)
+                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+
+            let event = AuditEvent {
+                event_id,
+                event_type,
+                severity,
+                timestamp: row.get("timestamp"),
+                user_id,
+                tenant_id,
+                source_ip: row.get("ip_address"),
+                user_agent: row.get("user_agent"),
+                session_id: None, // Not stored in current schema
+                description: row.get("message"),
+                metadata,
+                resource: None,             // Not stored in current schema
+                action: "audit".to_owned(), // Default action
+                result: row.get("result"),
+            };
+            events.push(event);
+        }
+
+        Ok(events)
+    }
+
+    // ================================
+    // System Secret Management Implementation
+    // ================================
+
+    /// Get or create system secret (generates if not exists)
+    async fn get_or_create_system_secret(&self, secret_type: &str) -> AppResult<String> {
+        // Try to get existing secret
+        if let Ok(secret) = self.get_system_secret(secret_type).await {
+            return Ok(secret);
+        }
+
+        // Generate new secret
+        let secret_value = match secret_type {
+            "admin_jwt_secret" => AdminJwtManager::generate_jwt_secret(),
+            _ => {
+                return Err(AppError::invalid_input(format!(
+                    "Unknown secret type: {secret_type}"
+                )))
+            }
+        };
+
+        // Store in database
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query("INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) VALUES ($1, $2, $3, $4)")
+            .bind(secret_type)
+            .bind(&secret_value)
+            .bind(&now)
+            .bind(&now)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(secret_value)
+    }
+
+    /// Get existing system secret
+    async fn get_system_secret(&self, secret_type: &str) -> AppResult<String> {
+        let row = sqlx::query("SELECT secret_value FROM system_secrets WHERE secret_type = $1")
+            .bind(secret_type)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
+
+        Ok(row
+            .try_get("secret_value")
+            .map_err(|e| AppError::database(format!("Failed to parse secret_value column: {e}")))?)
+    }
+
+    /// Update or insert system secret (supports both initial storage and rotation)
+    async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4) \
+             ON CONFLICT(secret_type) DO UPDATE SET secret_value = EXCLUDED.secret_value, updated_at = EXCLUDED.updated_at",
+        )
+        .bind(secret_type)
+        .bind(new_value)
+        .bind(&now)
+        .bind(&now)
+        .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+
+    // ================================
+    // OAuth Notifications
+    // ================================
+
+    async fn store_oauth_notification(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        success: bool,
+        message: &str,
+        expires_at: Option<&str>,
+    ) -> AppResult<String> {
+        let notification_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        sqlx::query(
             r"
-            DELETE FROM usage_counters
-            WHERE period < $1
+            INSERT INTO oauth_notifications (id, user_id, provider, success, message, expires_at, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             ",
         )
-        .bind(period_before)
+        .bind(&notification_id)
+        .bind(user_id.to_string())
+        .bind(provider)
+        .bind(success)
+        .bind(message)
+        .bind(expires_at)
+        .bind(&now)
         .execute(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(notification_id)
+    }
+
+    async fn get_unread_oauth_notifications(
+        &self,
+        user_id: Uuid,
+    ) -> AppResult<Vec<OAuthNotification>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, provider, success, message, expires_at, created_at, read_at
+            FROM oauth_notifications
+            WHERE user_id = $1 AND read_at IS NULL
+            ORDER BY created_at DESC
+            ",
+        )
+        .bind(user_id.to_string())
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let mut notifications = Vec::new();
+        for row in rows {
+            notifications.push(OAuthNotification {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                provider: row.get("provider"),
+                success: row.get("success"),
+                message: row.get("message"),
+                expires_at: row.get("expires_at"),
+                created_at: row.get("created_at"),
+                read_at: row.get("read_at"),
+            });
+        }
+
+        Ok(notifications)
+    }
+
+    async fn mark_oauth_notification_read(
+        &self,
+        notification_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE oauth_notifications 
+            SET read_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2 AND read_at IS NULL
+            ",
+        )
+        .bind(notification_id)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            UPDATE oauth_notifications 
+            SET read_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND read_at IS NULL
+            ",
+        )
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+
+    async fn get_all_oauth_notifications(
+        &self,
+        user_id: Uuid,
+        limit: Option<i64>,
+    ) -> AppResult<Vec<OAuthNotification>> {
+        let mut query_str = String::from(
+            r"
+            SELECT id, user_id, provider, success, message, expires_at, created_at, read_at
+            FROM oauth_notifications
+            WHERE user_id = $1
+            ORDER BY created_at DESC
+            ",
+        );
+
+        if let Some(l) = limit {
+            write!(query_str, " LIMIT {l}")
+                .map_err(|e| AppError::internal(format!("Format error: {e}")))?;
+        }
+
+        let rows = sqlx::query(&query_str)
+            .bind(user_id.to_string())
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let mut notifications = Vec::new();
+        for row in rows {
+            notifications.push(OAuthNotification {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                provider: row.get("provider"),
+                success: row.get("success"),
+                message: row.get("message"),
+                expires_at: row.get("expires_at"),
+                created_at: row.get("created_at"),
+                read_at: row.get("read_at"),
+            });
+        }
+
+        Ok(notifications)
+    }
+
+    // ================================
+    // Encryption Interface (delegates to HasEncryption trait)
+    // ================================
+
+    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
+        shared::encryption::HasEncryption::encrypt_data_with_aad(self, data, aad)
+    }
+
+    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
+        shared::encryption::HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
+    }
+}
+
+#[async_trait]
+impl SocialDbOps for PostgresDatabase {
+    async fn store_insight(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
+        let insight_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let insight_json = serde_json::to_string(&insight_data)
+            .map_err(|e| AppError::database(format!("Failed to serialize insight: {e}")))?;
+
+        sqlx::query(
+            r"
+            INSERT INTO insights (id, user_id, insight_type, insight_data, created_at)
+            VALUES ($1, $2, $3, $4, $5)
+            ",
+        )
+        .bind(&insight_id)
+        .bind(user_id)
+        .bind("general") // Default insight type since it's not provided separately
+        .bind(&insight_json)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store insight: {e}")))?;
+
+        Ok(insight_id)
+    }
+
+    async fn get_user_insights(
+        &self,
+        user_id: Uuid,
+        insight_type: Option<&str>,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<Value>> {
+        let limit = limit.unwrap_or(50);
+
+        let rows = if let Some(insight_type) = insight_type {
+            sqlx::query(
+                r"
+                SELECT content
+                FROM insights
+                WHERE user_id = $1 AND insight_type = $2
+                ORDER BY created_at DESC
+                LIMIT $3
+                ",
+            )
+            .bind(user_id)
+            .bind(insight_type)
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user insights by type: {e}")))?
+        } else {
+            sqlx::query(
+                r"
+                SELECT content
+                FROM insights
+                WHERE user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                ",
+            )
+            .bind(user_id)
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get user insights: {e}")))?
+        };
+
+        Ok(rows.into_iter().map(|row| row.get("content")).collect())
+    }
+}
+
+#[async_trait]
+impl DatabaseProvider for PostgresDatabase {
+    async fn new(database_url: &str, encryption_key: Vec<u8>) -> AppResult<Self> {
+        // Use default pool configuration when called through trait
+        // In practice, the Database factory calls the inherent impl's new() directly with config
+        let pool_config = PostgresPoolConfig::default();
+        Self::new_impl(database_url, encryption_key, &pool_config).await
+    }
+
+    async fn migrate(&self) -> AppResult<()> {
+        self.create_users_table().await?;
+        self.create_user_profiles_table().await?;
+        self.create_goals_table().await?;
+        self.create_insights_table().await?;
+        self.create_api_keys_tables().await?;
+        self.create_a2a_tables().await?;
+        self.create_admin_tables().await?;
+        self.create_jwt_usage_table().await?;
+        self.create_oauth_notifications_table().await?;
+        self.create_rsa_keypairs_table().await?;
+        self.create_tenant_tables().await?;
+        self.create_tool_selection_tables().await?;
+        self.create_chat_tables().await?;
+        self.create_llm_usage_table().await?;
+        self.create_usage_counters_table().await?;
+        self.create_indexes().await?;
+        Ok(())
     }
 }
 

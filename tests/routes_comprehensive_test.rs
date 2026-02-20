@@ -24,7 +24,7 @@ use pierre_mcp_server::{
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
     context::ServerContext,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,

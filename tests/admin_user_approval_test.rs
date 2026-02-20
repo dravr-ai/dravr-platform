@@ -14,7 +14,7 @@ use anyhow::Result;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::models::CreateAdminTokenRequest,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, AdminDbOps, DatabaseProvider, UserDbOps},
     key_management::KeyManager,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,

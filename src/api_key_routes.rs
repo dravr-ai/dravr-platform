@@ -15,7 +15,7 @@ use crate::{
         ApiKeyManager, ApiKeyTier, ApiKeyUsageStats, CreateApiKeyRequest, CreateApiKeyRequestSimple,
     },
     auth::AuthResult,
-    database_plugins::DatabaseProvider,
+    database_plugins::{ApiKeyDbOps, UsageDbOps},
     errors::{AppError, AppResult},
     mcp::resources::ServerResources,
 };

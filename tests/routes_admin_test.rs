@@ -158,7 +158,7 @@ use pierre_mcp_server::{
         AdminAuthService,
     },
     constants::system_config::STARTER_MONTHLY_LIMIT,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, AdminDbOps, UserDbOps},
     mcp::ToolSelectionService,
     models::{User, UserStatus},
     routes::admin::{AdminApiContext, AdminRoutes},

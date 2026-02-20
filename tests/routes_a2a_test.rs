@@ -164,7 +164,7 @@ use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
     config::environment::ServerConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, A2ADbOps, TenantDbOps, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User},
 };

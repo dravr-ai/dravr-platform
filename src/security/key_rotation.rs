@@ -14,7 +14,7 @@
 
 use crate::constants::time;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{SecurityDbOps, TenantDbOps};
 use crate::errors::AppResult;
 use crate::models::TenantId;
 use chrono::{Duration as ChronoDuration, Timelike, Utc};

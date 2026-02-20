@@ -16,7 +16,7 @@ use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::*,
     constants::oauth_providers,
-    database_plugins::DatabaseProvider,
+    database_plugins::{OAuthDbOps, TenantDbOps, UserDbOps},
     intelligence::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,

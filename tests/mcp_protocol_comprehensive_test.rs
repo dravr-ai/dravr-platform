@@ -16,7 +16,7 @@ mod common;
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::ServerConfig,
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},

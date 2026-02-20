@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use crate::config::environment::default_provider;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::UserDbOps;
 use crate::errors::AppError;
 use crate::errors::AppResult;
 use crate::intelligence::goal_engine::{AdvancedGoalEngine, GoalDifficulty, GoalEngineTrait};

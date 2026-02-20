@@ -25,9 +25,9 @@ use crate::llm::ChatProvider;
 use crate::mcp::resources::ServerResources;
 use crate::security::cookies::get_cookie_value;
 use crate::tenant::llm_manager::{
-    CredentialSource, LlmCredentialSummary, LlmCredentials, LlmProvider,
-    StoreLlmCredentialsRequest, TenantLlmManager,
+    CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
+use pierre_core::models::LlmCredentialSummary;
 
 /// Request to save LLM credentials
 #[derive(Debug, Deserialize)]

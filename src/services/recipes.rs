@@ -4,10 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::coaches::{
-    CoachDefinition, CoachFrontmatter, CoachPrerequisites, CoachSections, CoachStartup,
-};
-use crate::database::coaches::Coach;
+use crate::coaches::{CoachDefinition, CoachFrontmatter, CoachSections, CoachStartup};
+use pierre_core::models::coaches::{Coach, CoachPrerequisites};
 
 /// Convert a Coach database model to `CoachDefinition` for export
 ///

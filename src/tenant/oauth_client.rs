@@ -7,12 +7,12 @@
 // - OAuth credential string ownership transfers (client_id, client_secret, redirect_uri)
 // - Tenant context ownership for multi-tenant OAuth flows
 
-use super::oauth_manager::{CredentialConfig, TenantOAuthCredentials, TenantOAuthManager};
+use super::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use super::TenantContext;
 use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, AppResult};
 use crate::oauth2_client::{OAuth2Client, OAuth2Config, OAuth2Token, PkceParams};
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, TenantOAuthCredentials};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;

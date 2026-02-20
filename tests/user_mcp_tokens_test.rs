@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         SecurityHeadersConfig, ServerConfig,
     },
     database::CreateUserMcpTokenRequest,
-    database_plugins::DatabaseProvider,
+    database_plugins::AdminDbOps,
     mcp::resources::{ServerResources, ServerResourcesOptions},
     routes::user_mcp_tokens::UserMcpTokenRoutes,
 };

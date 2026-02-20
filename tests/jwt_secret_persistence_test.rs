@@ -14,7 +14,7 @@ use anyhow::Result;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::{jwt::AdminJwtManager, models::CreateAdminTokenRequest},
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps},
     key_management::KeyManager,
 };
 use serial_test::serial;

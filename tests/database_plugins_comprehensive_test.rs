@@ -13,15 +13,17 @@
 
 use anyhow::Result;
 use chrono::Utc;
+use pierre_core::models::JwtUsage;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage},
     constants::oauth_providers,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{
+        factory::Database, ApiKeyDbOps, DatabaseProvider, OAuthDbOps, UsageDbOps, UserDbOps,
+    },
     models::{TenantId, User, UserOAuthToken, UserTier},
-    rate_limiting::JwtUsage,
 };
 use serial_test::serial;
 use uuid::Uuid;

@@ -15,7 +15,7 @@ use futures_util::{SinkExt, StreamExt};
 use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::RateLimitConfig,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
     routes::websocket::WebSocketRoutes,

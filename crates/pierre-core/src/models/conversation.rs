@@ -70,3 +70,23 @@ pub struct ConversationSummary {
     /// When the conversation was last updated
     pub updated_at: String,
 }
+
+/// Parameters for adding a message to a conversation
+pub struct AddMessageParams<'a> {
+    /// Conversation to add the message to
+    pub conversation_id: &'a str,
+    /// User who owns the conversation
+    pub user_id: &'a str,
+    /// Role of the message sender (`user`, `assistant`, `system`)
+    pub role: &'a str,
+    /// Message content
+    pub content: &'a str,
+    /// Completion token count (for assistant messages)
+    pub token_count: Option<u32>,
+    /// Reason the LLM stopped generating (e.g. `stop`, `length`)
+    pub finish_reason: Option<&'a str>,
+    /// Prompt token count for this interaction
+    pub prompt_tokens: Option<u32>,
+    /// LLM model identifier used for this message
+    pub model: Option<&'a str>,
+}

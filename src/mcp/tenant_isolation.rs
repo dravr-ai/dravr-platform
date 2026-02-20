@@ -7,13 +7,15 @@
 use super::resources::ServerResources;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims};
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::{factory::Database, OAuthDbOps};
+use crate::database_plugins::{TenantDbOps, UserDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::models::{User, UserOAuthToken};
-use crate::tenant::{oauth_manager::TenantOAuthCredentials, TenantContext, TenantRole};
+use crate::tenant::{TenantContext, TenantRole};
 use crate::utils::uuid::parse_uuid;
 use http::HeaderMap;
 use pierre_core::models::TenantId;
+use pierre_core::models::TenantOAuthCredentials;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;

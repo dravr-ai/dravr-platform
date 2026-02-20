@@ -4,103 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use serde::Serialize;
-
 use crate::errors::{AppError, AppResult};
+use pierre_core::models::LlmUsageRecord;
 use uuid::Uuid;
 
+pub use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+
 use super::Database;
-
-/// Record of a single LLM API call for usage tracking
-#[derive(Debug, Clone)]
-pub struct LlmUsageRecord {
-    /// Unique record ID
-    pub id: String,
-    /// Tenant that owns this usage
-    pub tenant_id: String,
-    /// User who triggered the call
-    pub user_id: String,
-    /// Associated conversation (if from chat)
-    pub conversation_id: Option<String>,
-    /// LLM provider name (e.g. "google", "openai")
-    pub provider: String,
-    /// Model identifier (e.g. "gemini-2.0-flash-exp")
-    pub model: String,
-    /// Tokens in the prompt
-    pub prompt_tokens: i64,
-    /// Tokens in the completion
-    pub completion_tokens: i64,
-    /// Total tokens (prompt + completion)
-    pub total_tokens: i64,
-    /// Type of call (e.g. "chat", "insight", "embedding")
-    pub call_type: String,
-    /// Number of tool calls in this interaction
-    pub tool_calls_count: i64,
-    /// Execution time in milliseconds
-    pub execution_time_ms: Option<i64>,
-    /// When the usage was recorded (ISO 8601)
-    pub created_at: String,
-}
-
-/// Parameters for inserting a new LLM usage record
-pub struct InsertLlmUsage<'a> {
-    /// Tenant that owns this usage
-    pub tenant_id: &'a str,
-    /// User who triggered the call
-    pub user_id: &'a str,
-    /// Associated conversation (if from chat)
-    pub conversation_id: Option<&'a str>,
-    /// LLM provider name
-    pub provider: &'a str,
-    /// Model identifier
-    pub model: &'a str,
-    /// Tokens in the prompt
-    pub prompt_tokens: i64,
-    /// Tokens in the completion
-    pub completion_tokens: i64,
-    /// Total tokens (prompt + completion)
-    pub total_tokens: i64,
-    /// Type of call
-    pub call_type: &'a str,
-    /// Number of tool calls
-    pub tool_calls_count: i64,
-    /// Execution time in milliseconds
-    pub execution_time_ms: Option<i64>,
-}
-
-/// Aggregated LLM usage row grouped by `provider`/`model`/`call_type`
-#[derive(Debug, Clone, Serialize)]
-pub struct LlmUsageAggregateRow {
-    /// LLM provider name
-    pub provider: String,
-    /// Model identifier
-    pub model: String,
-    /// Call type (chat, insight, embedding, etc.)
-    pub call_type: String,
-    /// Total tokens consumed across all matching records
-    pub total_tokens: i64,
-    /// Total prompt tokens
-    pub prompt_tokens: i64,
-    /// Total completion tokens
-    pub completion_tokens: i64,
-    /// Number of LLM calls
-    pub calls: i64,
-}
-
-/// Daily aggregated LLM usage for time series display
-#[derive(Debug, Clone, Serialize)]
-pub struct LlmUsageDailyRow {
-    /// Date string (YYYY-MM-DD)
-    pub date: String,
-    /// Total tokens for this day
-    pub tokens: i64,
-    /// Total prompt tokens for this day
-    pub prompt_tokens: i64,
-    /// Total completion tokens for this day
-    pub completion_tokens: i64,
-    /// Number of calls for this day
-    pub calls: i64,
-}
 
 /// Allowed grouping dimensions for LLM consumption aggregation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

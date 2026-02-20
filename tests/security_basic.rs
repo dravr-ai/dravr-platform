@@ -16,7 +16,7 @@ use anyhow::Result;
 use pierre_mcp_server::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
-    database_plugins::DatabaseProvider,
+    database_plugins::{ApiKeyDbOps, UserDbOps},
 };
 use std::collections::HashSet;
 use tokio::time::{sleep, Duration as TokioDuration};

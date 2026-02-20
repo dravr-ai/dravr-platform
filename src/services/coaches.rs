@@ -7,7 +7,8 @@
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 
-use crate::coaches::CoachPrerequisites;
+use pierre_core::models::coaches::CoachPrerequisites;
+
 use crate::database::coaches::CoachesManager;
 use crate::database::repositories::TenantRepository;
 use crate::errors::{AppError, AppResult};

@@ -16,7 +16,7 @@ use pierre_mcp_server::{
     auth::AuthManager,
     cache::{factory::Cache, CacheConfig},
     config::environment::{self, *},
-    database_plugins::DatabaseProvider,
+    database_plugins::{TenantDbOps, UserDbOps},
     intelligence::insights::{Insight, InsightType},
     intelligence::{
         ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics,

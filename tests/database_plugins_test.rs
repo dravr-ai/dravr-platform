@@ -11,7 +11,9 @@ use chrono::Utc;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     constants::oauth_providers,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{
+        factory::Database, DatabaseProvider, OAuthDbOps, SocialDbOps, UsageDbOps, UserDbOps,
+    },
     models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,
 };

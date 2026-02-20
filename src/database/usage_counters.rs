@@ -5,25 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
+use pierre_core::models::UsageCounterRecord;
 
 use super::Database;
-
-/// A single usage counter record
-#[derive(Debug, Clone)]
-pub struct UsageCounterRecord {
-    /// Tenant that owns this counter
-    pub tenant_id: String,
-    /// User this counter applies to
-    pub user_id: String,
-    /// Counter key (e.g. `messages`, `tool_calls`, `tokens`)
-    pub counter_key: String,
-    /// Time period bucket (e.g. `2026-02-17`, `2026-W08`)
-    pub period: String,
-    /// Current counter value
-    pub value: i64,
-    /// Last update timestamp (ISO 8601)
-    pub updated_at: String,
-}
 
 impl Database {
     /// Atomically increment a usage counter via upsert (inherent implementation)

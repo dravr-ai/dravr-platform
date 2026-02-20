@@ -20,7 +20,7 @@
 
 use anyhow::Result;
 use pierre_mcp_server::{
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     models::User,
     protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor},
 };

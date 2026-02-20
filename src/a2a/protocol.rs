@@ -14,19 +14,18 @@
 //! providing JSON-RPC 2.0 based communication between AI agents.
 
 use crate::a2a::A2A_VERSION;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{A2ADbOps, OAuthDbOps};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::resources::ServerResources;
 use crate::mcp::schema::OAuthAppCredentials;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::tools::context::{AuthMethod, ToolExecutionContext};
 use crate::types::json_schemas;
-use chrono::{DateTime, Utc};
+pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_value, json, to_value, Map, Number, Value};
 use std::collections::HashMap;
 use std::env::var;
-use std::fmt::{self, Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -239,69 +238,6 @@ pub enum MessagePart {
         /// File content (base64 encoded)
         content: String,
     },
-}
-
-/// A2A Task structure for long-running operations
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2ATask {
-    /// Unique task identifier
-    pub id: String,
-    /// Current status of the task
-    pub status: TaskStatus,
-    /// When the task was created
-    pub created_at: DateTime<Utc>,
-    /// When the task completed (if finished)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_at: Option<DateTime<Utc>>,
-    /// Task result data (if completed successfully)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<Value>,
-    /// Error message (if failed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// Client ID that created this task
-    pub client_id: String,
-    /// Type of task being performed
-    pub task_type: String,
-    /// Input data for the task
-    pub input_data: Value,
-    /// Output data from the task (if completed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_data: Option<Value>,
-    /// Detailed error message (if failed)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_message: Option<String>,
-    /// When the task was last updated
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Task status enumeration
-#[non_exhaustive]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskStatus {
-    /// Task is queued but not yet started
-    Pending,
-    /// Task is currently executing
-    Running,
-    /// Task finished successfully
-    Completed,
-    /// Task failed with an error
-    Failed,
-    /// Task was cancelled by user or system
-    Cancelled,
-}
-
-impl Display for TaskStatus {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Pending => write!(f, "pending"),
-            Self::Running => write!(f, "running"),
-            Self::Completed => write!(f, "completed"),
-            Self::Failed => write!(f, "failed"),
-            Self::Cancelled => write!(f, "cancelled"),
-        }
-    }
 }
 
 /// A2A Protocol Server implementation

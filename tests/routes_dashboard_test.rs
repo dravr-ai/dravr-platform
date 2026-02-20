@@ -167,7 +167,7 @@ use pierre_mcp_server::{
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
     dashboard_routes::DashboardRoutes,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     rate_limiting::UnifiedRateLimitInfo,
 };

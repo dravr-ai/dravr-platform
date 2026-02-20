@@ -21,7 +21,7 @@ use pierre_mcp_server::{
     auth::{AuthManager, AuthMethod},
     config::environment::RateLimitConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps, UserDbOps},
     middleware::McpAuthMiddleware,
     models::User,
 };

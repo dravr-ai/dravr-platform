@@ -24,7 +24,7 @@ use pierre_mcp_server::{
     },
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,

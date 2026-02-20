@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_mcp_server::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     database::test_utils::create_test_db,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps, UserDbOps},
     models::{User, UserStatus, UserTier},
 };
 use uuid::Uuid;

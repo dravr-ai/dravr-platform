@@ -24,7 +24,7 @@ use pierre_mcp_server::{
         SecurityConfig, SecurityHeadersConfig, ServerConfig, SseConfig, StravaApiConfig, TlsConfig,
         WeatherServiceConfig,
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, DatabaseProvider, UserDbOps},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},

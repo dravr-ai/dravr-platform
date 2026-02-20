@@ -5,12 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::LlmProviderType;
-use crate::database::chat::AddMessageParams;
 use crate::database::repositories::ChatRepository;
 use crate::database::{ConversationRecord, MessageRecord};
 use crate::database_plugins::factory::Database;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
+use pierre_core::models::AddMessageParams;
 
 /// Result of creating a new conversation, including validated model
 pub struct CreateConversationResult {

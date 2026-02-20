@@ -25,6 +25,8 @@
 use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::database_plugins::DatabaseProvider;
 use pierre_mcp_server::{
     admin::jwks::JwksManager,
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
@@ -36,7 +38,7 @@ use pierre_mcp_server::{
     },
     constants,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, TenantDbOps, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     middleware::McpAuthMiddleware,
     models::{Tenant, TenantId, User, UserStatus, UserTier},
@@ -822,8 +824,7 @@ pub async fn send_http_mcp_request(
         "jsonrpc": "2.0",
         "id": 1,
         "method": method,
-        "params": params,
-    });
+        "params": params});
 
     let response = client
         .post(url)

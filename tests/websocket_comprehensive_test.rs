@@ -150,7 +150,7 @@
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     models::User,
     websocket::{WebSocketManager, WebSocketMessage},
 };

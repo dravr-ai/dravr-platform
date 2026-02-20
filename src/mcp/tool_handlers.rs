@@ -18,10 +18,9 @@ use crate::constants::{
     protocol::JSONRPC_VERSION,
     tools::{CONNECT_PROVIDER, DISCONNECT_PROVIDER, GET_ACTIVITIES, GET_CONNECTION_STATUS},
 };
-use crate::database::llm_usage::InsertLlmUsage;
 use crate::database::repositories::TenantRepository;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{SecurityDbOps, UsageDbOps, UserDbOps};
 use crate::errors::{AppError, ErrorCode};
 use crate::models::{OAuthNotification, TenantId};
 use crate::services::usage_counter::UsageCounterService;
@@ -29,6 +28,7 @@ use crate::tenant::TenantContext;
 use crate::tools::context::{AuthMethod, ToolExecutionContext};
 use crate::tools::result::ToolResult;
 use crate::types::json_schemas;
+use pierre_core::models::usage::InsertLlmUsage;
 use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::Arc;

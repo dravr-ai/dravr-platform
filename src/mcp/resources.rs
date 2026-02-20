@@ -23,9 +23,12 @@ use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
 use crate::database::coaches::CoachesManager;
 use crate::database::recipes::RecipeManager;
+use crate::database::repositories::{
+    CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
+};
 use crate::database::store_listings::StoreListingsManager;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::SecurityDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
@@ -637,6 +640,54 @@ impl ServerResources {
             .sqlite_pool()
             .ok_or_else(|| AppError::internal("SQLite database required for recipes"))?;
         Ok(RecipeManager::new(pool.clone()))
+    }
+
+    /// Get the `SQLite` database as a `RecipeRepository` trait object.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the database backend is not `SQLite`.
+    pub fn recipe_repository(&self) -> AppResult<&dyn RecipeRepository> {
+        self.database
+            .sqlite_database()
+            .map(|db| db as &dyn RecipeRepository)
+            .ok_or_else(|| AppError::internal("SQLite database required for recipes"))
+    }
+
+    /// Get the `SQLite` database as a `CoachesRepository` trait object.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the database backend is not `SQLite`.
+    pub fn coaches_repository(&self) -> AppResult<&dyn CoachesRepository> {
+        self.database
+            .sqlite_database()
+            .map(|db| db as &dyn CoachesRepository)
+            .ok_or_else(|| AppError::internal("SQLite database required for coaches"))
+    }
+
+    /// Get the `SQLite` database as a `MobilityRepository` trait object.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the database backend is not `SQLite`.
+    pub fn mobility_repository(&self) -> AppResult<&dyn MobilityRepository> {
+        self.database
+            .sqlite_database()
+            .map(|db| db as &dyn MobilityRepository)
+            .ok_or_else(|| AppError::internal("SQLite database required for mobility"))
+    }
+
+    /// Get the `SQLite` database as a `SocialRepository` trait object.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if the database backend is not `SQLite`.
+    pub fn social_repository(&self) -> AppResult<&dyn SocialRepository> {
+        self.database
+            .sqlite_database()
+            .map(|db| db as &dyn SocialRepository)
+            .ok_or_else(|| AppError::internal("SQLite database required for social"))
     }
 }
 

@@ -1,5 +1,5 @@
-// ABOUTME: Multi-tenant organization models for OAuth apps
-// ABOUTME: TenantId newtype, Tenant, OAuthApp, OAuthAppParams, and AuthorizationCode definitions
+// ABOUTME: Multi-tenant organization models for OAuth apps and LLM credentials
+// ABOUTME: TenantId newtype, Tenant, OAuthApp, OAuthAppParams, AuthorizationCode, and credential types
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -330,4 +330,73 @@ impl AuthorizationCode {
     pub const fn mark_used(&mut self) {
         self.is_used = true;
     }
+}
+
+/// Database record for LLM credentials
+#[derive(Debug, Clone)]
+pub struct LlmCredentialRecord {
+    /// Record ID
+    pub id: Uuid,
+    /// Tenant ID
+    pub tenant_id: TenantId,
+    /// User ID (None = tenant default)
+    pub user_id: Option<Uuid>,
+    /// Provider name
+    pub provider: String,
+    /// Encrypted API key
+    pub api_key_encrypted: String,
+    /// Base URL (for local providers)
+    pub base_url: Option<String>,
+    /// Default model
+    pub default_model: Option<String>,
+    /// Is this credential active
+    pub is_active: bool,
+    /// Created timestamp
+    pub created_at: String,
+    /// Updated timestamp
+    pub updated_at: String,
+    /// Created by user ID
+    pub created_by: Uuid,
+}
+
+/// Summary of LLM credentials (for listing, without decrypted key)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmCredentialSummary {
+    /// Record ID
+    pub id: Uuid,
+    /// User ID (None = tenant default)
+    pub user_id: Option<Uuid>,
+    /// Provider name
+    pub provider: String,
+    /// Whether this is a user-specific or tenant-level credential
+    pub scope: String,
+    /// Base URL (for local providers)
+    pub base_url: Option<String>,
+    /// Default model
+    pub default_model: Option<String>,
+    /// Is active
+    pub is_active: bool,
+    /// Created timestamp
+    pub created_at: String,
+    /// Updated timestamp
+    pub updated_at: String,
+}
+
+/// Per-tenant OAuth credentials with decrypted secret
+#[derive(Debug, Clone)]
+pub struct TenantOAuthCredentials {
+    /// Tenant ID that owns these credentials
+    pub tenant_id: TenantId,
+    /// OAuth provider name
+    pub provider: String,
+    /// OAuth client ID (public)
+    pub client_id: String,
+    /// OAuth client secret (decrypted)
+    pub client_secret: String,
+    /// OAuth redirect URI
+    pub redirect_uri: String,
+    /// OAuth scopes
+    pub scopes: Vec<String>,
+    /// Daily rate limit for this tenant
+    pub rate_limit_per_day: u32,
 }

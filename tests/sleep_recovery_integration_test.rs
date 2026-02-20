@@ -16,7 +16,7 @@ use pierre_mcp_server::{
     auth::AuthManager,
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
     config::environment::*,
-    database_plugins::DatabaseProvider,
+    database_plugins::UserDbOps,
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::User,
     protocols::universal::{UniversalRequest, UniversalToolExecutor},

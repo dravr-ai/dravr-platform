@@ -11,7 +11,7 @@ use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, UserDbOps},
     models::{User, UserStatus, UserTier},
     pagination::PaginationParams,
     permissions::UserRole,

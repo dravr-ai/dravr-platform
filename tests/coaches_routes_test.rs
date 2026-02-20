@@ -18,7 +18,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
 };
-use pierre_mcp_server::database_plugins::DatabaseProvider;
+use pierre_mcp_server::database_plugins::TenantDbOps;
 use pierre_mcp_server::routes::coaches::{
     CoachResponse, CoachesRoutes, ListCoachesResponse, RecordUsageResponse, ToggleFavoriteResponse,
 };

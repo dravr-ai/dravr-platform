@@ -4,16 +4,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::database::coaches::{
-    CoachCategory, CoachVisibility, CoachesManager, CreateCoachRequest, CreateSystemCoachRequest,
-    ListCoachesFilter, UpdateCoachRequest,
-};
+use crate::database::coaches::CoachesManager;
 use crate::database::repositories::{TenantRepository, UserRepository};
 use crate::models::TenantId;
 use crate::permissions::UserRole;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::utils::uuid::parse_user_id_for_protocol;
+use pierre_core::models::coaches::{
+    CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
+    ListCoachesFilter, UpdateCoachRequest,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;

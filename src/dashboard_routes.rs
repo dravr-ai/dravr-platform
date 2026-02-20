@@ -11,13 +11,13 @@
 
 use crate::api_keys::ApiKeyTier;
 use crate::auth::AuthResult;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{ApiKeyDbOps, UsageDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
+use pierre_core::models::{RequestLog, ToolUsage};
 use serde::Serialize;
 use serde_json::Value;
-use sqlx::FromRow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -94,19 +94,6 @@ pub struct UsageDataPoint {
     pub average_response_time: f64,
 }
 
-/// Usage statistics for a specific tool
-#[derive(Debug, Serialize)]
-pub struct ToolUsage {
-    /// Name of the tool
-    pub tool_name: String,
-    /// Number of times the tool was called
-    pub request_count: u64,
-    /// Percentage of successful calls
-    pub success_rate: f64,
-    /// Average response time (ms)
-    pub average_response_time: f64,
-}
-
 /// Rate limit status for an API key
 #[derive(Debug, Serialize)]
 pub struct RateLimitOverview {
@@ -124,31 +111,6 @@ pub struct RateLimitOverview {
     pub usage_percentage: f64,
     /// When the rate limit resets
     pub reset_date: Option<DateTime<Utc>>,
-}
-
-/// Individual request log entry with detailed information
-#[derive(Debug, Serialize, FromRow)]
-pub struct RequestLog {
-    /// Unique identifier for this log entry
-    pub id: String,
-    /// When the request was made
-    pub timestamp: DateTime<Utc>,
-    /// API key UUID used for the request
-    pub api_key_id: String,
-    /// Friendly name of the API key
-    pub api_key_name: String,
-    /// Tool/endpoint that was invoked
-    pub tool_name: String,
-    /// HTTP status code of the response
-    pub status_code: i32,
-    /// Response time in milliseconds (if available)
-    pub response_time_ms: Option<i32>,
-    /// Error message if the request failed
-    pub error_message: Option<String>,
-    /// Request payload size in bytes
-    pub request_size_bytes: Option<i32>,
-    /// Response payload size in bytes
-    pub response_size_bytes: Option<i32>,
 }
 
 /// Statistics about API request performance and success rates

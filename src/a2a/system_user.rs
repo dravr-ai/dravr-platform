@@ -8,7 +8,8 @@
 // NOTE: All `.clone()` calls in this file are Safe - Arc/String ownership for A2A operations
 
 use crate::constants::get_server_config;
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::factory::Database;
+use crate::database_plugins::UserDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::models::User;
 use std::sync::Arc;

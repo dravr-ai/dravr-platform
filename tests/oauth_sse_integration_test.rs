@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use pierre_mcp_server::{
-    database::oauth_notifications::OAuthNotification, database_plugins::DatabaseProvider,
+    database::oauth_notifications::OAuthNotification, database_plugins::SecurityDbOps,
     sse::manager::SseManager,
 };
 use reqwest::Client;

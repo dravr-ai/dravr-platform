@@ -9,7 +9,7 @@ use chrono::Utc;
 use pierre_mcp_server::{
     constants::tiers,
     database::CreateUserMcpTokenRequest,
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps, TenantDbOps, UserDbOps},
     errors::{AppError, AppResult},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,

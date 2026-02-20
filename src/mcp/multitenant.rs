@@ -27,7 +27,7 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::{factory::Database, OAuthDbOps, SecurityDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::schema::ProgressNotification;
@@ -53,6 +53,7 @@ use tracing::{debug, error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
+use crate::database_plugins::UsageDbOps;
 use crate::middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "oauth")]
 use crate::oauth2_server::OAuth2RateLimiter;

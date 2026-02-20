@@ -33,7 +33,8 @@ use crate::constants::{
     service_names::{MCP, PIERRE_MCP_SERVER},
     time_constants::SECONDS_PER_HOUR,
 };
-use crate::database_plugins::{factory::Database, DatabaseProvider};
+use crate::database_plugins::factory::Database;
+use crate::database_plugins::UserDbOps;
 use crate::errors::{AppError, AppResult};
 use crate::models::{AuthRequest, AuthResponse, User, UserSession};
 use crate::rate_limiting::UnifiedRateLimitInfo;

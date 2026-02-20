@@ -6,7 +6,7 @@
 
 use crate::auth::AuthResult;
 use crate::config::fitness::FitnessConfig;
-use crate::database_plugins::DatabaseProvider;
+use crate::database_plugins::{TenantDbOps, UserDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::middleware::require_admin;
