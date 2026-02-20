@@ -13,6 +13,7 @@ import {
   OAuthTokens,
   OAuthClientInformationFull,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { randomBytes, createHash } from "node:crypto";
 import { createSecureStorage, SecureTokenStorage } from "./secure-storage.js";
 import { PierreError, PierreErrorCode } from "./errors.js";
 
@@ -868,21 +869,19 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   public generateRandomString(length: number): string {
-    const crypto = require("crypto");
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    const randomBytes = crypto.randomBytes(length);
+    const bytes = randomBytes(length);
     let result = "";
     for (let i = 0; i < length; i++) {
-      result += chars.charAt(randomBytes[i] % chars.length);
+      result += chars.charAt(bytes[i] % chars.length);
     }
     return result;
   }
 
   public async generateCodeChallenge(codeVerifier: string): Promise<string> {
     // Generate SHA-256 hash of the code verifier
-    const crypto = require("crypto");
-    const hash = crypto.createHash("sha256").update(codeVerifier).digest();
+    const hash = createHash("sha256").update(codeVerifier).digest();
 
     // Base64 URL encode the hash
     return hash
@@ -1008,8 +1007,7 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
     if (!this.callbackServer) return;
 
     // Generate a random session token for callback authentication
-    const crypto = require("crypto");
-    this.callbackSessionToken = crypto.randomBytes(32).toString("hex");
+    this.callbackSessionToken = randomBytes(32).toString("hex");
     this.log(`Generated callback session token for authentication`);
 
     this.callbackServer.removeAllListeners("request");
