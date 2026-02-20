@@ -103,12 +103,59 @@ impl TrainingLoadCalculator {
             .ok_or_else(|| AppError::internal("Unable to calculate TSS for activity".to_owned()))
     }
 
+    /// Collect TSS data points from activities, logging any that are skipped
+    fn collect_tss_data(
+        &self,
+        activities: &[Activity],
+        ftp: Option<f64>,
+        lthr: Option<f64>,
+        max_hr: Option<f64>,
+        resting_hr: Option<f64>,
+        weight_kg: Option<f64>,
+    ) -> Vec<TssDataPoint> {
+        let mut tss_data: Vec<TssDataPoint> = Vec::with_capacity(activities.len());
+        let mut skipped_count: usize = 0;
+        for activity in activities {
+            match self.calculate_tss(activity, ftp, lthr, max_hr, resting_hr, weight_kg) {
+                Ok(tss) => {
+                    tss_data.push(TssDataPoint {
+                        date: activity.start_date(),
+                        tss,
+                    });
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        activity_id = %activity.id(),
+                        error = %e,
+                        "Skipping activity in training load calculation — TSS unavailable"
+                    );
+                    skipped_count += 1;
+                }
+            }
+        }
+
+        if skipped_count > 0 {
+            tracing::info!(
+                included = tss_data.len(),
+                skipped = skipped_count,
+                "Training load calculated: {} activities included, {} skipped (no TSS data)",
+                tss_data.len(),
+                skipped_count
+            );
+        }
+
+        tss_data
+    }
+
     /// Calculate complete training load metrics (CTL, ATL, TSB) from activities
     ///
-    /// Activities should be sorted by date (oldest first) for accurate EMA calculation
+    /// Activities should be sorted by date (oldest first) for accurate EMA calculation.
+    /// Activities without sufficient data for TSS estimation are excluded from the
+    /// calculation and logged at debug level. An info-level summary is emitted when
+    /// any activities are skipped.
     ///
     /// # Errors
-    /// Returns `AppError` if TSS calculation fails for any activity
+    /// Returns `AppError` if no activities can be processed (empty input)
     #[instrument(
         skip(self, activities),
         fields(
@@ -135,17 +182,7 @@ impl TrainingLoadCalculator {
             });
         }
 
-        // Calculate TSS for each activity
-        let mut tss_data: Vec<TssDataPoint> = Vec::with_capacity(activities.len());
-        for activity in activities {
-            if let Ok(tss) = self.calculate_tss(activity, ftp, lthr, max_hr, resting_hr, weight_kg)
-            {
-                tss_data.push(TssDataPoint {
-                    date: activity.start_date(),
-                    tss,
-                });
-            }
-        }
+        let tss_data = self.collect_tss_data(activities, ftp, lthr, max_hr, resting_hr, weight_kg);
 
         if tss_data.is_empty() {
             return Ok(TrainingLoad {
