@@ -19,8 +19,12 @@ use crate::admin::models::{
 use crate::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats};
 use crate::config::environment::PostgresPoolConfig;
 use crate::config::fitness::FitnessConfig;
+use crate::config::social::SocialInsightsConfig;
 use crate::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use crate::constants::tiers;
+use crate::database::system_settings::{
+    SystemSetting, SETTING_AUTO_APPROVAL_ENABLED, SETTING_SOCIAL_INSIGHTS_CONFIG,
+};
 use crate::database::{
     A2AUsage, A2AUsageStats, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
     MessageRecord, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo,
@@ -7439,6 +7443,7 @@ impl DatabaseProvider for PostgresDatabase {
         self.create_chat_tables().await?;
         self.create_llm_usage_table().await?;
         self.create_usage_counters_table().await?;
+        self.create_system_settings_table().await?;
         self.create_indexes().await?;
         Ok(())
     }
@@ -9145,6 +9150,42 @@ impl PostgresDatabase {
         Ok(())
     }
 
+    async fn create_system_settings_table(&self) -> AppResult<()> {
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS system_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                description TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create system_settings table: {e}")))?;
+
+        // Insert default auto_approval_enabled setting if not present
+        sqlx::query(
+            r"
+            INSERT INTO system_settings (key, value, description, created_at, updated_at)
+            VALUES ($1, $2, $3, NOW(), NOW())
+            ON CONFLICT (key) DO NOTHING
+            ",
+        )
+        .bind("auto_approval_enabled")
+        .bind("false")
+        .bind("When enabled, new user registrations are automatically approved without admin intervention")
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to seed system_settings defaults: {e}"))
+        })?;
+
+        Ok(())
+    }
+
     async fn create_indexes(&self) -> AppResult<()> {
         self.create_user_indexes().await?;
         self.create_api_key_indexes().await?;
@@ -9263,5 +9304,139 @@ impl shared::encryption::HasEncryption for PostgresDatabase {
         let key = hmac::Key::new(hmac::HMAC_SHA256, &self.encryption_key);
         let tag = hmac::sign(&key, token.as_bytes());
         Ok(general_purpose::STANDARD.encode(tag.as_ref()))
+    }
+}
+
+// System settings operations for PostgreSQL
+impl PostgresDatabase {
+    /// Get a system setting by key
+    async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
+        use sqlx::Row;
+
+        let row = sqlx::query(
+            r"
+            SELECT key, value, description, updated_at
+            FROM system_settings
+            WHERE key = $1
+            ",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get system setting: {e}")))?;
+
+        row.map_or(Ok(None), |row| {
+            let updated_at: DateTime<Utc> = row.get("updated_at");
+            Ok(Some(SystemSetting {
+                key: row.get("key"),
+                value: row.get("value"),
+                description: row.get("description"),
+                updated_at,
+            }))
+        })
+    }
+
+    /// Set a system setting value (upsert)
+    async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO system_settings (key, value, created_at, updated_at)
+            VALUES ($1, $2, NOW(), NOW())
+            ON CONFLICT (key) DO UPDATE SET
+                value = $2,
+                updated_at = NOW()
+            ",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set system setting: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Check if auto-approval is enabled in database
+    ///
+    /// Returns `Some(true/false)` if explicitly set in database,
+    /// or `None` if no database setting exists (caller should use config default).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn is_auto_approval_enabled(&self) -> AppResult<Option<bool>> {
+        match self
+            .get_system_setting(SETTING_AUTO_APPROVAL_ENABLED)
+            .await?
+        {
+            Some(setting) => Ok(Some(setting.value.eq_ignore_ascii_case("true"))),
+            None => Ok(None),
+        }
+    }
+
+    /// Set auto-approval enabled state
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails
+    pub async fn set_auto_approval_enabled(&self, enabled: bool) -> AppResult<()> {
+        self.set_system_setting(
+            SETTING_AUTO_APPROVAL_ENABLED,
+            if enabled { "true" } else { "false" },
+        )
+        .await
+    }
+
+    /// Get social insights configuration from database
+    ///
+    /// Returns `Some(config)` if explicitly set in database,
+    /// or `None` if no database setting exists (caller should use defaults).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails or JSON deserialization fails
+    pub async fn get_social_insights_config(&self) -> AppResult<Option<SocialInsightsConfig>> {
+        match self
+            .get_system_setting(SETTING_SOCIAL_INSIGHTS_CONFIG)
+            .await?
+        {
+            Some(setting) => {
+                let config: SocialInsightsConfig =
+                    serde_json::from_str(&setting.value).map_err(|e| {
+                        AppError::internal(format!("Failed to parse social insights config: {e}"))
+                    })?;
+                Ok(Some(config))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Set social insights configuration in database
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails or JSON serialization fails
+    pub async fn set_social_insights_config(&self, config: &SocialInsightsConfig) -> AppResult<()> {
+        let json = serde_json::to_string(config).map_err(|e| {
+            AppError::internal(format!("Failed to serialize social insights config: {e}"))
+        })?;
+        self.set_system_setting(SETTING_SOCIAL_INSIGHTS_CONFIG, &json)
+            .await
+    }
+
+    /// Delete social insights configuration from database (revert to defaults)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails
+    pub async fn delete_social_insights_config(&self) -> AppResult<()> {
+        sqlx::query("DELETE FROM system_settings WHERE key = $1")
+            .bind(SETTING_SOCIAL_INSIGHTS_CONFIG)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to delete social insights config: {e}"))
+            })?;
+        Ok(())
     }
 }
