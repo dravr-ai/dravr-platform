@@ -21,6 +21,7 @@ use pierre_core::models::coaches::{
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
+use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, ConnectionType,
@@ -40,7 +41,6 @@ use pierre_core::models::{
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::impersonation::ImpersonationSession;
-use pierre_intelligence::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use serde_json::Value;
 use uuid::Uuid;
 

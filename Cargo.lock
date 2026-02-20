@@ -2435,7 +2435,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "pierre-core",
- "pierre-intelligence",
  "serde_json",
  "uuid",
 ]
