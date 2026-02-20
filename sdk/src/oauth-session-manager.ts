@@ -868,11 +868,13 @@ export class PierreOAuthClientProvider implements OAuthClientProvider {
   }
 
   public generateRandomString(length: number): string {
+    const crypto = require("crypto");
     const chars =
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    const randomBytes = crypto.randomBytes(length);
     let result = "";
     for (let i = 0; i < length; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+      result += chars.charAt(randomBytes[i] % chars.length);
     }
     return result;
   }
