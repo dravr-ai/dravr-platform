@@ -14,7 +14,7 @@
 //! providing JSON-RPC 2.0 based communication between AI agents.
 
 use crate::a2a::A2A_VERSION;
-use crate::database_plugins::{A2ADbOps, OAuthDbOps};
+use crate::database_plugins::{A2ADbOps, OAuthTokenOps};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::resources::ServerResources;
 use crate::mcp::schema::OAuthAppCredentials;

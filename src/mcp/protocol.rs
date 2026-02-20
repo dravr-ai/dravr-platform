@@ -22,7 +22,7 @@ use crate::constants::{
     },
     protocol::{server_name_multitenant, SERVER_VERSION},
 };
-use crate::database_plugins::{OAuthDbOps, SecurityDbOps};
+use crate::database_plugins::{OAuthTokenOps, SecurityDbOps};
 use crate::mcp::resources::ServerResources;
 use crate::mcp::schema::{
     get_tools, CompleteRequest, CompleteResult, Completion, InitializeRequest, InitializeResponse,

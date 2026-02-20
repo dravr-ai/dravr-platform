@@ -19,7 +19,7 @@ pub use a2a::A2ADbOps;
 pub use admin::AdminDbOps;
 pub use api_key::ApiKeyDbOps;
 pub use chat::ChatDbOps;
-pub use oauth::OAuthDbOps;
+pub use oauth::{OAuth2ServerOps, OAuthAccountOps, OAuthDbOps, OAuthTokenOps};
 pub use security::SecurityDbOps;
 pub use social::SocialDbOps;
 pub use tenant::TenantDbOps;
@@ -36,7 +36,9 @@ use pierre_core::errors::AppResult;
 #[async_trait]
 pub trait DatabaseProvider:
     UserDbOps
-    + OAuthDbOps
+    + OAuthTokenOps
+    + OAuth2ServerOps
+    + OAuthAccountOps
     + ApiKeyDbOps
     + UsageDbOps
     + A2ADbOps

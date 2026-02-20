@@ -16,6 +16,6 @@ pub mod shared;
 
 pub use pierre_database::provider::DatabaseProvider;
 pub use pierre_database::provider::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuthDbOps, SecurityDbOps, SocialDbOps,
-    TenantDbOps, UsageDbOps, UserDbOps,
+    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthDbOps,
+    OAuthTokenOps, SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
 };

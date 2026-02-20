@@ -11,7 +11,7 @@ use crate::constants::rate_limits::{
     WHOOP_DEFAULT_DAILY_RATE_LIMIT,
 };
 use crate::database_plugins::TenantDbOps;
-use crate::database_plugins::{factory::Database, OAuthDbOps};
+use crate::database_plugins::{factory::Database, OAuthTokenOps};
 use crate::errors::{AppError, AppResult};
 use chrono::Utc;
 use pierre_core::models::{TenantId, TenantOAuthCredentials};

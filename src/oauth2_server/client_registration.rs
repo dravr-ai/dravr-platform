@@ -9,7 +9,7 @@ use super::models::{
 };
 use crate::constants::try_get_server_config;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::OAuthDbOps;
+use crate::database_plugins::OAuth2ServerOps;
 use crate::errors::{AppError, AppResult};
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},

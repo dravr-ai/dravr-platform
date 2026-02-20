@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    database_plugins::OAuthDbOps,
+    database_plugins::OAuthAccountOps,
     mcp::resources::{ServerResources, ServerResourcesOptions},
     routes::auth::AuthRoutes,
 };

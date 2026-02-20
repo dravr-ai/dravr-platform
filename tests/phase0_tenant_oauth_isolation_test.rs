@@ -22,7 +22,9 @@ use pierre_mcp_server::{
     config::environment::{OAuthConfig, OAuthProviderConfig},
     constants::oauth_providers,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, OAuthDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{
+        factory::Database, DatabaseProvider, OAuthTokenOps, TenantDbOps, UserDbOps,
+    },
     models::{Tenant, TenantId, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,
     tenant::oauth_manager::{CredentialConfig, TenantOAuthManager},

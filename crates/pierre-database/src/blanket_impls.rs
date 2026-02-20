@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::provider::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuthDbOps, SecurityDbOps, SocialDbOps,
-    TenantDbOps, UsageDbOps, UserDbOps,
+    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthTokenOps,
+    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
 };
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, FitnessConfigRepository,
@@ -177,9 +177,9 @@ impl<T: UserDbOps> UserRepository for T {
 }
 
 #[async_trait]
-impl<T: OAuthDbOps> OAuthTokenRepository for T {
+impl<T: OAuthTokenOps> OAuthTokenRepository for T {
     async fn upsert_token(&self, token: &UserOAuthToken) -> Result<(), DatabaseError> {
-        OAuthDbOps::upsert_user_oauth_token(self, token)
+        OAuthTokenOps::upsert_user_oauth_token(self, token)
             .await
             .map_err(app_error_to_db)
     }
@@ -189,7 +189,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         tenant_id: TenantId,
         provider: &str,
     ) -> Result<Option<UserOAuthToken>, DatabaseError> {
-        OAuthDbOps::get_user_oauth_token(self, user_id, tenant_id, provider)
+        OAuthTokenOps::get_user_oauth_token(self, user_id, tenant_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -198,7 +198,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> Result<Vec<UserOAuthToken>, DatabaseError> {
-        OAuthDbOps::get_user_oauth_tokens(self, user_id, tenant_id)
+        OAuthTokenOps::get_user_oauth_tokens(self, user_id, tenant_id)
             .await
             .map_err(app_error_to_db)
     }
@@ -207,7 +207,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         tenant_id: TenantId,
         provider: &str,
     ) -> Result<Vec<UserOAuthToken>, DatabaseError> {
-        OAuthDbOps::get_tenant_provider_tokens(self, tenant_id, provider)
+        OAuthTokenOps::get_tenant_provider_tokens(self, tenant_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -217,12 +217,12 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         tenant_id: TenantId,
         provider: &str,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::delete_user_oauth_token(self, user_id, tenant_id, provider)
+        OAuthTokenOps::delete_user_oauth_token(self, user_id, tenant_id, provider)
             .await
             .map_err(app_error_to_db)
     }
     async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> Result<(), DatabaseError> {
-        OAuthDbOps::delete_user_oauth_tokens(self, user_id, tenant_id)
+        OAuthTokenOps::delete_user_oauth_tokens(self, user_id, tenant_id)
             .await
             .map_err(app_error_to_db)
     }
@@ -235,7 +235,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         refresh_token: Option<&str>,
         expires_at: Option<DateTime<Utc>>,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::refresh_user_oauth_token(
+        OAuthTokenOps::refresh_user_oauth_token(
             self,
             user_id,
             tenant_id,
@@ -255,7 +255,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         client_secret: &str,
         redirect_uri: &str,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_user_oauth_app(
+        OAuthTokenOps::store_user_oauth_app(
             self,
             user_id,
             provider,
@@ -271,7 +271,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         user_id: Uuid,
         provider: &str,
     ) -> Result<Option<UserOAuthApp>, DatabaseError> {
-        OAuthDbOps::get_user_oauth_app(self, user_id, provider)
+        OAuthTokenOps::get_user_oauth_app(self, user_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -279,7 +279,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         &self,
         user_id: Uuid,
     ) -> Result<Vec<UserOAuthApp>, DatabaseError> {
-        OAuthDbOps::list_user_oauth_apps(self, user_id)
+        OAuthTokenOps::list_user_oauth_apps(self, user_id)
             .await
             .map_err(app_error_to_db)
     }
@@ -288,7 +288,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         user_id: Uuid,
         provider: &str,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::remove_user_oauth_app(self, user_id, provider)
+        OAuthTokenOps::remove_user_oauth_app(self, user_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -298,7 +298,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         tenant_id: TenantId,
         provider: &str,
     ) -> Result<Option<DateTime<Utc>>, DatabaseError> {
-        OAuthDbOps::get_provider_last_sync(self, user_id, tenant_id, provider)
+        OAuthTokenOps::get_provider_last_sync(self, user_id, tenant_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -309,7 +309,7 @@ impl<T: OAuthDbOps> OAuthTokenRepository for T {
         provider: &str,
         sync_time: DateTime<Utc>,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::update_provider_last_sync(self, user_id, tenant_id, provider, sync_time)
+        OAuthTokenOps::update_provider_last_sync(self, user_id, tenant_id, provider, sync_time)
             .await
             .map_err(app_error_to_db)
     }
@@ -849,29 +849,29 @@ impl<T: TenantDbOps> TenantRepository for T {
 }
 
 #[async_trait]
-impl<T: OAuthDbOps> OAuth2ServerRepository for T {
+impl<T: OAuth2ServerOps> OAuth2ServerRepository for T {
     async fn store_client(&self, client: &OAuth2Client) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_oauth2_client(self, client)
+        OAuth2ServerOps::store_oauth2_client(self, client)
             .await
             .map_err(app_error_to_db)
     }
     async fn get_client(&self, client_id: &str) -> Result<Option<OAuth2Client>, DatabaseError> {
-        OAuthDbOps::get_oauth2_client(self, client_id)
+        OAuth2ServerOps::get_oauth2_client(self, client_id)
             .await
             .map_err(app_error_to_db)
     }
     async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_oauth2_auth_code(self, auth_code)
+        OAuth2ServerOps::store_oauth2_auth_code(self, auth_code)
             .await
             .map_err(app_error_to_db)
     }
     async fn get_auth_code(&self, code: &str) -> Result<Option<OAuth2AuthCode>, DatabaseError> {
-        OAuthDbOps::get_oauth2_auth_code(self, code)
+        OAuth2ServerOps::get_oauth2_auth_code(self, code)
             .await
             .map_err(app_error_to_db)
     }
     async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> Result<(), DatabaseError> {
-        OAuthDbOps::update_oauth2_auth_code(self, auth_code)
+        OAuth2ServerOps::update_oauth2_auth_code(self, auth_code)
             .await
             .map_err(app_error_to_db)
     }
@@ -879,7 +879,7 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         &self,
         refresh_token: &OAuth2RefreshToken,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_oauth2_refresh_token(self, refresh_token)
+        OAuth2ServerOps::store_oauth2_refresh_token(self, refresh_token)
             .await
             .map_err(app_error_to_db)
     }
@@ -887,12 +887,12 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         &self,
         token: &str,
     ) -> Result<Option<OAuth2RefreshToken>, DatabaseError> {
-        OAuthDbOps::get_oauth2_refresh_token(self, token)
+        OAuth2ServerOps::get_oauth2_refresh_token(self, token)
             .await
             .map_err(app_error_to_db)
     }
     async fn revoke_refresh_token(&self, token: &str) -> Result<(), DatabaseError> {
-        OAuthDbOps::revoke_oauth2_refresh_token(self, token)
+        OAuth2ServerOps::revoke_oauth2_refresh_token(self, token)
             .await
             .map_err(app_error_to_db)
     }
@@ -903,7 +903,7 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         redirect_uri: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<OAuth2AuthCode>, DatabaseError> {
-        OAuthDbOps::consume_auth_code(self, code, client_id, redirect_uri, now)
+        OAuth2ServerOps::consume_auth_code(self, code, client_id, redirect_uri, now)
             .await
             .map_err(app_error_to_db)
     }
@@ -913,7 +913,7 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         client_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<OAuth2RefreshToken>, DatabaseError> {
-        OAuthDbOps::consume_refresh_token(self, token, client_id, now)
+        OAuth2ServerOps::consume_refresh_token(self, token, client_id, now)
             .await
             .map_err(app_error_to_db)
     }
@@ -921,7 +921,7 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         &self,
         token: &str,
     ) -> Result<Option<OAuth2RefreshToken>, DatabaseError> {
-        OAuthDbOps::get_refresh_token_by_value(self, token)
+        OAuth2ServerOps::get_refresh_token_by_value(self, token)
             .await
             .map_err(app_error_to_db)
     }
@@ -933,22 +933,29 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         scope: &str,
         user_id: Uuid,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_authorization_code(self, code, client_id, redirect_uri, scope, user_id)
-            .await
-            .map_err(app_error_to_db)
+        OAuth2ServerOps::store_authorization_code(
+            self,
+            code,
+            client_id,
+            redirect_uri,
+            scope,
+            user_id,
+        )
+        .await
+        .map_err(app_error_to_db)
     }
     async fn get_authorization_code(&self, code: &str) -> Result<AuthorizationCode, DatabaseError> {
-        OAuthDbOps::get_authorization_code(self, code)
+        OAuth2ServerOps::get_authorization_code(self, code)
             .await
             .map_err(app_error_to_db)
     }
     async fn delete_authorization_code(&self, code: &str) -> Result<(), DatabaseError> {
-        OAuthDbOps::delete_authorization_code(self, code)
+        OAuth2ServerOps::delete_authorization_code(self, code)
             .await
             .map_err(app_error_to_db)
     }
     async fn store_state(&self, state: &OAuth2State) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_oauth2_state(self, state)
+        OAuth2ServerOps::store_oauth2_state(self, state)
             .await
             .map_err(app_error_to_db)
     }
@@ -958,7 +965,7 @@ impl<T: OAuthDbOps> OAuth2ServerRepository for T {
         client_id: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<OAuth2State>, DatabaseError> {
-        OAuthDbOps::consume_oauth2_state(self, state_value, client_id, now)
+        OAuth2ServerOps::consume_oauth2_state(self, state_value, client_id, now)
             .await
             .map_err(app_error_to_db)
     }
@@ -1454,7 +1461,7 @@ impl<T: TenantDbOps> LlmCredentialRepository for T {
 }
 
 #[async_trait]
-impl<T: OAuthDbOps> ProviderConnectionRepository for T {
+impl<T: OAuthAccountOps> ProviderConnectionRepository for T {
     async fn register_connection(
         &self,
         user_id: Uuid,
@@ -1463,7 +1470,7 @@ impl<T: OAuthDbOps> ProviderConnectionRepository for T {
         connection_type: &ConnectionType,
         metadata: Option<&str>,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::register_provider_connection(
+        OAuthAccountOps::register_provider_connection(
             self,
             user_id,
             tenant_id,
@@ -1480,7 +1487,7 @@ impl<T: OAuthDbOps> ProviderConnectionRepository for T {
         tenant_id: TenantId,
         provider: &str,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::remove_provider_connection(self, user_id, tenant_id, provider)
+        OAuthAccountOps::remove_provider_connection(self, user_id, tenant_id, provider)
             .await
             .map_err(app_error_to_db)
     }
@@ -1489,48 +1496,48 @@ impl<T: OAuthDbOps> ProviderConnectionRepository for T {
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> Result<Vec<ProviderConnection>, DatabaseError> {
-        OAuthDbOps::get_user_provider_connections(self, user_id, tenant_id)
+        OAuthAccountOps::get_user_provider_connections(self, user_id, tenant_id)
             .await
             .map_err(app_error_to_db)
     }
     async fn is_connected(&self, user_id: Uuid, provider: &str) -> Result<bool, DatabaseError> {
-        OAuthDbOps::is_provider_connected(self, user_id, provider)
+        OAuthAccountOps::is_provider_connected(self, user_id, provider)
             .await
             .map_err(app_error_to_db)
     }
 }
 
 #[async_trait]
-impl<T: OAuthDbOps> PasswordResetRepository for T {
+impl<T: OAuthAccountOps> PasswordResetRepository for T {
     async fn store_token(
         &self,
         user_id: Uuid,
         token_hash: &str,
         created_by: &str,
     ) -> Result<Uuid, DatabaseError> {
-        OAuthDbOps::store_password_reset_token(self, user_id, token_hash, created_by)
+        OAuthAccountOps::store_password_reset_token(self, user_id, token_hash, created_by)
             .await
             .map_err(app_error_to_db)
     }
     async fn consume_token(&self, token_hash: &str) -> Result<Uuid, DatabaseError> {
-        OAuthDbOps::consume_password_reset_token(self, token_hash)
+        OAuthAccountOps::consume_password_reset_token(self, token_hash)
             .await
             .map_err(app_error_to_db)
     }
     async fn invalidate_tokens(&self, user_id: Uuid) -> Result<(), DatabaseError> {
-        OAuthDbOps::invalidate_user_reset_tokens(self, user_id)
+        OAuthAccountOps::invalidate_user_reset_tokens(self, user_id)
             .await
             .map_err(app_error_to_db)
     }
 }
 
 #[async_trait]
-impl<T: OAuthDbOps> OAuthClientStateRepository for T {
+impl<T: OAuth2ServerOps> OAuthClientStateRepository for T {
     async fn store_oauth_client_state(
         &self,
         state: &OAuthClientState,
     ) -> Result<(), DatabaseError> {
-        OAuthDbOps::store_oauth_client_state(self, state)
+        OAuth2ServerOps::store_oauth_client_state(self, state)
             .await
             .map_err(app_error_to_db)
     }
@@ -1540,7 +1547,7 @@ impl<T: OAuthDbOps> OAuthClientStateRepository for T {
         provider: &str,
         now: DateTime<Utc>,
     ) -> Result<Option<OAuthClientState>, DatabaseError> {
-        OAuthDbOps::consume_oauth_client_state(self, state_value, provider, now)
+        OAuth2ServerOps::consume_oauth_client_state(self, state_value, provider, now)
             .await
             .map_err(app_error_to_db)
     }

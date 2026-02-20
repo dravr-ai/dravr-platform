@@ -7,7 +7,7 @@
 use super::resources::ServerResources;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims};
-use crate::database_plugins::{factory::Database, OAuthDbOps};
+use crate::database_plugins::{factory::Database, OAuthTokenOps};
 use crate::database_plugins::{TenantDbOps, UserDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::models::{User, UserOAuthToken};

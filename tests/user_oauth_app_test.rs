@@ -21,7 +21,9 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     config::environment::{OAuthConfig, OAuthProviderConfig},
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, OAuthDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{
+        factory::Database, DatabaseProvider, OAuthTokenOps, TenantDbOps, UserDbOps,
+    },
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     tenant::oauth_manager::{CredentialConfig, TenantOAuthManager},

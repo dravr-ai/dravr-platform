@@ -12,7 +12,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, OAuthDbOps},
+    database_plugins::{factory::Database, DatabaseProvider, OAuth2ServerOps},
     oauth2_server::{
         client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
     },

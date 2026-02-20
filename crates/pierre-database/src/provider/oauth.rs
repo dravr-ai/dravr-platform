@@ -1,5 +1,5 @@
-// ABOUTME: OAuth database operations trait covering tokens, apps, OAuth2 server, client state, password reset
-// ABOUTME: Enables 5 OAuth-related repository blanket impls with focused trait bound
+// ABOUTME: OAuth database operation traits decomposed into focused sub-traits
+// ABOUTME: OAuthTokenOps, OAuth2ServerOps, OAuthAccountOps composed via OAuthDbOps supertrait
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,9 +13,9 @@ use pierre_core::models::{
 };
 use uuid::Uuid;
 
-/// OAuth and authentication database operations
+/// User OAuth token CRUD, app credentials, and provider sync tracking
 #[async_trait]
-pub trait OAuthDbOps: Send + Sync + Clone {
+pub trait OAuthTokenOps: Send + Sync + Clone {
     // --- User OAuth Tokens (Multi-Tenant) ---
 
     /// Store or update user OAuth token for a tenant-provider combination
@@ -108,7 +108,11 @@ pub trait OAuthDbOps: Send + Sync + Clone {
         provider: &str,
         sync_time: DateTime<Utc>,
     ) -> AppResult<()>;
+}
 
+/// OAuth 2.0 server protocol: clients, auth codes, refresh tokens, state, and client state
+#[async_trait]
+pub trait OAuth2ServerOps: Send + Sync + Clone {
     // --- OAuth 2.0 Server (RFC 7591) ---
 
     /// Store OAuth 2.0 client registration
@@ -204,7 +208,11 @@ pub trait OAuthDbOps: Send + Sync + Clone {
         provider: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuthClientState>>;
+}
 
+/// Provider connections and password reset token operations
+#[async_trait]
+pub trait OAuthAccountOps: Send + Sync + Clone {
     // --- Password Reset Tokens ---
 
     /// Store a password reset token (hashed) for a user
@@ -251,3 +259,15 @@ pub trait OAuthDbOps: Send + Sync + Clone {
     /// Check if a specific provider is connected for a user (cross-tenant)
     async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool>;
 }
+
+/// Compound supertrait aggregating all OAuth-related database operations.
+///
+/// Composed from three focused sub-traits: `OAuthTokenOps` (user tokens, app
+/// credentials, sync tracking), `OAuth2ServerOps` (protocol clients, codes,
+/// refresh tokens, state), and `OAuthAccountOps` (provider connections,
+/// password reset).
+pub trait OAuthDbOps: OAuthTokenOps + OAuth2ServerOps + OAuthAccountOps {}
+
+/// Blanket implementation: any type implementing all three sub-traits
+/// automatically satisfies `OAuthDbOps`.
+impl<T: OAuthTokenOps + OAuth2ServerOps + OAuthAccountOps> OAuthDbOps for T {}
