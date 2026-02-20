@@ -166,7 +166,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    database_plugins::{factory::Database, DatabaseProvider},
+    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     rate_limiting::UnifiedRateLimitInfo,
     routes::dashboard::service::DashboardRoutes,
