@@ -18,7 +18,7 @@ use crate::{
     database::repositories::A2ARepository,
     errors::AppError,
     mcp::resources::ServerResources,
-    security::cookies::get_cookie_value,
+    middleware::extract_auth_from_headers,
 };
 use axum::{
     extract::{Path, State},
@@ -149,22 +149,7 @@ impl A2ARoutes {
         headers: &HeaderMap,
         resources: &Arc<ServerResources>,
     ) -> Result<AuthResult, AppError> {
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
+        extract_auth_from_headers(headers, resources).await
     }
 
     /// Handle A2A status (public endpoint)

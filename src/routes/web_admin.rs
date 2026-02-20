@@ -20,10 +20,9 @@ use crate::{
     database::CreateUserMcpTokenRequest,
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
-    middleware::require_admin,
+    middleware::{extract_auth_from_headers, require_admin},
     models::UserStatus,
     rate_limiting::UnifiedRateLimitCalculator,
-    security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -376,23 +375,7 @@ impl WebAdminRoutes {
         headers: &HeaderMap,
         resources: &Arc<ServerResources>,
     ) -> Result<AuthResult, AppError> {
-        // Try Authorization header first, then fall back to auth_token cookie
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        let auth = resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
+        let auth = extract_auth_from_headers(headers, resources).await?;
 
         // Verify admin privileges using centralized guard
         require_admin(auth.user_id, &resources.database).await?;

@@ -10,13 +10,12 @@
 //! for authenticated users. All handlers require valid JWT authentication.
 
 use crate::{
-    auth::AuthResult, database::repositories::UserMcpTokenRepository,
-    database::CreateUserMcpTokenRequest, errors::AppError, mcp::resources::ServerResources,
-    security::cookies::get_cookie_value,
+    database::repositories::UserMcpTokenRepository, database::CreateUserMcpTokenRequest,
+    errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -94,39 +93,13 @@ impl UserMcpTokenRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
-    ) -> Result<AuthResult, AppError> {
-        // Try Authorization header first, then fall back to auth_token cookie
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                // Fall back to auth_token cookie, format as Bearer token
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
     /// Handle token creation
     async fn handle_create_token(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<CreateTokenRequest>,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Create token
         let db_request = CreateUserMcpTokenRequest {
@@ -154,10 +127,9 @@ impl UserMcpTokenRoutes {
     /// Handle listing user's tokens
     async fn handle_list_tokens(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // List tokens
         let tokens = resources.database.list_tokens(auth.user_id).await?;
@@ -184,11 +156,10 @@ impl UserMcpTokenRoutes {
     /// Handle token revocation
     async fn handle_revoke_token(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(token_id): Path<String>,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Revoke token
         resources

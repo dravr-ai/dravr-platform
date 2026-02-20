@@ -20,8 +20,8 @@ use crate::{
     database::{coaches::CoachesManager, store_listings::StoreListingsManager},
     errors::AppError,
     mcp::resources::ServerResources,
+    middleware::extract_auth_from_headers,
     models::TenantId,
-    security::cookies::get_cookie_value,
 };
 use axum::{
     http::HeaderMap,
@@ -126,23 +126,7 @@ pub(super) async fn authenticate(
     headers: &HeaderMap,
     resources: &Arc<ServerResources>,
 ) -> Result<AuthResult, AppError> {
-    // Try Authorization header first, then fall back to auth_token cookie
-    let auth_value =
-        if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-            auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-            format!("Bearer {token}")
-        } else {
-            return Err(AppError::auth_invalid(
-                "Missing authorization header or cookie",
-            ));
-        };
-
-    resources
-        .auth_middleware
-        .authenticate_request(Some(&auth_value))
-        .await
-        .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
+    extract_auth_from_headers(headers, resources).await
 }
 
 /// Get tenant ID for an authenticated user

@@ -23,8 +23,8 @@ use crate::{
         ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, TokenUsage, Tool,
     },
     mcp::resources::ServerResources,
+    middleware::extract_auth_from_headers,
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
-    security::cookies::get_cookie_value,
     services::{
         chat_orchestration,
         usage_counter::{LimitCheckResult, UsageCounterService},
@@ -362,22 +362,7 @@ impl ChatRoutes {
         headers: &HeaderMap,
         resources: &Arc<ServerResources>,
     ) -> Result<AuthResult, AppError> {
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
+        extract_auth_from_headers(headers, resources).await
     }
 
     /// Get user's `tenant_id` (defaults to `user_id` if no tenant)
