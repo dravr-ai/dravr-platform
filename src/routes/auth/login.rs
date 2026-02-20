@@ -26,9 +26,10 @@ use crate::{
     },
     errors::{AppError, AppResult, ErrorCode},
     mcp::resources::ServerResources,
+    middleware::extract_auth_from_headers,
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
-    security::cookies::{clear_auth_cookie, get_cookie_value, set_auth_cookie, set_csrf_cookie},
+    security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie},
     utils::{
         auth::extract_bearer_token_owned,
         errors::{auth_error, user_state_error, validation_error},
@@ -922,25 +923,8 @@ pub(super) async fn handle_update_profile(
     headers: HeaderMap,
     Json(request): Json<UpdateProfileRequest>,
 ) -> Result<Response, AppError> {
-    // Extract JWT from cookie or Authorization header
-    let auth_value =
-        if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-            auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(&headers, "auth_token") {
-            format!("Bearer {token}")
-        } else {
-            return Err(AppError::auth_invalid(
-                "Missing authorization header or cookie",
-            ));
-        };
-
     // Authenticate and get user ID
-    let auth = resources
-        .auth_middleware
-        .authenticate_request(Some(&auth_value))
-        .await
-        .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
-
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
     let user_id = auth.user_id;
 
     // Validate display name
@@ -991,25 +975,8 @@ pub(super) async fn handle_change_password(
     headers: HeaderMap,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<Response, AppError> {
-    // Extract JWT from cookie or Authorization header
-    let auth_value =
-        if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-            auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(&headers, "auth_token") {
-            format!("Bearer {token}")
-        } else {
-            return Err(AppError::auth_invalid(
-                "Missing authorization header or cookie",
-            ));
-        };
-
     // Authenticate and get user ID
-    let auth = resources
-        .auth_middleware
-        .authenticate_request(Some(&auth_value))
-        .await
-        .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
-
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
     let user_id = auth.user_id;
 
     // Fetch user to get current password hash
@@ -1135,25 +1102,8 @@ pub(super) async fn handle_user_stats(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    // Extract JWT from cookie or Authorization header
-    let auth_value =
-        if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-            auth_header.to_owned()
-        } else if let Some(token) = get_cookie_value(&headers, "auth_token") {
-            format!("Bearer {token}")
-        } else {
-            return Err(AppError::auth_invalid(
-                "Missing authorization header or cookie",
-            ));
-        };
-
     // Authenticate and get user ID
-    let auth = resources
-        .auth_middleware
-        .authenticate_request(Some(&auth_value))
-        .await
-        .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
-
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
     let user_id = auth.user_id;
     Span::current().record("user_id", user_id.to_string());
 

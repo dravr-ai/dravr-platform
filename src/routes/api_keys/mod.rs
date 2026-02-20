@@ -13,12 +13,12 @@
 pub mod service;
 
 use crate::{
-    api_keys::CreateApiKeyRequestSimple, auth::AuthResult, errors::AppError,
-    mcp::resources::ServerResources, security::cookies::get_cookie_value,
+    api_keys::CreateApiKeyRequestSimple, errors::AppError, mcp::resources::ServerResources,
+    middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -51,39 +51,13 @@ impl ApiKeyRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
-    ) -> Result<AuthResult, AppError> {
-        // Try Authorization header first, then fall back to auth_token cookie
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                // Fall back to auth_token cookie, format as Bearer token
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
     /// Handle API key creation
     async fn handle_create_api_key(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<CreateApiKeyRequestSimple>,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Create API key using service layer
         let service = ApiKeyService::new(resources);
@@ -98,10 +72,9 @@ impl ApiKeyRoutes {
     /// Handle listing user's API keys
     async fn handle_list_api_keys(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // List API keys using service layer
         let service = ApiKeyService::new(resources);
@@ -116,11 +89,10 @@ impl ApiKeyRoutes {
     /// Handle API key deactivation
     async fn handle_deactivate_api_key(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(key_id): Path<String>,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Deactivate API key using service layer
         let service = ApiKeyService::new(resources);
@@ -137,10 +109,9 @@ impl ApiKeyRoutes {
         State(resources): State<Arc<ServerResources>>,
         Path(key_id): Path<String>,
         Query(query): Query<UsageQuery>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        // Authenticate user from JWT token
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         // Use the service layer which enforces ownership verification
         let service = ApiKeyService::new(resources);

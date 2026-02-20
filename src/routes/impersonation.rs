@@ -14,9 +14,9 @@ use crate::{
     database::repositories::{ImpersonationRepository, TenantRepository, UserRepository},
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
+    middleware::extract_auth_from_headers,
     models::User,
     permissions::impersonation::ImpersonationSession,
-    security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Path, State},
@@ -118,23 +118,7 @@ impl ImpersonationRoutes {
         headers: &HeaderMap,
         resources: &Arc<ServerResources>,
     ) -> Result<(AuthResult, User), AppError> {
-        // Try Authorization header first, then fall back to auth_token cookie
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        let auth = resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
+        let auth = extract_auth_from_headers(headers, resources).await?;
 
         // Get user and check for super_admin role
         let user = resources
@@ -268,22 +252,7 @@ impl ImpersonationRoutes {
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         // Authenticate - can be either super admin or impersonated session
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(&headers, "auth_token") {
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        let auth = resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
+        let auth = extract_auth_from_headers(&headers, &resources).await?;
 
         // Find the active impersonation session for this user.
         // The query matches if the authenticated user is either the impersonator

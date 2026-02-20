@@ -12,13 +12,10 @@
 /// Service layer for dashboard data and analytics operations
 pub mod service;
 
-use crate::{
-    auth::AuthResult, errors::AppError, mcp::resources::ServerResources,
-    security::cookies::get_cookie_value,
-};
+use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -109,37 +106,12 @@ impl DashboardRoutes {
             .with_state(resources)
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
-    ) -> Result<AuthResult, AppError> {
-        // Try Authorization header first
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                // Fall back to auth_token cookie, format as Bearer token
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))
-    }
-
     /// Handle dashboard overview request
     async fn handle_dashboard_overview(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service.get_dashboard_overview(auth).await?;
@@ -150,9 +122,9 @@ impl DashboardRoutes {
     /// Handle detailed stats request
     async fn handle_detailed_stats(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service.get_request_stats(auth, None, None).await?;
@@ -163,10 +135,10 @@ impl DashboardRoutes {
     /// Handle usage analytics request
     async fn handle_usage_analytics(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<UsageAnalyticsQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service.get_usage_analytics(auth, params.days).await?;
@@ -177,9 +149,9 @@ impl DashboardRoutes {
     /// Handle rate limits overview request
     async fn handle_rate_limits(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service.get_rate_limit_overview(auth).await?;
@@ -190,10 +162,10 @@ impl DashboardRoutes {
     /// Handle request logs request
     async fn handle_request_logs(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<RequestLogsQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service
@@ -212,10 +184,10 @@ impl DashboardRoutes {
     /// Handle tool usage breakdown request
     async fn handle_tool_usage(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Query(params): Query<ToolUsageQuery>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate(&headers, &resources).await?;
+        let auth = auth.into_inner();
 
         let service = DashboardService::new(resources);
         let response = service

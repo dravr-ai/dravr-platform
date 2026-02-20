@@ -12,6 +12,8 @@ pub mod auth;
 pub mod cors;
 /// CSRF validation middleware
 pub mod csrf;
+/// Axum extractors for common authentication patterns
+pub mod extractors;
 /// Rate limiting middleware and utilities
 pub mod rate_limiting;
 /// PII redaction and sensitive data masking
@@ -36,6 +38,10 @@ pub use auth::McpAuthMiddleware;
 pub use csrf::csrf_protection_layer;
 /// CSRF validation middleware
 pub use csrf::CsrfMiddleware;
+/// Shared auth extraction from headers (for handlers that need custom post-processing)
+pub use extractors::extract_auth_from_headers;
+/// Axum extractor for authenticated user context from JWT or cookie
+pub use extractors::AuthenticatedUser;
 
 // CORS middleware
 

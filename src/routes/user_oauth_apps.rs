@@ -20,11 +20,11 @@
 
 use crate::{
     database::repositories::OAuthTokenRepository, errors::AppError,
-    mcp::resources::ServerResources, security::cookies::get_cookie_value,
+    mcp::resources::ServerResources, middleware::AuthenticatedUser,
 };
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -32,7 +32,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
-use uuid::Uuid;
 
 /// Routes for user OAuth app management
 pub struct UserOAuthAppRoutes;
@@ -112,40 +111,13 @@ impl UserOAuthAppRoutes {
         }
     }
 
-    /// Extract and authenticate user from authorization header or cookie
-    async fn authenticate(
-        headers: &HeaderMap,
-        resources: &Arc<ServerResources>,
-    ) -> Result<Uuid, AppError> {
-        // Try Authorization header first, then fall back to auth_token cookie
-        let auth_value =
-            if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                auth_header.to_owned()
-            } else if let Some(token) = get_cookie_value(headers, "auth_token") {
-                // Fall back to auth_token cookie, format as Bearer token
-                format!("Bearer {token}")
-            } else {
-                return Err(AppError::auth_invalid(
-                    "Missing authorization header or cookie",
-                ));
-            };
-
-        let auth_result = resources
-            .auth_middleware
-            .authenticate_request(Some(&auth_value))
-            .await
-            .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
-
-        Ok(auth_result.user_id)
-    }
-
     /// Handle registering a new OAuth app
     async fn handle_register_app(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Json(request): Json<RegisterUserOAuthAppRequest>,
     ) -> Result<Response, AppError> {
-        let user_id = Self::authenticate(&headers, &resources).await?;
+        let user_id = auth.user_id;
         let provider = request.provider.to_lowercase();
 
         Self::validate_provider(&provider)?;
@@ -192,9 +164,9 @@ impl UserOAuthAppRoutes {
     /// Handle listing user's OAuth apps
     async fn handle_list_apps(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
     ) -> Result<Response, AppError> {
-        let user_id = Self::authenticate(&headers, &resources).await?;
+        let user_id = auth.user_id;
 
         let apps = resources.database.list_user_oauth_apps(user_id).await?;
 
@@ -216,10 +188,10 @@ impl UserOAuthAppRoutes {
     /// Handle getting a specific OAuth app
     async fn handle_get_app(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(provider): Path<String>,
     ) -> Result<Response, AppError> {
-        let user_id = Self::authenticate(&headers, &resources).await?;
+        let user_id = auth.user_id;
         let provider = provider.to_lowercase();
 
         Self::validate_provider(&provider)?;
@@ -245,10 +217,10 @@ impl UserOAuthAppRoutes {
     /// Handle deleting an OAuth app
     async fn handle_delete_app(
         State(resources): State<Arc<ServerResources>>,
-        headers: HeaderMap,
+        auth: AuthenticatedUser,
         Path(provider): Path<String>,
     ) -> Result<Response, AppError> {
-        let user_id = Self::authenticate(&headers, &resources).await?;
+        let user_id = auth.user_id;
         let provider = provider.to_lowercase();
 
         Self::validate_provider(&provider)?;
