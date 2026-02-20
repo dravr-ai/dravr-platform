@@ -271,7 +271,7 @@ impl Database {
         match self {
             Self::SQLite(db) => db.is_auto_approval_enabled().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Ok(None), // PostgreSQL: use config default
+            Self::PostgreSQL(db) => db.is_auto_approval_enabled().await,
         }
     }
 
@@ -284,7 +284,7 @@ impl Database {
         match self {
             Self::SQLite(db) => db.set_auto_approval_enabled(enabled).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Ok(()), // PostgreSQL implementation pending
+            Self::PostgreSQL(db) => db.set_auto_approval_enabled(enabled).await,
         }
     }
 
@@ -300,7 +300,7 @@ impl Database {
         match self {
             Self::SQLite(db) => db.get_social_insights_config().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Ok(None), // PostgreSQL: use config default
+            Self::PostgreSQL(db) => db.get_social_insights_config().await,
         }
     }
 
@@ -313,7 +313,7 @@ impl Database {
         match self {
             Self::SQLite(db) => db.set_social_insights_config(config).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Ok(()), // PostgreSQL implementation pending
+            Self::PostgreSQL(db) => db.set_social_insights_config(config).await,
         }
     }
 
@@ -326,7 +326,7 @@ impl Database {
         match self {
             Self::SQLite(db) => db.delete_social_insights_config().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Ok(()), // PostgreSQL implementation pending
+            Self::PostgreSQL(db) => db.delete_social_insights_config().await,
         }
     }
 }
