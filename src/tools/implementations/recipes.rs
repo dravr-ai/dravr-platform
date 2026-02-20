@@ -27,8 +27,8 @@ use crate::database::recipes::RecipeManager;
 use crate::errors::{AppError, AppResult};
 use crate::external::{UsdaClient, UsdaClientConfig};
 use crate::intelligence::recipes::{
-    convert_to_grams, DietaryRestriction, IngredientUnit, MacroTargets, MealTiming, Recipe,
-    RecipeConstraints, RecipeIngredient, SkillLevel,
+    convert_to_grams, DietaryRestriction, IngredientUnit, MacroTargets, MacroTargetsExt,
+    MealTiming, Recipe, RecipeConstraints, RecipeIngredient, SkillLevel,
 };
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;

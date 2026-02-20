@@ -12,7 +12,6 @@ publish = false
 
 [dependencies]
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
-pierre-intelligence = { version = "0.1.0", path = "../pierre-intelligence" }
 
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }

@@ -12,8 +12,8 @@
 
 use chrono::Utc;
 use pierre_mcp_server::intelligence::recipes::{
-    convert_to_grams, ConversionError, IngredientUnit, MacroTargets, MealTiming, Recipe,
-    RecipeIngredient, ValidatedNutrition,
+    convert_to_grams, ConversionError, IngredientUnit, MacroTargets, MacroTargetsExt, MealTiming,
+    Recipe, RecipeIngredient, ValidatedNutrition,
 };
 use uuid::Uuid;
 

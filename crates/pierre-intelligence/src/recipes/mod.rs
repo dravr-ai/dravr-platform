@@ -43,6 +43,6 @@ pub mod models;
 // Re-export main types for convenience
 pub use conversion::{convert_to_grams, ConversionError, IngredientDensity};
 pub use models::{
-    DietaryRestriction, IngredientUnit, MacroTargets, MealTiming, Recipe, RecipeConstraints,
-    RecipeIngredient, SkillLevel, ValidatedNutrition,
+    DietaryRestriction, IngredientUnit, MacroTargets, MacroTargetsExt, MealTiming, Recipe,
+    RecipeConstraints, RecipeIngredient, SkillLevel, ValidatedNutrition,
 };
