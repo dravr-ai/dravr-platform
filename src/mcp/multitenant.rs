@@ -27,7 +27,7 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
-use crate::database_plugins::{factory::Database, OAuthDbOps, SecurityDbOps};
+use crate::database_plugins::{factory::Database, OAuthTokenOps, SecurityDbOps};
 use crate::errors::{AppError, AppResult};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::schema::ProgressNotification;

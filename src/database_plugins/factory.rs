@@ -10,8 +10,8 @@
 
 use super::DatabaseProvider;
 use super::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuthDbOps, SecurityDbOps, SocialDbOps,
-    TenantDbOps, UsageDbOps, UserDbOps,
+    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthTokenOps,
+    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
 };
 use crate::admin::models::{
     AdminToken, AdminTokenUsage, CreateAdminTokenRequest, GeneratedAdminToken,
@@ -605,7 +605,153 @@ impl UserDbOps for Database {
 }
 
 #[async_trait]
-impl OAuthDbOps for Database {
+impl OAuthTokenOps for Database {
+    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => OAuthTokenOps::upsert_user_oauth_token(db, token).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.upsert_user_oauth_token(token).await,
+        }
+    }
+    async fn get_user_oauth_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthToken>> {
+        match self {
+            Self::SQLite(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
+        }
+    }
+    async fn get_user_oauth_tokens(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        match self {
+            Self::SQLite(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
+        }
+    }
+    async fn get_tenant_provider_tokens(
+        &self,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        match self {
+            Self::SQLite(db) => db.get_tenant_provider_tokens(tenant_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_tenant_provider_tokens(tenant_id, provider).await,
+        }
+    }
+    async fn delete_user_oauth_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => {
+                db.delete_user_oauth_token(user_id, tenant_id, provider)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.delete_user_oauth_token(user_id, tenant_id, provider)
+                    .await
+            }
+        }
+    }
+    async fn delete_user_oauth_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
+        }
+    }
+    async fn refresh_user_oauth_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => {
+                db.refresh_user_oauth_token(
+                    user_id,
+                    tenant_id,
+                    provider,
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                )
+                .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.refresh_user_oauth_token(
+                    user_id,
+                    tenant_id,
+                    provider,
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                )
+                .await
+            }
+        }
+    }
+    async fn store_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        client_id: &str,
+        client_secret: &str,
+        redirect_uri: &str,
+    ) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => {
+                db.store_user_oauth_app(user_id, provider, client_id, client_secret, redirect_uri)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.store_user_oauth_app(user_id, provider, client_id, client_secret, redirect_uri)
+                    .await
+            }
+        }
+    }
+    async fn get_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthApp>> {
+        match self {
+            Self::SQLite(db) => db.get_user_oauth_app(user_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_user_oauth_app(user_id, provider).await,
+        }
+    }
+    async fn list_user_oauth_apps(&self, user_id: Uuid) -> AppResult<Vec<UserOAuthApp>> {
+        match self {
+            Self::SQLite(db) => db.list_user_oauth_apps(user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.list_user_oauth_apps(user_id).await,
+        }
+    }
+    async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.remove_user_oauth_app(user_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.remove_user_oauth_app(user_id, provider).await,
+        }
+    }
     async fn get_provider_last_sync(
         &self,
         user_id: uuid::Uuid,
@@ -643,6 +789,10 @@ impl OAuthDbOps for Database {
             }
         }
     }
+}
+
+#[async_trait]
+impl OAuth2ServerOps for Database {
     async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
         match self {
             Self::SQLite(db) => db.store_oauth2_client(client).await,
@@ -821,152 +971,10 @@ impl OAuthDbOps for Database {
             }
         }
     }
-    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => OAuthDbOps::upsert_user_oauth_token(db, token).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.upsert_user_oauth_token(token).await,
-        }
-    }
-    async fn get_user_oauth_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Option<UserOAuthToken>> {
-        match self {
-            Self::SQLite(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
-        }
-    }
-    async fn get_user_oauth_tokens(
-        &self,
-        user_id: Uuid,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Vec<UserOAuthToken>> {
-        match self {
-            Self::SQLite(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
-        }
-    }
-    async fn get_tenant_provider_tokens(
-        &self,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Vec<UserOAuthToken>> {
-        match self {
-            Self::SQLite(db) => db.get_tenant_provider_tokens(tenant_id, provider).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_provider_tokens(tenant_id, provider).await,
-        }
-    }
-    async fn delete_user_oauth_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => {
-                db.delete_user_oauth_token(user_id, tenant_id, provider)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.delete_user_oauth_token(user_id, tenant_id, provider)
-                    .await
-            }
-        }
-    }
-    async fn delete_user_oauth_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
-        }
-    }
-    async fn refresh_user_oauth_token(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        access_token: &str,
-        refresh_token: Option<&str>,
-        expires_at: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => {
-                db.refresh_user_oauth_token(
-                    user_id,
-                    tenant_id,
-                    provider,
-                    access_token,
-                    refresh_token,
-                    expires_at,
-                )
-                .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.refresh_user_oauth_token(
-                    user_id,
-                    tenant_id,
-                    provider,
-                    access_token,
-                    refresh_token,
-                    expires_at,
-                )
-                .await
-            }
-        }
-    }
-    async fn store_user_oauth_app(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        client_id: &str,
-        client_secret: &str,
-        redirect_uri: &str,
-    ) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => {
-                db.store_user_oauth_app(user_id, provider, client_id, client_secret, redirect_uri)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.store_user_oauth_app(user_id, provider, client_id, client_secret, redirect_uri)
-                    .await
-            }
-        }
-    }
-    async fn get_user_oauth_app(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-    ) -> AppResult<Option<UserOAuthApp>> {
-        match self {
-            Self::SQLite(db) => db.get_user_oauth_app(user_id, provider).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_oauth_app(user_id, provider).await,
-        }
-    }
-    async fn list_user_oauth_apps(&self, user_id: Uuid) -> AppResult<Vec<UserOAuthApp>> {
-        match self {
-            Self::SQLite(db) => db.list_user_oauth_apps(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_user_oauth_apps(user_id).await,
-        }
-    }
-    async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.remove_user_oauth_app(user_id, provider).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.remove_user_oauth_app(user_id, provider).await,
-        }
-    }
+}
+
+#[async_trait]
+impl OAuthAccountOps for Database {
     async fn register_provider_connection(
         &self,
         user_id: Uuid,

@@ -114,8 +114,8 @@ use pierre_core::models::{
     LlmCredentialRecord, LlmCredentialSummary, TenantId, TenantOAuthCredentials,
 };
 use pierre_database::provider::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuthDbOps, SecurityDbOps, SocialDbOps,
-    TenantDbOps, UsageDbOps, UserDbOps,
+    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthTokenOps,
+    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
 };
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::digest::{digest, SHA256};
@@ -2639,113 +2639,7 @@ impl UserDbOps for Database {
 }
 
 #[async_trait]
-impl OAuthDbOps for Database {
-    async fn get_provider_last_sync(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-    ) -> AppResult<Option<DateTime<Utc>>> {
-        Self::get_provider_last_sync(self, user_id, tenant_id, provider).await
-    }
-    async fn update_provider_last_sync(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        sync_time: DateTime<Utc>,
-    ) -> AppResult<()> {
-        Self::update_provider_last_sync(self, user_id, tenant_id, provider, sync_time).await
-    }
-    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
-        Self::store_oauth2_client_impl(self, client).await
-    }
-    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
-        Self::get_oauth2_client_impl(self, client_id).await
-    }
-    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        Self::store_oauth2_auth_code_impl(self, auth_code).await
-    }
-    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
-        Self::get_oauth2_auth_code_impl(self, code).await
-    }
-    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        Self::update_oauth2_auth_code_impl(self, auth_code).await
-    }
-    async fn store_oauth2_refresh_token(
-        &self,
-        refresh_token: &OAuth2RefreshToken,
-    ) -> AppResult<()> {
-        Self::store_oauth2_refresh_token_impl(self, refresh_token).await
-    }
-    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
-        Self::get_oauth2_refresh_token_impl(self, token).await
-    }
-    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
-        Self::revoke_oauth2_refresh_token_impl(self, token).await
-    }
-    async fn consume_auth_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2AuthCode>> {
-        Self::consume_auth_code_impl(self, code, client_id, redirect_uri, now).await
-    }
-    async fn consume_refresh_token(
-        &self,
-        token: &str,
-        client_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2RefreshToken>> {
-        Self::consume_refresh_token_impl(self, token, client_id, now).await
-    }
-    async fn get_refresh_token_by_value(
-        &self,
-        token: &str,
-    ) -> AppResult<Option<OAuth2RefreshToken>> {
-        // Delegate to get_oauth2_refresh_token_impl which handles token hashing
-        Self::get_oauth2_refresh_token_impl(self, token).await
-    }
-    async fn store_authorization_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        scope: &str,
-        user_id: Uuid,
-    ) -> AppResult<()> {
-        Self::store_authorization_code(self, code, client_id, redirect_uri, scope, user_id).await
-    }
-    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
-        Self::get_authorization_code_impl(self, code).await
-    }
-    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
-        Self::delete_authorization_code_impl(self, code).await
-    }
-    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
-        Self::store_oauth2_state_impl(self, state).await
-    }
-    async fn consume_oauth2_state(
-        &self,
-        state_value: &str,
-        client_id: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuth2State>> {
-        Self::consume_oauth2_state_impl(self, state_value, client_id, now).await
-    }
-    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
-        Self::store_oauth_client_state_impl(self, state).await
-    }
-    async fn consume_oauth_client_state(
-        &self,
-        state_value: &str,
-        provider: &str,
-        now: DateTime<Utc>,
-    ) -> AppResult<Option<OAuthClientState>> {
-        Self::consume_oauth_client_state_impl(self, state_value, provider, now).await
-    }
+impl OAuthTokenOps for Database {
     async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
         use user_oauth_tokens::OAuthTokenData;
 
@@ -2852,6 +2746,120 @@ impl OAuthDbOps for Database {
     async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
         Self::remove_user_oauth_app_impl(self, user_id, provider).await
     }
+    async fn get_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        Self::get_provider_last_sync(self, user_id, tenant_id, provider).await
+    }
+    async fn update_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        sync_time: DateTime<Utc>,
+    ) -> AppResult<()> {
+        Self::update_provider_last_sync(self, user_id, tenant_id, provider, sync_time).await
+    }
+}
+
+#[async_trait]
+impl OAuth2ServerOps for Database {
+    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
+        Self::store_oauth2_client_impl(self, client).await
+    }
+    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+        Self::get_oauth2_client_impl(self, client_id).await
+    }
+    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        Self::store_oauth2_auth_code_impl(self, auth_code).await
+    }
+    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+        Self::get_oauth2_auth_code_impl(self, code).await
+    }
+    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        Self::update_oauth2_auth_code_impl(self, auth_code).await
+    }
+    async fn store_oauth2_refresh_token(
+        &self,
+        refresh_token: &OAuth2RefreshToken,
+    ) -> AppResult<()> {
+        Self::store_oauth2_refresh_token_impl(self, refresh_token).await
+    }
+    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+        Self::get_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
+        Self::revoke_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn consume_auth_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2AuthCode>> {
+        Self::consume_auth_code_impl(self, code, client_id, redirect_uri, now).await
+    }
+    async fn consume_refresh_token(
+        &self,
+        token: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        Self::consume_refresh_token_impl(self, token, client_id, now).await
+    }
+    async fn get_refresh_token_by_value(
+        &self,
+        token: &str,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        // Delegate to get_oauth2_refresh_token_impl which handles token hashing
+        Self::get_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn store_authorization_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        scope: &str,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        Self::store_authorization_code(self, code, client_id, redirect_uri, scope, user_id).await
+    }
+    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
+        Self::get_authorization_code_impl(self, code).await
+    }
+    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
+        Self::delete_authorization_code_impl(self, code).await
+    }
+    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
+        Self::store_oauth2_state_impl(self, state).await
+    }
+    async fn consume_oauth2_state(
+        &self,
+        state_value: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2State>> {
+        Self::consume_oauth2_state_impl(self, state_value, client_id, now).await
+    }
+    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
+        Self::store_oauth_client_state_impl(self, state).await
+    }
+    async fn consume_oauth_client_state(
+        &self,
+        state_value: &str,
+        provider: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuthClientState>> {
+        Self::consume_oauth_client_state_impl(self, state_value, provider, now).await
+    }
+}
+
+#[async_trait]
+impl OAuthAccountOps for Database {
     async fn register_provider_connection(
         &self,
         user_id: Uuid,

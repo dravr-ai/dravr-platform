@@ -9,8 +9,8 @@
 //! implementing the same interface as the `SQLite` version.
 
 use super::{
-    shared, A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, DatabaseProvider, OAuthDbOps,
-    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+    shared, A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, DatabaseProvider, OAuth2ServerOps,
+    OAuthAccountOps, OAuthTokenOps, SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
 };
 use crate::admin::jwt::AdminJwtManager;
 use crate::admin::models::{
@@ -1194,7 +1194,7 @@ impl UserDbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl OAuthDbOps for PostgresDatabase {
+impl OAuthTokenOps for PostgresDatabase {
     async fn get_provider_last_sync(
         &self,
         user_id: Uuid,
@@ -1231,102 +1231,6 @@ impl OAuthDbOps for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update provider last sync: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Store authorization code
-    async fn store_authorization_code(
-        &self,
-        code: &str,
-        client_id: &str,
-        redirect_uri: &str,
-        scope: &str,
-        user_id: Uuid,
-    ) -> AppResult<()> {
-        // Use the provided user_id from auth context
-        let expires_at = Utc::now() + chrono::Duration::minutes(10); // OAuth codes expire in 10 minutes
-
-        sqlx::query(
-            r"
-            INSERT INTO authorization_codes 
-                (code, client_id, user_id, redirect_uri, scope, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
-            ",
-        )
-        .bind(code)
-        .bind(client_id)
-        .bind(user_id)
-        .bind(redirect_uri)
-        .bind(scope)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store authorization code: {e}")))?;
-
-        Ok(())
-    }
-
-    /// Get authorization code data
-    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
-        let row = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                Uuid,
-                String,
-                String,
-                DateTime<Utc>,
-                DateTime<Utc>,
-            ),
-        >(
-            r"
-            SELECT code, client_id, user_id, redirect_uri, scope, created_at, expires_at
-            FROM authorization_codes
-            WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP
-            ",
-        )
-        .bind(code)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        match row {
-            Some((code, client_id, user_id, redirect_uri, scope, created_at, expires_at)) => {
-                Ok(AuthorizationCode {
-                    code,
-                    client_id,
-                    redirect_uri,
-                    scope,
-                    user_id: Some(user_id),
-                    expires_at,
-                    created_at,
-                    is_used: false, // Will be marked as used when deleted
-                })
-            }
-            None => Err(AppError::not_found(
-                "Authorization code not found or expired".to_owned(),
-            )),
-        }
-    }
-
-    /// Delete authorization code
-    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            DELETE FROM authorization_codes
-            WHERE code = $1
-            ",
-        )
-        .bind(code)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to delete authorization code: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            warn!("Authorization code not found for deletion (code redacted)");
-        }
 
         Ok(())
     }
@@ -1708,6 +1612,105 @@ impl OAuthDbOps for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl OAuth2ServerOps for PostgresDatabase {
+    /// Store authorization code
+    async fn store_authorization_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        scope: &str,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        // Use the provided user_id from auth context
+        let expires_at = Utc::now() + chrono::Duration::minutes(10); // OAuth codes expire in 10 minutes
+
+        sqlx::query(
+            r"
+            INSERT INTO authorization_codes
+                (code, client_id, user_id, redirect_uri, scope, created_at, expires_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
+            ",
+        )
+        .bind(code)
+        .bind(client_id)
+        .bind(user_id)
+        .bind(redirect_uri)
+        .bind(scope)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store authorization code: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Get authorization code data
+    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                Uuid,
+                String,
+                String,
+                DateTime<Utc>,
+                DateTime<Utc>,
+            ),
+        >(
+            r"
+            SELECT code, client_id, user_id, redirect_uri, scope, created_at, expires_at
+            FROM authorization_codes
+            WHERE code = $1 AND expires_at > CURRENT_TIMESTAMP
+            ",
+        )
+        .bind(code)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        match row {
+            Some((code, client_id, user_id, redirect_uri, scope, created_at, expires_at)) => {
+                Ok(AuthorizationCode {
+                    code,
+                    client_id,
+                    redirect_uri,
+                    scope,
+                    user_id: Some(user_id),
+                    expires_at,
+                    created_at,
+                    is_used: false, // Will be marked as used when deleted
+                })
+            }
+            None => Err(AppError::not_found(
+                "Authorization code not found or expired".to_owned(),
+            )),
+        }
+    }
+
+    /// Delete authorization code
+    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM authorization_codes
+            WHERE code = $1
+            ",
+        )
+        .bind(code)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete authorization code: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            warn!("Authorization code not found for deletion (code redacted)");
+        }
 
         Ok(())
     }
@@ -2249,7 +2252,10 @@ impl OAuthDbOps for PostgresDatabase {
             Ok(None)
         }
     }
+}
 
+#[async_trait]
+impl OAuthAccountOps for PostgresDatabase {
     // ================================
     // Provider Connections (PostgreSQL implementation)
     // ================================

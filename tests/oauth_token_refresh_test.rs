@@ -161,7 +161,7 @@ use pierre_mcp_server::{
     },
     constants::oauth_providers,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, OAuthDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, OAuthTokenOps, TenantDbOps, UserDbOps},
     intelligence::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,
