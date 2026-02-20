@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
+use crate::metrics::MetricsCalculator;
 use crate::models::Activity;
 use crate::physiological_constants::metrics_constants::TSS_BASE_MULTIPLIER;
 use serde::{Deserialize, Serialize};
@@ -142,21 +143,43 @@ impl TssAlgorithm {
         Ok((duration_hours * intensity_factor * intensity_factor * TSS_BASE_MULTIPLIER).round())
     }
 
-    /// Calculate Normalized Power from power stream
+    /// Calculate Normalized Power from activity power stream
     ///
-    /// `NP = ⁴√(mean(mean_per_30s_window(power⁴)))`
+    /// Extracts power data from the activity's time series and delegates to
+    /// `MetricsCalculator::calculate_normalized_power` for the standard NP formula:
+    /// `NP = ⁴√(mean(rolling_30s_avg(power⁴)))`
     ///
     /// # Errors
     ///
-    /// Returns `AppError::MissingData` if power stream is unavailable or too short
+    /// Returns `AppError::NotFound` if power stream is unavailable or too short
     fn calculate_normalized_power(activity: &Activity, window_seconds: u32) -> AppResult<f64> {
-        // Power stream data from the Activity model is not yet available.
-        // Once activity.power_stream() or similar accessor is implemented,
-        // this function will compute NP using the 30s rolling average method.
-        Err(AppError::not_found(format!(
-            "Power stream data required for NP calculation of activity {} (need ≥{window_seconds}s of data)",
-            activity.id()
-        )))
+        let power_data = activity
+            .time_series_data()
+            .and_then(|ts| ts.power.as_deref())
+            .ok_or_else(|| {
+                AppError::not_found(format!(
+                    "Power stream data required for NP calculation of activity {}",
+                    activity.id()
+                ))
+            })?;
+
+        let window_size = window_seconds as usize;
+        if power_data.len() < window_size {
+            return Err(AppError::not_found(format!(
+                "Power stream for activity {} has {} samples, need ≥{window_seconds}",
+                activity.id(),
+                power_data.len()
+            )));
+        }
+
+        MetricsCalculator::new()
+            .calculate_normalized_power(power_data)
+            .ok_or_else(|| {
+                AppError::not_found(format!(
+                    "Normalized power calculation failed for activity {} (insufficient rolling window data)",
+                    activity.id()
+                ))
+            })
     }
 
     /// Hybrid approach: Try NP, fallback to `avg_power`
