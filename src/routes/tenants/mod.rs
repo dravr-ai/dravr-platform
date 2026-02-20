@@ -13,13 +13,15 @@
 //! The active tenant for a session is determined by the `active_tenant_id` claim in the JWT.
 //! Use the POST /tenants/switch endpoint to change the active tenant and receive a new JWT.
 
+/// Service layer for multi-tenant management operations
+pub mod service;
+
 use crate::{
     auth::AuthResult,
     database::repositories::{TenantRepository, UserRepository},
     errors::AppError,
     mcp::resources::ServerResources,
     models::TenantId,
-    tenant_routes,
 };
 use axum::{
     extract::State,
@@ -113,12 +115,11 @@ impl TenantRoutes {
     async fn handle_create_tenant(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
-        Json(request): Json<tenant_routes::CreateTenantRequest>,
+        Json(request): Json<service::CreateTenantRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let response =
-            tenant_routes::create_tenant(request, auth, resources.database.clone()).await?;
+        let response = service::create_tenant(request, auth, resources.database.clone()).await?;
 
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
@@ -130,7 +131,7 @@ impl TenantRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let response = tenant_routes::list_tenants(auth, resources.database.clone()).await?;
+        let response = service::list_tenants(auth, resources.database.clone()).await?;
 
         Ok((StatusCode::OK, Json(response)).into_response())
     }

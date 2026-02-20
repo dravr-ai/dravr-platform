@@ -159,7 +159,6 @@ use pierre_mcp_server::{
         client::{A2AClientTier, ClientRegistrationRequest},
         A2AError,
     },
-    a2a_routes::{A2AClientRequest, A2ARoutes},
     auth::AuthManager,
     cache::{factory::Cache, CacheConfig},
     config::environment::ServerConfig,
@@ -167,6 +166,7 @@ use pierre_mcp_server::{
     database_plugins::{factory::Database, A2ADbOps, TenantDbOps, UserDbOps},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User},
+    routes::a2a::service::{A2AClientRequest, A2ARoutes},
 };
 use serde_json::json;
 use std::{

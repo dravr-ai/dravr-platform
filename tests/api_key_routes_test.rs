@@ -13,7 +13,6 @@ mod common;
 
 use chrono::{Duration, Utc};
 use pierre_mcp_server::{
-    api_key_routes::ApiKeyRoutes,
     api_keys::{ApiKeyTier, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod, AuthResult},
     config::environment::{
@@ -31,6 +30,7 @@ use pierre_mcp_server::{
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::User,
     rate_limiting::UnifiedRateLimitInfo,
+    routes::api_keys::service::ApiKeyRoutes,
 };
 use std::sync::Arc;
 use uuid::Uuid;

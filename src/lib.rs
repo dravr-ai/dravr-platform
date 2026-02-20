@@ -67,14 +67,8 @@
 /// A2A (Agent-to-Agent) protocol implementation
 pub mod a2a;
 
-/// `HTTP` routes for A2A protocol endpoints
-pub mod a2a_routes;
-
 /// Admin token authentication and `API` key provisioning
 pub mod admin;
-
-/// `HTTP` routes for `API` key management
-pub mod api_key_routes;
 
 /// `API` key management for B2B authentication
 pub mod api_keys;
@@ -99,9 +93,6 @@ pub mod context;
 
 /// Cryptographic utilities and key management
 pub mod crypto;
-
-/// Dashboard routes for frontend consumption
-pub mod dashboard_routes;
 
 /// Multi-tenant database management
 pub mod database;
@@ -211,6 +202,3 @@ pub mod test_utils;
 
 /// Domain service layer for protocol-agnostic business logic
 pub(crate) mod services;
-
-/// Multi-tenant management REST API routes
-pub(crate) mod tenant_routes;

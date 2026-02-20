@@ -9,10 +9,12 @@
 //! This module handles API key creation, listing, deactivation, and usage tracking
 //! for authenticated users. All handlers require valid JWT authentication.
 
+/// Service layer for API key management operations
+pub mod service;
+
 use crate::{
-    api_key_routes::ApiKeyRoutes as ApiKeyService, api_keys::CreateApiKeyRequestSimple,
-    auth::AuthResult, errors::AppError, mcp::resources::ServerResources,
-    security::cookies::get_cookie_value,
+    api_keys::CreateApiKeyRequestSimple, auth::AuthResult, errors::AppError,
+    mcp::resources::ServerResources, security::cookies::get_cookie_value,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -23,6 +25,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use service::ApiKeyRoutes as ApiKeyService;
 use std::sync::Arc;
 
 /// Query parameters for API key usage statistics
