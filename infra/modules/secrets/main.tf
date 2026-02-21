@@ -1,4 +1,4 @@
-# ABOUTME: Creates Secret Manager secrets for Pierre MCP Server
+# ABOUTME: Creates Secret Manager secrets for Dravr MCP Server
 # ABOUTME: Auto-generates critical secrets, creates placeholders for OAuth
 
 # -----------------------------------------------------------------------------

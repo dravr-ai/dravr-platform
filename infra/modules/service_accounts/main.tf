@@ -1,4 +1,4 @@
-# ABOUTME: Creates service accounts for Pierre MCP Server
+# ABOUTME: Creates service accounts for Dravr MCP Server
 # ABOUTME: Includes app SA for Cloud Run and deployer SA for GitHub Actions
 
 # -----------------------------------------------------------------------------
@@ -8,8 +8,8 @@
 resource "google_service_account" "app" {
   account_id   = "${var.service_name}-app"
   project      = var.project_id
-  display_name = "Pierre App Service Account"
-  description  = "Service account for Pierre MCP Server Cloud Run service"
+  display_name = "Dravr App Service Account"
+  description  = "Service account for Dravr MCP Server Cloud Run service"
 }
 
 # Cloud SQL Client (connect to database)
@@ -98,4 +98,36 @@ resource "google_service_account_iam_member" "deployer_can_act_as_app" {
   service_account_id = google_service_account.app.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+# -----------------------------------------------------------------------------
+# Terraform Runner Service Account (used by GitHub Actions Terraform workflow)
+# -----------------------------------------------------------------------------
+
+resource "google_service_account" "terraform_runner" {
+  account_id   = "terraform-runner"
+  project      = var.project_id
+  display_name = "Terraform Runner"
+  description  = "Service account for GitHub Actions Terraform plan/apply operations"
+}
+
+# Editor (create/manage all resources Terraform needs to manage)
+resource "google_project_iam_member" "terraform_runner_editor" {
+  project = var.project_id
+  role    = "roles/editor"
+  member  = "serviceAccount:${google_service_account.terraform_runner.email}"
+}
+
+# Project IAM Admin (required for Terraform to manage IAM bindings)
+resource "google_project_iam_member" "terraform_runner_iam_admin" {
+  project = var.project_id
+  role    = "roles/resourcemanager.projectIamAdmin"
+  member  = "serviceAccount:${google_service_account.terraform_runner.email}"
+}
+
+# GCS state bucket access (bucket-scoped, not project-wide)
+resource "google_storage_bucket_iam_member" "terraform_runner_state_admin" {
+  bucket = var.tf_state_bucket
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.terraform_runner.email}"
 }

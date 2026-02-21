@@ -3,7 +3,7 @@
 
 terraform {
   backend "gcs" {
-    bucket = "pierre-terraform-state"
+    bucket = "dravr-terraform-state"
     prefix = "dravr-prod"
   }
 }

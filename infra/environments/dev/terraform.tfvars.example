@@ -20,7 +20,7 @@ artifacts_project_id = "dravr-artifacts"
 
 # environment  = "development"
 # region       = "northamerica-northeast1"
-# service_name = "pierre-mcp-server"
+# service_name = "dravr-mcp-server"
 
 # -----------------------------------------------------------------------------
 # Feature Toggles

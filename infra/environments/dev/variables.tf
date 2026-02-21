@@ -1,4 +1,4 @@
-# ABOUTME: Defines all configurable variables for Pierre MCP Server infrastructure
+# ABOUTME: Defines all configurable variables for Dravr MCP Server infrastructure
 # ABOUTME: Includes project settings, database config, and GitHub integration
 
 # -----------------------------------------------------------------------------
@@ -39,7 +39,7 @@ variable "environment" {
 variable "service_name" {
   description = "Name of the Cloud Run service"
   type        = string
-  default     = "pierre-mcp-server"
+  default     = "dravr-mcp-server"
 }
 
 # -----------------------------------------------------------------------------
@@ -67,13 +67,13 @@ variable "database_version" {
 variable "database_name" {
   description = "Name of the PostgreSQL database"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_user" {
   description = "Name of the PostgreSQL user"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_deletion_protection" {
@@ -134,7 +134,7 @@ variable "redis_version" {
 variable "vpc_name" {
   description = "Name of the VPC network"
   type        = string
-  default     = "pierre-vpc"
+  default     = "dravr-vpc"
 }
 
 variable "subnet_cidr" {
@@ -248,7 +248,7 @@ variable "labels" {
   description = "Common labels to apply to all resources"
   type        = map(string)
   default = {
-    app        = "pierre"
+    app        = "dravr"
     managed_by = "terraform"
   }
 }

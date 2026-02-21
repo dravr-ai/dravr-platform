@@ -1,11 +1,11 @@
-# ABOUTME: Creates Artifact Registry Docker repository for Pierre images
+# ABOUTME: Creates Artifact Registry Docker repository for Dravr images
 # ABOUTME: Stores container images for Cloud Run deployment
 
 resource "google_artifact_registry_repository" "docker" {
   location      = var.region
   project       = var.project_id
   repository_id = var.registry_name
-  description   = "Docker repository for Pierre MCP Server container images"
+  description   = "Docker repository for Dravr MCP Server container images"
   format        = "DOCKER"
 
   cleanup_policies {

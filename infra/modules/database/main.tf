@@ -1,4 +1,4 @@
-# ABOUTME: Creates Cloud SQL PostgreSQL instance for Pierre MCP Server
+# ABOUTME: Creates Cloud SQL PostgreSQL instance for Dravr MCP Server
 # ABOUTME: Configured with private IP, SSL, backups, and high availability options
 
 # -----------------------------------------------------------------------------
@@ -23,9 +23,7 @@ resource "google_sql_database_instance" "postgres" {
       ipv4_enabled                                  = false
       private_network                               = var.vpc_self_link
       enable_private_path_for_google_cloud_services = true
-      require_ssl                                   = true
-
-      ssl_mode = "ENCRYPTED_ONLY"
+      ssl_mode                                      = "ENCRYPTED_ONLY"
     }
 
     backup_configuration {

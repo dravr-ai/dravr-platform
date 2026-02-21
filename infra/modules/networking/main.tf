@@ -1,4 +1,4 @@
-# ABOUTME: Creates VPC network infrastructure for Pierre MCP Server
+# ABOUTME: Creates VPC network infrastructure for Dravr MCP Server
 # ABOUTME: Includes VPC, subnet, private service connect, and VPC connector
 
 # -----------------------------------------------------------------------------

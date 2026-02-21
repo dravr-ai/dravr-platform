@@ -1,4 +1,4 @@
-# ABOUTME: Outputs from Pierre MCP Server infrastructure
+# ABOUTME: Outputs from Dravr MCP Server infrastructure
 # ABOUTME: Provides values needed for Cloud Run deployment and GitHub secrets
 
 # -----------------------------------------------------------------------------
@@ -67,6 +67,11 @@ output "deployer_service_account_email" {
   value       = module.service_accounts.deployer_service_account_email
 }
 
+output "terraform_runner_service_account_email" {
+  description = "Terraform runner service account email (for GitHub GCP_DEV_TF_SA secret)"
+  value       = module.service_accounts.terraform_runner_service_account_email
+}
+
 # -----------------------------------------------------------------------------
 # Workload Identity Outputs
 # -----------------------------------------------------------------------------
@@ -131,7 +136,7 @@ output "cloud_run_config" {
     vpc_connector        = module.networking.vpc_connector_id
     cloudsql_instance    = var.enable_database ? module.database[0].connection_name : null
     artifacts_registry   = "${var.region}-docker.pkg.dev/${var.artifacts_project_id}/dravr-images"
-    database_url_pattern = var.enable_database ? "postgresql://${module.database[0].database_user}:$${DB_PASSWORD}@/pierre?host=/cloudsql/${module.database[0].connection_name}" : null
+    database_url_pattern = var.enable_database ? "postgresql://${module.database[0].database_user}:$${DB_PASSWORD}@/dravr?host=/cloudsql/${module.database[0].connection_name}" : null
   }
   sensitive = true
 }

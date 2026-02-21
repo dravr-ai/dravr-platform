@@ -46,13 +46,13 @@ variable "database_tier" {
 variable "database_name" {
   description = "Name of the database"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_user" {
   description = "Name of the database user"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_password" {
