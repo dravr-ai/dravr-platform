@@ -298,12 +298,19 @@ Fixes #123, relates to #456
 
 ## Architecture Overview
 
-Pierre is designed to be modular and extensible:
+Pierre is a Rust workspace with 7 crates, designed to be modular and extensible:
 
-- **Core Server** (`src/`): MCP protocol, A2A protocol, authentication
-- **Providers** (`src/providers/`): Pluggable fitness data sources
-- **Intelligence** (`src/intelligence/`): Analysis and insights
+- **Main Server** (`src/`): Routes, MCP protocol, tools, database, authentication
+- **Core** (`crates/pierre-core/`): Shared types, errors, pagination, constants
+- **Intelligence** (`crates/pierre-intelligence/`): Sports science algorithms (VDOT, TSS, TRIMP)
+- **Providers** (`crates/pierre-providers/`): Pluggable fitness data sources (Strava, Garmin, etc.)
+- **Database** (`crates/pierre-database/`): Repository trait definitions
+- **LLM** (`crates/pierre-llm/`): LLM provider integrations (Gemini, Groq, Ollama)
+- **Cache** (`crates/pierre-cache/`): Pluggable cache layer (in-memory + Redis)
+- **A2A** (`crates/pierre-a2a/`): Agent-to-agent protocol types
 - **Frontend** (`frontend/`): Admin dashboard and monitoring
+- **Mobile** (`frontend-mobile/`): React Native mobile app
+- **SDK** (`sdk/`): TypeScript MCP client bridge
 - **Examples** (`examples/`): Client libraries and integration demos
 
 ### Key Design Principles
@@ -352,7 +359,7 @@ cd sdk && bun run generate-types
 3. Add migration support
 4. Add comprehensive tests
 
-See `src/database/repositories/mod.rs` for the 13 repository traits to implement.
+See `crates/pierre-database/` for repository trait definitions and `src/database/repositories/` for implementations.
 
 ## Recognition
 
@@ -429,11 +436,15 @@ cargo build --release
 ```
 
 **Key files to know:**
-- `src/main.rs` - Server entry point (doesn't exist, uses bin/)
-- `src/bin/pierre-mcp-server.rs` - Main server binary  
+- `src/bin/pierre-mcp-server.rs` - Main server binary
 - `src/routes.rs` - HTTP API routes
 - `src/mcp/multitenant.rs` - MCP protocol implementation
-- `src/providers/strava.rs` - Example fitness provider
+- `crates/pierre-core/` - Shared types, errors, redaction
+- `crates/pierre-intelligence/` - Sports science algorithms
+- `crates/pierre-providers/` - Fitness provider integrations
+- `crates/pierre-llm/` - LLM provider integrations
+- `crates/pierre-cache/` - Cache layer (memory + Redis)
+- `crates/pierre-a2a/` - A2A protocol types
 - `CLAUDE.md` - Development standards (must read)
 
 Thank you for contributing.

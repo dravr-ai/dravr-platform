@@ -214,11 +214,13 @@ all-providers = ["provider-strava", "provider-garmin", ...]
 Control which API protocols are compiled:
 
 ```toml
-protocol-rest = []               # REST API endpoints
-protocol-mcp = ["transport-http"] # MCP JSON-RPC (requires HTTP transport)
-protocol-a2a = ["transport-http"] # Agent-to-Agent protocol
+protocol-rest = []                          # REST API endpoints
+protocol-mcp = ["transport-http"]           # MCP JSON-RPC (requires HTTP transport)
+protocol-a2a = ["transport-http", "dep:pierre-a2a"]  # Agent-to-Agent protocol (uses pierre-a2a crate)
 protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 ```
+
+Note: `protocol-a2a` pulls in the `pierre-a2a` crate as an optional dependency. When disabled, all A2A types and imports are `#[cfg]`-gated out.
 
 ### Transport Features
 
@@ -407,7 +409,7 @@ cargo deny check
 
 ### CI/CD Validation
 
-The project uses five GitHub Actions workflows for comprehensive validation:
+The project uses GitHub Actions workflows for comprehensive validation, with path-based filtering to skip expensive jobs (PostgreSQL, Redis, release binary) when irrelevant files change on feature branches:
 
 1. **Rust** (`.github/workflows/rust.yml`): Core quality gate
    - clippy zero-warning check

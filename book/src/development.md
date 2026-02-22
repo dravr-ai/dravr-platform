@@ -172,7 +172,9 @@ cargo test <test_name_pattern> -- --nocapture
 ```bash
 cargo fmt
 ./scripts/ci/architectural-validation.sh
-cargo clippy --all-targets -- -D warnings -D clippy::all -D clippy::pedantic -D clippy::nursery -W clippy::cognitive_complexity
+cargo clippy -p <changed-crate> --all-targets  # Only lint crates you changed
+# Available crates: pierre-core, pierre-intelligence, pierre-providers,
+#   pierre-llm, pierre-cache, pierre-a2a, pierre_mcp_server
 cargo test <module_pattern> -- --nocapture
 ```
 

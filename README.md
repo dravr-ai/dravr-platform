@@ -48,6 +48,32 @@ cargo build --release --no-default-features --features "sqlite,provider-strava" 
 
 See [Build Configuration](https://async-io.github.io/pierre_mcp_server/build.html) for provider architecture details.
 
+## Workspace Architecture
+
+Pierre is a Rust workspace with 7 crates for parallel compilation and modularity:
+
+| Crate | Description | LOC |
+|-------|-------------|-----|
+| `pierre_mcp_server` | Main binary: routes, MCP protocol, tools, database | ~150K |
+| `pierre-core` | Shared types, errors, pagination, constants | ~3K |
+| `pierre-intelligence` | Fitness algorithms (VDOT, TSS, TRIMP, FTP) | ~12K |
+| `pierre-providers` | Fitness provider integrations (Strava, Garmin, etc.) | ~8K |
+| `pierre-database` | Repository trait definitions | ~2K |
+| `pierre-llm` | LLM provider integrations (Gemini, Groq, Ollama) | ~4K |
+| `pierre-cache` | Pluggable cache layer (in-memory + Redis) | ~1.3K |
+| `pierre-a2a` | A2A protocol types and agent card | ~3K |
+
+```
+crates/
+├── pierre-core/          # Foundation: errors, models, config, redaction
+├── pierre-intelligence/  # Sports science algorithms and metrics
+├── pierre-providers/     # Fitness data providers (Strava, Garmin, etc.)
+├── pierre-database/      # Repository trait definitions
+├── pierre-llm/           # LLM providers (Gemini, Groq, OpenAI-compatible)
+├── pierre-cache/         # Cache backends (memory LRU, Redis)
+└── pierre-a2a/           # A2A protocol types (feature-gated: protocol-a2a)
+```
+
 ## Modular Architecture
 
 Pierre uses compile-time feature flags for modular deployments. Build only what you need.
