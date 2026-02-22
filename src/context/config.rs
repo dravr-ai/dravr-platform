@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
+#[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
+#[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
@@ -20,14 +22,16 @@ use crate::tenant::TenantOAuthClient;
 /// # Dependencies
 /// - `config`: Server configuration settings
 /// - `tenant_oauth_client`: Multi-tenant OAuth client management
-/// - `a2a_client_manager`: Application-to-application client management
-/// - `a2a_system_user_service`: System user service for A2A operations
+/// - `a2a_client_manager`: Application-to-application client management (protocol-a2a)
+/// - `a2a_system_user_service`: System user service for A2A operations (protocol-a2a)
 /// - `admin_config`: Admin configuration service for runtime parameter management
 #[derive(Clone)]
 pub struct ConfigContext {
     config: Arc<ServerConfig>,
     tenant_oauth_client: Arc<TenantOAuthClient>,
+    #[cfg(feature = "protocol-a2a")]
     a2a_client_manager: Arc<A2AClientManager>,
+    #[cfg(feature = "protocol-a2a")]
     a2a_system_user_service: Arc<A2ASystemUserService>,
     admin_config: Option<Arc<AdminConfigService>>,
 }
@@ -38,14 +42,16 @@ impl ConfigContext {
     pub const fn new(
         config: Arc<ServerConfig>,
         tenant_oauth_client: Arc<TenantOAuthClient>,
-        a2a_client_manager: Arc<A2AClientManager>,
-        a2a_system_user_service: Arc<A2ASystemUserService>,
+        #[cfg(feature = "protocol-a2a")] a2a_client_manager: Arc<A2AClientManager>,
+        #[cfg(feature = "protocol-a2a")] a2a_system_user_service: Arc<A2ASystemUserService>,
         admin_config: Option<Arc<AdminConfigService>>,
     ) -> Self {
         Self {
             config,
             tenant_oauth_client,
+            #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
+            #[cfg(feature = "protocol-a2a")]
             a2a_system_user_service,
             admin_config,
         }
@@ -64,12 +70,14 @@ impl ConfigContext {
     }
 
     /// Get A2A client manager for application-to-application operations
+    #[cfg(feature = "protocol-a2a")]
     #[must_use]
     pub const fn a2a_client_manager(&self) -> &Arc<A2AClientManager> {
         &self.a2a_client_manager
     }
 
     /// Get A2A system user service
+    #[cfg(feature = "protocol-a2a")]
     #[must_use]
     pub const fn a2a_system_user_service(&self) -> &Arc<A2ASystemUserService> {
         &self.a2a_system_user_service

@@ -15,7 +15,7 @@ use crate::a2a::{
         A2AClientManager, A2ARateLimitStatus, ClientCredentials, ClientRegistrationRequest,
         ClientUsageStats,
     },
-    protocol::A2AError,
+    A2AError,
 };
 use crate::constants::time::DAY_SECONDS;
 use crate::database_plugins::A2ADbOps;

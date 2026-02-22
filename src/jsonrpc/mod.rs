@@ -6,16 +6,23 @@
 
 //! # JSON-RPC 2.0 Foundation
 //!
-//! This module provides a unified implementation of JSON-RPC 2.0 used by
-//! all protocols in Pierre (MCP, A2A). This eliminates duplication and
-//! ensures consistent behavior across protocols.
+//! This module provides the canonical JSON-RPC 2.0 implementation used by
+//! all protocols in Pierre (MCP, A2A) within the main server crate.
 //!
 //! ## Design Goals
 //!
-//! 1. **Single Source of Truth**: One JSON-RPC implementation
-//! 2. **Protocol Agnostic**: Works for MCP, A2A, and future protocols
-//! 3. **Type Safe**: Strong typing with serde support
-//! 4. **Extensible**: Metadata field for protocol-specific extensions
+//! 1. **Protocol Agnostic**: Works for MCP, A2A, and future protocols
+//! 2. **Type Safe**: Strong typing with serde support
+//! 3. **Extensible**: Metadata field for protocol-specific extensions
+//!
+//! ## Note on `pierre-a2a` duplication
+//!
+//! The `pierre-a2a` crate contains serde-compatible copies of the base structs
+//! (`JsonRpcRequest`, `JsonRpcResponse`, `JsonRpcError`) for its internal
+//! `A2AError -> JsonRpcError` conversion. This duplication is intentional
+//! because `pierre-a2a` is a leaf crate that cannot depend on this server
+//! crate. Changes to these structs must be mirrored in
+//! `crates/pierre-a2a/src/jsonrpc.rs`.
 //!
 //! ## Usage
 //!

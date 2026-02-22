@@ -12,6 +12,21 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 
+/// OAuth application credentials for protocol initialization (MCP and A2A)
+///
+/// Transmitted by clients during protocol handshake to provide OAuth
+/// application credentials for specific providers. Used by both the MCP
+/// and A2A protocol initialization flows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthAppCredentials {
+    /// OAuth client ID
+    #[serde(rename = "clientId")]
+    pub client_id: String,
+    /// OAuth client secret
+    #[serde(rename = "clientSecret")]
+    pub client_secret: String,
+}
+
 /// Encrypted `OAuth` token storage
 ///
 /// Tokens are encrypted at rest using AES-256-GCM encryption.

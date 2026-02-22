@@ -43,5 +43,8 @@ pub mod config;
 /// Intelligence types (`MaxHrAlgorithm`, `InsightSharingPolicy`)
 pub mod intelligence;
 
+/// URL redaction utility for safe logging of connection strings
+pub mod redaction;
+
 /// Admin authentication and authorization types
 pub mod admin;

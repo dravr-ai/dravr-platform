@@ -1,0 +1,33 @@
+# ABOUTME: Cache abstraction layer with in-memory and Redis backends
+# ABOUTME: Extracted from main crate for parallel compilation and modularity
+
+[package]
+name = "pierre-cache"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Pluggable cache layer for Pierre platform (in-memory + Redis)"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+redis = ["dep:redis"]
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+
+async-trait = "0.1"
+glob = "0.3"
+lru = "0.16"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.45", features = ["sync", "time", "rt", "macros"] }
+tracing = "0.1"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Optional: Redis backend
+redis = { version = "0.28", features = ["tokio-comp", "connection-manager", "aio"], optional = true }
+
+[lints]
+workspace = true

@@ -134,7 +134,7 @@ tools-wellness = ["tools-sleep", "tools-nutrition", "tools-recipes", "tools-mobi
 # ═══════════════════════════════════════════════════════════════
 protocol-rest = []
 protocol-mcp = ["transport-http"]  # Requires at least HTTP transport
-protocol-a2a = ["transport-http"]
+protocol-a2a = ["transport-http", "dep:pierre-a2a"]
 
 protocol-all = ["protocol-rest", "protocol-mcp", "protocol-a2a"]
 
@@ -226,6 +226,9 @@ lto = "fat"
 pierre-core = { version = "0.3.0", path = "crates/pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon"] }
 pierre-database = { version = "0.1.0", path = "crates/pierre-database" }
 pierre-intelligence = { version = "0.1.0", path = "crates/pierre-intelligence" }
+pierre-llm = { version = "0.1.0", path = "crates/pierre-llm" }
+pierre-cache = { version = "0.1.0", path = "crates/pierre-cache", features = ["redis"] }
+pierre-a2a = { version = "0.1.0", path = "crates/pierre-a2a", optional = true }
 pierre-providers = { version = "0.1.0", path = "crates/pierre-providers" }
 
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
