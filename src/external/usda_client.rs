@@ -56,6 +56,8 @@ pub struct UsdaClientConfig {
     pub cache_ttl_secs: u64,
     /// Rate limit per minute (default: 30)
     pub rate_limit_per_minute: u32,
+    /// HTTP request timeout in seconds (default: 15)
+    pub request_timeout_secs: u64,
 }
 
 impl Default for UsdaClientConfig {
@@ -65,6 +67,7 @@ impl Default for UsdaClientConfig {
             base_url: "https://api.nal.usda.gov/fdc/v1".to_owned(),
             cache_ttl_secs: 86400, // 24 hours
             rate_limit_per_minute: 30,
+            request_timeout_secs: 15,
         }
     }
 }
@@ -236,9 +239,14 @@ impl UsdaClient {
     pub fn new(config: UsdaClientConfig) -> Self {
         let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, Duration::from_secs(60));
 
+        let http_client = Client::builder()
+            .timeout(Duration::from_secs(config.request_timeout_secs))
+            .build()
+            .unwrap_or_default();
+
         Self {
             config,
-            http_client: Client::new(),
+            http_client,
             search_cache: Arc::new(RwLock::new(HashMap::new())),
             details_cache: Arc::new(RwLock::new(HashMap::new())),
             rate_limiter: Arc::new(RwLock::new(rate_limiter)),
@@ -312,7 +320,12 @@ impl UsdaClient {
             ])
             .send()
             .await
-            .map_err(|e| AppError::external_service("USDA API", e.to_string()))?;
+            .map_err(|e| {
+                AppError::external_service(
+                    "USDA API",
+                    redact_api_key(&e.to_string(), &self.config.api_key),
+                )
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -385,7 +398,12 @@ impl UsdaClient {
             .query(&[("api_key", &self.config.api_key)])
             .send()
             .await
-            .map_err(|e| AppError::external_service("USDA API", e.to_string()))?;
+            .map_err(|e| {
+                AppError::external_service(
+                    "USDA API",
+                    redact_api_key(&e.to_string(), &self.config.api_key),
+                )
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -450,4 +468,12 @@ impl UsdaClient {
         let details_count = self.details_cache.read().await.len();
         (search_count, details_count)
     }
+}
+
+/// Redact API key from error messages to prevent credential leakage in logs
+fn redact_api_key(message: &str, api_key: &str) -> String {
+    if api_key.is_empty() {
+        return message.to_owned();
+    }
+    message.replace(api_key, "[REDACTED]")
 }
