@@ -15,17 +15,17 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Parse command line args
-BUILD_MODE="release"
-TARGET_DIR="release"
+BUILD_MODE="debug"
+TARGET_DIR="debug"
 NATIVE_BUILD=false
 STREAM_LOGS=false
 SKIP_SYNTHETIC=false
 START_TUNNEL=false
 for arg in "$@"; do
     case $arg in
-        --debug)
-            BUILD_MODE="debug"
-            TARGET_DIR="debug"
+        --release)
+            BUILD_MODE="release"
+            TARGET_DIR="release"
             shift
             ;;
         --native)
@@ -85,6 +85,13 @@ echo -e "${BLUE}================================================================
 echo -e "${BLUE}   PIERRE DEVELOPMENT ENVIRONMENT SETUP${NC}"
 echo -e "${BLUE}   Database + Seeds + OAuth Users + All Servers${NC}"
 echo -e "${BLUE}============================================================================${NC}"
+echo ""
+echo -e "${CYAN}=== Configuration ===${NC}"
+echo -e "  Build mode:      ${YELLOW}$BUILD_MODE${NC}"
+echo -e "  Native build:    $( [ "$NATIVE_BUILD" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
+echo -e "  Tunnel:          $( [ "$START_TUNNEL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
+echo -e "  Synthetic data:  $( [ "$SKIP_SYNTHETIC" = "true" ] && echo "${YELLOW}skipped${NC}" || echo "yes" )"
+echo -e "  Stream logs:     $( [ "$STREAM_LOGS" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo ""
 
 # Load environment
