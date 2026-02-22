@@ -21,7 +21,7 @@ use crate::auth::AuthResult;
 use crate::database::repositories::TenantRepository;
 use crate::database_plugins::factory::Database;
 use crate::errors::AppError;
-use crate::llm::ChatProvider;
+use crate::llm::chat_provider_from_credentials;
 use crate::mcp::resources::ServerResources;
 use crate::middleware::extract_auth_from_headers;
 use crate::tenant::llm_manager::{
@@ -383,7 +383,7 @@ impl LlmSettingsRoutes {
         };
 
         // Try to create provider and run health check
-        match ChatProvider::from_credentials(credentials) {
+        match chat_provider_from_credentials(credentials) {
             Ok(chat_provider) => {
                 // Run health check
                 match chat_provider.health_check().await {

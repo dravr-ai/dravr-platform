@@ -8,7 +8,7 @@ use super::caching_provider::CachingFitnessProvider;
 use super::core::{FitnessProvider, ProviderConfig, ProviderFactory, TenantProvider};
 use super::spi::{ProviderBundle, ProviderCapabilities, ProviderDescriptor};
 use crate::cache::memory::InMemoryCache;
-use crate::cache::{CacheConfig, CacheTtlConfig};
+use crate::cache::{cache_ttl_from_admin_config, CacheConfig};
 use crate::config::admin::service::AdminConfigService;
 #[cfg(any(
     feature = "provider-strava",
@@ -604,7 +604,7 @@ impl ProviderRegistry {
     ) -> AppResult<CachingFitnessProvider<InMemoryCache>> {
         let provider = self.create_provider(provider_name)?;
         let ttl_config =
-            CacheTtlConfig::from_admin_config(admin_config, Some(&tenant_id.to_string())).await;
+            cache_ttl_from_admin_config(admin_config, Some(&tenant_id.to_string())).await;
         super::caching_provider::create_caching_provider_with_ttl(
             provider,
             cache_config,

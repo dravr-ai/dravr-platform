@@ -8,7 +8,8 @@
 //!
 //! Converts between different protocol formats (MCP, A2A) and the universal format.
 
-use crate::a2a::protocol::{A2AErrorResponse, A2ARequest, A2AResponse};
+#[cfg(feature = "protocol-a2a")]
+use crate::a2a::{A2AErrorResponse, A2ARequest, A2AResponse};
 use crate::mcp::schema::{Content, Tool, ToolCall, ToolResponse};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalTool};
 use crate::protocols::{ProtocolError, ProtocolType};
@@ -69,6 +70,7 @@ impl ProtocolConverter {
     /// # Errors
     ///
     /// Returns an error if the A2A request has an unsupported method or if the tool name is not found in the parameters.
+    #[cfg(feature = "protocol-a2a")]
     pub fn a2a_to_universal(
         request: &A2ARequest,
         user_id: &str,
@@ -120,6 +122,7 @@ impl ProtocolConverter {
     }
 
     /// Convert universal response to A2A format
+    #[cfg(feature = "protocol-a2a")]
     #[must_use]
     pub fn universal_to_a2a(response: UniversalResponse, request_id: Option<Value>) -> A2AResponse {
         if response.success {

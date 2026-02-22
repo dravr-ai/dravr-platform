@@ -65,6 +65,7 @@
 // They must remain `pub` so external consumers can access them.
 
 /// A2A (Agent-to-Agent) protocol implementation
+#[cfg(feature = "protocol-a2a")]
 pub mod a2a;
 
 /// Admin token authentication and `API` key provisioning

@@ -15,9 +15,9 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tracing::debug;
 
-use super::{CacheConfig, CacheKey, CacheProvider};
 use crate::constants::cache_config::DEFAULT_CAPACITY;
 use crate::errors::{AppError, AppResult};
+use crate::{CacheConfig, CacheKey, CacheProvider};
 
 /// In-memory cache entry with expiration
 #[derive(Debug, Clone)]
@@ -63,7 +63,7 @@ impl InMemoryCache {
         None => NonZeroUsize::MIN,
     };
 
-    /// Create new in-memory cache with optional background cleanup task
+    /// Create in-memory cache with optional background cleanup task
     fn new_with_config(config: &CacheConfig) -> Self {
         // LruCache requires NonZeroUsize for capacity
         let capacity =

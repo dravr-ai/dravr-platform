@@ -13,7 +13,9 @@
 //! Centralized resource container for dependency injection.
 //! Eliminates anti-patterns of recreating expensive objects and excessive Arc cloning.
 
+#[cfg(feature = "protocol-a2a")]
 use crate::a2a::client::A2AClientManager;
+#[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::admin::jwks::JwksManager;
 use crate::admin::FirebaseAuth;
@@ -147,8 +149,10 @@ pub struct ServerResources {
     /// AI-powered fitness activity analysis engine
     pub activity_intelligence: Arc<ActivityIntelligence>,
     /// A2A protocol client manager for agent-to-agent communication
+    #[cfg(feature = "protocol-a2a")]
     pub a2a_client_manager: Arc<A2AClientManager>,
     /// Service for managing A2A system user accounts
+    #[cfg(feature = "protocol-a2a")]
     pub a2a_system_user_service: Arc<A2ASystemUserService>,
     /// Broadcast channel for OAuth completion notifications
     pub oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
@@ -216,10 +220,10 @@ impl ServerResources {
         // Create activity intelligence once for shared use
         let activity_intelligence = Self::create_default_intelligence();
 
-        // Create A2A system user service once for shared use
+        // Create A2A services for agent-to-agent communication
+        #[cfg(feature = "protocol-a2a")]
         let a2a_system_user_service = Arc::new(A2ASystemUserService::new(database_arc.clone()));
-
-        // Create A2A client manager once for shared use
+        #[cfg(feature = "protocol-a2a")]
         let a2a_client_manager = Arc::new(A2AClientManager::new(
             database_arc.clone(),
             a2a_system_user_service.clone(),
@@ -307,7 +311,9 @@ impl ServerResources {
             admin_jwt_secret: admin_jwt_secret.into(),
             config,
             activity_intelligence,
+            #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,
+            #[cfg(feature = "protocol-a2a")]
             a2a_system_user_service,
             oauth_notification_sender: None,
             cache: cache_arc,

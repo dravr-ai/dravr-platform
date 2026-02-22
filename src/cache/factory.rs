@@ -9,11 +9,14 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use super::{memory::InMemoryCache, redis::RedisCache, CacheConfig, CacheProvider};
-use crate::config::environment::RedisConnectionConfig;
+use pierre_cache::memory::InMemoryCache;
+use pierre_cache::redaction::redact_url;
+use pierre_cache::redis_backend::RedisCache;
+use pierre_cache::redis_config::RedisConnectionConfig;
+use pierre_cache::{CacheConfig, CacheKey, CacheProvider, CacheTtlConfig};
+
 use crate::constants::get_server_config;
 use crate::errors::AppResult;
-use crate::middleware::redaction::redact_url;
 
 /// Cache backend enum for pluggable implementations
 #[non_exhaustive]
@@ -30,7 +33,7 @@ pub struct Cache {
 }
 
 impl Cache {
-    /// Create new cache instance based on configuration
+    /// Create cache instance based on configuration
     ///
     /// # Errors
     ///
@@ -68,7 +71,7 @@ impl Cache {
                 cleanup_interval: Duration::from_secs(300),
                 enable_background_cleanup: true,
                 redis_connection: RedisConnectionConfig::default(),
-                ttl: super::CacheTtlConfig::default(),
+                ttl: CacheTtlConfig::default(),
             },
             |server_config| CacheConfig {
                 max_entries: server_config.cache.max_entries,
@@ -76,7 +79,7 @@ impl Cache {
                 cleanup_interval: Duration::from_secs(server_config.cache.cleanup_interval_secs),
                 enable_background_cleanup: true,
                 redis_connection: server_config.cache.redis_connection.clone(),
-                ttl: super::CacheTtlConfig {
+                ttl: CacheTtlConfig {
                     profile_secs: server_config.cache.ttl.profile_secs,
                     activity_list_secs: server_config.cache.ttl.activity_list_secs,
                     activity_secs: server_config.cache.ttl.activity_secs,
@@ -95,7 +98,7 @@ impl Cache {
     /// Returns an error if serialization or storage fails
     pub async fn set<T: Serialize + Send + Sync>(
         &self,
-        key: &super::CacheKey,
+        key: &CacheKey,
         value: &T,
         ttl: Duration,
     ) -> AppResult<()> {
@@ -110,10 +113,7 @@ impl Cache {
     /// # Errors
     ///
     /// Returns an error if deserialization fails
-    pub async fn get<T: for<'de> Deserialize<'de>>(
-        &self,
-        key: &super::CacheKey,
-    ) -> AppResult<Option<T>> {
+    pub async fn get<T: for<'de> Deserialize<'de>>(&self, key: &CacheKey) -> AppResult<Option<T>> {
         match &self.inner {
             CacheBackend::InMemory(cache) => cache.get(key).await,
             CacheBackend::Redis(cache) => cache.get(key).await,
@@ -125,7 +125,7 @@ impl Cache {
     /// # Errors
     ///
     /// Returns an error if invalidation fails
-    pub async fn invalidate(&self, key: &super::CacheKey) -> AppResult<()> {
+    pub async fn invalidate(&self, key: &CacheKey) -> AppResult<()> {
         match &self.inner {
             CacheBackend::InMemory(cache) => cache.invalidate(key).await,
             CacheBackend::Redis(cache) => cache.invalidate(key).await,
@@ -149,7 +149,7 @@ impl Cache {
     /// # Errors
     ///
     /// Returns an error if existence check fails
-    pub async fn exists(&self, key: &super::CacheKey) -> AppResult<bool> {
+    pub async fn exists(&self, key: &CacheKey) -> AppResult<bool> {
         match &self.inner {
             CacheBackend::InMemory(cache) => cache.exists(key).await,
             CacheBackend::Redis(cache) => cache.exists(key).await,
@@ -161,7 +161,7 @@ impl Cache {
     /// # Errors
     ///
     /// Returns an error if TTL check fails
-    pub async fn ttl(&self, key: &super::CacheKey) -> AppResult<Option<Duration>> {
+    pub async fn ttl(&self, key: &CacheKey) -> AppResult<Option<Duration>> {
         match &self.inner {
             CacheBackend::InMemory(cache) => cache.ttl(key).await,
             CacheBackend::Redis(cache) => cache.ttl(key).await,

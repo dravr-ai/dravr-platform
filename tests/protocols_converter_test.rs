@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::a2a::protocol::A2ARequest;
+use pierre_mcp_server::a2a::A2ARequest;
 use pierre_mcp_server::mcp::schema::{Content, ToolCall};
 use pierre_mcp_server::protocols::converter::ProtocolConverter;
 use pierre_mcp_server::protocols::universal::UniversalResponse;

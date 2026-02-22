@@ -16,25 +16,10 @@ use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::providers::errors::ProviderError;
 use crate::rate_limiting::UnifiedRateLimitInfo;
+pub use pierre_a2a::client_types::A2AToken;
 pub use pierre_core::models::a2a::A2AClient;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::debug;
-
-/// A2A Authentication token
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct A2AToken {
-    /// A2A client identifier
-    pub client_id: String,
-    /// User ID associated with this token
-    pub user_id: String,
-    /// List of OAuth scopes granted to this token
-    pub scopes: Vec<String>,
-    /// When this token expires
-    pub expires_at: chrono::DateTime<chrono::Utc>,
-    /// When this token was created
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
 
 /// A2A Authenticator
 pub struct A2AAuthenticator {

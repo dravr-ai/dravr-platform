@@ -13,11 +13,11 @@ use serde_json::{from_slice, to_vec};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
-use super::{CacheConfig, CacheKey, CacheProvider};
-use crate::config::environment::RedisConnectionConfig;
 use crate::constants::cache::CACHE_KEY_PREFIX;
 use crate::errors::{AppError, AppResult};
-use crate::middleware::redaction::redact_url;
+use crate::redaction::redact_url;
+use crate::redis_config::RedisConnectionConfig;
+use crate::{CacheConfig, CacheKey, CacheProvider};
 
 /// Redis cache implementation with connection pooling
 ///
@@ -30,7 +30,7 @@ pub struct RedisCache {
 }
 
 impl RedisCache {
-    /// Create new Redis cache instance
+    /// Create Redis cache instance
     ///
     /// # Errors
     ///

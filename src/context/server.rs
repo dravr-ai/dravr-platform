@@ -119,7 +119,9 @@ impl From<&ServerResources> for ServerContext {
         let config = ConfigContext::new(
             resources.config.clone(),
             resources.tenant_oauth_client.clone(),
+            #[cfg(feature = "protocol-a2a")]
             resources.a2a_client_manager.clone(),
+            #[cfg(feature = "protocol-a2a")]
             resources.a2a_system_user_service.clone(),
             resources.admin_config.clone(),
         );

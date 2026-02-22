@@ -397,16 +397,7 @@ pub struct InitializeRequest {
     pub oauth_credentials: Option<HashMap<String, OAuthAppCredentials>>,
 }
 
-/// OAuth Application Credentials provided by client
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OAuthAppCredentials {
-    /// OAuth client ID
-    #[serde(rename = "clientId")]
-    pub client_id: String,
-    /// OAuth client secret
-    #[serde(rename = "clientSecret")]
-    pub client_secret: String,
-}
+pub use pierre_core::models::OAuthAppCredentials;
 
 /// Client Information per MCP spec
 #[derive(Debug, Clone, Serialize, Deserialize)]

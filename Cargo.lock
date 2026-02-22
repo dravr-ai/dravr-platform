@@ -2409,6 +2409,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "pierre-a2a"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "pierre-core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-cache"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "glob",
+ "lru",
+ "pierre-core",
+ "redis",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-core"
 version = "0.3.0"
 dependencies = [
@@ -2450,6 +2478,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-llm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitflags",
+ "bytes",
+ "futures-util",
+ "pierre-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
 ]
@@ -2513,9 +2559,12 @@ dependencies = [
  "num-traits",
  "opentelemetry",
  "opentelemetry_sdk",
+ "pierre-a2a",
+ "pierre-cache",
  "pierre-core",
  "pierre-database",
  "pierre-intelligence",
+ "pierre-llm",
  "pierre-providers",
  "rand 0.8.5",
  "rand_chacha 0.3.1",

@@ -69,8 +69,8 @@ pub use user::{User, UserPhysiologicalProfile, UserStatus, UserTier};
 
 // OAuth domain
 pub use oauth::{
-    AuthRequest, AuthResponse, ConnectionType, DecryptedToken, EncryptedToken, OAuthNotification,
-    ProviderConnection, UserOAuthApp, UserOAuthToken, UserSession,
+    AuthRequest, AuthResponse, ConnectionType, DecryptedToken, EncryptedToken, OAuthAppCredentials,
+    OAuthNotification, ProviderConnection, UserOAuthApp, UserOAuthToken, UserSession,
 };
 
 // OAuth client state for provider authorization flows

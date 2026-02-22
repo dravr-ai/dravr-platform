@@ -12,7 +12,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::a2a::protocol::{A2ARequest, A2AServer};
+use pierre_mcp_server::a2a::protocol::A2AServer;
+use pierre_mcp_server::a2a::A2ARequest;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -143,7 +144,7 @@ async fn test_agent_card_compliance() {
 
 #[tokio::test]
 async fn test_message_structure_compliance() {
-    use pierre_mcp_server::a2a::protocol::{A2AMessage, MessagePart};
+    use pierre_mcp_server::a2a::{A2AMessage, MessagePart};
     use std::collections::HashMap;
 
     // Test message structure matches spec

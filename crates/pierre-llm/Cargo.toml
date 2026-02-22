@@ -1,0 +1,28 @@
+# ABOUTME: LLM provider integrations for Pierre platform
+# ABOUTME: Extracted from main crate for parallel compilation and modularity
+
+[package]
+name = "pierre-llm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "LLM provider integrations for Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
+tokio = { version = "1.45", features = ["time"] }
+tokio-stream = "0.1"
+tracing = "0.1"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+bytes = "1.11"
+futures-util = "0.3"
+bitflags = { version = "2.6", features = ["serde"] }
+
+[lints]
+workspace = true
