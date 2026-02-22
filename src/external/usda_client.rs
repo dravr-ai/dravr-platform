@@ -29,6 +29,7 @@
 //!     base_url: "https://api.nal.usda.gov/fdc/v1".to_owned(),
 //!     cache_ttl_secs: 86400, // 24 hours
 //!     rate_limit_per_minute: 30,
+//!     request_timeout_secs: 15,
 //! };
 //!
 //! let client = UsdaClient::new(config);
