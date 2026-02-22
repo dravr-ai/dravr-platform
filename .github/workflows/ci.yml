@@ -42,6 +42,58 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Detect which areas of the codebase changed to skip unaffected expensive jobs.
+  # On schedule (weekly) and main branch, all outputs are true to ensure full validation.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      database: ${{ steps.set-outputs.outputs.database }}
+      cache: ${{ steps.set-outputs.outputs.cache }}
+      release-worthy: ${{ steps.set-outputs.outputs.release-worthy }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name != 'schedule'
+        with:
+          filters: |
+            database:
+              - 'src/database/**'
+              - 'src/database_plugins/**'
+              - 'migrations/**'
+              - 'crates/pierre-database/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            cache:
+              - 'src/cache/**'
+              - 'tests/cache_redis_test.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+            release-worthy:
+              - 'src/**'
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+
+      - name: Set outputs (schedule runs everything)
+        id: set-outputs
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "database=true" >> $GITHUB_OUTPUT
+            echo "cache=true" >> $GITHUB_OUTPUT
+            echo "release-worthy=true" >> $GITHUB_OUTPUT
+          else
+            echo "database=${{ steps.filter.outputs.database }}" >> $GITHUB_OUTPUT
+            echo "cache=${{ steps.filter.outputs.cache }}" >> $GITHUB_OUTPUT
+            echo "release-worthy=${{ steps.filter.outputs.release-worthy }}" >> $GITHUB_OUTPUT
+          fi
+
   # Fast code quality gate — no Rust compilation, runs in ~15 seconds
   # Gates all other jobs to avoid wasting CI minutes on code that fails basic checks
   code-quality:
@@ -200,6 +252,12 @@ jobs:
   postgres-tests:
     name: Database Tests (PostgreSQL)
     runs-on: ubuntu-latest
+    needs: [detect-changes]
+    # Skip on feature branches when no database/migration code changed.
+    # Always run on main (full validation) and schedule (weekly).
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      needs.detect-changes.outputs.database == 'true'
 
     services:
       postgres:
@@ -302,6 +360,12 @@ jobs:
   redis-tests:
     name: Cache Tests (Redis)
     runs-on: ubuntu-latest
+    needs: [detect-changes]
+    # Skip on feature branches when no cache code changed.
+    # Always run on main and schedule.
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      needs.detect-changes.outputs.cache == 'true'
 
     services:
       redis:
@@ -375,7 +439,12 @@ jobs:
   release-binary:
     name: Release Binary Validation
     runs-on: ubuntu-latest
-    needs: clippy
+    needs: [clippy, detect-changes]
+    # Skip when only test files or scripts changed (no binary impact).
+    # Always run on main and schedule.
+    if: >-
+      github.ref == 'refs/heads/main' ||
+      needs.detect-changes.outputs.release-worthy == 'true'
 
     steps:
       - name: Checkout code
