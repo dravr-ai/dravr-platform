@@ -127,6 +127,8 @@ fn is_infrastructure_error(error_msg: &str) -> bool {
         || error_lower.contains("temporarily unavailable")
         || error_lower.contains("service unavailable")
         || error_lower.contains("timed out")
+        || error_lower.contains("error sending request")
+        || error_lower.contains("external service")
 }
 
 // ============================================================================
