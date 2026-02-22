@@ -26,7 +26,7 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 
 use crate::{
-    auth::AuthResult, database::social::SocialManager, errors::AppError,
+    auth::AuthResult, database::social_dispatch::SocialManagerBackend, errors::AppError,
     mcp::resources::ServerResources, middleware::extract_auth_from_headers,
 };
 
@@ -162,14 +162,34 @@ impl SocialRoutes {
         }
     }
 
-    /// Get social manager from the `SQLite` pool
+    /// Get social manager for the active database backend
+    ///
+    /// Returns a `SocialManagerBackend` that dispatches to either the `SQLite`
+    /// or `PostgreSQL` social manager depending on which backend is configured.
     pub(crate) fn get_social_manager(
         resources: &Arc<ServerResources>,
-    ) -> Result<SocialManager, AppError> {
-        let pool = resources
-            .database
-            .sqlite_pool()
-            .ok_or_else(|| AppError::internal("SQLite database required for social features"))?;
-        Ok(SocialManager::new(pool.clone()))
+    ) -> Result<SocialManagerBackend, AppError> {
+        use crate::database::social::SocialManager;
+        #[cfg(feature = "postgresql")]
+        use crate::database_plugins::social_postgres::PostgresSocialManager;
+
+        // Try SQLite first (most common in development)
+        if let Some(pool) = resources.database.sqlite_pool() {
+            return Ok(SocialManagerBackend::SQLite(SocialManager::new(
+                pool.clone(),
+            )));
+        }
+
+        // Try PostgreSQL
+        #[cfg(feature = "postgresql")]
+        if let Some(pool) = resources.database.postgres_pool() {
+            return Ok(SocialManagerBackend::PostgreSQL(
+                PostgresSocialManager::new(pool.clone()),
+            ));
+        }
+
+        Err(AppError::internal(
+            "No database backend available for social features",
+        ))
     }
 }

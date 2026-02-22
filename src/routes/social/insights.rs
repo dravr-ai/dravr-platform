@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::{
     config::{environment::default_provider, SocialInsightsConfig},
     database::repositories::UserRepository,
-    database::social::SocialManager,
+    database::social_dispatch::SocialManagerBackend,
     errors::{AppError, ErrorCode},
     intelligence::{
         insight_adapter::UserTrainingContext,
@@ -425,7 +425,7 @@ impl SocialRoutes {
     /// Returns the validated (and potentially improved/redacted) content, or an error if rejected.
     pub(crate) async fn validate_content_for_sharing(
         resources: &Arc<ServerResources>,
-        social: &SocialManager,
+        social: &SocialManagerBackend,
         user_id: Uuid,
         content: &str,
         insight_type: InsightType,
