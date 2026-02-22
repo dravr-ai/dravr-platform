@@ -42,6 +42,8 @@ pub mod repositories;
 pub mod seed_coaches;
 /// Social features (friend connections, shared insights)
 pub mod social;
+/// Backend-agnostic social manager dispatch enum
+pub mod social_dispatch;
 /// Store listings for coach publishing workflow
 pub mod store_listings;
 /// Synthetic provider activities storage

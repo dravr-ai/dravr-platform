@@ -143,6 +143,18 @@ impl Database {
         }
     }
 
+    /// Get the underlying `PostgreSQL` connection pool if this is a `PostgreSQL` database.
+    ///
+    /// Returns `None` for `SQLite` databases.
+    #[cfg(feature = "postgresql")]
+    #[must_use]
+    pub fn postgres_pool(&self) -> Option<&sqlx::Pool<sqlx::Postgres>> {
+        match self {
+            Self::SQLite(_) => None,
+            Self::PostgreSQL(db) => Some(db.pool()),
+        }
+    }
+
     /// Update the encryption key used for token encryption/decryption
     ///
     /// This is called after the actual DEK is loaded from the database during

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::database::social::SocialManager;
+use crate::database::social_dispatch::SocialManagerBackend;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::insight_adapter::{InsightAdapter, UserTrainingContext};
 use crate::models::{AdaptedInsight, FriendConnection, FriendStatus, SharedInsight};
@@ -53,7 +53,7 @@ pub struct AdaptInsightResult {
 /// or if a connection already exists between the two users.
 /// Returns database errors on connection creation failure.
 pub async fn create_friend_request(
-    social: &SocialManager,
+    social: &SocialManagerBackend,
     sender_id: Uuid,
     receiver_id: Uuid,
 ) -> AppResult<FriendRequestResult> {
@@ -92,7 +92,7 @@ pub async fn create_friend_request(
 ///
 /// Returns database errors on search or connection lookup failure.
 pub async fn search_users_with_status(
-    social: &SocialManager,
+    social: &SocialManagerBackend,
     searcher_id: Uuid,
     query: &str,
     limit: u32,
@@ -145,7 +145,7 @@ pub async fn search_users_with_status(
 /// Returns `AppError::NotFound` if the source insight does not exist.
 /// Returns database errors on adaptation lookup or creation failure.
 pub async fn adapt_insight_for_user(
-    social: &SocialManager,
+    social: &SocialManagerBackend,
     user_id: Uuid,
     insight_id: Uuid,
     user_context: &UserTrainingContext,

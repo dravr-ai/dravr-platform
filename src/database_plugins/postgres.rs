@@ -90,6 +90,12 @@ pub struct PostgresDatabase {
 }
 
 impl PostgresDatabase {
+    /// Get a reference to the PostgreSQL connection pool
+    #[must_use]
+    pub fn pool(&self) -> &Pool<Postgres> {
+        &self.pool
+    }
+
     /// Close the database connection pool
     pub async fn close(&self) {
         self.pool.close().await;
@@ -7450,6 +7456,7 @@ impl DatabaseProvider for PostgresDatabase {
         self.create_llm_usage_table().await?;
         self.create_usage_counters_table().await?;
         self.create_system_settings_table().await?;
+        self.create_social_tables().await?;
         self.create_indexes().await?;
         Ok(())
     }
@@ -9188,6 +9195,281 @@ impl PostgresDatabase {
         .map_err(|e| {
             AppError::database(format!("Failed to seed system_settings defaults: {e}"))
         })?;
+
+        Ok(())
+    }
+
+    /// Create all social feature tables (friend connections, settings, insights, reactions, adaptations)
+    async fn create_social_tables(&self) -> AppResult<()> {
+        // Friend connections: bidirectional friend relationships
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS friend_connections (
+                id UUID PRIMARY KEY,
+                initiator_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                receiver_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'accepted', 'declined', 'blocked')),
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                accepted_at TIMESTAMPTZ,
+                UNIQUE(initiator_id, receiver_id),
+                CHECK (initiator_id != receiver_id)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create friend_connections table: {e}"))
+        })?;
+
+        // Indexes for friend connections
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_friend_connections_initiator
+             ON friend_connections(initiator_id, status)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_friend_connections_receiver
+             ON friend_connections(receiver_id, status)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        // User social settings: privacy and sharing preferences
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS user_social_settings (
+                user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                discoverable BOOLEAN NOT NULL DEFAULT true,
+                default_visibility TEXT NOT NULL DEFAULT 'friends_only'
+                    CHECK (default_visibility IN ('friends_only', 'public')),
+                share_activity_types TEXT NOT NULL DEFAULT '["run", "ride", "swim"]',
+                notify_friend_requests BOOLEAN NOT NULL DEFAULT true,
+                notify_insight_reactions BOOLEAN NOT NULL DEFAULT true,
+                notify_adapted_insights BOOLEAN NOT NULL DEFAULT true,
+                insight_sharing_policy TEXT NOT NULL DEFAULT 'friends_only',
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create user_social_settings table: {e}"))
+        })?;
+
+        // Shared insights: coach-generated insights users share with friends
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS shared_insights (
+                id UUID PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                visibility TEXT NOT NULL DEFAULT 'friends_only'
+                    CHECK (visibility IN ('friends_only', 'public')),
+                insight_type TEXT NOT NULL
+                    CHECK (insight_type IN ('achievement', 'milestone', 'training_tip', 'recovery', 'motivation', 'coaching_insight')),
+                sport_type TEXT,
+                content TEXT NOT NULL,
+                title TEXT,
+                training_phase TEXT,
+                reaction_count INTEGER NOT NULL DEFAULT 0,
+                adapt_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                expires_at TIMESTAMPTZ,
+                source_activity_id TEXT,
+                coach_generated BOOLEAN NOT NULL DEFAULT false
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create shared_insights table: {e}"))
+        })?;
+
+        // Indexes for shared insights
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_shared_insights_user
+             ON shared_insights(user_id, created_at DESC)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_shared_insights_activity
+             ON shared_insights(source_activity_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        // Insight reactions
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS insight_reactions (
+                id UUID PRIMARY KEY,
+                insight_id UUID NOT NULL REFERENCES shared_insights(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                reaction_type TEXT NOT NULL
+                    CHECK (reaction_type IN ('like', 'celebrate', 'inspire', 'support')),
+                created_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(insight_id, user_id)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create insight_reactions table: {e}"))
+        })?;
+
+        // Indexes for insight reactions
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_insight_reactions_insight
+             ON insight_reactions(insight_id, reaction_type)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_insight_reactions_user
+             ON insight_reactions(user_id, created_at DESC)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        // Adapted insights: personalized versions of shared insights
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS adapted_insights (
+                id UUID PRIMARY KEY,
+                source_insight_id UUID NOT NULL REFERENCES shared_insights(id) ON DELETE CASCADE,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                adapted_content TEXT NOT NULL,
+                adaptation_context TEXT,
+                was_helpful BOOLEAN,
+                created_at TIMESTAMPTZ NOT NULL,
+                UNIQUE(source_insight_id, user_id)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create adapted_insights table: {e}")))?;
+
+        // Indexes for adapted insights
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_adapted_insights_user
+             ON adapted_insights(user_id, created_at DESC)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_adapted_insights_source
+             ON adapted_insights(source_insight_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create index: {e}")))?;
+
+        // PostgreSQL trigger functions for maintaining denormalized reaction/adapt counts
+        sqlx::query(
+            r"
+            CREATE OR REPLACE FUNCTION update_shared_insight_reaction_count()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                IF TG_OP = 'INSERT' THEN
+                    UPDATE shared_insights
+                    SET reaction_count = reaction_count + 1,
+                        updated_at = NOW()
+                    WHERE id = NEW.insight_id;
+                ELSIF TG_OP = 'DELETE' THEN
+                    UPDATE shared_insights
+                    SET reaction_count = reaction_count - 1,
+                        updated_at = NOW()
+                    WHERE id = OLD.insight_id;
+                END IF;
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create trigger function: {e}")))?;
+
+        sqlx::query(
+            r"
+            CREATE OR REPLACE FUNCTION update_shared_insight_adapt_count()
+            RETURNS TRIGGER AS $$
+            BEGIN
+                IF TG_OP = 'INSERT' THEN
+                    UPDATE shared_insights
+                    SET adapt_count = adapt_count + 1,
+                        updated_at = NOW()
+                    WHERE id = NEW.source_insight_id;
+                ELSIF TG_OP = 'DELETE' THEN
+                    UPDATE shared_insights
+                    SET adapt_count = adapt_count - 1,
+                        updated_at = NOW()
+                    WHERE id = OLD.source_insight_id;
+                END IF;
+                RETURN NULL;
+            END;
+            $$ LANGUAGE plpgsql
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create trigger function: {e}")))?;
+
+        // Create triggers (DROP IF EXISTS + CREATE to be idempotent)
+        sqlx::query("DROP TRIGGER IF EXISTS trg_insight_reactions_change ON insight_reactions")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to drop trigger: {e}")))?;
+
+        sqlx::query(
+            r"
+            CREATE TRIGGER trg_insight_reactions_change
+            AFTER INSERT OR DELETE ON insight_reactions
+            FOR EACH ROW
+            EXECUTE FUNCTION update_shared_insight_reaction_count()
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create trigger: {e}")))?;
+
+        sqlx::query("DROP TRIGGER IF EXISTS trg_adapted_insights_change ON adapted_insights")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to drop trigger: {e}")))?;
+
+        sqlx::query(
+            r"
+            CREATE TRIGGER trg_adapted_insights_change
+            AFTER INSERT OR DELETE ON adapted_insights
+            FOR EACH ROW
+            EXECUTE FUNCTION update_shared_insight_adapt_count()
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create trigger: {e}")))?;
 
         Ok(())
     }
