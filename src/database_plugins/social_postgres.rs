@@ -17,17 +17,17 @@ use crate::models::{
     TrainingPhase, UserSocialSettings,
 };
 
-/// PostgreSQL social features database operations manager
+/// `PostgreSQL` social features database operations manager
 ///
 /// Wraps a `PgPool` to provide social feature database operations.
-/// Mirrors the SQLite `SocialManager` API but uses PostgreSQL-native types
-/// (UUID, BOOLEAN, TIMESTAMPTZ) and PostgreSQL-compatible SQL.
+/// Mirrors the `SQLite` `SocialManager` API but uses `PostgreSQL`-native types
+/// (UUID, BOOLEAN, TIMESTAMPTZ) and `PostgreSQL`-compatible SQL.
 pub struct PostgresSocialManager {
     pool: PgPool,
 }
 
 impl PostgresSocialManager {
-    /// Create a new PostgreSQL social manager
+    /// Create a new `PostgreSQL` social manager
     #[must_use]
     pub const fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -246,7 +246,7 @@ impl PostgresSocialManager {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Parse a friend connection row from PostgreSQL
+    /// Parse a friend connection row from `PostgreSQL`
     fn row_to_friend_connection(row: &PgRow) -> AppResult<FriendConnection> {
         let id: Uuid = row.get("id");
         let initiator_id: Uuid = row.get("initiator_id");
@@ -346,7 +346,7 @@ impl PostgresSocialManager {
         Ok(())
     }
 
-    /// Parse a social settings row from PostgreSQL
+    /// Parse a social settings row from `PostgreSQL`
     fn row_to_social_settings(row: &PgRow) -> AppResult<UserSocialSettings> {
         let user_id: Uuid = row.get("user_id");
         let discoverable: bool = row.get("discoverable");
@@ -703,7 +703,7 @@ impl PostgresSocialManager {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Parse a shared insight row from PostgreSQL
+    /// Parse a shared insight row from `PostgreSQL`
     fn row_to_shared_insight(row: &PgRow) -> AppResult<SharedInsight> {
         let id: Uuid = row.get("id");
         let user_id: Uuid = row.get("user_id");
@@ -844,7 +844,7 @@ impl PostgresSocialManager {
         rows.iter().map(Self::row_to_insight_reaction).collect()
     }
 
-    /// Parse an insight reaction row from PostgreSQL
+    /// Parse an insight reaction row from `PostgreSQL`
     fn row_to_insight_reaction(row: &PgRow) -> AppResult<InsightReaction> {
         let id: Uuid = row.get("id");
         let insight_id: Uuid = row.get("insight_id");
@@ -919,7 +919,7 @@ impl PostgresSocialManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
 
-        row.as_ref().map(Self::row_to_adapted_insight).transpose()
+        Ok(row.as_ref().map(Self::row_to_adapted_insight))
     }
 
     /// Get user's adapted insights
@@ -942,7 +942,7 @@ impl PostgresSocialManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
 
-        rows.iter().map(Self::row_to_adapted_insight).collect()
+        Ok(rows.iter().map(Self::row_to_adapted_insight).collect())
     }
 
     /// Get adapted insights for a user with pagination
@@ -973,7 +973,7 @@ impl PostgresSocialManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insights: {e}")))?;
 
-        rows.iter().map(Self::row_to_adapted_insight).collect()
+        Ok(rows.iter().map(Self::row_to_adapted_insight).collect())
     }
 
     /// Update the `was_helpful` field for an adapted insight
@@ -1000,25 +1000,17 @@ impl PostgresSocialManager {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Parse an adapted insight row from PostgreSQL
-    fn row_to_adapted_insight(row: &PgRow) -> AppResult<AdaptedInsight> {
-        let id: Uuid = row.get("id");
-        let source_insight_id: Uuid = row.get("source_insight_id");
-        let user_id: Uuid = row.get("user_id");
-        let adapted_content: String = row.get("adapted_content");
-        let adaptation_context: Option<String> = row.get("adaptation_context");
-        let was_helpful: Option<bool> = row.get("was_helpful");
-        let created_at: DateTime<Utc> = row.get("created_at");
-
-        Ok(AdaptedInsight {
-            id,
-            source_insight_id,
-            user_id,
-            adapted_content,
-            adaptation_context,
-            was_helpful,
-            created_at,
-        })
+    /// Parse an adapted insight row from `PostgreSQL`
+    fn row_to_adapted_insight(row: &PgRow) -> AdaptedInsight {
+        AdaptedInsight {
+            id: row.get("id"),
+            source_insight_id: row.get("source_insight_id"),
+            user_id: row.get("user_id"),
+            adapted_content: row.get("adapted_content"),
+            adaptation_context: row.get("adaptation_context"),
+            was_helpful: row.get("was_helpful"),
+            created_at: row.get("created_at"),
+        }
     }
 
     // ========================================================================
@@ -1159,7 +1151,7 @@ impl PostgresSocialManager {
         .await
         .map_err(|e| AppError::database(format!("Failed to get adapted insight: {e}")))?;
 
-        row.as_ref().map(Self::row_to_adapted_insight).transpose()
+        Ok(row.as_ref().map(Self::row_to_adapted_insight))
     }
 
     /// Get total friend count for a user (accepted connections only)
