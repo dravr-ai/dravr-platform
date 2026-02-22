@@ -592,15 +592,29 @@ Streaming chunk structure:
 
 ## Module Structure
 
+LLM provider code lives in the `pierre-llm` workspace crate, with re-exports in the main crate:
+
 ```
-src/llm/
-├── mod.rs              # Trait definitions, types, registry, exports
+crates/pierre-llm/src/
+├── lib.rs              # Trait definitions, types, registry, exports
+├── config.rs           # LLM configuration and provider selection
 ├── provider.rs         # ChatProvider enum (runtime selector)
+├── pricing.rs          # Token cost calculation
 ├── gemini.rs           # Google Gemini implementation
 ├── groq.rs             # Groq LPU implementation
 ├── openai_compatible.rs # Generic OpenAI-compatible provider (Ollama, vLLM, LocalAI)
+├── sse_parser.rs       # SSE stream parser for streaming responses
 └── prompts/
-    └── mod.rs          # System prompts (pierre_system.md)
+    ├── mod.rs          # System prompts (pierre_system.md)
+    ├── coach_generation.md
+    ├── insight_generation.md
+    ├── insight_validation.md
+    ├── pierre_system.md
+    ├── prompt_categories.json
+    └── welcome_prompt.md
+
+src/llm/
+└── mod.rs              # Re-exports from pierre-llm crate
 ```
 
 ---
@@ -659,7 +673,7 @@ impl LlmProvider for MyProvider {
 }
 ```
 
-2. **Add to ChatProvider enum** in `src/llm/provider.rs`:
+2. **Add to ChatProvider enum** in `crates/pierre-llm/src/provider.rs`:
 
 ```rust
 pub enum ChatProvider {
@@ -670,7 +684,7 @@ pub enum ChatProvider {
 }
 ```
 
-3. **Update environment config** in `src/config/environment.rs`
+3. **Update LLM config** in `crates/pierre-llm/src/config.rs`
 
 4. **Register tests** in `tests/llm_test.rs`
 

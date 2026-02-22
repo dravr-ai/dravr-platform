@@ -471,9 +471,12 @@ cargo fmt
 # Each crate is independent — linting an unchanged crate wastes minutes.
 #
 # Pick ONE (or more if you changed multiple crates):
-cargo clippy -p pierre-core              # models, errors, config
+cargo clippy -p pierre-core              # models, errors, config, redaction
 cargo clippy -p pierre-intelligence      # metrics, algorithms
 cargo clippy -p pierre-providers         # Strava, Garmin, etc.
+cargo clippy -p pierre-llm              # LLM providers (Gemini, Groq, Ollama)
+cargo clippy -p pierre-cache            # cache layer (memory, Redis)
+cargo clippy -p pierre-a2a             # A2A protocol types
 cargo clippy -p pierre_mcp_server        # main crate (routes, handlers, etc.)
 #
 # Add --all-targets ONLY if test files in that crate changed:

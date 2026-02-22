@@ -374,9 +374,35 @@ sdk/src/types.ts (47 parameter interfaces)
 
 Usage: `npm run generate-types` (requires running server on port 8081)
 
+## Workspace Architecture
+
+Pierre is a Rust workspace with 7 crates for parallel compilation and modularity:
+
+| Crate | Path | Description |
+|-------|------|-------------|
+| `pierre_mcp_server` | `src/` | Main binary: routes, MCP protocol, tools, database |
+| `pierre-core` | `crates/pierre-core/` | Shared types, errors, pagination, constants, redaction |
+| `pierre-intelligence` | `crates/pierre-intelligence/` | Sports science algorithms (VDOT, TSS, TRIMP, FTP) |
+| `pierre-providers` | `crates/pierre-providers/` | Fitness provider integrations (Strava, Garmin, etc.) |
+| `pierre-database` | `crates/pierre-database/` | Repository trait definitions |
+| `pierre-llm` | `crates/pierre-llm/` | LLM provider integrations (Gemini, Groq, Ollama) |
+| `pierre-cache` | `crates/pierre-cache/` | Pluggable cache layer (in-memory LRU + Redis) |
+| `pierre-a2a` | `crates/pierre-a2a/` | A2A protocol types and agent card (feature-gated) |
+
+The main crate (`pierre_mcp_server`) depends on all library crates. Library crates can depend on `pierre-core` but not on each other or on the main crate. `pierre-a2a` is optional, gated behind the `protocol-a2a` feature flag.
+
 ## File Structure
 
 ```
+crates/
+├── pierre-core/              # foundation: errors, models, config, redaction
+├── pierre-intelligence/      # sports science algorithms and metrics
+├── pierre-providers/         # fitness data providers (Strava, Garmin, etc.)
+├── pierre-database/          # repository trait definitions
+├── pierre-llm/               # LLM providers (Gemini, Groq, OpenAI-compatible)
+│   └── src/prompts/          # system prompts and prompt templates
+├── pierre-cache/             # cache backends (memory LRU, Redis)
+└── pierre-a2a/               # A2A protocol types (feature-gated: protocol-a2a)
 src/
 ├── bin/
 │   ├── pierre-mcp-server.rs     # main binary
@@ -387,9 +413,9 @@ src/
 ├── mcp/                       # mcp protocol
 ├── oauth2_server/             # oauth2 authorization server (mcp clients → pierre)
 ├── oauth2_client/             # oauth2 client (pierre → fitness providers)
-├── a2a/                       # a2a protocol
-├── providers/                 # fitness integrations
-├── intelligence/              # activity analysis
+├── a2a/                       # a2a protocol (re-exports from pierre-a2a crate)
+├── providers/                 # fitness integrations (re-exports from pierre-providers)
+├── intelligence/              # activity analysis (re-exports from pierre-intelligence)
 ├── database/                  # repository pattern (18 focused repositories)
 │   ├── repositories/          # repository trait definitions and implementations
 │   └── ...                    # user, oauth token, api key management modules
@@ -399,7 +425,8 @@ src/
 ├── auth.rs                    # authentication
 ├── tenant/                    # multi-tenancy
 ├── tools/                     # tool execution engine
-├── cache/                     # caching layer
+├── cache/                     # caching layer (re-exports from pierre-cache crate)
+├── llm/                       # llm integration (re-exports from pierre-llm crate)
 ├── config/                    # configuration
 ├── constants/                 # constants and defaults
 ├── crypto/                    # encryption utilities

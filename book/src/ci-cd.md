@@ -7,7 +7,7 @@ Comprehensive documentation for the GitHub Actions continuous integration and de
 
 ## Overview
 
-The project uses five specialized GitHub Actions workflows that validate different aspects of the codebase:
+The project uses specialized GitHub Actions workflows that validate different aspects of the codebase:
 
 | Workflow | Focus | Platforms | Database Support |
 |----------|-------|-----------|------------------|
@@ -17,7 +17,19 @@ The project uses five specialized GitHub Actions workflows that validate differe
 | **SDK Tests** | TypeScript SDK bridge | Ubuntu | SQLite |
 | **MCP Compliance** | Protocol specification | Ubuntu | SQLite |
 
-All workflows run on pushes to `main`, `debug/*`, `feature/*`, `claude/*` branches and on pull requests to `main`.
+All workflows run on pushes to `main`, `debug/*`, `feature/*`, `claude/*`, `copilot/*` branches and on pull requests to `main`.
+
+### Path-Based CI Filtering (detect-changes)
+
+The Backend CI workflow includes a `detect-changes` job that uses `dorny/paths-filter@v3` to skip expensive jobs on feature branches when irrelevant files change. This reduces CI time by 18+ minutes for non-database or non-cache changes.
+
+| Output | Triggers When | Jobs Affected |
+|--------|---------------|---------------|
+| `database` | `src/database/**`, `migrations/**`, `crates/pierre-database/**` | `postgres-tests` |
+| `cache` | `src/cache/**`, `tests/cache_redis_test.rs` | `redis-tests` |
+| `release-worthy` | `src/**`, `crates/**`, `Cargo.toml` | `release-binary` |
+
+On `main` branch and scheduled runs, all jobs always run (full validation). Filtering only applies to feature branches.
 
 ## Workflow Details
 
