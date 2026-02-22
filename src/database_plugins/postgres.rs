@@ -90,7 +90,7 @@ pub struct PostgresDatabase {
 }
 
 impl PostgresDatabase {
-    /// Get a reference to the PostgreSQL connection pool
+    /// Get a reference to the `PostgreSQL` connection pool
     #[must_use]
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool

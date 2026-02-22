@@ -11,7 +11,7 @@ pub mod factory;
 #[cfg(feature = "postgresql")]
 pub mod postgres;
 
-/// PostgreSQL social features database operations
+/// `PostgreSQL` social features database operations
 #[cfg(feature = "postgresql")]
 pub mod social_postgres;
 
