@@ -81,3 +81,31 @@ fn test_groq_mixtral_pricing() {
         "Expected {expected}, got {cost}"
     );
 }
+
+#[test]
+fn test_gemini_3_flash_pricing() {
+    // Gemini 3 Flash: $0.50/M input, $3.0/M output
+    let cost = calculate_cost("gemini", "gemini-3-flash-preview", 1_000_000, 100_000);
+    let expected = 0.50 + 0.30; // $0.50 for 1M input + $0.30 for 100K output
+    assert!(
+        (cost - expected).abs() < 1e-10,
+        "Expected {expected}, got {cost}"
+    );
+}
+
+#[test]
+fn test_all_production_models_have_pricing() {
+    let production_models = [
+        ("gemini", "gemini-3-flash-preview"),
+        ("gemini", "gemini-2.5-flash"),
+        ("gemini", "gemini-2.0-flash"),
+        ("groq", "llama-3.3-70b-versatile"),
+    ];
+    for (provider, model) in production_models {
+        let cost = calculate_cost(provider, model, 1000, 1000);
+        assert!(
+            cost > 0.0,
+            "Production model {provider}/{model} has ZERO pricing — dashboard will show $0.00!"
+        );
+    }
+}
