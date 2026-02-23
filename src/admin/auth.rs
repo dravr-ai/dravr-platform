@@ -24,7 +24,7 @@ use crate::admin::{
     jwt::AdminJwtManager,
     models::{AdminAction, AdminPermission, AdminTokenUsage, ValidatedAdminToken},
 };
-use crate::database_plugins::{factory::Database, AdminDbOps};
+use crate::database_plugins::{factory::Database, AdminRepository};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::utils::auth::extract_bearer_token_owned;
 
@@ -119,7 +119,7 @@ impl AdminAuthService {
         // Step 2: Check if token exists and is active in database
         let stored_token = self
             .database
-            .get_admin_token_by_id(&validated_token.token_id)
+            .get_token_by_id(&validated_token.token_id)
             .await?
             .ok_or_else(|| {
                 AppError::auth_invalid(format!(
@@ -239,7 +239,7 @@ impl AdminAuthService {
             response_time_ms: None,
         };
 
-        self.database.record_admin_token_usage(&usage).await?;
+        self.database.record_token_usage(&usage).await?;
         Ok(())
     }
 

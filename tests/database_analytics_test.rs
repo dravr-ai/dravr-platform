@@ -10,7 +10,7 @@
 use chrono::Utc;
 use pierre_core::models::JwtUsage;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, SocialDbOps, UsageDbOps, UserDbOps},
+    database_plugins::{factory::Database, InsightRepository, ProfileRepository, UsageRepository},
     models::User,
 };
 use uuid::Uuid;
@@ -85,7 +85,7 @@ async fn test_goals_management() {
 
     // Get user goals
     let goals = db
-        .get_user_goals(user.id)
+        .get_goals(user.id)
         .await
         .expect("Failed to get user goals");
     assert_eq!(goals.len(), 1);
@@ -113,7 +113,7 @@ async fn test_insights_storage() {
     });
 
     let insight_id = db
-        .store_insight(user.id, insight_data)
+        .store(user.id, insight_data)
         .await
         .expect("Failed to store insight");
 
@@ -122,7 +122,7 @@ async fn test_insights_storage() {
 
     // Get user insights
     let insights = db
-        .get_user_insights(user.id, None, Some(10))
+        .get_for_user(user.id, None, Some(10))
         .await
         .expect("Failed to get user insights");
     assert_eq!(insights.len(), 1);

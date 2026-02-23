@@ -18,7 +18,7 @@ use pierre_mcp_server::{
     admin::AdminAuthService,
     auth::AuthManager,
     constants::system_config::STARTER_MONTHLY_LIMIT,
-    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, TenantRepository, UserRepository},
     mcp::ToolSelectionService,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -124,7 +124,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    let user_id = database.create_user(&test_user).await?;
+    let user_id = UserRepository::create(&database, &test_user).await?;
     println!(" Test user created with ID: {user_id}");
 
     // Step 3: Verify user is in pending status
@@ -508,7 +508,7 @@ async fn create_test_pending_user(database: &Database) -> Result<uuid::Uuid> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&test_user).await?;
+    UserRepository::create(database, &test_user).await?;
     Ok(test_user_id)
 }
 
@@ -520,7 +520,7 @@ async fn verify_tenant_user_linkage(
     expected_tenant_name: &str,
     expected_tenant_slug: &str,
 ) -> Result<()> {
-    let created_tenant = database.get_tenant_by_id(tenant_id).await?;
+    let created_tenant = database.get_by_id(tenant_id).await?;
     assert_eq!(created_tenant.name, expected_tenant_name);
     assert_eq!(created_tenant.slug, expected_tenant_slug);
     assert_eq!(created_tenant.plan, "starter");
@@ -528,7 +528,7 @@ async fn verify_tenant_user_linkage(
 
     // Tenant assignment is now managed via tenant_users junction table
     // Verify the tenant exists and has correct owner
-    let created_tenant = database.get_tenant_by_id(tenant_id).await?;
+    let created_tenant = database.get_by_id(tenant_id).await?;
     assert_eq!(created_tenant.owner_user_id, test_user_id);
     Ok(())
 }

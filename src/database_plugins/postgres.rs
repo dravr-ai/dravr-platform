@@ -9,8 +9,12 @@
 //! implementing the same interface as the `SQLite` version.
 
 use super::{
-    shared, A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, DatabaseProvider, OAuth2ServerOps,
-    OAuthAccountOps, OAuthTokenOps, SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+    shared, A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, DatabaseProvider,
+    FitnessConfigRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
+    LlmUsageRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    SecurityRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 use crate::admin::jwt::AdminJwtManager;
 use crate::admin::models::{
@@ -348,8 +352,8 @@ impl PostgresDatabase {
 }
 
 #[async_trait]
-impl UserDbOps for PostgresDatabase {
-    async fn create_user(&self, user: &User) -> AppResult<Uuid> {
+impl UserRepository for PostgresDatabase {
+    async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
             INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider)
@@ -379,7 +383,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(user.id)
     }
 
-    async fn get_user(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
+    async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
         let row = sqlx::query(
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
@@ -436,7 +440,7 @@ impl UserDbOps for PostgresDatabase {
         )
     }
 
-    async fn get_user_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
+    async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
         let row = sqlx::query(
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
@@ -492,7 +496,7 @@ impl UserDbOps for PostgresDatabase {
         )
     }
 
-    async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
         let row = sqlx::query(
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
@@ -548,8 +552,8 @@ impl UserDbOps for PostgresDatabase {
         )
     }
 
-    async fn get_user_by_email_required(&self, email: &str) -> AppResult<User> {
-        self.get_user_by_email(email)
+    async fn get_by_email_required(&self, email: &str) -> AppResult<User> {
+        self.get_by_email(email)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User with email {email}")))
     }
@@ -611,7 +615,7 @@ impl UserDbOps for PostgresDatabase {
         )
     }
 
-    async fn get_user_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
+    async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
         let row = sqlx::query(
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
@@ -683,7 +687,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_user_count(&self) -> AppResult<i64> {
+    async fn count(&self) -> AppResult<i64> {
         let row = sqlx::query("SELECT COUNT(*) as count FROM users")
             .fetch_one(&self.pool)
             .await
@@ -692,7 +696,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(row.get("count"))
     }
 
-    async fn get_users_by_status(
+    async fn get_by_status(
         &self,
         status: &str,
         tenant_id: Option<TenantId>,
@@ -786,7 +790,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(users)
     }
 
-    async fn get_users_by_status_cursor(
+    async fn get_by_status_cursor(
         &self,
         status: &str,
         params: &PaginationParams,
@@ -886,7 +890,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(CursorPage::new(users, next_cursor, None, has_more))
     }
 
-    async fn update_user_status(
+    async fn update_status(
         &self,
         user_id: Uuid,
         new_status: UserStatus,
@@ -924,12 +928,12 @@ impl UserDbOps for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to update user status: {e}")))?;
 
         // Return updated user
-        self.get_user_global(user_id)
+        self.get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found("User after status update"))
     }
 
-    async fn update_user_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+    async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
         let result = sqlx::query(
             r"
             UPDATE users
@@ -950,7 +954,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn update_user_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
+    async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
         let result = sqlx::query(
             r"
             UPDATE users
@@ -971,7 +975,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn update_user_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User> {
+    async fn update_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User> {
         let result = sqlx::query(
             r"
             UPDATE users
@@ -989,12 +993,12 @@ impl UserDbOps for PostgresDatabase {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));
         }
 
-        self.get_user_global(user_id)
+        self.get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found("User after display name update"))
     }
 
-    async fn delete_user(&self, user_id: Uuid) -> AppResult<()> {
+    async fn delete(&self, user_id: Uuid) -> AppResult<()> {
         let result = sqlx::query(
             r"
             DELETE FROM users WHERE id = $1
@@ -1012,7 +1016,21 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn upsert_user_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
+    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM synthetic_activities WHERE user_id = $1 LIMIT 1",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+}
+
+#[async_trait]
+impl ProfileRepository for PostgresDatabase {
+    async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
         let now = chrono::Utc::now().to_rfc3339();
         sqlx::query(
             r"
@@ -1032,7 +1050,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_user_profile(&self, user_id: Uuid) -> AppResult<Option<Value>> {
+    async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>> {
         let row = sqlx::query(
             r"
             SELECT profile_data
@@ -1069,7 +1087,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(goal_id)
     }
 
-    async fn get_user_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>> {
+    async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>> {
         let rows = sqlx::query(
             r"
             SELECT goal_data
@@ -1113,7 +1131,7 @@ impl UserDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_user_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
+    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
         // First ensure the user_configurations table exists
         sqlx::query(
             r"
@@ -1148,7 +1166,7 @@ impl UserDbOps for PostgresDatabase {
         }
     }
 
-    async fn save_user_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
+    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
         // First ensure the user_configurations table exists
         sqlx::query(
             r"
@@ -1186,21 +1204,10 @@ impl UserDbOps for PostgresDatabase {
 
         Ok(())
     }
-
-    async fn user_has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM synthetic_activities WHERE user_id = $1 LIMIT 1",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(count > 0)
-    }
 }
 
 #[async_trait]
-impl OAuthTokenOps for PostgresDatabase {
+impl OAuthTokenRepository for PostgresDatabase {
     async fn get_provider_last_sync(
         &self,
         user_id: Uuid,
@@ -1244,7 +1251,7 @@ impl OAuthTokenOps for PostgresDatabase {
     // UserOAuthToken Methods - PostgreSQL implementations
     // ================================
 
-    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+    async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
         // SECURITY: Encrypt OAuth tokens at rest with AAD binding (AES-256-GCM)
         let encrypted_access_token = shared::encryption::encrypt_oauth_token(
             self,
@@ -1303,7 +1310,7 @@ impl OAuthTokenOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_user_oauth_token(
+    async fn get_token(
         &self,
         user_id: uuid::Uuid,
         tenant_id: TenantId,
@@ -1330,7 +1337,7 @@ impl OAuthTokenOps for PostgresDatabase {
         )
     }
 
-    async fn get_user_oauth_tokens(
+    async fn get_tokens(
         &self,
         user_id: uuid::Uuid,
         tenant_id: Option<TenantId>,
@@ -1400,7 +1407,7 @@ impl OAuthTokenOps for PostgresDatabase {
         Ok(tokens)
     }
 
-    async fn delete_user_oauth_token(
+    async fn delete_token(
         &self,
         user_id: uuid::Uuid,
         tenant_id: TenantId,
@@ -1422,11 +1429,7 @@ impl OAuthTokenOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn delete_user_oauth_tokens(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<()> {
+    async fn delete_tokens(&self, user_id: uuid::Uuid, tenant_id: TenantId) -> AppResult<()> {
         sqlx::query(
             r"
             DELETE FROM user_oauth_tokens
@@ -1442,7 +1445,7 @@ impl OAuthTokenOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn refresh_user_oauth_token(
+    async fn refresh_token(
         &self,
         user_id: uuid::Uuid,
         tenant_id: TenantId,
@@ -1624,7 +1627,7 @@ impl OAuthTokenOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl OAuth2ServerOps for PostgresDatabase {
+impl OAuth2ServerRepository for PostgresDatabase {
     /// Store authorization code
     async fn store_authorization_code(
         &self,
@@ -1721,7 +1724,7 @@ impl OAuth2ServerOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
+    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO oauth2_clients (id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
@@ -1742,7 +1745,7 @@ impl OAuth2ServerOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
         let row = sqlx::query(
             "SELECT id, client_id, client_secret_hash, redirect_uris, grant_types, response_types, client_name, client_uri, scope, created_at, expires_at
              FROM oauth2_clients WHERE client_id = $1"
@@ -1776,7 +1779,7 @@ impl OAuth2ServerOps for PostgresDatabase {
         }
     }
 
-    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO oauth2_auth_codes (code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
@@ -1797,7 +1800,7 @@ impl OAuth2ServerOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+    async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
         let row = sqlx::query(
             "SELECT code, client_id, user_id, tenant_id, redirect_uri, scope, expires_at, used, state, code_challenge, code_challenge_method
              FROM oauth2_auth_codes WHERE code = $1",
@@ -1825,7 +1828,7 @@ impl OAuth2ServerOps for PostgresDatabase {
         )
     }
 
-    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         sqlx::query("UPDATE oauth2_auth_codes SET used = $1 WHERE code = $2")
             .bind(auth_code.used)
             .bind(&auth_code.code)
@@ -1840,10 +1843,7 @@ impl OAuth2ServerOps for PostgresDatabase {
     ///
     /// The refresh token value is HMAC-SHA256 hashed before storage so that
     /// plaintext tokens are never persisted to disk.
-    async fn store_oauth2_refresh_token(
-        &self,
-        refresh_token: &OAuth2RefreshToken,
-    ) -> AppResult<()> {
+    async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()> {
         let token_hash = HasEncryption::hash_token_for_storage(self, &refresh_token.token)?;
 
         sqlx::query(
@@ -1866,7 +1866,7 @@ impl OAuth2ServerOps for PostgresDatabase {
     /// Get OAuth 2.0 refresh token
     ///
     /// The input token is HMAC-SHA256 hashed before querying.
-    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+    async fn get_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
         let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
         let row = sqlx::query(
@@ -1915,7 +1915,7 @@ impl OAuth2ServerOps for PostgresDatabase {
     /// Revoke OAuth 2.0 refresh token
     ///
     /// The input token is HMAC-SHA256 hashed before querying.
-    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
+    async fn revoke_refresh_token(&self, token: &str) -> AppResult<()> {
         let token_hash = HasEncryption::hash_token_for_storage(self, token)?;
 
         sqlx::query("UPDATE oauth2_refresh_tokens SET revoked = true WHERE token = $1")
@@ -2088,7 +2088,7 @@ impl OAuth2ServerOps for PostgresDatabase {
     }
 
     /// Store `OAuth2` state for CSRF protection
-    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
+    async fn store_state(&self, state: &OAuth2State) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO oauth2_states (state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
@@ -2110,7 +2110,7 @@ impl OAuth2ServerOps for PostgresDatabase {
     }
 
     /// Consume `OAuth2` state (atomically check and mark as used)
-    async fn consume_oauth2_state(
+    async fn consume_state(
         &self,
         state_value: &str,
         client_id: &str,
@@ -2175,7 +2175,10 @@ impl OAuth2ServerOps for PostgresDatabase {
     // ================================
     // OAuth Client State (CSRF + PKCE)
     // ================================
+}
 
+#[async_trait]
+impl OAuthClientStateRepository for PostgresDatabase {
     async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
         sqlx::query(
             "INSERT INTO oauth_client_states (state, provider, user_id, tenant_id, redirect_uri, scope, pkce_code_verifier, created_at, expires_at, used)
@@ -2261,12 +2264,12 @@ impl OAuth2ServerOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl OAuthAccountOps for PostgresDatabase {
+impl ProviderConnectionRepository for PostgresDatabase {
     // ================================
     // Provider Connections (PostgreSQL implementation)
     // ================================
 
-    async fn register_provider_connection(
+    async fn register_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2301,7 +2304,7 @@ impl OAuthAccountOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn remove_provider_connection(
+    async fn remove_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2319,7 +2322,7 @@ impl OAuthAccountOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_user_provider_connections(
+    async fn get_for_user(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
@@ -2376,7 +2379,7 @@ impl OAuthAccountOps for PostgresDatabase {
         Ok(connections)
     }
 
-    async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
+    async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM provider_connections WHERE user_id = $1 AND provider = $2",
         )
@@ -2387,8 +2390,11 @@ impl OAuthAccountOps for PostgresDatabase {
 
         Ok(count > 0)
     }
+}
 
-    async fn store_password_reset_token(
+#[async_trait]
+impl PasswordResetRepository for PostgresDatabase {
+    async fn store_token(
         &self,
         user_id: Uuid,
         token_hash: &str,
@@ -2417,7 +2423,7 @@ impl OAuthAccountOps for PostgresDatabase {
         Ok(id)
     }
 
-    async fn consume_password_reset_token(&self, token_hash: &str) -> AppResult<Uuid> {
+    async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
         let now = Utc::now().to_rfc3339();
 
         let row = sqlx::query(
@@ -2450,7 +2456,7 @@ impl OAuthAccountOps for PostgresDatabase {
         )
     }
 
-    async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()> {
+    async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -2472,8 +2478,8 @@ impl OAuthAccountOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl ApiKeyDbOps for PostgresDatabase {
-    async fn create_api_key(&self, api_key: &ApiKey) -> AppResult<()> {
+impl ApiKeyRepository for PostgresDatabase {
+    async fn create(&self, api_key: &ApiKey) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, description, tier, is_active, rate_limit_requests, rate_limit_window_seconds, expires_at)
@@ -2498,7 +2504,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_api_key_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
+    async fn get_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
         let row = sqlx::query(
             r"
             SELECT id, user_id, name, key_prefix, key_hash, description, tier, is_active, rate_limit_requests,
@@ -2548,7 +2554,7 @@ impl ApiKeyDbOps for PostgresDatabase {
 
     // Remaining database methods follow the same PostgreSQL implementation pattern
 
-    async fn get_user_api_keys(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>> {
+    async fn get_for_user(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>> {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, name, key_prefix, key_hash, description, tier, is_active, rate_limit_requests,
@@ -2592,7 +2598,7 @@ impl ApiKeyDbOps for PostgresDatabase {
             .collect())
     }
 
-    async fn update_api_key_last_used(&self, api_key_id: &str) -> AppResult<()> {
+    async fn update_last_used(&self, api_key_id: &str) -> AppResult<()> {
         sqlx::query(
             r"
             UPDATE api_keys
@@ -2608,7 +2614,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn deactivate_api_key(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
+    async fn deactivate(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
         sqlx::query(
             r"
             UPDATE api_keys
@@ -2625,7 +2631,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_api_key_by_id(
+    async fn get_by_id(
         &self,
         api_key_id: &str,
         user_id: Option<Uuid>,
@@ -2698,7 +2704,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         )
     }
 
-    async fn get_api_keys_filtered(
+    async fn get_filtered(
         &self,
         user_email: Option<&str>,
         active_only: bool,
@@ -2791,7 +2797,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         Ok(api_keys)
     }
 
-    async fn cleanup_expired_api_keys(&self) -> AppResult<u64> {
+    async fn cleanup_expired(&self) -> AppResult<u64> {
         let result = sqlx::query(
             r"
             UPDATE api_keys
@@ -2806,7 +2812,7 @@ impl ApiKeyDbOps for PostgresDatabase {
         Ok(result.rows_affected())
     }
 
-    async fn get_expired_api_keys(&self) -> AppResult<Vec<ApiKey>> {
+    async fn get_expired(&self) -> AppResult<Vec<ApiKey>> {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, name, key_prefix, key_hash, description, tier, is_active, rate_limit_requests,
@@ -2851,8 +2857,8 @@ impl ApiKeyDbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl UsageDbOps for PostgresDatabase {
-    async fn record_api_key_usage(&self, usage: &ApiKeyUsage) -> AppResult<()> {
+impl UsageRepository for PostgresDatabase {
+    async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO api_key_usage (api_key_id, timestamp, endpoint, response_time_ms, status_code, 
@@ -2877,7 +2883,7 @@ impl UsageDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_api_key_current_usage(&self, api_key_id: &str) -> AppResult<u32> {
+    async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
         let row = sqlx::query(
             r"
             SELECT COUNT(*) as count
@@ -2893,7 +2899,7 @@ impl UsageDbOps for PostgresDatabase {
         Ok(u32::try_from(row.get::<i64, _>("count").max(0)).unwrap_or(0))
     }
 
-    async fn get_api_key_usage_stats(
+    async fn get_api_key_stats(
         &self,
         api_key_id: &str,
         start_date: DateTime<Utc>,
@@ -3239,7 +3245,103 @@ impl UsageDbOps for PostgresDatabase {
 
         Ok(tool_usage)
     }
+}
 
+#[async_trait]
+impl UsageCounterRepository for PostgresDatabase {
+    async fn increment_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord> {
+        let now = Utc::now().to_rfc3339();
+
+        sqlx::query(
+            r"
+            INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (tenant_id, user_id, counter_key, period)
+            DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .bind(amount)
+        .bind(&now)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
+
+        self.get_counter(tenant_id, user_id, counter_key, period)
+            .await
+    }
+
+    async fn get_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord> {
+        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
+            r"
+            SELECT tenant_id, user_id, counter_key, period, value, updated_at
+            FROM usage_counters
+            WHERE tenant_id = $1 AND user_id = $2 AND counter_key = $3 AND period = $4
+            ",
+        )
+        .bind(tenant_id)
+        .bind(user_id)
+        .bind(counter_key)
+        .bind(period)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get usage counter: {e}")))?;
+
+        match row {
+            Some((tid, uid, key, per, val, updated)) => Ok(UsageCounterRecord {
+                tenant_id: tid,
+                user_id: uid,
+                counter_key: key,
+                period: per,
+                value: val,
+                updated_at: updated,
+            }),
+            None => Ok(UsageCounterRecord {
+                tenant_id: tenant_id.to_owned(),
+                user_id: user_id.to_owned(),
+                counter_key: counter_key.to_owned(),
+                period: period.to_owned(),
+                value: 0,
+                updated_at: String::new(),
+            }),
+        }
+    }
+
+    /// System-level housekeeping: intentionally cross-tenant pruning of expired counters
+    async fn delete_old_counters(&self, period_before: &str) -> AppResult<u64> {
+        let result = sqlx::query(
+            r"
+            DELETE FROM usage_counters
+            WHERE period < $1
+            ",
+        )
+        .bind(period_before)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
+
+        Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl LlmUsageRepository for PostgresDatabase {
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
@@ -3371,102 +3473,12 @@ impl UsageDbOps for PostgresDatabase {
             )
             .collect())
     }
-
-    async fn increment_usage_counter(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        counter_key: &str,
-        period: &str,
-        amount: i64,
-    ) -> AppResult<UsageCounterRecord> {
-        let now = Utc::now().to_rfc3339();
-
-        sqlx::query(
-            r"
-            INSERT INTO usage_counters (tenant_id, user_id, counter_key, period, value, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (tenant_id, user_id, counter_key, period)
-            DO UPDATE SET value = usage_counters.value + EXCLUDED.value, updated_at = EXCLUDED.updated_at
-            ",
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(counter_key)
-        .bind(period)
-        .bind(amount)
-        .bind(&now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
-
-        self.get_usage_counter(tenant_id, user_id, counter_key, period)
-            .await
-    }
-
-    async fn get_usage_counter(
-        &self,
-        tenant_id: &str,
-        user_id: &str,
-        counter_key: &str,
-        period: &str,
-    ) -> AppResult<UsageCounterRecord> {
-        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
-            r"
-            SELECT tenant_id, user_id, counter_key, period, value, updated_at
-            FROM usage_counters
-            WHERE tenant_id = $1 AND user_id = $2 AND counter_key = $3 AND period = $4
-            ",
-        )
-        .bind(tenant_id)
-        .bind(user_id)
-        .bind(counter_key)
-        .bind(period)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get usage counter: {e}")))?;
-
-        match row {
-            Some((tid, uid, key, per, val, updated)) => Ok(UsageCounterRecord {
-                tenant_id: tid,
-                user_id: uid,
-                counter_key: key,
-                period: per,
-                value: val,
-                updated_at: updated,
-            }),
-            None => Ok(UsageCounterRecord {
-                tenant_id: tenant_id.to_owned(),
-                user_id: user_id.to_owned(),
-                counter_key: counter_key.to_owned(),
-                period: period.to_owned(),
-                value: 0,
-                updated_at: String::new(),
-            }),
-        }
-    }
-
-    /// System-level housekeeping: intentionally cross-tenant pruning of expired counters
-    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
-        let result = sqlx::query(
-            r"
-            DELETE FROM usage_counters
-            WHERE period < $1
-            ",
-        )
-        .bind(period_before)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
-
-        Ok(result.rows_affected())
-    }
 }
 
 #[async_trait]
-impl A2ADbOps for PostgresDatabase {
+impl A2ARepository for PostgresDatabase {
     // A2A methods
-    async fn create_a2a_client(
+    async fn create_client(
         &self,
         client: &A2AClient,
         client_secret: &str,
@@ -3502,7 +3514,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(client.id.clone()) // Safe: String ownership for return value
     }
 
-    async fn get_a2a_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
             SELECT client_id, user_id, name, description, client_secret_hash, capabilities,
@@ -3542,7 +3554,7 @@ impl A2ADbOps for PostgresDatabase {
         )
     }
 
-    async fn get_a2a_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
             SELECT c.client_id, c.user_id, c.name, c.description, c.client_secret_hash, c.capabilities,
@@ -3583,7 +3595,7 @@ impl A2ADbOps for PostgresDatabase {
         )
     }
 
-    async fn get_a2a_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
         let row = sqlx::query(
             r"
             SELECT client_id, user_id, name, description, client_secret_hash, capabilities,
@@ -3623,7 +3635,7 @@ impl A2ADbOps for PostgresDatabase {
         )
     }
 
-    async fn list_a2a_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>> {
+    async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>> {
         let rows = sqlx::query(
             r"
             SELECT client_id, user_id, name, description, client_secret_hash, capabilities, 
@@ -3664,7 +3676,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(clients)
     }
 
-    async fn deactivate_a2a_client(&self, client_id: &str) -> AppResult<()> {
+    async fn deactivate_client(&self, client_id: &str) -> AppResult<()> {
         let query =
             "UPDATE a2a_clients SET is_active = false, updated_at = NOW() WHERE client_id = $1";
 
@@ -3681,10 +3693,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_a2a_client_credentials(
-        &self,
-        client_id: &str,
-    ) -> AppResult<Option<(String, String)>> {
+    async fn get_client_credentials(&self, client_id: &str) -> AppResult<Option<(String, String)>> {
         let query = "SELECT client_id, client_secret_hash FROM a2a_clients WHERE client_id = $1 AND is_active = true";
 
         let row = sqlx::query(query)
@@ -3705,7 +3714,7 @@ impl A2ADbOps for PostgresDatabase {
         )
     }
 
-    async fn invalidate_a2a_client_sessions(&self, client_id: &str) -> AppResult<()> {
+    async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
         let query =
             "UPDATE a2a_sessions SET expires_at = NOW() - INTERVAL '1 hour' WHERE client_id = $1";
 
@@ -3734,7 +3743,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn create_a2a_session(
+    async fn create_session(
         &self,
         client_id: &str,
         user_id: Option<&Uuid>,
@@ -3765,7 +3774,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(session_id)
     }
 
-    async fn get_a2a_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
+    async fn get_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
         let row = sqlx::query(
             r"
             SELECT session_token, client_id, user_id, granted_scopes,
@@ -3813,7 +3822,7 @@ impl A2ADbOps for PostgresDatabase {
         }
     }
 
-    async fn update_a2a_session_activity(&self, session_token: &str) -> AppResult<()> {
+    async fn update_session_activity(&self, session_token: &str) -> AppResult<()> {
         sqlx::query("UPDATE a2a_sessions SET last_activity = NOW() WHERE session_token = $1")
             .bind(session_token)
             .execute(&self.pool)
@@ -3825,7 +3834,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_active_a2a_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
+    async fn get_active_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
         let rows = sqlx::query(
             r"
             SELECT session_token, client_id, user_id, granted_scopes,
@@ -3867,7 +3876,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(sessions)
     }
 
-    async fn create_a2a_task(
+    async fn create_task(
         &self,
         client_id: &str,
         session_id: Option<&str>,
@@ -3900,7 +3909,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(task_id)
     }
 
-    async fn get_a2a_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
+    async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
         let row = sqlx::query(
             r"
             SELECT task_id, client_id, session_id, task_type, input_data,
@@ -3993,7 +4002,7 @@ impl A2ADbOps for PostgresDatabase {
         }
     }
 
-    async fn list_a2a_tasks(
+    async fn list_tasks(
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
@@ -4030,7 +4039,7 @@ impl A2ADbOps for PostgresDatabase {
             .collect::<AppResult<Vec<_>>>()
     }
 
-    async fn update_a2a_task_status(
+    async fn update_task_status(
         &self,
         task_id: &str,
         status: &TaskStatus,
@@ -4059,7 +4068,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn record_a2a_usage(&self, usage: &A2AUsage) -> AppResult<()> {
+    async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO a2a_usage
@@ -4109,7 +4118,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_a2a_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
+    async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
         let row = sqlx::query(
             r"
             SELECT COUNT(*) as usage_count
@@ -4128,7 +4137,7 @@ impl A2ADbOps for PostgresDatabase {
         Ok(u32::try_from(count.max(0)).unwrap_or(0))
     }
 
-    async fn get_a2a_usage_stats(
+    async fn get_usage_stats(
         &self,
         client_id: &str,
         start_date: DateTime<Utc>,
@@ -4209,7 +4218,7 @@ impl A2ADbOps for PostgresDatabase {
         })
     }
 
-    async fn get_a2a_client_usage_history(
+    async fn get_client_usage_history(
         &self,
         client_id: &str,
         days: u32,
@@ -4258,12 +4267,12 @@ impl A2ADbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl AdminDbOps for PostgresDatabase {
+impl AdminRepository for PostgresDatabase {
     // ================================
     // Admin Token Management (PostgreSQL)
     // ================================
 
-    async fn create_admin_token(
+    async fn create_token(
         &self,
         request: &CreateAdminTokenRequest,
         admin_jwt_secret: &str,
@@ -4271,17 +4280,13 @@ impl AdminDbOps for PostgresDatabase {
     ) -> AppResult<GeneratedAdminToken> {
         use uuid::Uuid;
 
-        // Generate unique token ID
         let uuid = Uuid::new_v4().simple();
         let token_id = format!("admin_{uuid}");
 
-        // Debug: Log token creation without exposing secrets
         debug!("Creating admin token with RS256 asymmetric signing");
 
-        // Create JWT manager for RS256 token operations (no HS256 secret needed)
         let jwt_manager = AdminJwtManager::new();
 
-        // Get permissions
         let permissions = request.permissions.as_ref().map_or_else(
             || {
                 if request.is_super_admin {
@@ -4290,15 +4295,13 @@ impl AdminDbOps for PostgresDatabase {
                     AdminPermissions::default_admin()
                 }
             },
-            |perms| AdminPermissions::new(perms.clone()), // Safe: Vec<String> ownership for permissions struct
+            |perms| AdminPermissions::new(perms.clone()),
         );
 
-        // Calculate expiration
         let expires_at = request.expires_in_days.map(|days| {
             chrono::Utc::now() + chrono::Duration::days(i64::try_from(days).unwrap_or(365))
         });
 
-        // Generate JWT token using RS256 (asymmetric signing)
         let jwt_token = jwt_manager.generate_token(
             &token_id,
             &request.service_name,
@@ -4308,12 +4311,10 @@ impl AdminDbOps for PostgresDatabase {
             jwks_manager,
         )?;
 
-        // Generate token prefix and hash for storage
         let token_prefix = AdminJwtManager::generate_token_prefix(&jwt_token);
         let token_hash = AdminJwtManager::hash_token_for_storage(&jwt_token)?;
         let jwt_secret_hash = AdminJwtManager::hash_secret(admin_jwt_secret);
 
-        // Store in database
         let query = r"
             INSERT INTO admin_tokens (
                 id, service_name, service_description, token_hash, token_prefix,
@@ -4334,17 +4335,17 @@ impl AdminDbOps for PostgresDatabase {
             .bind(&jwt_secret_hash)
             .bind(&permissions_json)
             .bind(request.is_super_admin)
-            .bind(true) // is_active
+            .bind(true)
             .bind(created_at)
             .bind(expires_at)
-            .bind(0i64) // usage_count
+            .bind(0i64)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
 
         Ok(GeneratedAdminToken {
             token_id,
-            service_name: request.service_name.clone(), // Safe: String ownership for GeneratedAdminToken struct
+            service_name: request.service_name.clone(),
             jwt_token,
             token_prefix,
             permissions,
@@ -4354,7 +4355,7 @@ impl AdminDbOps for PostgresDatabase {
         })
     }
 
-    async fn get_admin_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
@@ -4375,7 +4376,7 @@ impl AdminDbOps for PostgresDatabase {
         }
     }
 
-    async fn get_admin_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
@@ -4396,7 +4397,7 @@ impl AdminDbOps for PostgresDatabase {
         }
     }
 
-    async fn list_admin_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
+    async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
         let query = if include_inactive {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
@@ -4426,7 +4427,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(tokens)
     }
 
-    async fn deactivate_admin_token(&self, token_id: &str) -> AppResult<()> {
+    async fn deactivate_token(&self, token_id: &str) -> AppResult<()> {
         let query = "UPDATE admin_tokens SET is_active = false WHERE id = $1";
 
         sqlx::query(query)
@@ -4438,7 +4439,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn update_admin_token_last_used(
+    async fn update_token_last_used(
         &self,
         token_id: &str,
         ip_address: Option<&str>,
@@ -4459,7 +4460,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn record_admin_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
+    async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
         let query = r"
             INSERT INTO admin_token_usage (
                 admin_token_id, timestamp, action, target_resource,
@@ -4494,7 +4495,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_admin_token_usage_history(
+    async fn get_token_usage_history(
         &self,
         token_id: &str,
         start_date: DateTime<Utc>,
@@ -4525,7 +4526,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(usage_history)
     }
 
-    async fn record_admin_provisioned_key(
+    async fn record_provisioned_key(
         &self,
         admin_token_id: &str,
         api_key_id: &str,
@@ -4543,7 +4544,7 @@ impl AdminDbOps for PostgresDatabase {
         ";
 
         // Get service name from admin token
-        let service_name = if let Some(token) = self.get_admin_token_by_id(admin_token_id).await? {
+        let service_name = if let Some(token) = self.get_token_by_id(admin_token_id).await? {
             token.service_name
         } else {
             "unknown".into()
@@ -4566,7 +4567,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_admin_provisioned_keys(
+    async fn get_provisioned_keys(
         &self,
         admin_token_id: Option<&str>,
         start_date: DateTime<Utc>,
@@ -4652,8 +4653,11 @@ impl AdminDbOps for PostgresDatabase {
     // ================================
     // Impersonation Session Management
     // ================================
+}
 
-    async fn create_impersonation_session(&self, session: &ImpersonationSession) -> AppResult<()> {
+#[async_trait]
+impl ImpersonationRepository for PostgresDatabase {
+    async fn create_session(&self, session: &ImpersonationSession) -> AppResult<()> {
         let query = r"
             INSERT INTO impersonation_sessions (
                 id, impersonator_id, target_user_id, reason,
@@ -4679,10 +4683,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn get_impersonation_session(
-        &self,
-        session_id: &str,
-    ) -> AppResult<Option<ImpersonationSession>> {
+    async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>> {
         let query = r"
             SELECT id, impersonator_id, target_user_id, reason,
                    started_at, ended_at, is_active, created_at
@@ -4699,10 +4700,7 @@ impl AdminDbOps for PostgresDatabase {
             .transpose()
     }
 
-    async fn get_active_impersonation_session(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Option<ImpersonationSession>> {
+    async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>> {
         let query = r"
             SELECT id, impersonator_id, target_user_id, reason,
                    started_at, ended_at, is_active, created_at
@@ -4725,7 +4723,7 @@ impl AdminDbOps for PostgresDatabase {
             .transpose()
     }
 
-    async fn end_impersonation_session(&self, session_id: &str) -> AppResult<()> {
+    async fn end_session(&self, session_id: &str) -> AppResult<()> {
         let query = r"
             UPDATE impersonation_sessions
             SET is_active = false, ended_at = $1
@@ -4743,7 +4741,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(())
     }
 
-    async fn end_all_impersonation_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
+    async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
         let query = r"
             UPDATE impersonation_sessions
             SET is_active = false, ended_at = $1
@@ -4763,7 +4761,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(result.rows_affected())
     }
 
-    async fn list_impersonation_sessions(
+    async fn list_sessions(
         &self,
         impersonator_id: Option<Uuid>,
         target_user_id: Option<Uuid>,
@@ -4816,12 +4814,11 @@ impl AdminDbOps for PostgresDatabase {
             .map(shared::mappers::parse_impersonation_session_from_row)
             .collect()
     }
+}
 
-    // ================================
-    // User MCP Token Management
-    // ================================
-
-    async fn create_user_mcp_token(
+#[async_trait]
+impl UserMcpTokenRepository for PostgresDatabase {
+    async fn create_token(
         &self,
         user_id: Uuid,
         request: &CreateUserMcpTokenRequest,
@@ -4871,7 +4868,7 @@ impl AdminDbOps for PostgresDatabase {
         Ok(UserMcpTokenCreated { token, token_value })
     }
 
-    async fn validate_user_mcp_token(&self, token_value: &str) -> AppResult<Uuid> {
+    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid> {
         use sqlx::Row;
 
         let token_hash = Self::hash_mcp_token(token_value);
@@ -4911,7 +4908,47 @@ impl AdminDbOps for PostgresDatabase {
             .map_err(|e| AppError::internal(format!("Failed to parse user_id UUID: {e}")))
     }
 
-    async fn list_user_mcp_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+    async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE user_mcp_tokens
+            SET is_revoked = true
+            WHERE id = $1 AND user_id = $2
+            ",
+        )
+        .bind(token_id)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to revoke user MCP token: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found("MCP token not found or unauthorized"));
+        }
+
+        Ok(())
+    }
+
+    async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, name, token_hash, token_prefix,
+                   expires_at, last_used_at, usage_count, is_revoked, created_at
+            FROM user_mcp_tokens
+            WHERE id = $1 AND user_id = $2
+            ",
+        )
+        .bind(token_id)
+        .bind(user_id.to_string())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get user MCP token: {e}")))?;
+
+        row.map(|r| shared::mappers::parse_user_mcp_token_from_row(&r))
+            .transpose()
+    }
+
+    async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
         use sqlx::Row;
 
         let rows = sqlx::query(
@@ -4947,51 +4984,7 @@ impl AdminDbOps for PostgresDatabase {
             .collect()
     }
 
-    async fn revoke_user_mcp_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
-        let result = sqlx::query(
-            r"
-            UPDATE user_mcp_tokens
-            SET is_revoked = true
-            WHERE id = $1 AND user_id = $2
-            ",
-        )
-        .bind(token_id)
-        .bind(user_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to revoke user MCP token: {e}")))?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found("MCP token not found or unauthorized"));
-        }
-
-        Ok(())
-    }
-
-    async fn get_user_mcp_token(
-        &self,
-        token_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserMcpToken>> {
-        let row = sqlx::query(
-            r"
-            SELECT id, user_id, name, token_hash, token_prefix,
-                   expires_at, last_used_at, usage_count, is_revoked, created_at
-            FROM user_mcp_tokens
-            WHERE id = $1 AND user_id = $2
-            ",
-        )
-        .bind(token_id)
-        .bind(user_id.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get user MCP token: {e}")))?;
-
-        row.map(|r| shared::mappers::parse_user_mcp_token_from_row(&r))
-            .transpose()
-    }
-
-    async fn cleanup_expired_user_mcp_tokens(&self) -> AppResult<u64> {
+    async fn cleanup_expired_tokens(&self) -> AppResult<u64> {
         let result = sqlx::query(
             r"
             UPDATE user_mcp_tokens
@@ -5013,13 +5006,13 @@ impl AdminDbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl TenantDbOps for PostgresDatabase {
+impl TenantRepository for PostgresDatabase {
     // ================================
     // Multi-Tenant Management
     // ================================
 
     /// Create a new tenant
-    async fn create_tenant(&self, tenant: &Tenant) -> AppResult<()> {
+    async fn create(&self, tenant: &Tenant) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO tenants (id, name, slug, domain, subscription_tier, is_active, created_at, updated_at)
@@ -5062,7 +5055,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Get tenant by ID
-    async fn get_tenant_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
+    async fn get_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
         let row = sqlx::query_as::<_, (TenantId, String, String, Option<String>, String, Uuid, DateTime<Utc>, DateTime<Utc>)>(
             r"
             SELECT t.id, t.name, t.slug, t.domain, t.subscription_tier, tu.user_id, t.created_at, t.updated_at
@@ -5092,7 +5085,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Get tenant by slug
-    async fn get_tenant_by_slug(&self, slug: &str) -> AppResult<Tenant> {
+    async fn get_by_slug(&self, slug: &str) -> AppResult<Tenant> {
         let row = sqlx::query_as::<_, (TenantId, String, String, Option<String>, String, Uuid, DateTime<Utc>, DateTime<Utc>)>(
             r"
             SELECT t.id, t.name, t.slug, t.domain, t.subscription_tier, tu.user_id, t.created_at, t.updated_at
@@ -5122,7 +5115,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// List tenants for a user
-    async fn list_tenants_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>> {
+    async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>> {
         let rows = sqlx::query_as::<
             _,
             (
@@ -5171,10 +5164,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Store tenant OAuth credentials
-    async fn store_tenant_oauth_credentials(
-        &self,
-        credentials: &TenantOAuthCredentials,
-    ) -> AppResult<()> {
+    async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()> {
         // Encrypt the client secret using AES-256-GCM with AAD binding
         // AAD context format: "{tenant_id}|{provider}|tenant_oauth_credentials"
         let aad_context = format!(
@@ -5220,7 +5210,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Get tenant OAuth providers
-    async fn get_tenant_oauth_providers(
+    async fn get_oauth_providers(
         &self,
         tenant_id: TenantId,
     ) -> AppResult<Vec<TenantOAuthCredentials>> {
@@ -5268,7 +5258,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Get tenant OAuth credentials for specific provider
-    async fn get_tenant_oauth_credentials(
+    async fn get_oauth_credentials(
         &self,
         tenant_id: TenantId,
         provider: &str,
@@ -5471,7 +5461,7 @@ impl TenantDbOps for PostgresDatabase {
         Ok(apps)
     }
 
-    async fn get_all_tenants(&self) -> AppResult<Vec<Tenant>> {
+    async fn get_all(&self) -> AppResult<Vec<Tenant>> {
         let query = r"
             SELECT id, slug, name, domain, plan, owner_user_id, created_at, updated_at
             FROM tenants
@@ -5527,11 +5517,7 @@ impl TenantDbOps for PostgresDatabase {
     }
 
     /// Get user role for a specific tenant
-    async fn get_user_tenant_role(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
+    async fn get_user_role(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<String>> {
         let row = sqlx::query_as::<_, (String,)>(
             "SELECT role FROM tenant_users WHERE user_id = $1 AND tenant_id = $2",
         )
@@ -5548,447 +5534,17 @@ impl TenantDbOps for PostgresDatabase {
     // Fitness Configuration Management
     // ================================
 
-    /// Save tenant-level fitness configuration
-    async fn save_tenant_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        let config_json = serde_json::to_string(config)?;
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let result = sqlx::query(
-            r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, NULL, $2, $3, $4, $4)
-            ON CONFLICT (tenant_id, user_id, configuration_name)
-            DO UPDATE SET
-                config_data = EXCLUDED.config_data,
-                updated_at = EXCLUDED.updated_at
-            RETURNING id
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(configuration_name)
-        .bind(&config_json)
-        .bind(&now)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
-
-        Ok(result.get("id"))
-    }
-
-    /// Save user-specific fitness configuration
-    async fn save_user_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        let config_json = serde_json::to_string(config)?;
-        let now = chrono::Utc::now().to_rfc3339();
-
-        let result = sqlx::query(
-            r"
-            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $5)
-            ON CONFLICT (tenant_id, user_id, configuration_name)
-            DO UPDATE SET
-                config_data = EXCLUDED.config_data,
-                updated_at = EXCLUDED.updated_at
-            RETURNING id
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(user_id)
-        .bind(configuration_name)
-        .bind(&config_json)
-        .bind(&now)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
-
-        Ok(result.get("id"))
-    }
-
-    /// Get tenant-level fitness configuration
-    async fn get_tenant_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        let result = sqlx::query(
-            r"
-            SELECT config_data FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(configuration_name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = result {
-            let config_json: String = row.get("config_data");
-            let config: FitnessConfig = serde_json::from_str(&config_json)?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get user-specific fitness configuration
-    async fn get_user_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        // First try to get user-specific configuration
-        let result = sqlx::query(
-            r"
-            SELECT config_data FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(user_id)
-        .bind(configuration_name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = result {
-            let config_json: String = row.get("config_data");
-            let config: FitnessConfig = serde_json::from_str(&config_json)?;
-            return Ok(Some(config));
-        }
-
-        // Fall back to tenant default configuration
-        let result = sqlx::query(
-            r"
-            SELECT config_data FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(configuration_name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
-
-        if let Some(row) = result {
-            let config_json: String = row.get("config_data");
-            let config: FitnessConfig = serde_json::from_str(&config_json)?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// List all tenant-level fitness configuration names
-    async fn list_tenant_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<String>> {
-        let rows = sqlx::query(
-            r"
-            SELECT DISTINCT configuration_name FROM fitness_configurations
-            WHERE tenant_id = $1
-            ORDER BY configuration_name
-            ",
-        )
-        .bind(tenant_id.0)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let configurations = rows
-            .into_iter()
-            .map(|row| row.get::<String, _>("configuration_name"))
-            .collect();
-
-        Ok(configurations)
-    }
-
-    /// List all user-specific fitness configuration names
-    async fn list_user_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-    ) -> AppResult<Vec<String>> {
-        let rows = sqlx::query(
-            r"
-            SELECT DISTINCT configuration_name FROM fitness_configurations
-            WHERE tenant_id = $1 AND user_id = $2
-            ORDER BY configuration_name
-            ",
-        )
-        .bind(tenant_id.0)
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
-
-        let configurations = rows
-            .into_iter()
-            .map(|row| row.get::<String, _>("configuration_name"))
-            .collect();
-
-        Ok(configurations)
-    }
-
-    /// Delete fitness configuration (tenant or user-specific)
-    async fn delete_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<&str>,
-        configuration_name: &str,
-    ) -> AppResult<bool> {
-        let rows_affected = if let Some(uid) = user_id {
-            sqlx::query(
-                r"
-                DELETE FROM fitness_configurations
-                WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(uid)
-            .bind(configuration_name)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?
-        } else {
-            sqlx::query(
-                r"
-                DELETE FROM fitness_configurations
-                WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(configuration_name)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?
-        };
-
-        Ok(rows_affected.rows_affected() > 0)
-    }
-
     // ================================
     // LLM Credentials Management
     // ================================
 
-    async fn store_llm_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
-        sqlx::query(
-            r"
-            INSERT INTO user_llm_credentials (
-                id, tenant_id, user_id, provider, api_key_encrypted,
-                base_url, default_model, is_active, created_at, updated_at, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT(tenant_id, user_id, provider) DO UPDATE SET
-                api_key_encrypted = EXCLUDED.api_key_encrypted,
-                base_url = EXCLUDED.base_url,
-                default_model = EXCLUDED.default_model,
-                is_active = EXCLUDED.is_active,
-                updated_at = EXCLUDED.updated_at
-            ",
-        )
-        .bind(record.id)
-        .bind(record.tenant_id)
-        .bind(record.user_id)
-        .bind(&record.provider)
-        .bind(&record.api_key_encrypted)
-        .bind(&record.base_url)
-        .bind(&record.default_model)
-        .bind(record.is_active)
-        .bind(&record.created_at)
-        .bind(&record.updated_at)
-        .bind(record.created_by)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to store LLM credentials: {e}")))?;
-
-        Ok(())
-    }
-
-    async fn get_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<Uuid>,
-        provider: &str,
-    ) -> AppResult<Option<LlmCredentialRecord>> {
-        let row = if let Some(uid) = user_id {
-            sqlx::query(
-                r"
-                SELECT id, tenant_id, user_id, provider, api_key_encrypted,
-                       base_url, default_model, is_active, created_at, updated_at, created_by
-                FROM user_llm_credentials
-                WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND is_active = TRUE
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(uid)
-            .bind(provider)
-            .fetch_optional(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
-                SELECT id, tenant_id, user_id, provider, api_key_encrypted,
-                       base_url, default_model, is_active, created_at, updated_at, created_by
-                FROM user_llm_credentials
-                WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2 AND is_active = TRUE
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(provider)
-            .fetch_optional(&self.pool)
-            .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to get LLM credentials: {e}")))?;
-
-        Ok(row.map(|r| LlmCredentialRecord {
-            id: r.get::<Uuid, _>("id"),
-            tenant_id: TenantId::from(r.get::<Uuid, _>("tenant_id")),
-            user_id: r.get::<Option<Uuid>, _>("user_id"),
-            provider: r.get::<String, _>("provider"),
-            api_key_encrypted: r.get::<String, _>("api_key_encrypted"),
-            base_url: r.get::<Option<String>, _>("base_url"),
-            default_model: r.get::<Option<String>, _>("default_model"),
-            is_active: r.get::<bool, _>("is_active"),
-            created_at: r.get::<String, _>("created_at"),
-            updated_at: r.get::<String, _>("updated_at"),
-            created_by: r.get::<Uuid, _>("created_by"),
-        }))
-    }
-
-    async fn list_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<LlmCredentialSummary>> {
-        let rows = sqlx::query(
-            r"
-            SELECT id, user_id, provider, base_url, default_model, is_active, created_at, updated_at
-            FROM user_llm_credentials
-            WHERE tenant_id = $1
-            ORDER BY provider, user_id
-            ",
-        )
-        .bind(tenant_id.0)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to list LLM credentials: {e}")))?;
-
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                let user_id: Option<Uuid> = r.get("user_id");
-                LlmCredentialSummary {
-                    id: r.get::<Uuid, _>("id"),
-                    user_id,
-                    provider: r.get::<String, _>("provider"),
-                    scope: if user_id.is_some() {
-                        "user".to_owned()
-                    } else {
-                        "tenant".to_owned()
-                    },
-                    base_url: r.get::<Option<String>, _>("base_url"),
-                    default_model: r.get::<Option<String>, _>("default_model"),
-                    is_active: r.get::<bool, _>("is_active"),
-                    created_at: r.get::<String, _>("created_at"),
-                    updated_at: r.get::<String, _>("updated_at"),
-                }
-            })
-            .collect())
-    }
-
-    async fn delete_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<Uuid>,
-        provider: &str,
-    ) -> AppResult<bool> {
-        let result = if let Some(uid) = user_id {
-            sqlx::query(
-                r"
-                DELETE FROM user_llm_credentials
-                WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(uid)
-            .bind(provider)
-            .execute(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
-                DELETE FROM user_llm_credentials
-                WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2
-                ",
-            )
-            .bind(tenant_id.0)
-            .bind(provider)
-            .execute(&self.pool)
-            .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to delete LLM credentials: {e}")))?;
-
-        Ok(result.rows_affected() > 0)
-    }
-
-    async fn get_admin_config_override(
-        &self,
-        config_key: &str,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<String>> {
-        // Extract category from key (e.g., "llm.gemini_api_key" -> "llm_provider")
-        let category = if config_key.starts_with("llm.") {
-            "llm_provider"
-        } else {
-            config_key.split('.').next().unwrap_or("unknown")
-        };
-
-        let row = if let Some(tid) = tenant_id {
-            sqlx::query(
-                r"
-                SELECT config_value
-                FROM admin_config_overrides
-                WHERE category = $1 AND config_key = $2 AND tenant_id = $3
-                ",
-            )
-            .bind(category)
-            .bind(config_key)
-            .bind(tid.to_string())
-            .fetch_optional(&self.pool)
-            .await
-        } else {
-            sqlx::query(
-                r"
-                SELECT config_value
-                FROM admin_config_overrides
-                WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL
-                ",
-            )
-            .bind(category)
-            .bind(config_key)
-            .fetch_optional(&self.pool)
-            .await
-        }
-        .map_err(|e| AppError::database(format!("Failed to get admin config override: {e}")))?;
-
-        Ok(row.map(|r| r.get::<String, _>("config_value")))
-    }
-
     // ================================
     // Tool Selection (PostgreSQL implementation)
     // ================================
+}
 
+#[async_trait]
+impl ToolSelectionRepository for PostgresDatabase {
     async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
         let rows = sqlx::query(
             r"
@@ -6072,10 +5628,7 @@ impl TenantDbOps for PostgresDatabase {
         rows.iter().map(Self::map_pg_tool_catalog_row).collect()
     }
 
-    async fn get_tenant_tool_overrides(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<TenantToolOverride>> {
+    async fn get_overrides(&self, tenant_id: TenantId) -> AppResult<Vec<TenantToolOverride>> {
         let rows = sqlx::query(
             r"
             SELECT id, tenant_id, tool_name, is_enabled, enabled_by_user_id,
@@ -6097,7 +5650,7 @@ impl TenantDbOps for PostgresDatabase {
         Ok(overrides)
     }
 
-    async fn get_tenant_tool_override(
+    async fn get_override(
         &self,
         tenant_id: TenantId,
         tool_name: &str,
@@ -6119,7 +5672,7 @@ impl TenantDbOps for PostgresDatabase {
         Ok(row.as_ref().map(Self::map_pg_tenant_tool_override_row))
     }
 
-    async fn upsert_tenant_tool_override(
+    async fn upsert_override(
         &self,
         tenant_id: TenantId,
         tool_name: &str,
@@ -6154,16 +5707,12 @@ impl TenantDbOps for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to upsert tenant tool override: {e}")))?;
 
         // Fetch the resulting row (either inserted or updated)
-        self.get_tenant_tool_override(tenant_id, tool_name)
+        self.get_override(tenant_id, tool_name)
             .await?
             .ok_or_else(|| AppError::internal("Failed to retrieve upserted tenant tool override"))
     }
 
-    async fn delete_tenant_tool_override(
-        &self,
-        tenant_id: TenantId,
-        tool_name: &str,
-    ) -> AppResult<bool> {
+    async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool> {
         let result = sqlx::query(
             r"
             DELETE FROM tenant_tool_overrides
@@ -6181,13 +5730,13 @@ impl TenantDbOps for PostgresDatabase {
 
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
         // Get tenant's plan to filter by plan restrictions
-        let tenant = self.get_tenant_by_id(tenant_id).await?;
+        let tenant = TenantRepository::get_by_id(self, tenant_id).await?;
         let plan = TenantPlan::parse_str(&tenant.plan)
             .ok_or_else(|| AppError::internal(format!("Invalid tenant plan: {}", tenant.plan)))?;
 
         // Get tools available for this plan
         let catalog = self.get_tools_by_min_plan(plan).await?;
-        let overrides = self.get_tenant_tool_overrides(tenant_id).await?;
+        let overrides = self.get_overrides(tenant_id).await?;
 
         // Build override map
         let override_map: HashMap<String, bool> = overrides
@@ -6211,12 +5760,445 @@ impl TenantDbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl ChatDbOps for PostgresDatabase {
+impl LlmCredentialRepository for PostgresDatabase {
+    async fn store_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO user_llm_credentials (
+                id, tenant_id, user_id, provider, api_key_encrypted,
+                base_url, default_model, is_active, created_at, updated_at, created_by
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ON CONFLICT(tenant_id, user_id, provider) DO UPDATE SET
+                api_key_encrypted = EXCLUDED.api_key_encrypted,
+                base_url = EXCLUDED.base_url,
+                default_model = EXCLUDED.default_model,
+                is_active = EXCLUDED.is_active,
+                updated_at = EXCLUDED.updated_at
+            ",
+        )
+        .bind(record.id)
+        .bind(record.tenant_id)
+        .bind(record.user_id)
+        .bind(&record.provider)
+        .bind(&record.api_key_encrypted)
+        .bind(&record.base_url)
+        .bind(&record.default_model)
+        .bind(record.is_active)
+        .bind(&record.created_at)
+        .bind(&record.updated_at)
+        .bind(record.created_by)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store LLM credentials: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn get_credentials(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<Uuid>,
+        provider: &str,
+    ) -> AppResult<Option<LlmCredentialRecord>> {
+        let row = if let Some(uid) = user_id {
+            sqlx::query(
+                r"
+                SELECT id, tenant_id, user_id, provider, api_key_encrypted,
+                       base_url, default_model, is_active, created_at, updated_at, created_by
+                FROM user_llm_credentials
+                WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND is_active = TRUE
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(uid)
+            .bind(provider)
+            .fetch_optional(&self.pool)
+            .await
+        } else {
+            sqlx::query(
+                r"
+                SELECT id, tenant_id, user_id, provider, api_key_encrypted,
+                       base_url, default_model, is_active, created_at, updated_at, created_by
+                FROM user_llm_credentials
+                WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2 AND is_active = TRUE
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(provider)
+            .fetch_optional(&self.pool)
+            .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to get LLM credentials: {e}")))?;
+
+        Ok(row.map(|r| LlmCredentialRecord {
+            id: r.get::<Uuid, _>("id"),
+            tenant_id: TenantId::from(r.get::<Uuid, _>("tenant_id")),
+            user_id: r.get::<Option<Uuid>, _>("user_id"),
+            provider: r.get::<String, _>("provider"),
+            api_key_encrypted: r.get::<String, _>("api_key_encrypted"),
+            base_url: r.get::<Option<String>, _>("base_url"),
+            default_model: r.get::<Option<String>, _>("default_model"),
+            is_active: r.get::<bool, _>("is_active"),
+            created_at: r.get::<String, _>("created_at"),
+            updated_at: r.get::<String, _>("updated_at"),
+            created_by: r.get::<Uuid, _>("created_by"),
+        }))
+    }
+
+    async fn list_credentials(&self, tenant_id: TenantId) -> AppResult<Vec<LlmCredentialSummary>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, provider, base_url, default_model, is_active, created_at, updated_at
+            FROM user_llm_credentials
+            WHERE tenant_id = $1
+            ORDER BY provider, user_id
+            ",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list LLM credentials: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let user_id: Option<Uuid> = r.get("user_id");
+                LlmCredentialSummary {
+                    id: r.get::<Uuid, _>("id"),
+                    user_id,
+                    provider: r.get::<String, _>("provider"),
+                    scope: if user_id.is_some() {
+                        "user".to_owned()
+                    } else {
+                        "tenant".to_owned()
+                    },
+                    base_url: r.get::<Option<String>, _>("base_url"),
+                    default_model: r.get::<Option<String>, _>("default_model"),
+                    is_active: r.get::<bool, _>("is_active"),
+                    created_at: r.get::<String, _>("created_at"),
+                    updated_at: r.get::<String, _>("updated_at"),
+                }
+            })
+            .collect())
+    }
+
+    async fn delete_credentials(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<Uuid>,
+        provider: &str,
+    ) -> AppResult<bool> {
+        let result = if let Some(uid) = user_id {
+            sqlx::query(
+                r"
+                DELETE FROM user_llm_credentials
+                WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(uid)
+            .bind(provider)
+            .execute(&self.pool)
+            .await
+        } else {
+            sqlx::query(
+                r"
+                DELETE FROM user_llm_credentials
+                WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(provider)
+            .execute(&self.pool)
+            .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to delete LLM credentials: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn get_admin_config_override(
+        &self,
+        config_key: &str,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<String>> {
+        // Extract category from key (e.g., "llm.gemini_api_key" -> "llm_provider")
+        let category = if config_key.starts_with("llm.") {
+            "llm_provider"
+        } else {
+            config_key.split('.').next().unwrap_or("unknown")
+        };
+
+        let row = if let Some(tid) = tenant_id {
+            sqlx::query(
+                r"
+                SELECT config_value
+                FROM admin_config_overrides
+                WHERE category = $1 AND config_key = $2 AND tenant_id = $3
+                ",
+            )
+            .bind(category)
+            .bind(config_key)
+            .bind(tid.to_string())
+            .fetch_optional(&self.pool)
+            .await
+        } else {
+            sqlx::query(
+                r"
+                SELECT config_value
+                FROM admin_config_overrides
+                WHERE category = $1 AND config_key = $2 AND tenant_id IS NULL
+                ",
+            )
+            .bind(category)
+            .bind(config_key)
+            .fetch_optional(&self.pool)
+            .await
+        }
+        .map_err(|e| AppError::database(format!("Failed to get admin config override: {e}")))?;
+
+        Ok(row.map(|r| r.get::<String, _>("config_value")))
+    }
+}
+
+#[async_trait]
+impl FitnessConfigRepository for PostgresDatabase {
+    /// Save tenant-level fitness configuration
+    async fn save_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let config_json = serde_json::to_string(config)?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let result = sqlx::query(
+            r"
+            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($1, NULL, $2, $3, $4, $4)
+            ON CONFLICT (tenant_id, user_id, configuration_name)
+            DO UPDATE SET
+                config_data = EXCLUDED.config_data,
+                updated_at = EXCLUDED.updated_at
+            RETURNING id
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(configuration_name)
+        .bind(&config_json)
+        .bind(&now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
+
+        Ok(result.get("id"))
+    }
+
+    /// Save user-specific fitness configuration
+    async fn save_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let config_json = serde_json::to_string(config)?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let result = sqlx::query(
+            r"
+            INSERT INTO fitness_configurations (tenant_id, user_id, configuration_name, config_data, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $5)
+            ON CONFLICT (tenant_id, user_id, configuration_name)
+            DO UPDATE SET
+                config_data = EXCLUDED.config_data,
+                updated_at = EXCLUDED.updated_at
+            RETURNING id
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(user_id)
+        .bind(configuration_name)
+        .bind(&config_json)
+        .bind(&now)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
+
+        Ok(result.get("id"))
+    }
+
+    /// Get tenant-level fitness configuration
+    async fn get_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        let result = sqlx::query(
+            r"
+            SELECT config_data FROM fitness_configurations
+            WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(configuration_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = result {
+            let config_json: String = row.get("config_data");
+            let config: FitnessConfig = serde_json::from_str(&config_json)?;
+            Ok(Some(config))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get user-specific fitness configuration
+    async fn get_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        // First try to get user-specific configuration
+        let result = sqlx::query(
+            r"
+            SELECT config_data FROM fitness_configurations
+            WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(user_id)
+        .bind(configuration_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = result {
+            let config_json: String = row.get("config_data");
+            let config: FitnessConfig = serde_json::from_str(&config_json)?;
+            return Ok(Some(config));
+        }
+
+        // Fall back to tenant default configuration
+        let result = sqlx::query(
+            r"
+            SELECT config_data FROM fitness_configurations
+            WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(configuration_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch optional record: {e}")))?;
+
+        if let Some(row) = result {
+            let config_json: String = row.get("config_data");
+            let config: FitnessConfig = serde_json::from_str(&config_json)?;
+            Ok(Some(config))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all tenant-level fitness configuration names
+    async fn list_tenant_configurations(&self, tenant_id: TenantId) -> AppResult<Vec<String>> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT configuration_name FROM fitness_configurations
+            WHERE tenant_id = $1
+            ORDER BY configuration_name
+            ",
+        )
+        .bind(tenant_id.0)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let configurations = rows
+            .into_iter()
+            .map(|row| row.get::<String, _>("configuration_name"))
+            .collect();
+
+        Ok(configurations)
+    }
+
+    /// List all user-specific fitness configuration names
+    async fn list_user_configurations(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Vec<String>> {
+        let rows = sqlx::query(
+            r"
+            SELECT DISTINCT configuration_name FROM fitness_configurations
+            WHERE tenant_id = $1 AND user_id = $2
+            ORDER BY configuration_name
+            ",
+        )
+        .bind(tenant_id.0)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
+
+        let configurations = rows
+            .into_iter()
+            .map(|row| row.get::<String, _>("configuration_name"))
+            .collect();
+
+        Ok(configurations)
+    }
+
+    /// Delete fitness configuration (tenant or user-specific)
+    async fn delete_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<&str>,
+        configuration_name: &str,
+    ) -> AppResult<bool> {
+        let rows_affected = if let Some(uid) = user_id {
+            sqlx::query(
+                r"
+                DELETE FROM fitness_configurations
+                WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(uid)
+            .bind(configuration_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?
+        } else {
+            sqlx::query(
+                r"
+                DELETE FROM fitness_configurations
+                WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
+                ",
+            )
+            .bind(tenant_id.0)
+            .bind(configuration_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?
+        };
+
+        Ok(rows_affected.rows_affected() > 0)
+    }
+}
+
+#[async_trait]
+impl ChatRepository for PostgresDatabase {
     // ================================
     // Chat Conversations & Messages (PostgreSQL implementation)
     // ================================
 
-    async fn chat_create_conversation(
+    async fn create_conversation(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -6257,7 +6239,7 @@ impl ChatDbOps for PostgresDatabase {
         })
     }
 
-    async fn chat_get_conversation(
+    async fn get_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -6296,7 +6278,7 @@ impl ChatDbOps for PostgresDatabase {
         }))
     }
 
-    async fn chat_list_conversations(
+    async fn list_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -6344,7 +6326,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(summaries)
     }
 
-    async fn chat_update_conversation_title(
+    async fn update_conversation_title(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -6372,7 +6354,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn chat_delete_conversation(
+    async fn delete_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -6394,7 +6376,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
+    async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now();
         let user_uuid = parse_uuid(params.user_id)?;
@@ -6478,7 +6460,7 @@ impl ChatDbOps for PostgresDatabase {
         })
     }
 
-    async fn chat_get_messages(
+    async fn get_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -6520,7 +6502,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(messages)
     }
 
-    async fn chat_get_recent_messages(
+    async fn get_recent_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -6567,7 +6549,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(messages)
     }
 
-    async fn chat_get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
+    async fn get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r"
             SELECT COUNT(*)
@@ -6585,7 +6567,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(count)
     }
 
-    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+    async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r"
             SELECT COUNT(*)
@@ -6602,7 +6584,7 @@ impl ChatDbOps for PostgresDatabase {
         Ok(count)
     }
 
-    async fn chat_delete_all_user_conversations(
+    async fn delete_all_user_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -6625,7 +6607,7 @@ impl ChatDbOps for PostgresDatabase {
 }
 
 #[async_trait]
-impl SecurityDbOps for PostgresDatabase {
+impl SecurityRepository for PostgresDatabase {
     // ================================
     // RSA Key Persistence for JWT Signing
     // ================================
@@ -7202,7 +7184,22 @@ impl SecurityDbOps for PostgresDatabase {
     // OAuth Notifications
     // ================================
 
-    async fn store_oauth_notification(
+    // ================================
+    // Encryption Interface (delegates to HasEncryption trait)
+    // ================================
+
+    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
+        shared::encryption::HasEncryption::encrypt_data_with_aad(self, data, aad)
+    }
+
+    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
+        shared::encryption::HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
+    }
+}
+
+#[async_trait]
+impl NotificationRepository for PostgresDatabase {
+    async fn store(
         &self,
         user_id: Uuid,
         provider: &str,
@@ -7233,10 +7230,7 @@ impl SecurityDbOps for PostgresDatabase {
         Ok(notification_id)
     }
 
-    async fn get_unread_oauth_notifications(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<OAuthNotification>> {
+    async fn get_unread(&self, user_id: Uuid) -> AppResult<Vec<OAuthNotification>> {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, provider, success, message, expires_at, created_at, read_at
@@ -7267,11 +7261,7 @@ impl SecurityDbOps for PostgresDatabase {
         Ok(notifications)
     }
 
-    async fn mark_oauth_notification_read(
-        &self,
-        notification_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<bool> {
+    async fn mark_read(&self, notification_id: &str, user_id: Uuid) -> AppResult<bool> {
         let result = sqlx::query(
             r"
             UPDATE oauth_notifications 
@@ -7288,7 +7278,7 @@ impl SecurityDbOps for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
+    async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64> {
         let result = sqlx::query(
             r"
             UPDATE oauth_notifications 
@@ -7304,7 +7294,7 @@ impl SecurityDbOps for PostgresDatabase {
         Ok(result.rows_affected())
     }
 
-    async fn get_all_oauth_notifications(
+    async fn get_all(
         &self,
         user_id: Uuid,
         limit: Option<i64>,
@@ -7345,23 +7335,11 @@ impl SecurityDbOps for PostgresDatabase {
 
         Ok(notifications)
     }
-
-    // ================================
-    // Encryption Interface (delegates to HasEncryption trait)
-    // ================================
-
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-        shared::encryption::HasEncryption::encrypt_data_with_aad(self, data, aad)
-    }
-
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-        shared::encryption::HasEncryption::decrypt_data_with_aad(self, encrypted, aad)
-    }
 }
 
 #[async_trait]
-impl SocialDbOps for PostgresDatabase {
-    async fn store_insight(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
+impl InsightRepository for PostgresDatabase {
+    async fn store(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
         let insight_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
         let insight_json = serde_json::to_string(&insight_data)
@@ -7385,7 +7363,7 @@ impl SocialDbOps for PostgresDatabase {
         Ok(insight_id)
     }
 
-    async fn get_user_insights(
+    async fn get_for_user(
         &self,
         user_id: Uuid,
         insight_type: Option<&str>,

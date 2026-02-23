@@ -10,8 +10,8 @@ use crate::constants::rate_limits::{
     STRAVA_DEFAULT_DAILY_RATE_LIMIT, TERRA_DEFAULT_DAILY_RATE_LIMIT,
     WHOOP_DEFAULT_DAILY_RATE_LIMIT,
 };
-use crate::database_plugins::TenantDbOps;
-use crate::database_plugins::{factory::Database, OAuthTokenOps};
+use crate::database_plugins::TenantRepository;
+use crate::database_plugins::{factory::Database, OAuthTokenRepository};
 use crate::errors::{AppError, AppResult};
 use chrono::Utc;
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
@@ -537,9 +537,7 @@ impl TenantOAuthManager {
         }
 
         // Then check database
-        if let Ok(Some(db_credentials)) = database
-            .get_tenant_oauth_credentials(tenant_id, provider)
-            .await
+        if let Ok(Some(db_credentials)) = database.get_oauth_credentials(tenant_id, provider).await
         {
             info!(
                 "Using database-stored tenant-specific {} OAuth credentials for tenant {}",

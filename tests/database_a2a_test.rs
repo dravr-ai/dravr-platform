@@ -16,6 +16,7 @@ use pierre_mcp_server::{
     },
     api_keys::{ApiKey, ApiKeyTier},
     database::{a2a::A2AUsage, Database},
+    database_plugins::{A2ARepository, ApiKeyRepository, UserRepository},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
 };
@@ -45,7 +46,7 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    db.create_user(&user)
+    UserRepository::create(db, &user)
         .await
         .expect("Failed to create test user");
 
@@ -65,7 +66,7 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         last_used_at: None,
         expires_at: None,
     };
-    db.create_api_key(&api_key)
+    ApiKeyRepository::create(db, &api_key)
         .await
         .expect("Failed to create test API key");
 
@@ -85,7 +86,7 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         updated_at: Utc::now(),
     };
 
-    db.create_a2a_client(&client, "test_secret", &api_key.id)
+    db.create_client(&client, "test_secret", &api_key.id)
         .await
         .expect("Failed to create A2A client");
     (client, test_user_id)
@@ -101,7 +102,7 @@ async fn test_a2a_client_management() {
 
     // Get client
     let retrieved = db
-        .get_a2a_client(&client.id)
+        .get_client(&client.id)
         .await
         .expect("Failed to get A2A client")
         .expect("Client not found");
@@ -112,7 +113,7 @@ async fn test_a2a_client_management() {
 
     // List clients - check that our client is in the list
     let clients = db
-        .list_a2a_clients(&user_id)
+        .list_clients(&user_id)
         .await
         .expect("Failed to list A2A clients");
 
@@ -146,7 +147,7 @@ async fn test_a2a_session_management() {
     };
 
     let session_token = db
-        .create_a2a_session(
+        .create_session(
             &session.client_id,
             session.user_id.as_ref(),
             &session.granted_scopes,
@@ -157,7 +158,7 @@ async fn test_a2a_session_management() {
 
     // Get session
     let retrieved = db
-        .get_a2a_session(&session_token)
+        .get_session(&session_token)
         .await
         .expect("Failed to get A2A session")
         .expect("Session not found");
@@ -167,13 +168,13 @@ async fn test_a2a_session_management() {
     assert_eq!(retrieved.granted_scopes, session.granted_scopes);
 
     // Update session activity
-    db.update_a2a_session_activity(&session_token)
+    db.update_session_activity(&session_token)
         .await
         .expect("Failed to update session activity");
 
     // Test getting active sessions for client
     let active_sessions = db
-        .get_active_a2a_sessions(&client.id)
+        .get_active_sessions(&client.id)
         .await
         .expect("Failed to get active sessions");
 
@@ -207,13 +208,13 @@ async fn test_a2a_task_management() {
     };
 
     let task_id = db
-        .create_a2a_task(&task.client_id, None, &task.task_type, &task.input_data)
+        .create_task(&task.client_id, None, &task.task_type, &task.input_data)
         .await
         .expect("Failed to create A2A task");
 
     // Get task
     let retrieved = db
-        .get_a2a_task(&task_id)
+        .get_task(&task_id)
         .await
         .expect("Failed to get A2A task")
         .expect("Task not found");
@@ -223,13 +224,13 @@ async fn test_a2a_task_management() {
 
     // Update task status
     let output_data = serde_json::json!({"result": "success"});
-    db.update_a2a_task_status(&task_id, &TaskStatus::Completed, Some(&output_data), None)
+    db.update_task_status(&task_id, &TaskStatus::Completed, Some(&output_data), None)
         .await
         .expect("Failed to update task status");
 
     // Verify update
     let updated = db
-        .get_a2a_task(&task_id)
+        .get_task(&task_id)
         .await
         .expect("Failed to get updated task")
         .expect("Task not found");
@@ -266,20 +267,20 @@ async fn test_a2a_usage_tracking() {
         granted_scopes: vec!["read".into()],
     };
 
-    db.record_a2a_usage(&usage)
+    db.record_usage(&usage)
         .await
         .expect("Failed to record A2A usage");
 
     // Check current usage
     let current_usage = db
-        .get_a2a_client_current_usage(&client.id)
+        .get_client_current_usage(&client.id)
         .await
         .expect("Failed to get current usage");
     assert_eq!(current_usage, 1);
 
     // Get usage stats
     let stats = db
-        .get_a2a_usage_stats(
+        .get_usage_stats(
             &client.id,
             Utc::now() - chrono::Duration::hours(1),
             Utc::now() + chrono::Duration::hours(1),

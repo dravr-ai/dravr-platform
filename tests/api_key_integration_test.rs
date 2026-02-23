@@ -21,7 +21,7 @@ use pierre_mcp_server::{
     auth::{AuthManager, AuthMethod},
     config::environment::RateLimitConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps, UserDbOps},
+    database_plugins::{factory::Database, ApiKeyRepository, UsageRepository, UserRepository},
     middleware::McpAuthMiddleware,
     models::User,
 };
@@ -66,7 +66,7 @@ async fn create_test_environment() -> (
         "hashed_password".to_owned(),
         Some("Integration Test User".to_owned()),
     );
-    database.create_user(&user).await.unwrap();
+    UserRepository::create(&*database, &user).await.unwrap();
 
     // Generate JWT token for the user
     let jwks_manager = common::get_shared_test_jwks();
@@ -91,7 +91,9 @@ async fn test_end_to_end_api_key_workflow() {
     };
 
     let (api_key, full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Step 2: Authenticate using the API key
     let auth_result = auth_middleware
@@ -124,13 +126,10 @@ async fn test_end_to_end_api_key_workflow() {
         user_agent: Some("test-client".to_owned()),
     };
 
-    database.record_api_key_usage(&usage).await.unwrap();
+    database.record_api_key(&usage).await.unwrap();
 
     // Step 5: Verify usage is tracked
-    let current_usage = database
-        .get_api_key_current_usage(&api_key.id)
-        .await
-        .unwrap();
+    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
     assert_eq!(current_usage, 1);
 
     // Step 6: Check updated rate limit
@@ -142,7 +141,7 @@ async fn test_end_to_end_api_key_workflow() {
     let start_date = Utc::now() - Duration::days(1);
     let end_date = Utc::now() + Duration::days(1);
     let stats = database
-        .get_api_key_usage_stats(&api_key.id, start_date, end_date)
+        .get_api_key_stats(&api_key.id, start_date, end_date)
         .await
         .unwrap();
 
@@ -171,7 +170,9 @@ async fn test_api_key_rate_limiting() {
 
     // Override rate limit for testing (simulate a very low limit)
     api_key.rate_limit_requests = 2;
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // First request should succeed
     let auth_result1 = auth_middleware
@@ -195,14 +196,11 @@ async fn test_api_key_rate_limiting() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key_usage(&usage).await.unwrap();
+        database.record_api_key(&usage).await.unwrap();
     }
 
     // Now the key should be rate limited
-    let current_usage = database
-        .get_api_key_current_usage(&api_key.id)
-        .await
-        .unwrap();
+    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
     assert_eq!(current_usage, 2);
 
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
@@ -232,7 +230,9 @@ async fn test_enterprise_tier_unlimited_usage() {
     };
 
     let (api_key, full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Record high usage
     for i in 0..1000 {
@@ -249,14 +249,11 @@ async fn test_enterprise_tier_unlimited_usage() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key_usage(&usage).await.unwrap();
+        database.record_api_key(&usage).await.unwrap();
     }
 
     // Verify high usage is recorded
-    let current_usage = database
-        .get_api_key_current_usage(&api_key.id)
-        .await
-        .unwrap();
+    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
     assert_eq!(current_usage, 1000);
 
     // Enterprise tier should never be rate limited
@@ -292,7 +289,9 @@ async fn test_api_key_expiration() {
 
     // Manually set expiration to past date
     api_key.expires_at = Some(Utc::now() - Duration::days(1));
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Authentication should fail due to expiration
     let auth_result = auth_middleware.authenticate_request(Some(&full_key)).await;
@@ -316,7 +315,9 @@ async fn test_deactivated_api_key() {
     };
 
     let (api_key, full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Verify it works initially
     let auth_result = auth_middleware
@@ -326,10 +327,7 @@ async fn test_deactivated_api_key() {
     assert_eq!(auth_result.user_id, user.id);
 
     // Deactivate the key
-    database
-        .deactivate_api_key(&api_key.id, user.id)
-        .await
-        .unwrap();
+    database.deactivate(&api_key.id, user.id).await.unwrap();
 
     // Authentication should now fail
     let auth_result = auth_middleware.authenticate_request(Some(&full_key)).await;
@@ -382,7 +380,9 @@ async fn test_concurrent_api_key_usage() {
     };
 
     let (api_key, full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Simulate concurrent requests
     let mut handles = vec![];
@@ -413,7 +413,7 @@ async fn test_concurrent_api_key_usage() {
                 ip_address: None,
                 user_agent: None,
             };
-            database_clone.record_api_key_usage(&usage).await.unwrap();
+            database_clone.record_api_key(&usage).await.unwrap();
 
             auth_result.user_id
         });
@@ -434,10 +434,7 @@ async fn test_concurrent_api_key_usage() {
     }
 
     // Verify all usage was recorded
-    let final_usage = database
-        .get_api_key_current_usage(&api_key.id)
-        .await
-        .unwrap();
+    let final_usage = database.get_api_key_current(&api_key.id).await.unwrap();
     assert_eq!(final_usage, 10);
 }
 
@@ -457,7 +454,9 @@ async fn test_usage_analytics() {
     };
 
     let (api_key, _full_key) = api_key_manager.create_api_key(user.id, request).unwrap();
-    database.create_api_key(&api_key).await.unwrap();
+    ApiKeyRepository::create(&*database, &api_key)
+        .await
+        .unwrap();
 
     // Record diverse usage patterns
     let tools = ["get_activities", "get_athlete", "analyze_activity"];
@@ -481,14 +480,14 @@ async fn test_usage_analytics() {
             ip_address: Some("127.0.0.1".to_owned()),
             user_agent: Some("test-client".to_owned()),
         };
-        database.record_api_key_usage(&usage).await.unwrap();
+        database.record_api_key(&usage).await.unwrap();
     }
 
     // Get usage statistics
     let start_date = Utc::now() - Duration::days(1);
     let end_date = Utc::now() + Duration::hours(1);
     let stats = database
-        .get_api_key_usage_stats(&api_key.id, start_date, end_date)
+        .get_api_key_stats(&api_key.id, start_date, end_date)
         .await
         .unwrap();
 

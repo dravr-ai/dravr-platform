@@ -16,7 +16,7 @@ use chrono::Utc;
 use pierre_mcp_server::{
     admin::jwks::JwksManager,
     auth::AuthManager,
-    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, TenantRepository, UserRepository},
     mcp::{
         multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},
         resources::ServerResources,
@@ -45,7 +45,7 @@ async fn create_authenticated_user(
         Some("Configuration Test User".to_owned()),
     );
     user.id = user_id;
-    database.create_user(&user).await?;
+    UserRepository::create(database, &user).await?;
 
     // Then create the tenant with the user as owner
     let tenant = Tenant {
@@ -58,10 +58,10 @@ async fn create_authenticated_user(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(database, &tenant).await?;
 
     // Finally, update the user to associate with the tenant via the database
-    database.update_user_tenant_id(user_id, tenant_uuid).await?;
+    database.update_tenant_id(user_id, tenant_uuid).await?;
 
     let token = auth_manager.generate_token(&user, jwks_manager)?;
     Ok((user_id, token))
@@ -84,7 +84,7 @@ async fn create_authenticated_user_with_different_tenant(
         Some("Configuration Test User (Different Tenant)".to_owned()),
     );
     user.id = user_id;
-    database.create_user(&user).await?;
+    UserRepository::create(database, &user).await?;
 
     // Then create the tenant with the user as owner
     let tenant = Tenant {
@@ -97,10 +97,10 @@ async fn create_authenticated_user_with_different_tenant(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(database, &tenant).await?;
 
     // Finally, update the user to associate with the tenant via the database
-    database.update_user_tenant_id(user_id, tenant_uuid).await?;
+    database.update_tenant_id(user_id, tenant_uuid).await?;
 
     let token = auth_manager.generate_token(&user, jwks_manager)?;
     Ok((user_id, token))

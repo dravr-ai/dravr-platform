@@ -25,7 +25,7 @@ use pierre_mcp_server::{
     },
     constants::tools::PUBLIC_DISCOVERY_TOOLS,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, SecurityDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, SecurityRepository, TenantRepository, UserRepository},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},
@@ -236,7 +236,7 @@ impl MultiTenantMcpClient {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        database.create_user(&test_user).await?;
+        UserRepository::create(database, &test_user).await?;
 
         // Create a test tenant for OAuth credentials with test user as owner
         let test_tenant = Tenant {
@@ -249,7 +249,7 @@ impl MultiTenantMcpClient {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        database.create_tenant(&test_tenant).await?;
+        TenantRepository::create(database, &test_tenant).await?;
 
         let strava_credentials = TenantOAuthCredentials {
             tenant_id: tenant_uuid,
@@ -261,7 +261,7 @@ impl MultiTenantMcpClient {
             rate_limit_per_day: 1000,
         };
         database
-            .store_tenant_oauth_credentials(&strava_credentials)
+            .store_oauth_credentials(&strava_credentials)
             .await?;
 
         let fitbit_credentials = TenantOAuthCredentials {
@@ -274,7 +274,7 @@ impl MultiTenantMcpClient {
             rate_limit_per_day: 1000,
         };
         database
-            .store_tenant_oauth_credentials(&fitbit_credentials)
+            .store_oauth_credentials(&fitbit_credentials)
             .await?;
 
         // User and tenant are already created above

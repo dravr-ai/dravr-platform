@@ -19,7 +19,7 @@ use pierre_mcp_server::{
         OAuthConfig, PostgresPoolConfig, ProtocolConfig, RouteTimeoutConfig, SecurityConfig,
         SecurityHeadersConfig, ServerConfig, SseConfig, TlsConfig,
     },
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},
@@ -201,7 +201,7 @@ impl TestServer {
             auth_provider: String::new(),
         };
 
-        self.database.create_user(&user).await?;
+        UserRepository::create(&*self.database, &user).await?;
 
         // Generate JWT token
         let jwt_token = self

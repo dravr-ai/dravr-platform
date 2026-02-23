@@ -107,7 +107,7 @@ use crate::errors::{AppError, AppResult};
 /// let result = retry_transaction(
 ///     || async {
 ///         // Database operation that might deadlock
-///         db.create_user(&user).await
+///         db.create(&user).await
 ///     },
 ///     3 // max retries
 /// ).await?;

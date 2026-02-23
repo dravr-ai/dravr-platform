@@ -114,10 +114,7 @@ pub async fn get_conversation_history(
     conversation_id: &str,
     user_id: &str,
 ) -> AppResult<Vec<MessageRecord>> {
-    database
-        .get_messages(conversation_id, user_id)
-        .await
-        .map_err(AppError::from)
+    database.get_messages(conversation_id, user_id).await
 }
 
 /// Persist the assistant's response message.

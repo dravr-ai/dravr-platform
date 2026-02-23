@@ -38,7 +38,7 @@ use pierre_mcp_server::{
     },
     constants,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, ApiKeyDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, ApiKeyRepository, TenantRepository, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     middleware::McpAuthMiddleware,
     models::{Tenant, TenantId, User, UserStatus, UserTier},
@@ -219,7 +219,7 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(database, &user).await?;
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
@@ -234,10 +234,10 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(database, &tenant).await?;
 
     // Also update legacy tenant_id column for backward compatibility
-    database.update_user_tenant_id(user_id, tenant_id).await?;
+    database.update_tenant_id(user_id, tenant_id).await?;
 
     Ok((user_id, user))
 }
@@ -259,7 +259,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(database, &user).await?;
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
@@ -274,10 +274,10 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(database, &tenant).await?;
 
     // Also update legacy tenant_id column for backward compatibility
-    database.update_user_tenant_id(user_id, tenant_id).await?;
+    database.update_tenant_id(user_id, tenant_id).await?;
 
     Ok((user_id, user))
 }
@@ -288,11 +288,7 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
 pub async fn generate_test_token(resources: &Arc<ServerResources>, user: &User) -> String {
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user.id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
     resources
         .auth_manager
@@ -331,7 +327,7 @@ pub async fn create_and_store_test_api_key(
 
     let manager = ApiKeyManager::new();
     let (api_key, _) = manager.create_api_key(user_id, request)?;
-    database.create_api_key(&api_key).await?;
+    ApiKeyRepository::create(database, &api_key).await?;
     Ok(api_key)
 }
 
@@ -373,7 +369,7 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
     user.tier = tier;
     let user_id = user.id;
 
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
     Ok((database, user_id))
 }
 
@@ -875,7 +871,7 @@ pub async fn create_test_tenant(
     // Route handlers require active_tenant_id in JWT claims.
     let tenants = resources
         .database
-        .list_tenants_for_user(user.id)
+        .list_for_user(user.id)
         .await
         .map_err(|e| anyhow::Error::msg(format!("Failed to get user tenants: {e}")))?;
     let tenant_id = tenants.first().map(|t| t.id.to_string());

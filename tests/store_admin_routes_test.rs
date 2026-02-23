@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
     },
     database::{Coach, StoreListingsManager},
-    database_plugins::{factory::Database, TenantDbOps},
+    database_plugins::{factory::Database, TenantRepository},
     mcp::ToolSelectionService,
     models::TenantId,
     routes::admin::{AdminApiContext, AdminRoutes},
@@ -73,7 +73,7 @@ impl StoreAdminTestSetup {
 
         // Create test user
         let (user_id, _user) = common::create_test_user(&database).await?;
-        let tenants = database.list_tenants_for_user(user_id).await?;
+        let tenants = database.list_for_user(user_id).await?;
         let tenant_id = tenants
             .first()
             .map_or_else(|| TenantId::from(user_id), |t| t.id);

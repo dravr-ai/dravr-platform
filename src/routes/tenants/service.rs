@@ -6,7 +6,7 @@
 
 use crate::{
     auth::AuthResult,
-    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, TenantRepository, UserRepository},
     errors::{AppError, AppResult},
     models::{Tenant, TenantId},
 };
@@ -93,7 +93,7 @@ pub async fn create_tenant(
 
     // SECURITY: Global lookup — creating a new tenant, no tenant context yet
     database
-        .get_user_global(auth_result.user_id)
+        .get_global(auth_result.user_id)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
 
@@ -102,7 +102,7 @@ pub async fn create_tenant(
     let slug = tenant_request.slug.trim().to_lowercase();
 
     // Check if slug already exists
-    if let Ok(_existing) = database.get_tenant_by_slug(&slug).await {
+    if let Ok(_existing) = database.get_by_slug(&slug).await {
         return Err(AppError::invalid_input(format!(
             "Tenant slug '{slug}' already exists"
         )));
@@ -120,8 +120,7 @@ pub async fn create_tenant(
         updated_at: chrono::Utc::now(),
     };
 
-    database
-        .create_tenant(&tenant_data)
+    TenantRepository::create(&*database, &tenant_data)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
 
@@ -154,7 +153,7 @@ pub async fn list_tenants(
     info!("Listing tenants for user: {}", auth_result.user_id);
 
     let tenants = database
-        .list_tenants_for_user(auth_result.user_id)
+        .list_for_user(auth_result.user_id)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
 
@@ -163,7 +162,7 @@ pub async fn list_tenants(
     for tenant in tenants {
         // Get OAuth providers for this tenant
         let oauth_providers = database
-            .get_tenant_oauth_providers(tenant.id)
+            .get_oauth_providers(tenant.id)
             .await
             .unwrap_or_else(|e| {
                 warn!(

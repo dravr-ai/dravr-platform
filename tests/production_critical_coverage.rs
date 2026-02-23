@@ -15,7 +15,7 @@
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
-    database_plugins::UserDbOps,
+    database_plugins::UserRepository,
     mcp::multitenant::MultiTenantMcpServer,
     models::{EncryptedToken, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -56,7 +56,7 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    server.database().create_user(&user).await?;
+    UserRepository::create(server.database(), &user).await?;
 
     // Generate real JWT token
     let jwks_manager = common::get_shared_test_jwks();
@@ -151,7 +151,7 @@ async fn test_admin_auth_flow() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    database.create_user(&admin_user).await?;
+    UserRepository::create(&*database, &admin_user).await?;
 
     // Test token generation for admin
     let jwks_manager = common::get_shared_test_jwks();
@@ -198,7 +198,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        server.database().create_user(&user).await?;
+        UserRepository::create(server.database(), &user).await?;
         users.push(user);
     }
 
@@ -245,7 +245,7 @@ async fn test_production_database_scenarios() -> Result<()> {
     };
 
     // Create first user
-    database.create_user(&user1).await?;
+    UserRepository::create(&*database, &user1).await?;
 
     // Try to create duplicate email (should fail)
     let user2 = User {
@@ -268,7 +268,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    let result = database.create_user(&user2).await;
+    let result = UserRepository::create(&*database, &user2).await;
     assert!(result.is_err()); // Should fail due to unique constraint
 
     Ok(())
@@ -301,7 +301,7 @@ async fn test_production_rate_limiting() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
     let jwks_manager = common::get_shared_test_jwks();
     let _token = auth_manager.generate_token(&user, &jwks_manager)?;
 

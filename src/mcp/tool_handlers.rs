@@ -20,7 +20,7 @@ use crate::constants::{
 };
 use crate::database::repositories::TenantRepository;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::{SecurityDbOps, UsageDbOps, UserDbOps};
+use crate::database_plugins::{LlmUsageRepository, NotificationRepository, UserRepository};
 use crate::errors::{AppError, ErrorCode};
 use crate::models::{OAuthNotification, TenantId};
 use crate::services::usage_counter::UsageCounterService;
@@ -1050,10 +1050,7 @@ impl ToolHandlers {
         user_id: Uuid,
     ) {
         for notification in notifications {
-            if let Err(e) = database
-                .mark_oauth_notification_read(&notification.id, user_id)
-                .await
-            {
+            if let Err(e) = database.mark_read(&notification.id, user_id).await {
                 warn!(
                     "Failed to mark notification {} as read after delivery: {}",
                     notification.id, e
@@ -1096,7 +1093,7 @@ impl ToolHandlers {
         user_id: Uuid,
         tool_name: &str,
     ) -> Option<Vec<OAuthNotification>> {
-        match database.get_unread_oauth_notifications(user_id).await {
+        match database.get_unread(user_id).await {
             Ok(notifications) if !notifications.is_empty() => {
                 debug!(
                     "Found {} unread OAuth notifications for user {} during {} tool call",

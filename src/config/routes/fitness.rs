@@ -6,7 +6,7 @@
 
 use crate::auth::AuthResult;
 use crate::config::fitness::FitnessConfig;
-use crate::database_plugins::{TenantDbOps, UserDbOps};
+use crate::database_plugins::{FitnessConfigRepository, TenantRepository, UserRepository};
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::middleware::require_admin;
@@ -120,7 +120,7 @@ impl FitnessConfigurationRoutes {
         // SECURITY: Global lookup — fitness config, resolving user's tenant
         self.resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user {user_id}: {e}")))?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
@@ -129,7 +129,7 @@ impl FitnessConfigurationRoutes {
         let tenants = self
             .resources
             .database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenants for user: {e}")))?;
 
@@ -173,7 +173,7 @@ impl FitnessConfigurationRoutes {
         let mut configurations = self
             .resources
             .database
-            .list_user_fitness_configurations(tenant_id, &user_id_str)
+            .list_user_configurations(tenant_id, &user_id_str)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to list user fitness configurations: {e}"))
@@ -182,7 +182,7 @@ impl FitnessConfigurationRoutes {
         let tenant_configs = self
             .resources
             .database
-            .list_tenant_fitness_configurations(tenant_id)
+            .list_tenant_configurations(tenant_id)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to list tenant fitness configurations: {e}"))
@@ -223,7 +223,7 @@ impl FitnessConfigurationRoutes {
         let config = match self
             .resources
             .database
-            .get_user_fitness_config(tenant_id, &user_id_str, configuration_name)
+            .get_user_config(tenant_id, &user_id_str, configuration_name)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user fitness config: {e}")))?
         {
@@ -232,7 +232,7 @@ impl FitnessConfigurationRoutes {
                 // If user-specific config not found, try tenant-level
                 self.resources
                     .database
-                    .get_tenant_fitness_config(tenant_id, configuration_name)
+                    .get_tenant_config(tenant_id, configuration_name)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to get tenant fitness config: {e}"))
@@ -280,7 +280,7 @@ impl FitnessConfigurationRoutes {
         let config_id = self
             .resources
             .database
-            .save_user_fitness_config(
+            .save_user_config(
                 tenant_id,
                 &user_id_str,
                 &configuration_name,
@@ -324,7 +324,7 @@ impl FitnessConfigurationRoutes {
         let config_id = self
             .resources
             .database
-            .save_tenant_fitness_config(tenant_id, &configuration_name, &request.configuration)
+            .save_tenant_config(tenant_id, &configuration_name, &request.configuration)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to save tenant fitness config: {e}"))
@@ -358,7 +358,7 @@ impl FitnessConfigurationRoutes {
         let deleted = self
             .resources
             .database
-            .delete_fitness_config(tenant_id, Some(&user_id_str), configuration_name)
+            .delete_config(tenant_id, Some(&user_id_str), configuration_name)
             .await
             .map_err(|e| AppError::database(format!("Failed to delete fitness config: {e}")))?;
 
@@ -398,7 +398,7 @@ impl FitnessConfigurationRoutes {
         let deleted = self
             .resources
             .database
-            .delete_fitness_config(tenant_id, None, configuration_name)
+            .delete_config(tenant_id, None, configuration_name)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to delete tenant fitness config: {e}"))

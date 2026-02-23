@@ -163,7 +163,7 @@ use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
     config::environment::ServerConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, A2ADbOps, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, A2ARepository, TenantRepository, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User},
     routes::a2a::service::{A2AClientRequest, A2ARoutes},
@@ -219,8 +219,7 @@ impl A2ATestSetup {
             "hashed_password".to_owned(),
             Some("Test User".to_owned()),
         );
-        let user_id = database
-            .create_user(&user)
+        let user_id = UserRepository::create(&*database, &user)
             .await
             .expect("Failed to create test user");
 
@@ -236,8 +235,7 @@ impl A2ATestSetup {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        database
-            .create_tenant(&tenant)
+        TenantRepository::create(&*database, &tenant)
             .await
             .expect("Failed to create test tenant");
 
@@ -323,7 +321,7 @@ impl A2ATestSetup {
     #[allow(dead_code)]
     async fn create_session_token(&self, client_id: &str, scopes: &[String]) -> String {
         self.database
-            .create_a2a_session(client_id, None, scopes, 24)
+            .create_session(client_id, None, scopes, 24)
             .await
             .expect("Failed to create A2A session")
     }

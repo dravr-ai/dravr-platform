@@ -6,7 +6,7 @@
 
 use crate::{
     constants::oauth_providers::{FITBIT, STRAVA},
-    database_plugins::{factory::Database, OAuthTokenOps, TenantDbOps},
+    database_plugins::{factory::Database, OAuthTokenRepository, TenantRepository},
     errors::AppError,
     models::TenantId,
     providers::CoreFitnessProvider,
@@ -144,7 +144,7 @@ impl ProviderManager {
         // Get user's default tenant from tenant_users junction table
         let tenants = self
             .database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
         let tenant_id: TenantId = tenants
@@ -155,14 +155,14 @@ impl ProviderManager {
         let token = match provider_type {
             ProviderType::Strava => self
                 .database
-                .get_user_oauth_token(user_id, tenant_id, STRAVA)
+                .get_token(user_id, tenant_id, STRAVA)
                 .await
                 .map_err(|e| {
                     AppError::database(format!("Failed to get Strava OAuth token: {e}"))
                 })?,
             ProviderType::Fitbit => self
                 .database
-                .get_user_oauth_token(user_id, tenant_id, FITBIT)
+                .get_token(user_id, tenant_id, FITBIT)
                 .await
                 .map_err(|e| {
                     AppError::database(format!("Failed to get Fitbit OAuth token: {e}"))
@@ -224,7 +224,7 @@ impl ProviderManager {
         // Get user's default tenant from tenant_users junction table
         let tenants = self
             .database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
         let tenant_id: TenantId = tenants
@@ -236,7 +236,7 @@ impl ProviderManager {
         match provider_type {
             ProviderType::Strava => {
                 self.database
-                    .delete_user_oauth_token(user_id, tenant_id, STRAVA)
+                    .delete_token(user_id, tenant_id, STRAVA)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to delete Strava OAuth token: {e}"))
@@ -244,7 +244,7 @@ impl ProviderManager {
             }
             ProviderType::Fitbit => {
                 self.database
-                    .delete_user_oauth_token(user_id, tenant_id, FITBIT)
+                    .delete_token(user_id, tenant_id, FITBIT)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to delete Fitbit OAuth token: {e}"))
@@ -328,7 +328,7 @@ impl ProviderManager {
     ) -> Result<(), AppError> {
         let tenants = self
             .database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
         let tenant_id: TenantId = tenants

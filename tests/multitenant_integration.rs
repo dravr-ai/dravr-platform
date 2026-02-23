@@ -161,7 +161,7 @@ use pierre_mcp_server::{
     constants::oauth_providers,
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, OAuthTokenOps, UserDbOps},
+    database_plugins::{factory::Database, OAuthTokenRepository, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{TenantId, User, UserOAuthToken, UserStatus, UserTier},
     permissions::UserRole,
@@ -395,7 +395,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     let user_id = Uuid::parse_str(&register_response.user_id)?;
 
     // Verify user exists in database
-    let user = database.get_user_global(user_id).await?.unwrap();
+    let user = database.get_global(user_id).await?.unwrap();
     assert_eq!(user.email, "test@multitenant.com");
     assert_eq!(user.display_name, Some("Multi-Tenant User".to_owned()));
     assert!(user.is_active);
@@ -422,11 +422,11 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&admin_user).await?;
+    UserRepository::create(&database, &admin_user).await?;
 
     // Approve the user with admin's UUID
     database
-        .update_user_status(user_id, UserStatus::Active, Some(admin_id))
+        .update_status(user_id, UserStatus::Active, Some(admin_id))
         .await?;
 
     // Test user login
@@ -509,7 +509,7 @@ async fn test_database_encryption() -> Result<()> {
         "bcrypt_hashed_password".to_owned(),
         Some("Encryption Test".to_owned()),
     );
-    let user_id = database.create_user(&user).await?;
+    let user_id = UserRepository::create(&database, &user).await?;
 
     // Store encrypted Strava token
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -522,11 +522,11 @@ async fn test_database_encryption() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_user_oauth_token(&oauth_token).await?;
+    database.upsert_token(&oauth_token).await?;
 
     // Retrieve and decrypt token
     let decrypted_token = database
-        .get_user_oauth_token(
+        .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -607,14 +607,14 @@ async fn test_user_isolation() -> Result<()> {
         "password1".to_owned(),
         Some("User One".to_owned()),
     );
-    let user1_id = database.create_user(&user1).await?;
+    let user1_id = UserRepository::create(&database, &user1).await?;
 
     let user2 = User::new(
         "user2@isolation.test".to_owned(),
         "password2".to_owned(),
         Some("User Two".to_owned()),
     );
-    let user2_id = database.create_user(&user2).await?;
+    let user2_id = UserRepository::create(&database, &user2).await?;
 
     // Store tokens for each user
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -628,7 +628,7 @@ async fn test_user_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_user_oauth_token(&oauth_token1).await?;
+    database.upsert_token(&oauth_token1).await?;
 
     let oauth_token2 = UserOAuthToken::new(
         user2_id,
@@ -639,11 +639,11 @@ async fn test_user_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_user_oauth_token(&oauth_token2).await?;
+    database.upsert_token(&oauth_token2).await?;
 
     // Verify user isolation - each user can only access their own tokens
     let user1_token = database
-        .get_user_oauth_token(
+        .get_token(
             user1_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -653,7 +653,7 @@ async fn test_user_isolation() -> Result<()> {
     assert_eq!(user1_token.access_token, "user1_access_token");
 
     let user2_token = database
-        .get_user_oauth_token(
+        .get_token(
             user2_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,

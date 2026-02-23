@@ -9,7 +9,7 @@ use pierre_mcp_server::{
         jwks::JwksManager,
         models::{AdminPermission, CreateAdminTokenRequest},
     },
-    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps},
+    database_plugins::{factory::Database, AdminRepository, SecurityRepository},
     errors::{AppError, AppResult},
 };
 
@@ -45,7 +45,7 @@ pub async fn generate(
 
     // Generate and display token
     let generated_token = database
-        .create_admin_token(&request, &jwt_secret, jwks_manager)
+        .create_token(&request, &jwt_secret, jwks_manager)
         .await?;
 
     display_generated_token(&generated_token);
@@ -54,7 +54,7 @@ pub async fn generate(
 }
 
 async fn check_existing_token(database: &Database, service: &str) -> Result<()> {
-    if let Ok(existing_tokens) = database.list_admin_tokens(false).await {
+    if let Ok(existing_tokens) = database.list_tokens(false).await {
         if existing_tokens
             .iter()
             .any(|t| t.service_name == service && t.is_active)
@@ -191,7 +191,7 @@ pub async fn list(database: &Database, include_inactive: bool, detailed: bool) -
         include_inactive
     );
 
-    let tokens = database.list_admin_tokens(include_inactive).await?;
+    let tokens = database.list_tokens(include_inactive).await?;
 
     if tokens.is_empty() {
         println!("No admin tokens found.");
@@ -265,7 +265,7 @@ pub async fn revoke(database: &Database, token_id: String) -> Result<()> {
 
     // Check if token exists
     let token = database
-        .get_admin_token_by_id(&token_id)
+        .get_token_by_id(&token_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
 
@@ -275,7 +275,7 @@ pub async fn revoke(database: &Database, token_id: String) -> Result<()> {
     }
 
     // Revoke token
-    database.deactivate_admin_token(&token_id).await?;
+    database.deactivate_token(&token_id).await?;
 
     println!("Success Admin token revoked successfully!");
     println!("   Token ID: {token_id}");
@@ -296,7 +296,7 @@ pub async fn rotate(
 
     // Get existing token
     let old_token = database
-        .get_admin_token_by_id(&token_id)
+        .get_token_by_id(&token_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
 
@@ -327,11 +327,11 @@ pub async fn rotate(
 
     // Generate new token using RS256 asymmetric signing
     let new_token = database
-        .create_admin_token(&request, &jwt_secret, jwks_manager)
+        .create_token(&request, &jwt_secret, jwks_manager)
         .await?;
 
     // Revoke old token
-    database.deactivate_admin_token(&token_id).await?;
+    database.deactivate_token(&token_id).await?;
 
     println!("Token rotation completed successfully!");
     println!("   Old Token: {token_id} (revoked)");
@@ -352,7 +352,7 @@ pub async fn stats(database: &Database, token_id: Option<String>, days: u32) -> 
         info!("Token usage statistics for: {} ({} days)", id, days);
 
         let usage_history = database
-            .get_admin_token_usage_history(&id, start_date, end_date)
+            .get_token_usage_history(&id, start_date, end_date)
             .await?;
 
         if usage_history.is_empty() {
@@ -409,7 +409,7 @@ pub async fn stats(database: &Database, token_id: Option<String>, days: u32) -> 
     } else {
         info!("Overall admin token statistics ({} days)", days);
 
-        let tokens = database.list_admin_tokens(true).await?;
+        let tokens = database.list_tokens(true).await?;
 
         println!("\nAdmin Token Overview");
         println!("{}", "=".repeat(60));

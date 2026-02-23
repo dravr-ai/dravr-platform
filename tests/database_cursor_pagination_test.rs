@@ -11,7 +11,7 @@ use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     models::{User, UserStatus, UserTier},
     pagination::PaginationParams,
     permissions::UserRole,
@@ -59,7 +59,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             auth_provider: String::new(),
         };
 
-        database.create_user(&user).await?;
+        UserRepository::create(&database, &user).await?;
 
         // Small delay to ensure different timestamps
         sleep(Duration::from_millis(10)).await;
@@ -67,9 +67,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
 
     // Test first page (limit 2)
     let params = PaginationParams::forward(None, 2);
-    let page1 = database
-        .get_users_by_status_cursor("pending", &params)
-        .await?;
+    let page1 = database.get_by_status_cursor("pending", &params).await?;
 
     assert_eq!(page1.items.len(), 2);
     assert!(page1.has_more);
@@ -77,9 +75,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
 
     // Test second page using cursor from first page
     let params2 = PaginationParams::forward(page1.next_cursor.clone(), 2);
-    let page2 = database
-        .get_users_by_status_cursor("pending", &params2)
-        .await?;
+    let page2 = database.get_by_status_cursor("pending", &params2).await?;
 
     assert_eq!(page2.items.len(), 2);
     assert!(page2.has_more);
@@ -87,9 +83,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
 
     // Test third page (should have remaining item)
     let params3 = PaginationParams::forward(page2.next_cursor.clone(), 2);
-    let page3 = database
-        .get_users_by_status_cursor("pending", &params3)
-        .await?;
+    let page3 = database.get_by_status_cursor("pending", &params3).await?;
 
     assert_eq!(page3.items.len(), 1);
     assert!(!page3.has_more);
@@ -132,9 +126,7 @@ async fn test_cursor_pagination_empty_results() -> Result<()> {
         Database::new(database_url, b"test_encryption_key_32_bytes_long".to_vec()).await?;
 
     let params = PaginationParams::forward(None, 10);
-    let page = database
-        .get_users_by_status_cursor("active", &params)
-        .await?;
+    let page = database.get_by_status_cursor("active", &params).await?;
 
     assert_eq!(page.items.len(), 0);
     assert!(!page.has_more);
@@ -181,15 +173,13 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        database.create_user(&user).await?;
+        UserRepository::create(&database, &user).await?;
         sleep(Duration::from_millis(10)).await;
     }
 
     // Get first page
     let params = PaginationParams::forward(None, 2);
-    let page1 = database
-        .get_users_by_status_cursor("pending", &params)
-        .await?;
+    let page1 = database.get_by_status_cursor("pending", &params).await?;
 
     assert_eq!(page1.items.len(), 2);
     assert!(page1.has_more);
@@ -214,14 +204,12 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&new_user).await?;
+    UserRepository::create(&database, &new_user).await?;
 
     // Get second page - should NOT include the newly added user
     // (cursor-based pagination ensures consistency)
     let params2 = PaginationParams::forward(page1.next_cursor.clone(), 2);
-    let page2 = database
-        .get_users_by_status_cursor("pending", &params2)
-        .await?;
+    let page2 = database.get_by_status_cursor("pending", &params2).await?;
 
     // Should get remaining item from original 3 (not the newly added one)
     assert_eq!(page2.items.len(), 1);

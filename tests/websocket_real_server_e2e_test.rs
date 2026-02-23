@@ -15,7 +15,7 @@ use futures_util::{SinkExt, StreamExt};
 use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::RateLimitConfig,
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
     routes::websocket::WebSocketRoutes,
@@ -124,7 +124,7 @@ impl TestServer {
             auth_provider: String::new(),
         };
 
-        self.database.create_user(&user).await?;
+        UserRepository::create(&*self.database, &user).await?;
 
         // Generate JWT token
         let jwt_token = self

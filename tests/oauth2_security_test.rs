@@ -12,7 +12,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, OAuth2ServerOps},
+    database_plugins::{factory::Database, DatabaseProvider, OAuth2ServerRepository},
     oauth2_server::{
         client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
     },
@@ -287,7 +287,7 @@ async fn test_argon2id_client_secret_hashing() {
 
     // Retrieve client from database to check hash format
     let client = database
-        .get_oauth2_client(&registration_response.client_id)
+        .get_client(&registration_response.client_id)
         .await
         .unwrap()
         .unwrap();

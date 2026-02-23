@@ -11,7 +11,10 @@
 use chrono::Utc;
 use pierre_mcp_server::{
     database::AddMessageParams,
-    database_plugins::{factory::Database, ChatDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{
+        factory::Database, ChatRepository, TenantRepository, ToolSelectionRepository,
+        UserRepository,
+    },
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,
 };
@@ -200,11 +203,11 @@ async fn test_parity_tenant_tool_overrides() {
 
     // Both should start with empty overrides
     let sqlite_overrides = sqlite_db
-        .get_tenant_tool_overrides(tenant_id)
+        .get_overrides(tenant_id)
         .await
         .expect("SQLite: Failed to get overrides");
     let pg_overrides = pg_db
-        .get_tenant_tool_overrides(tenant_id)
+        .get_overrides(tenant_id)
         .await
         .expect("PostgreSQL: Failed to get overrides");
 
@@ -219,7 +222,7 @@ async fn test_parity_tenant_tool_overrides() {
 
     // Create same override in both
     let sqlite_created = sqlite_db
-        .upsert_tenant_tool_override(
+        .upsert_override(
             tenant_id,
             "get_activities",
             false,
@@ -230,7 +233,7 @@ async fn test_parity_tenant_tool_overrides() {
         .expect("SQLite: Failed to create override");
 
     let pg_created = pg_db
-        .upsert_tenant_tool_override(
+        .upsert_override(
             tenant_id,
             "get_activities",
             false,
@@ -246,11 +249,11 @@ async fn test_parity_tenant_tool_overrides() {
 
     // Delete in both
     let sqlite_deleted = sqlite_db
-        .delete_tenant_tool_override(tenant_id, "get_activities")
+        .delete_override(tenant_id, "get_activities")
         .await
         .expect("SQLite: Failed to delete override");
     let pg_deleted = pg_db
-        .delete_tenant_tool_override(tenant_id, "get_activities")
+        .delete_override(tenant_id, "get_activities")
         .await
         .expect("PostgreSQL: Failed to delete override");
 
@@ -275,7 +278,7 @@ async fn test_parity_chat_create_conversation() {
     let tenant_id = TenantId::new();
 
     let sqlite_conv = sqlite_db
-        .chat_create_conversation(
+        .create_conversation(
             &sqlite_user_id.to_string(),
             tenant_id,
             "Test Chat",
@@ -286,7 +289,7 @@ async fn test_parity_chat_create_conversation() {
         .expect("SQLite: Failed to create conversation");
 
     let pg_conv = pg_db
-        .chat_create_conversation(
+        .create_conversation(
             &pg_user_id.to_string(),
             tenant_id,
             "Test Chat",
@@ -323,7 +326,7 @@ async fn test_parity_chat_messages() {
 
     // Create conversations
     let sqlite_conv = sqlite_db
-        .chat_create_conversation(
+        .create_conversation(
             &sqlite_user_id.to_string(),
             tenant_id,
             "Message Test",
@@ -334,7 +337,7 @@ async fn test_parity_chat_messages() {
         .expect("SQLite: Failed to create conversation");
 
     let pg_conv = pg_db
-        .chat_create_conversation(
+        .create_conversation(
             &pg_user_id.to_string(),
             tenant_id,
             "Message Test",
@@ -366,7 +369,7 @@ async fn test_parity_chat_messages() {
             model: None,
         };
         sqlite_db
-            .chat_add_message(&sqlite_params)
+            .add_message(&sqlite_params)
             .await
             .expect("SQLite: Failed to add message");
 
@@ -381,19 +384,19 @@ async fn test_parity_chat_messages() {
             model: None,
         };
         pg_db
-            .chat_add_message(&pg_params)
+            .add_message(&pg_params)
             .await
             .expect("PostgreSQL: Failed to add message");
     }
 
     // Get all messages
     let sqlite_messages = sqlite_db
-        .chat_get_messages(&sqlite_conv.id, &sqlite_uid)
+        .get_messages(&sqlite_conv.id, &sqlite_uid)
         .await
         .expect("SQLite: Failed to get messages");
 
     let pg_messages = pg_db
-        .chat_get_messages(&pg_conv.id, &pg_uid)
+        .get_messages(&pg_conv.id, &pg_uid)
         .await
         .expect("PostgreSQL: Failed to get messages");
 
@@ -419,12 +422,12 @@ async fn test_parity_chat_messages() {
 
     // Compare message counts
     let sqlite_count = sqlite_db
-        .chat_get_message_count(&sqlite_conv.id, &sqlite_uid)
+        .get_message_count(&sqlite_conv.id, &sqlite_uid)
         .await
         .expect("SQLite: Failed to get count");
 
     let pg_count = pg_db
-        .chat_get_message_count(&pg_conv.id, &pg_uid)
+        .get_message_count(&pg_conv.id, &pg_uid)
         .await
         .expect("PostgreSQL: Failed to get count");
 
@@ -446,7 +449,7 @@ async fn test_parity_chat_list_conversations() {
     // Create same conversations in both
     for i in 1..=5 {
         sqlite_db
-            .chat_create_conversation(
+            .create_conversation(
                 &sqlite_user_id.to_string(),
                 tenant_id,
                 &format!("Chat {i}"),
@@ -457,7 +460,7 @@ async fn test_parity_chat_list_conversations() {
             .expect("SQLite: Failed to create conversation");
 
         pg_db
-            .chat_create_conversation(
+            .create_conversation(
                 &pg_user_id.to_string(),
                 tenant_id,
                 &format!("Chat {i}"),
@@ -470,12 +473,12 @@ async fn test_parity_chat_list_conversations() {
 
     // Test pagination works the same
     let sqlite_list = sqlite_db
-        .chat_list_conversations(&sqlite_user_id.to_string(), tenant_id, 3, 0)
+        .list_conversations(&sqlite_user_id.to_string(), tenant_id, 3, 0)
         .await
         .expect("SQLite: Failed to list");
 
     let pg_list = pg_db
-        .chat_list_conversations(&pg_user_id.to_string(), tenant_id, 3, 0)
+        .list_conversations(&pg_user_id.to_string(), tenant_id, 3, 0)
         .await
         .expect("PostgreSQL: Failed to list");
 
@@ -487,12 +490,12 @@ async fn test_parity_chat_list_conversations() {
 
     // Test delete all works the same
     let sqlite_deleted = sqlite_db
-        .chat_delete_all_user_conversations(&sqlite_user_id.to_string(), tenant_id)
+        .delete_all_user_conversations(&sqlite_user_id.to_string(), tenant_id)
         .await
         .expect("SQLite: Failed to delete all");
 
     let pg_deleted = pg_db
-        .chat_delete_all_user_conversations(&pg_user_id.to_string(), tenant_id)
+        .delete_all_user_conversations(&pg_user_id.to_string(), tenant_id)
         .await
         .expect("PostgreSQL: Failed to delete all");
 
@@ -556,7 +559,9 @@ async fn create_test_user(db: &Database) -> Uuid {
         auth_provider: String::new(),
     };
 
-    db.create_user(&user).await.expect("Failed to create user");
+    UserRepository::create(db, &user)
+        .await
+        .expect("Failed to create user");
     user_id
 }
 
@@ -572,7 +577,7 @@ async fn create_test_tenant(db: &Database, tenant_id: TenantId, owner_id: Uuid) 
         updated_at: Utc::now(),
     };
 
-    db.create_tenant(&tenant)
+    TenantRepository::create(db, &tenant)
         .await
         .expect("Failed to create tenant");
 }

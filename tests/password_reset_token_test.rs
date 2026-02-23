@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    database_plugins::OAuthAccountOps,
+    database_plugins::PasswordResetRepository,
     mcp::resources::{ServerResources, ServerResourcesOptions},
     routes::auth::AuthRoutes,
 };
@@ -112,7 +112,7 @@ impl ResetTokenTestSetup {
 
         self.resources
             .database
-            .store_password_reset_token(user_id, &token_hash, "test_admin")
+            .store_token(user_id, &token_hash, "test_admin")
             .await?;
 
         Ok(raw_token)

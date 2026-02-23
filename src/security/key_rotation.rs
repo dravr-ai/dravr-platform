@@ -14,7 +14,7 @@
 
 use crate::constants::time;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::{SecurityDbOps, TenantDbOps};
+use crate::database_plugins::{SecurityRepository, TenantRepository};
 use crate::errors::AppResult;
 use crate::models::TenantId;
 use chrono::{Duration as ChronoDuration, Timelike, Utc};
@@ -105,7 +105,7 @@ impl KeyRotationManager {
         info!("Checking for keys that need rotation");
 
         // Get all tenants from database
-        let tenants = self.database.get_all_tenants().await?;
+        let tenants = self.database.get_all().await?;
 
         // Check global keys first
         self.check_key_rotation(None).await?;

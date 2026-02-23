@@ -14,7 +14,7 @@ use anyhow::Result;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::{jwt::AdminJwtManager, models::CreateAdminTokenRequest},
-    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps},
+    database_plugins::{factory::Database, AdminRepository, SecurityRepository},
     key_management::KeyManager,
 };
 use serial_test::serial;
@@ -67,7 +67,7 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
         };
 
         let generated_token = database
-            .create_admin_token(&request, &jwt_secret, &jwks_manager)
+            .create_token(&request, &jwt_secret, &jwks_manager)
             .await?;
         println!("Generated token: {}", generated_token.jwt_token);
 

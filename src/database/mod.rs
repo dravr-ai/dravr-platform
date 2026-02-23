@@ -115,9 +115,13 @@ use pierre_core::models::{JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, Usage
 use pierre_core::models::{
     LlmCredentialRecord, LlmCredentialSummary, TenantId, TenantOAuthCredentials,
 };
-use pierre_database::provider::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthTokenOps,
-    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+use pierre_database::repositories::{
+    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, FitnessConfigRepository,
+    ImpersonationRepository, InsightRepository, LlmCredentialRepository, LlmUsageRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    SecurityRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::digest::{digest, SHA256};
@@ -437,7 +441,7 @@ impl Database {
     /// # Errors
     ///
     /// Returns an error if database query fails
-    pub async fn get_user_tenant_role(
+    pub async fn get_user_role(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -2547,46 +2551,46 @@ use async_trait::async_trait;
 
 #[async_trait]
 #[async_trait]
-impl UserDbOps for Database {
-    async fn create_user(&self, user: &User) -> AppResult<Uuid> {
+impl UserRepository for Database {
+    async fn create(&self, user: &User) -> AppResult<Uuid> {
         Self::create_user_impl(self, user).await
     }
-    async fn get_user(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
+    async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
         Self::get_user_tenant_impl(self, user_id, tenant_id).await
     }
-    async fn get_user_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
+    async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
         Self::get_user_global_impl(self, user_id).await
     }
-    async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
         Self::get_user_by_email_impl(self, email).await
     }
-    async fn get_user_by_email_required(&self, email: &str) -> AppResult<User> {
+    async fn get_by_email_required(&self, email: &str) -> AppResult<User> {
         Self::get_user_by_email_required_impl(self, email).await
     }
-    async fn get_user_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
+    async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
         Self::get_user_by_firebase_uid(self, firebase_uid).await
     }
     async fn update_last_active(&self, user_id: Uuid) -> AppResult<()> {
         Self::update_last_active_impl(self, user_id).await
     }
-    async fn get_user_count(&self) -> AppResult<i64> {
+    async fn count(&self) -> AppResult<i64> {
         Self::get_user_count_impl(self).await
     }
-    async fn get_users_by_status(
+    async fn get_by_status(
         &self,
         status: &str,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<User>> {
         Self::get_users_by_status_impl(self, status, tenant_id).await
     }
-    async fn get_users_by_status_cursor(
+    async fn get_by_status_cursor(
         &self,
         status: &str,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<User>> {
         Self::get_users_by_status_cursor(self, status, params).await
     }
-    async fn update_user_status(
+    async fn update_status(
         &self,
         user_id: Uuid,
         new_status: UserStatus,
@@ -2594,33 +2598,44 @@ impl UserDbOps for Database {
     ) -> AppResult<User> {
         Self::update_user_status(self, user_id, new_status, approved_by).await
     }
-    async fn update_user_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+    async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
         Self::update_user_tenant_id_impl(self, user_id, tenant_id).await
     }
-    async fn update_user_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
+    async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
         Self::update_user_password(self, user_id, password_hash).await
     }
-    async fn update_user_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User> {
+    async fn update_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User> {
         Self::update_user_display_name(self, user_id, display_name).await
     }
-    async fn delete_user(&self, user_id: Uuid) -> AppResult<()> {
+    async fn delete(&self, user_id: Uuid) -> AppResult<()> {
         Self::delete_user(self, user_id).await
     }
     async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
         Self::get_first_admin_user(self).await
     }
-    async fn upsert_user_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
+    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
+        Self::user_has_synthetic_activities_impl(self, user_id).await
+    }
+}
+
+#[async_trait]
+impl ProfileRepository for Database {
+    async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
         Self::upsert_user_profile_impl(self, user_id, profile_data).await
     }
-    async fn get_user_profile(&self, user_id: Uuid) -> AppResult<Option<Value>> {
+
+    async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>> {
         Self::get_user_profile_impl(self, user_id).await
     }
+
     async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String> {
         Self::create_goal_impl(self, user_id, goal_data).await
     }
-    async fn get_user_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>> {
+
+    async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>> {
         Self::get_user_goals_impl(self, user_id).await
     }
+
     async fn update_goal_progress(
         &self,
         goal_id: &str,
@@ -2629,20 +2644,19 @@ impl UserDbOps for Database {
     ) -> AppResult<()> {
         Self::update_goal_progress_impl(self, goal_id, user_id, current_value).await
     }
-    async fn get_user_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
+
+    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
         Self::get_user_configuration_impl(self, user_id).await
     }
-    async fn save_user_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
+
+    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
         Self::save_user_configuration_impl(self, user_id, config_json).await
-    }
-    async fn user_has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        Self::user_has_synthetic_activities_impl(self, user_id).await
     }
 }
 
 #[async_trait]
-impl OAuthTokenOps for Database {
-    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+impl OAuthTokenRepository for Database {
+    async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
         use user_oauth_tokens::OAuthTokenData;
 
         let tenant_id: TenantId = token
@@ -2664,7 +2678,7 @@ impl OAuthTokenOps for Database {
 
         Self::upsert_user_oauth_token(self, &token_data).await
     }
-    async fn get_user_oauth_token(
+    async fn get_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2672,7 +2686,7 @@ impl OAuthTokenOps for Database {
     ) -> AppResult<Option<UserOAuthToken>> {
         Self::get_user_oauth_token(self, user_id, tenant_id, provider).await
     }
-    async fn get_user_oauth_tokens(
+    async fn get_tokens(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
@@ -2686,7 +2700,7 @@ impl OAuthTokenOps for Database {
     ) -> AppResult<Vec<UserOAuthToken>> {
         Self::get_tenant_provider_tokens(self, tenant_id, provider).await
     }
-    async fn delete_user_oauth_token(
+    async fn delete_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2694,10 +2708,10 @@ impl OAuthTokenOps for Database {
     ) -> AppResult<()> {
         Self::delete_user_oauth_token(self, user_id, tenant_id, provider).await
     }
-    async fn delete_user_oauth_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+    async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
         Self::delete_user_oauth_tokens_impl(self, user_id, tenant_id).await
     }
-    async fn refresh_user_oauth_token(
+    async fn refresh_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2768,32 +2782,29 @@ impl OAuthTokenOps for Database {
 }
 
 #[async_trait]
-impl OAuth2ServerOps for Database {
-    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
+impl OAuth2ServerRepository for Database {
+    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
         Self::store_oauth2_client_impl(self, client).await
     }
-    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
         Self::get_oauth2_client_impl(self, client_id).await
     }
-    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         Self::store_oauth2_auth_code_impl(self, auth_code).await
     }
-    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+    async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
         Self::get_oauth2_auth_code_impl(self, code).await
     }
-    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         Self::update_oauth2_auth_code_impl(self, auth_code).await
     }
-    async fn store_oauth2_refresh_token(
-        &self,
-        refresh_token: &OAuth2RefreshToken,
-    ) -> AppResult<()> {
+    async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()> {
         Self::store_oauth2_refresh_token_impl(self, refresh_token).await
     }
-    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+    async fn get_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
         Self::get_oauth2_refresh_token_impl(self, token).await
     }
-    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
+    async fn revoke_refresh_token(&self, token: &str) -> AppResult<()> {
         Self::revoke_oauth2_refresh_token_impl(self, token).await
     }
     async fn consume_auth_code(
@@ -2836,10 +2847,10 @@ impl OAuth2ServerOps for Database {
     async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
         Self::delete_authorization_code_impl(self, code).await
     }
-    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
+    async fn store_state(&self, state: &OAuth2State) -> AppResult<()> {
         Self::store_oauth2_state_impl(self, state).await
     }
-    async fn consume_oauth2_state(
+    async fn consume_state(
         &self,
         state_value: &str,
         client_id: &str,
@@ -2847,9 +2858,14 @@ impl OAuth2ServerOps for Database {
     ) -> AppResult<Option<OAuth2State>> {
         Self::consume_oauth2_state_impl(self, state_value, client_id, now).await
     }
+}
+
+#[async_trait]
+impl OAuthClientStateRepository for Database {
     async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
         Self::store_oauth_client_state_impl(self, state).await
     }
+
     async fn consume_oauth_client_state(
         &self,
         state_value: &str,
@@ -2861,8 +2877,8 @@ impl OAuth2ServerOps for Database {
 }
 
 #[async_trait]
-impl OAuthAccountOps for Database {
-    async fn register_provider_connection(
+impl ProviderConnectionRepository for Database {
+    async fn register_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2880,7 +2896,7 @@ impl OAuthAccountOps for Database {
         )
         .await
     }
-    async fn remove_provider_connection(
+    async fn remove_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -2888,17 +2904,21 @@ impl OAuthAccountOps for Database {
     ) -> AppResult<()> {
         Self::remove_provider_connection_impl(self, user_id, tenant_id, provider).await
     }
-    async fn get_user_provider_connections(
+    async fn get_for_user(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<ProviderConnection>> {
         Self::get_user_provider_connections_impl(self, user_id, tenant_id).await
     }
-    async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
+    async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
         Self::is_provider_connected_impl(self, user_id, provider).await
     }
-    async fn store_password_reset_token(
+}
+
+#[async_trait]
+impl PasswordResetRepository for Database {
+    async fn store_token(
         &self,
         user_id: Uuid,
         token_hash: &str,
@@ -2906,39 +2926,41 @@ impl OAuthAccountOps for Database {
     ) -> AppResult<Uuid> {
         Self::store_password_reset_token_impl(self, user_id, token_hash, created_by).await
     }
-    async fn consume_password_reset_token(&self, token_hash: &str) -> AppResult<Uuid> {
+
+    async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
         Self::consume_password_reset_token_impl(self, token_hash).await
     }
-    async fn invalidate_user_reset_tokens(&self, user_id: Uuid) -> AppResult<()> {
+
+    async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
         Self::invalidate_user_reset_tokens_impl(self, user_id).await
     }
 }
 
 #[async_trait]
-impl ApiKeyDbOps for Database {
-    async fn create_api_key(&self, api_key: &ApiKey) -> AppResult<()> {
+impl ApiKeyRepository for Database {
+    async fn create(&self, api_key: &ApiKey) -> AppResult<()> {
         Self::create_api_key_impl(self, api_key).await
     }
-    async fn get_api_key_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
+    async fn get_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
         Self::get_api_key_by_prefix_impl(self, prefix, hash).await
     }
-    async fn get_user_api_keys(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>> {
+    async fn get_for_user(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>> {
         Self::get_user_api_keys_impl(self, user_id).await
     }
-    async fn update_api_key_last_used(&self, api_key_id: &str) -> AppResult<()> {
+    async fn update_last_used(&self, api_key_id: &str) -> AppResult<()> {
         Self::update_api_key_last_used_impl(self, api_key_id).await
     }
-    async fn deactivate_api_key(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
+    async fn deactivate(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
         Self::deactivate_api_key_impl(self, api_key_id, user_id).await
     }
-    async fn get_api_key_by_id(
+    async fn get_by_id(
         &self,
         api_key_id: &str,
         user_id: Option<Uuid>,
     ) -> AppResult<Option<ApiKey>> {
         Self::get_api_key_by_id_impl(self, api_key_id, user_id).await
     }
-    async fn get_api_keys_filtered(
+    async fn get_filtered(
         &self,
         _user_email: Option<&str>,
         active_only: bool,
@@ -2955,23 +2977,23 @@ impl ApiKeyDbOps for Database {
         )
         .await
     }
-    async fn cleanup_expired_api_keys(&self) -> AppResult<u64> {
+    async fn cleanup_expired(&self) -> AppResult<u64> {
         Self::cleanup_expired_api_keys_impl(self).await
     }
-    async fn get_expired_api_keys(&self) -> AppResult<Vec<ApiKey>> {
+    async fn get_expired(&self) -> AppResult<Vec<ApiKey>> {
         Self::get_expired_api_keys_impl(self).await
     }
 }
 
 #[async_trait]
-impl UsageDbOps for Database {
-    async fn record_api_key_usage(&self, usage: &ApiKeyUsage) -> AppResult<()> {
+impl UsageRepository for Database {
+    async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()> {
         Self::record_api_key_usage_impl(self, usage).await
     }
-    async fn get_api_key_current_usage(&self, api_key_id: &str) -> AppResult<u32> {
+    async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
         Self::get_api_key_current_usage_impl(self, api_key_id).await
     }
-    async fn get_api_key_usage_stats(
+    async fn get_api_key_stats(
         &self,
         api_key_id: &str,
         start_date: DateTime<Utc>,
@@ -3081,27 +3103,11 @@ impl UsageDbOps for Database {
     ) -> AppResult<Vec<ToolUsage>> {
         Self::get_top_tools_analysis_impl(self, user_id, start_time, end_time).await
     }
-    async fn insert_llm_usage(
-        &self,
-        params: &llm_usage::InsertLlmUsage<'_>,
-    ) -> AppResult<LlmUsageRecord> {
-        self.insert_llm_usage_impl(params).await
-    }
-    async fn get_llm_usage_aggregates(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<llm_usage::LlmUsageAggregateRow>> {
-        self.get_llm_usage_aggregates_impl(tenant_id, since).await
-    }
-    async fn get_llm_usage_daily_series(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<llm_usage::LlmUsageDailyRow>> {
-        self.get_llm_usage_daily_series_impl(tenant_id, since).await
-    }
-    async fn increment_usage_counter(
+}
+
+#[async_trait]
+impl UsageCounterRepository for Database {
+    async fn increment_counter(
         &self,
         tenant_id: &str,
         user_id: &str,
@@ -3112,7 +3118,8 @@ impl UsageDbOps for Database {
         self.increment_usage_counter_impl(tenant_id, user_id, counter_key, period, amount)
             .await
     }
-    async fn get_usage_counter(
+
+    async fn get_counter(
         &self,
         tenant_id: &str,
         user_id: &str,
@@ -3122,14 +3129,41 @@ impl UsageDbOps for Database {
         self.get_usage_counter_impl(tenant_id, user_id, counter_key, period)
             .await
     }
-    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+
+    async fn delete_old_counters(&self, period_before: &str) -> AppResult<u64> {
         self.delete_old_usage_counters_impl(period_before).await
     }
 }
 
 #[async_trait]
-impl A2ADbOps for Database {
-    async fn create_a2a_client(
+impl LlmUsageRepository for Database {
+    async fn insert_llm_usage(
+        &self,
+        params: &llm_usage::InsertLlmUsage<'_>,
+    ) -> AppResult<LlmUsageRecord> {
+        self.insert_llm_usage_impl(params).await
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<llm_usage::LlmUsageAggregateRow>> {
+        self.get_llm_usage_aggregates_impl(tenant_id, since).await
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<llm_usage::LlmUsageDailyRow>> {
+        self.get_llm_usage_daily_series_impl(tenant_id, since).await
+    }
+}
+
+#[async_trait]
+impl A2ARepository for Database {
+    async fn create_client(
         &self,
         client: &A2AClient,
         client_secret: &str,
@@ -3137,34 +3171,31 @@ impl A2ADbOps for Database {
     ) -> AppResult<String> {
         Self::create_a2a_client(self, client, client_secret, api_key_id).await
     }
-    async fn get_a2a_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
         Self::get_a2a_client_impl(self, client_id).await
     }
-    async fn get_a2a_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
         Self::get_a2a_client_by_api_key_id_impl(self, api_key_id).await
     }
-    async fn get_a2a_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
         Self::get_a2a_client_by_name_impl(self, name).await
     }
-    async fn list_a2a_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>> {
+    async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>> {
         Self::list_a2a_clients_impl(self, user_id).await
     }
-    async fn deactivate_a2a_client(&self, client_id: &str) -> AppResult<()> {
+    async fn deactivate_client(&self, client_id: &str) -> AppResult<()> {
         Self::deactivate_a2a_client_impl(self, client_id).await
     }
-    async fn get_a2a_client_credentials(
-        &self,
-        client_id: &str,
-    ) -> AppResult<Option<(String, String)>> {
+    async fn get_client_credentials(&self, client_id: &str) -> AppResult<Option<(String, String)>> {
         Self::get_a2a_client_credentials(self, client_id).await
     }
-    async fn invalidate_a2a_client_sessions(&self, client_id: &str) -> AppResult<()> {
+    async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
         Self::invalidate_a2a_client_sessions_impl(self, client_id).await
     }
     async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()> {
         Self::deactivate_client_api_keys_impl(self, client_id).await
     }
-    async fn create_a2a_session(
+    async fn create_session(
         &self,
         client_id: &str,
         user_id: Option<&Uuid>,
@@ -3173,16 +3204,16 @@ impl A2ADbOps for Database {
     ) -> AppResult<String> {
         Self::create_a2a_session(self, client_id, user_id, granted_scopes, expires_in_hours).await
     }
-    async fn get_a2a_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
+    async fn get_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
         Self::get_a2a_session_impl(self, session_token).await
     }
-    async fn update_a2a_session_activity(&self, session_token: &str) -> AppResult<()> {
+    async fn update_session_activity(&self, session_token: &str) -> AppResult<()> {
         Self::update_a2a_session_activity_impl(self, session_token).await
     }
-    async fn get_active_a2a_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
+    async fn get_active_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
         Self::get_active_a2a_sessions_impl(self, client_id).await
     }
-    async fn create_a2a_task(
+    async fn create_task(
         &self,
         client_id: &str,
         session_id: Option<&str>,
@@ -3191,10 +3222,10 @@ impl A2ADbOps for Database {
     ) -> AppResult<String> {
         Self::create_a2a_task(self, client_id, session_id, task_type, input_data).await
     }
-    async fn get_a2a_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
+    async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
         Self::get_a2a_task_impl(self, task_id).await
     }
-    async fn list_a2a_tasks(
+    async fn list_tasks(
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
@@ -3203,7 +3234,7 @@ impl A2ADbOps for Database {
     ) -> AppResult<Vec<A2ATask>> {
         Self::list_a2a_tasks(self, client_id, status_filter, limit, offset).await
     }
-    async fn update_a2a_task_status(
+    async fn update_task_status(
         &self,
         task_id: &str,
         status: &TaskStatus,
@@ -3212,13 +3243,13 @@ impl A2ADbOps for Database {
     ) -> AppResult<()> {
         Self::update_a2a_task_status(self, task_id, status, result, error).await
     }
-    async fn record_a2a_usage(&self, usage: &A2AUsage) -> AppResult<()> {
+    async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
         Self::record_a2a_usage_impl(self, usage).await
     }
-    async fn get_a2a_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
+    async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
         Self::get_a2a_client_current_usage_impl(self, client_id).await
     }
-    async fn get_a2a_usage_stats(
+    async fn get_usage_stats(
         &self,
         client_id: &str,
         start_date: DateTime<Utc>,
@@ -3226,7 +3257,7 @@ impl A2ADbOps for Database {
     ) -> AppResult<A2AUsageStats> {
         Self::get_a2a_usage_stats(self, client_id, start_date, end_date).await
     }
-    async fn get_a2a_client_usage_history(
+    async fn get_client_usage_history(
         &self,
         client_id: &str,
         days: u32,
@@ -3236,8 +3267,8 @@ impl A2ADbOps for Database {
 }
 
 #[async_trait]
-impl AdminDbOps for Database {
-    async fn create_admin_token(
+impl AdminRepository for Database {
+    async fn create_token(
         &self,
         request: &CreateAdminTokenRequest,
         admin_jwt_secret: &str,
@@ -3245,29 +3276,29 @@ impl AdminDbOps for Database {
     ) -> AppResult<GeneratedAdminToken> {
         Self::create_admin_token(self, request, admin_jwt_secret, jwks_manager).await
     }
-    async fn get_admin_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
         Self::get_admin_token_by_id(self, token_id).await
     }
-    async fn get_admin_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
         Self::get_admin_token_by_prefix(self, token_prefix).await
     }
-    async fn list_admin_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
+    async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
         Self::list_admin_tokens(self, include_inactive).await
     }
-    async fn deactivate_admin_token(&self, token_id: &str) -> AppResult<()> {
+    async fn deactivate_token(&self, token_id: &str) -> AppResult<()> {
         Self::deactivate_admin_token_impl(self, token_id).await
     }
-    async fn update_admin_token_last_used(
+    async fn update_token_last_used(
         &self,
         token_id: &str,
         ip_address: Option<&str>,
     ) -> AppResult<()> {
         Self::update_admin_token_last_used(self, token_id, ip_address).await
     }
-    async fn record_admin_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
+    async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
         Self::record_admin_token_usage(self, usage).await
     }
-    async fn get_admin_token_usage_history(
+    async fn get_token_usage_history(
         &self,
         token_id: &str,
         start_date: DateTime<Utc>,
@@ -3275,7 +3306,7 @@ impl AdminDbOps for Database {
     ) -> AppResult<Vec<AdminTokenUsage>> {
         Self::get_admin_token_usage_history(self, token_id, start_date, end_date).await
     }
-    async fn record_admin_provisioned_key(
+    async fn record_provisioned_key(
         &self,
         admin_token_id: &str,
         api_key_id: &str,
@@ -3295,7 +3326,7 @@ impl AdminDbOps for Database {
         )
         .await
     }
-    async fn get_admin_provisioned_keys(
+    async fn get_provisioned_keys(
         &self,
         admin_token_id: Option<&str>,
         start_date: DateTime<Utc>,
@@ -3303,54 +3334,31 @@ impl AdminDbOps for Database {
     ) -> AppResult<Vec<serde_json::Value>> {
         Self::get_admin_provisioned_keys(self, admin_token_id, start_date, end_date).await
     }
-    async fn create_user_mcp_token(
-        &self,
-        user_id: Uuid,
-        request: &CreateUserMcpTokenRequest,
-    ) -> AppResult<UserMcpTokenCreated> {
-        Self::create_user_mcp_token(self, user_id, request).await
-    }
-    async fn validate_user_mcp_token(&self, token_value: &str) -> AppResult<Uuid> {
-        Self::validate_user_mcp_token(self, token_value).await
-    }
-    async fn list_user_mcp_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
-        Self::list_user_mcp_tokens(self, user_id).await
-    }
-    async fn revoke_user_mcp_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
-        Self::revoke_user_mcp_token(self, token_id, user_id).await
-    }
-    async fn get_user_mcp_token(
-        &self,
-        token_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserMcpToken>> {
-        Self::get_user_mcp_token(self, token_id, user_id).await
-    }
-    async fn cleanup_expired_user_mcp_tokens(&self) -> AppResult<u64> {
-        Self::cleanup_expired_user_mcp_tokens(self).await
-    }
-    async fn create_impersonation_session(&self, session: &ImpersonationSession) -> AppResult<()> {
+}
+
+#[async_trait]
+impl ImpersonationRepository for Database {
+    async fn create_session(&self, session: &ImpersonationSession) -> AppResult<()> {
         Self::create_impersonation_session(self, session).await
     }
-    async fn get_impersonation_session(
-        &self,
-        session_id: &str,
-    ) -> AppResult<Option<ImpersonationSession>> {
+
+    async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>> {
         Self::get_impersonation_session(self, session_id).await
     }
-    async fn get_active_impersonation_session(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Option<ImpersonationSession>> {
+
+    async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>> {
         Self::get_active_impersonation_session(self, user_id).await
     }
-    async fn end_impersonation_session(&self, session_id: &str) -> AppResult<()> {
+
+    async fn end_session(&self, session_id: &str) -> AppResult<()> {
         Self::end_impersonation_session(self, session_id).await
     }
-    async fn end_all_impersonation_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
+
+    async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
         Self::end_all_impersonation_sessions(self, impersonator_id).await
     }
-    async fn list_impersonation_sessions(
+
+    async fn list_sessions(
         &self,
         impersonator_id: Option<Uuid>,
         target_user_id: Option<Uuid>,
@@ -3363,32 +3371,60 @@ impl AdminDbOps for Database {
 }
 
 #[async_trait]
-impl TenantDbOps for Database {
-    async fn create_tenant(&self, tenant: &Tenant) -> AppResult<()> {
+impl UserMcpTokenRepository for Database {
+    async fn create_token(
+        &self,
+        user_id: Uuid,
+        request: &CreateUserMcpTokenRequest,
+    ) -> AppResult<UserMcpTokenCreated> {
+        Self::create_user_mcp_token(self, user_id, request).await
+    }
+
+    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid> {
+        Self::validate_user_mcp_token(self, token_value).await
+    }
+
+    async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+        Self::list_user_mcp_tokens(self, user_id).await
+    }
+
+    async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+        Self::revoke_user_mcp_token(self, token_id, user_id).await
+    }
+
+    async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>> {
+        Self::get_user_mcp_token(self, token_id, user_id).await
+    }
+
+    async fn cleanup_expired_tokens(&self) -> AppResult<u64> {
+        Self::cleanup_expired_user_mcp_tokens(self).await
+    }
+}
+
+#[async_trait]
+impl TenantRepository for Database {
+    async fn create(&self, tenant: &Tenant) -> AppResult<()> {
         Self::create_tenant_impl(self, tenant).await
     }
-    async fn get_tenant_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
+    async fn get_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
         Self::get_tenant_by_id_impl(self, tenant_id).await
     }
-    async fn get_tenant_by_slug(&self, slug: &str) -> AppResult<Tenant> {
+    async fn get_by_slug(&self, slug: &str) -> AppResult<Tenant> {
         Self::get_tenant_by_slug_impl(self, slug).await
     }
-    async fn list_tenants_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>> {
+    async fn list_for_user(&self, user_id: Uuid) -> AppResult<Vec<Tenant>> {
         Self::list_tenants_for_user_impl(self, user_id).await
     }
-    async fn store_tenant_oauth_credentials(
-        &self,
-        credentials: &TenantOAuthCredentials,
-    ) -> AppResult<()> {
+    async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()> {
         Self::store_tenant_oauth_credentials_impl(self, credentials).await
     }
-    async fn get_tenant_oauth_providers(
+    async fn get_oauth_providers(
         &self,
         tenant_id: TenantId,
     ) -> AppResult<Vec<TenantOAuthCredentials>> {
         Self::get_tenant_oauth_providers_impl(self, tenant_id).await
     }
-    async fn get_tenant_oauth_credentials(
+    async fn get_oauth_credentials(
         &self,
         tenant_id: TenantId,
         provider: &str,
@@ -3404,87 +3440,78 @@ impl TenantDbOps for Database {
     async fn list_oauth_apps_for_user(&self, user_id: Uuid) -> AppResult<Vec<OAuthApp>> {
         Self::list_oauth_apps_for_user(self, user_id).await
     }
-    async fn get_all_tenants(&self) -> AppResult<Vec<Tenant>> {
+    async fn get_all(&self) -> AppResult<Vec<Tenant>> {
         Self::get_all_tenants_impl(self).await
     }
-    async fn get_user_tenant_role(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
+    async fn get_user_role(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<String>> {
         Self::get_user_tenant_role_impl(self, user_id, tenant_id).await
     }
-    async fn save_tenant_fitness_config(
+}
+
+#[async_trait]
+impl ToolSelectionRepository for Database {
+    async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tool_catalog_impl(self).await
+    }
+
+    async fn get_tool_catalog_entry(&self, tool_name: &str) -> AppResult<Option<ToolCatalogEntry>> {
+        Self::get_tool_catalog_entry_impl(self, tool_name).await
+    }
+
+    async fn get_tools_by_category(
+        &self,
+        category: ToolCategory,
+    ) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tools_by_category_impl(self, category).await
+    }
+
+    async fn get_tools_by_min_plan(&self, plan: TenantPlan) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tools_by_min_plan_impl(self, plan).await
+    }
+
+    async fn get_overrides(&self, tenant_id: TenantId) -> AppResult<Vec<TenantToolOverride>> {
+        Self::get_tenant_tool_overrides_impl(self, tenant_id).await
+    }
+
+    async fn get_override(
         &self,
         tenant_id: TenantId,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        let manager = self.fitness_configurations();
-        manager
-            .save_tenant_config(tenant_id, configuration_name, config)
-            .await
+        tool_name: &str,
+    ) -> AppResult<Option<TenantToolOverride>> {
+        Self::get_tenant_tool_override_impl(self, tenant_id, tool_name).await
     }
-    async fn save_user_fitness_config(
+
+    async fn upsert_override(
         &self,
         tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        let manager = self.fitness_configurations();
-        manager
-            .save_user_config(tenant_id, user_id, configuration_name, config)
-            .await
+        tool_name: &str,
+        is_enabled: bool,
+        enabled_by_user_id: Option<Uuid>,
+        reason: Option<String>,
+    ) -> AppResult<TenantToolOverride> {
+        Self::upsert_tenant_tool_override_impl(
+            self,
+            tenant_id,
+            tool_name,
+            is_enabled,
+            enabled_by_user_id,
+            reason,
+        )
+        .await
     }
-    async fn get_tenant_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        let manager = self.fitness_configurations();
-        manager
-            .get_tenant_config(tenant_id, configuration_name)
-            .await
+
+    async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool> {
+        Self::delete_tenant_tool_override_impl(self, tenant_id, tool_name).await
     }
-    async fn get_user_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        let manager = self.fitness_configurations();
-        manager
-            .get_user_config(tenant_id, user_id, configuration_name)
-            .await
+
+    async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
+        Self::count_enabled_tools_impl(self, tenant_id).await
     }
-    async fn list_tenant_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<String>> {
-        let manager = self.fitness_configurations();
-        manager.list_tenant_configurations(tenant_id).await
-    }
-    async fn list_user_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-    ) -> AppResult<Vec<String>> {
-        let manager = self.fitness_configurations();
-        manager.list_user_configurations(tenant_id, user_id).await
-    }
-    async fn delete_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<&str>,
-        configuration_name: &str,
-    ) -> AppResult<bool> {
-        let manager = self.fitness_configurations();
-        manager
-            .delete_config(tenant_id, user_id, configuration_name)
-            .await
-    }
-    async fn store_llm_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
+}
+
+#[async_trait]
+impl LlmCredentialRepository for Database {
+    async fn store_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
         // Use INSERT OR REPLACE to handle both insert and update
         sqlx::query(
             r"
@@ -3517,7 +3544,8 @@ impl TenantDbOps for Database {
 
         Ok(())
     }
-    async fn get_llm_credentials(
+
+    async fn get_credentials(
         &self,
         tenant_id: TenantId,
         user_id: Option<Uuid>,
@@ -3572,10 +3600,8 @@ impl TenantDbOps for Database {
             created_by: Uuid::parse_str(r.get::<&str, _>("created_by")).unwrap_or_default(),
         }))
     }
-    async fn list_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<LlmCredentialSummary>> {
+
+    async fn list_credentials(&self, tenant_id: TenantId) -> AppResult<Vec<LlmCredentialSummary>> {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, provider, base_url, default_model, is_active, created_at, updated_at
@@ -3611,7 +3637,8 @@ impl TenantDbOps for Database {
             })
             .collect())
     }
-    async fn delete_llm_credentials(
+
+    async fn delete_credentials(
         &self,
         tenant_id: TenantId,
         user_id: Option<Uuid>,
@@ -3645,6 +3672,7 @@ impl TenantDbOps for Database {
 
         Ok(result.rows_affected() > 0)
     }
+
     async fn get_admin_config_override(
         &self,
         config_key: &str,
@@ -3687,67 +3715,88 @@ impl TenantDbOps for Database {
 
         Ok(row.map(|r| r.get::<String, _>("config_value")))
     }
-    async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
-        Self::get_tool_catalog_impl(self).await
-    }
-    async fn get_tool_catalog_entry(&self, tool_name: &str) -> AppResult<Option<ToolCatalogEntry>> {
-        Self::get_tool_catalog_entry_impl(self, tool_name).await
-    }
-    async fn get_tools_by_category(
-        &self,
-        category: ToolCategory,
-    ) -> AppResult<Vec<ToolCatalogEntry>> {
-        Self::get_tools_by_category_impl(self, category).await
-    }
-    async fn get_tools_by_min_plan(&self, plan: TenantPlan) -> AppResult<Vec<ToolCatalogEntry>> {
-        Self::get_tools_by_min_plan_impl(self, plan).await
-    }
-    async fn get_tenant_tool_overrides(
+}
+
+#[async_trait]
+impl FitnessConfigRepository for Database {
+    async fn save_tenant_config(
         &self,
         tenant_id: TenantId,
-    ) -> AppResult<Vec<TenantToolOverride>> {
-        Self::get_tenant_tool_overrides_impl(self, tenant_id).await
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let manager = self.fitness_configurations();
+        manager
+            .save_tenant_config(tenant_id, configuration_name, config)
+            .await
     }
-    async fn get_tenant_tool_override(
+
+    async fn save_user_config(
         &self,
         tenant_id: TenantId,
-        tool_name: &str,
-    ) -> AppResult<Option<TenantToolOverride>> {
-        Self::get_tenant_tool_override_impl(self, tenant_id, tool_name).await
+        user_id: &str,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let manager = self.fitness_configurations();
+        manager
+            .save_user_config(tenant_id, user_id, configuration_name, config)
+            .await
     }
-    async fn upsert_tenant_tool_override(
+
+    async fn get_tenant_config(
         &self,
         tenant_id: TenantId,
-        tool_name: &str,
-        is_enabled: bool,
-        enabled_by_user_id: Option<Uuid>,
-        reason: Option<String>,
-    ) -> AppResult<TenantToolOverride> {
-        Self::upsert_tenant_tool_override_impl(
-            self,
-            tenant_id,
-            tool_name,
-            is_enabled,
-            enabled_by_user_id,
-            reason,
-        )
-        .await
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        let manager = self.fitness_configurations();
+        manager
+            .get_tenant_config(tenant_id, configuration_name)
+            .await
     }
-    async fn delete_tenant_tool_override(
+
+    async fn get_user_config(
         &self,
         tenant_id: TenantId,
-        tool_name: &str,
+        user_id: &str,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        let manager = self.fitness_configurations();
+        manager
+            .get_user_config(tenant_id, user_id, configuration_name)
+            .await
+    }
+
+    async fn list_tenant_configurations(&self, tenant_id: TenantId) -> AppResult<Vec<String>> {
+        let manager = self.fitness_configurations();
+        manager.list_tenant_configurations(tenant_id).await
+    }
+
+    async fn list_user_configurations(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Vec<String>> {
+        let manager = self.fitness_configurations();
+        manager.list_user_configurations(tenant_id, user_id).await
+    }
+
+    async fn delete_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<&str>,
+        configuration_name: &str,
     ) -> AppResult<bool> {
-        Self::delete_tenant_tool_override_impl(self, tenant_id, tool_name).await
-    }
-    async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
-        Self::count_enabled_tools_impl(self, tenant_id).await
+        let manager = self.fitness_configurations();
+        manager
+            .delete_config(tenant_id, user_id, configuration_name)
+            .await
     }
 }
 
 #[async_trait]
-impl ChatDbOps for Database {
-    async fn chat_create_conversation(
+impl ChatRepository for Database {
+    async fn create_conversation(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -3758,7 +3807,7 @@ impl ChatDbOps for Database {
         Self::chat_create_conversation_impl(self, user_id, tenant_id, title, model, system_prompt)
             .await
     }
-    async fn chat_get_conversation(
+    async fn get_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -3766,7 +3815,7 @@ impl ChatDbOps for Database {
     ) -> AppResult<Option<ConversationRecord>> {
         Self::chat_get_conversation_impl(self, conversation_id, user_id, tenant_id).await
     }
-    async fn chat_list_conversations(
+    async fn list_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -3775,7 +3824,7 @@ impl ChatDbOps for Database {
     ) -> AppResult<Vec<ConversationSummary>> {
         Self::chat_list_conversations_impl(self, user_id, tenant_id, limit, offset).await
     }
-    async fn chat_update_conversation_title(
+    async fn update_conversation_title(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -3785,7 +3834,7 @@ impl ChatDbOps for Database {
         Self::chat_update_conversation_title_impl(self, conversation_id, user_id, tenant_id, title)
             .await
     }
-    async fn chat_delete_conversation(
+    async fn delete_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -3793,17 +3842,17 @@ impl ChatDbOps for Database {
     ) -> AppResult<bool> {
         Self::chat_delete_conversation_impl(self, conversation_id, user_id, tenant_id).await
     }
-    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
+    async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         Self::chat_add_message_impl(self, params).await
     }
-    async fn chat_get_messages(
+    async fn get_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
     ) -> AppResult<Vec<MessageRecord>> {
         Self::chat_get_messages_impl(self, conversation_id, user_id).await
     }
-    async fn chat_get_recent_messages(
+    async fn get_recent_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -3811,13 +3860,13 @@ impl ChatDbOps for Database {
     ) -> AppResult<Vec<MessageRecord>> {
         Self::chat_get_recent_messages_impl(self, conversation_id, user_id, limit).await
     }
-    async fn chat_get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
+    async fn get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
         Self::chat_get_message_count_impl(self, conversation_id, user_id).await
     }
-    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+    async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
         Self::chat_count_conversations_impl(self, user_id, tenant_id).await
     }
-    async fn chat_delete_all_user_conversations(
+    async fn delete_all_user_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -3827,7 +3876,7 @@ impl ChatDbOps for Database {
 }
 
 #[async_trait]
-impl SecurityDbOps for Database {
+impl SecurityRepository for Database {
     async fn save_rsa_keypair(
         &self,
         kid: &str,
@@ -3903,39 +3952,6 @@ impl SecurityDbOps for Database {
     async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()> {
         Self::update_system_secret_impl(self, secret_type, new_value).await
     }
-    async fn store_oauth_notification(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        success: bool,
-        message: &str,
-        expires_at: Option<&str>,
-    ) -> AppResult<String> {
-        Self::store_oauth_notification(self, user_id, provider, success, message, expires_at).await
-    }
-    async fn get_unread_oauth_notifications(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        Self::get_unread_oauth_notifications(self, user_id).await
-    }
-    async fn mark_oauth_notification_read(
-        &self,
-        notification_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<bool> {
-        Self::mark_oauth_notification_read(self, notification_id, user_id).await
-    }
-    async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
-        Self::mark_all_oauth_notifications_read_impl(self, user_id).await
-    }
-    async fn get_all_oauth_notifications(
-        &self,
-        user_id: Uuid,
-        limit: Option<i64>,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        Self::get_all_oauth_notifications(self, user_id, limit).await
-    }
     fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
         Self::encrypt_data_with_aad_impl(self, data, aad)
     }
@@ -3945,11 +3961,45 @@ impl SecurityDbOps for Database {
 }
 
 #[async_trait]
-impl SocialDbOps for Database {
-    async fn store_insight(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
+impl NotificationRepository for Database {
+    async fn store(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        success: bool,
+        message: &str,
+        expires_at: Option<&str>,
+    ) -> AppResult<String> {
+        Self::store_oauth_notification(self, user_id, provider, success, message, expires_at).await
+    }
+
+    async fn get_unread(&self, user_id: Uuid) -> AppResult<Vec<OAuthNotification>> {
+        Self::get_unread_oauth_notifications(self, user_id).await
+    }
+
+    async fn mark_read(&self, notification_id: &str, user_id: Uuid) -> AppResult<bool> {
+        Self::mark_oauth_notification_read(self, notification_id, user_id).await
+    }
+
+    async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64> {
+        Self::mark_all_oauth_notifications_read_impl(self, user_id).await
+    }
+
+    async fn get_all(
+        &self,
+        user_id: Uuid,
+        limit: Option<i64>,
+    ) -> AppResult<Vec<OAuthNotification>> {
+        Self::get_all_oauth_notifications(self, user_id, limit).await
+    }
+}
+
+#[async_trait]
+impl InsightRepository for Database {
+    async fn store(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
         Self::store_insight_impl(self, user_id, insight_data).await
     }
-    async fn get_user_insights(
+    async fn get_for_user(
         &self,
         user_id: Uuid,
         insight_type: Option<&str>,

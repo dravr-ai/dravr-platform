@@ -19,7 +19,7 @@ use pierre_mcp_server::auth::AuthManager;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::config::environment::RateLimitConfig;
 use pierre_mcp_server::database::generate_encryption_key;
-use pierre_mcp_server::database_plugins::{factory::Database, UserDbOps};
+use pierre_mcp_server::database_plugins::{factory::Database, UserRepository};
 use pierre_mcp_server::middleware::McpAuthMiddleware;
 use pierre_mcp_server::models::User;
 use std::sync::Arc;
@@ -56,7 +56,7 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
         "hashed_password".to_owned(),
         Some("JWT Test User".to_owned()),
     );
-    database.create_user(&user).await.unwrap();
+    UserRepository::create(&*database, &user).await.unwrap();
 
     // Create a JWT token for the user (using same secret for consistency)
     let token_auth_manager = AuthManager::new(24);

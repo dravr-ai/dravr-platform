@@ -30,7 +30,7 @@ use crate::database::repositories::{
 };
 use crate::database::store_listings::StoreListingsManager;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::SecurityDbOps;
+use crate::database_plugins::SecurityRepository;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,

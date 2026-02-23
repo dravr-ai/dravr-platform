@@ -27,7 +27,7 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
-use crate::database_plugins::{factory::Database, OAuthTokenOps, SecurityDbOps};
+use crate::database_plugins::{factory::Database, NotificationRepository, OAuthTokenRepository};
 use crate::errors::{AppError, AppResult};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::schema::ProgressNotification;
@@ -53,7 +53,7 @@ use tracing::{debug, error, info, warn, Level};
 use uuid::Uuid;
 
 use crate::constants::service_names::PIERRE_MCP_SERVER;
-use crate::database_plugins::UsageDbOps;
+use crate::database_plugins::UsageRepository;
 use crate::middleware::{request_id_middleware, setup_cors};
 #[cfg(feature = "oauth")]
 use crate::oauth2_server::OAuth2RateLimiter;
@@ -224,7 +224,7 @@ impl MultiTenantMcpServer {
         };
 
         database
-            .record_api_key_usage(&usage)
+            .record_api_key(&usage)
             .await
             .map_err(|e| AppError::database(format!("Failed to record API key usage: {e}")))?;
         Ok(())
@@ -447,7 +447,7 @@ impl MultiTenantMcpServer {
             user_id, tenant_id_str
         );
         let strava_connected = database
-            .get_user_oauth_token(user_id, tenant_context.tenant_id, "strava")
+            .get_token(user_id, tenant_context.tenant_id, "strava")
             .await
             .map_or_else(
                 |e| {
@@ -463,7 +463,7 @@ impl MultiTenantMcpServer {
 
         // Check Fitbit connection status
         let fitbit_connected = database
-            .get_user_oauth_token(user_id, tenant_context.tenant_id, "fitbit")
+            .get_token(user_id, tenant_context.tenant_id, "fitbit")
             .await
             .is_ok_and(|token| token.is_some());
 
@@ -475,13 +475,10 @@ impl MultiTenantMcpServer {
 
     /// Build notifications text from unread notifications
     async fn build_notifications_text(database: &Arc<Database>, user_id: Uuid) -> String {
-        let unread_notifications = database
-            .get_unread_oauth_notifications(user_id)
-            .await
-            .unwrap_or_else(|e| {
-                warn!("Failed to fetch unread notifications: {e}");
-                Vec::new()
-            });
+        let unread_notifications = database.get_unread(user_id).await.unwrap_or_else(|e| {
+            warn!("Failed to fetch unread notifications: {e}");
+            Vec::new()
+        });
 
         if unread_notifications.is_empty() {
             String::new()
@@ -513,7 +510,7 @@ impl MultiTenantMcpServer {
         database: &Arc<Database>,
     ) -> Value {
         let unread_notifications = database
-            .get_unread_oauth_notifications(tenant_context.user_id)
+            .get_unread(tenant_context.user_id)
             .await
             .unwrap_or_else(|e| {
                 warn!(

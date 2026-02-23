@@ -9,7 +9,7 @@
 
 use crate::constants::get_server_config;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::UserRepository;
 use crate::errors::{AppError, AppResult};
 use crate::models::User;
 use std::sync::Arc;
@@ -45,7 +45,7 @@ impl A2ASystemUserService {
         // Check if system user already exists
         if let Some(existing_user) = self
             .database
-            .get_user_by_email(&system_email)
+            .get_by_email(&system_email)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?
         {
@@ -76,7 +76,7 @@ impl A2ASystemUserService {
 
         let user_id = self
             .database
-            .create_user(&system_user)
+            .create(&system_user)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
 
@@ -127,7 +127,7 @@ impl A2ASystemUserService {
         if let Some(user) = self
             .database
             // SECURITY: Global lookup — A2A system user validation, cross-tenant by design
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
         {
@@ -147,7 +147,7 @@ impl A2ASystemUserService {
         if let Some(user) = self
             .database
             // SECURITY: Global lookup — A2A system user validation, cross-tenant by design
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
         {
@@ -173,7 +173,7 @@ impl A2ASystemUserService {
 
         if let Some(user) = self
             .database
-            .get_user_by_email(&system_email)
+            .get_by_email(&system_email)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?
         {

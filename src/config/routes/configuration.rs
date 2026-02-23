@@ -24,7 +24,7 @@ use crate::config::{
     validation::{ConfigValidator, ValidationResult},
 };
 use crate::constants::physiology;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::UserRepository;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::types::json_schemas;
@@ -380,7 +380,7 @@ impl ConfigurationRoutes {
         let user_id = auth.user_id;
 
         // SECURITY: Global lookup — config route, tenant not in scope for user check
-        if let Err(e) = self.resources.database.get_user_global(user_id).await {
+        if let Err(e) = self.resources.database.get_global(user_id).await {
             debug!("Database user lookup failed: {}", e);
         }
 
@@ -466,7 +466,7 @@ impl ConfigurationRoutes {
         }
 
         // SECURITY: Global lookup — config save, tenant not in scope for user check
-        if let Err(e) = self.resources.database.get_user_global(user_id).await {
+        if let Err(e) = self.resources.database.get_global(user_id).await {
             debug!("Database user lookup failed during save: {}", e);
         }
 

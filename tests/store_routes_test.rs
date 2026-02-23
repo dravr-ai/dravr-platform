@@ -19,7 +19,7 @@ use pierre_mcp_server::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
 };
 use pierre_mcp_server::database::{Coach, StoreListingsManager};
-use pierre_mcp_server::database_plugins::TenantDbOps;
+use pierre_mcp_server::database_plugins::TenantRepository;
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::TenantId;
 use pierre_mcp_server::routes::store::{
@@ -119,11 +119,7 @@ async fn test_browse_store_with_published_coaches() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -168,11 +164,7 @@ async fn test_browse_store_with_category_filter() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -216,11 +208,7 @@ async fn test_browse_store_with_cursor_pagination() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -297,11 +285,7 @@ async fn test_cursor_pagination_with_popular_sort() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -375,11 +359,7 @@ async fn test_cursor_pagination_with_title_sort() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -439,11 +419,7 @@ async fn test_cursor_invalid_for_different_sort_order() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -489,11 +465,7 @@ async fn test_browse_store_sort_by_popular() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -561,11 +533,7 @@ async fn test_get_coach_detail() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -630,11 +598,7 @@ async fn test_search_coaches() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -709,11 +673,7 @@ async fn test_list_categories() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -798,11 +758,7 @@ async fn test_install_coach() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -841,11 +797,7 @@ async fn test_install_coach_already_installed() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -900,11 +852,7 @@ async fn test_install_increments_install_count() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -952,11 +900,7 @@ async fn test_uninstall_coach() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -1006,11 +950,7 @@ async fn test_uninstall_coach_not_from_store() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -1091,11 +1031,7 @@ async fn test_list_installations() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
 
-    let tenants = resources
-        .database
-        .list_tenants_for_user(user_id)
-        .await
-        .unwrap();
+    let tenants = resources.database.list_for_user(user_id).await.unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -1159,11 +1095,7 @@ async fn test_published_coaches_visible_cross_tenant() {
     let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
         .await
         .unwrap();
-    let tenants1 = resources
-        .database
-        .list_tenants_for_user(user1_id)
-        .await
-        .unwrap();
+    let tenants1 = resources.database.list_for_user(user1_id).await.unwrap();
     let tenant1_id = tenants1
         .first()
         .map_or_else(|| TenantId::from(user1_id), |t| t.id);
@@ -1205,11 +1137,7 @@ async fn test_installations_isolated_per_user() {
     let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
         .await
         .unwrap();
-    let tenants1 = resources
-        .database
-        .list_tenants_for_user(user1_id)
-        .await
-        .unwrap();
+    let tenants1 = resources.database.list_for_user(user1_id).await.unwrap();
     let tenant1_id = tenants1
         .first()
         .map_or_else(|| TenantId::from(user1_id), |t| t.id);

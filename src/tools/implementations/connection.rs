@@ -25,7 +25,9 @@ use uuid::Uuid;
 
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::{OAuth2ServerOps, OAuthTokenOps, TenantDbOps, UserDbOps};
+use crate::database_plugins::{
+    OAuthClientStateRepository, OAuthTokenRepository, TenantRepository, UserRepository,
+};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;
@@ -72,7 +74,7 @@ async fn build_tenant_context(
         .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?;
 
     let tenant_name = database
-        .get_tenant_by_id(tenant_id)
+        .get_by_id(tenant_id)
         .await
         .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
 
@@ -202,19 +204,16 @@ impl McpTool for ConnectProviderTool {
         }
 
         // SECURITY: Global lookup — connection tool, tenant resolved from user's membership
-        database
-            .get_user_global(context.user_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::ResourceNotFound,
-                    format!("User {} not found", context.user_id),
-                )
-            })?;
+        database.get_global(context.user_id).await?.ok_or_else(|| {
+            AppError::new(
+                ErrorCode::ResourceNotFound,
+                format!("User {} not found", context.user_id),
+            )
+        })?;
 
         // Resolve user's default tenant from tenant_users junction table (fallback)
         let user_default_tenant_id = database
-            .list_tenants_for_user(context.user_id)
+            .list_for_user(context.user_id)
             .await
             .ok()
             .and_then(|t| t.first().map(|tenant| tenant.id));
@@ -446,7 +445,7 @@ impl McpTool for DisconnectProviderTool {
 
         // Disconnect by deleting the token directly
         match database
-            .delete_user_oauth_token(context.user_id, tenant_id, provider)
+            .delete_token(context.user_id, tenant_id, provider)
             .await
         {
             Ok(()) => Ok(ToolResult::ok(json!({

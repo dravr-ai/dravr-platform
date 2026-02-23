@@ -18,7 +18,7 @@ use helpers::axum_test::AxumTestRequest;
 use pierre_mcp_server::database::coaches::{
     CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest,
 };
-use pierre_mcp_server::database_plugins::TenantDbOps;
+use pierre_mcp_server::database_plugins::TenantRepository;
 use pierre_mcp_server::routes::coaches::{
     CoachResponse, CoachesRoutes, ListCoachesResponse, RecordUsageResponse, ToggleFavoriteResponse,
 };
@@ -606,7 +606,7 @@ async fn test_system_coaches_visible_in_list() {
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.database.get_all_tenants().await.unwrap();
+    let all_tenants = resources.database.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -670,7 +670,7 @@ async fn test_get_system_coach_by_id() {
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.database.get_all_tenants().await.unwrap();
+    let all_tenants = resources.database.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -725,7 +725,7 @@ async fn test_hide_system_coach_via_api() {
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.database.get_all_tenants().await.unwrap();
+    let all_tenants = resources.database.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -787,7 +787,7 @@ async fn test_show_hidden_coach_via_api() {
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.database.get_all_tenants().await.unwrap();
+    let all_tenants = resources.database.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)
@@ -855,7 +855,7 @@ async fn test_list_with_include_hidden() {
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
     // Get the user's tenant from the tenant where they are the owner
-    let all_tenants = resources.database.get_all_tenants().await.unwrap();
+    let all_tenants = resources.database.get_all().await.unwrap();
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)

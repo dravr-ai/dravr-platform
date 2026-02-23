@@ -25,7 +25,7 @@ use crate::config::environment::TrainingZonesConfig;
 use crate::config::profiles::ProfileTemplates;
 use crate::constants::configuration_system::AVAILABLE_PARAMETERS_COUNT;
 use crate::constants::limits::METERS_PER_KILOMETER;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::ProfileRepository;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::physiological_constants::configuration_validation;
 use crate::intelligence::physiological_constants::heart_rate_zones::{
@@ -377,7 +377,7 @@ impl McpTool for GetUserConfigurationTool {
         let user_id_str = ctx.user_id.to_string();
 
         match (*ctx.resources.database)
-            .get_user_configuration(&user_id_str)
+            .get_configuration(&user_id_str)
             .await
         {
             Ok(Some(config_str)) => {
@@ -528,7 +528,7 @@ impl McpTool for UpdateUserConfigurationTool {
             .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
 
         (*ctx.resources.database)
-            .save_user_configuration(&user_id_str, &config_json)
+            .save_configuration(&user_id_str, &config_json)
             .await
             .map_err(|e| AppError::internal(format!("Failed to update configuration: {e}")))?;
 

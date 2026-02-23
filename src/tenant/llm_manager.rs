@@ -14,8 +14,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::config::LlmProviderType;
-use crate::database_plugins::TenantDbOps;
-use crate::database_plugins::{factory::Database, SecurityDbOps};
+use crate::database_plugins::{factory::Database, LlmCredentialRepository, SecurityRepository};
 use crate::errors::{AppError, AppResult};
 
 /// Environment variable names for LLM provider API keys
@@ -256,7 +255,7 @@ impl TenantLlmManager {
             created_by,
         };
 
-        database.store_llm_credentials(&record).await?;
+        database.store_credentials(&record).await?;
 
         info!(
             "Stored {} LLM credentials for {} (tenant: {}, user: {:?})",
@@ -281,7 +280,7 @@ impl TenantLlmManager {
         database: &Database,
     ) -> AppResult<bool> {
         let deleted = database
-            .delete_llm_credentials(tenant_id, user_id, provider.as_str())
+            .delete_credentials(tenant_id, user_id, provider.as_str())
             .await?;
 
         if deleted {
@@ -306,7 +305,7 @@ impl TenantLlmManager {
         tenant_id: TenantId,
         database: &Database,
     ) -> AppResult<Vec<LlmCredentialSummary>> {
-        database.list_llm_credentials(tenant_id).await
+        database.list_credentials(tenant_id).await
     }
 
     /// Check if credentials exist for a provider (without decrypting)
@@ -319,7 +318,7 @@ impl TenantLlmManager {
         // Check user-specific
         if let Some(uid) = user_id {
             if database
-                .get_llm_credentials(tenant_id, Some(uid), provider.as_str())
+                .get_credentials(tenant_id, Some(uid), provider.as_str())
                 .await
                 .ok()
                 .flatten()
@@ -331,7 +330,7 @@ impl TenantLlmManager {
 
         // Check tenant-level
         if database
-            .get_llm_credentials(tenant_id, None, provider.as_str())
+            .get_credentials(tenant_id, None, provider.as_str())
             .await
             .ok()
             .flatten()
@@ -383,7 +382,7 @@ impl TenantLlmManager {
         database: &Database,
     ) -> Option<LlmCredentials> {
         let result = database
-            .get_llm_credentials(tenant_id, Some(user_id), provider.as_str())
+            .get_credentials(tenant_id, Some(user_id), provider.as_str())
             .await;
 
         match result {
@@ -423,7 +422,7 @@ impl TenantLlmManager {
         database: &Database,
     ) -> Option<LlmCredentials> {
         let result = database
-            .get_llm_credentials(tenant_id, None, provider.as_str())
+            .get_credentials(tenant_id, None, provider.as_str())
             .await;
 
         match result {

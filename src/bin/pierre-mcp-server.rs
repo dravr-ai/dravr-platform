@@ -20,7 +20,7 @@ use pierre_mcp_server::{
     cache::factory::Cache,
     config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig},
     constants::init_server_config,
-    database_plugins::{factory::Database, SecurityDbOps, UserDbOps},
+    database_plugins::{factory::Database, SecurityRepository, UserRepository},
     errors::{AppError, AppResult},
     features::FeatureConfig,
     key_management::KeyManager,
@@ -399,7 +399,7 @@ fn log_missing_admin_warning(auto_approve: bool) {
 
 /// Check admin user status and log appropriate startup message
 async fn check_admin_status(database: &Database, auto_approve: bool) {
-    match database.get_users_by_status("active", None).await {
+    match database.get_by_status("active", None).await {
         Ok(users) => {
             let admin_exists = users.iter().any(|u| u.is_admin);
             if admin_exists {

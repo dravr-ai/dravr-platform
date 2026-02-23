@@ -9,7 +9,10 @@ use chrono::Utc;
 use pierre_mcp_server::{
     constants::tiers,
     database::CreateUserMcpTokenRequest,
-    database_plugins::{factory::Database, AdminDbOps, SecurityDbOps, TenantDbOps, UserDbOps},
+    database_plugins::{
+        factory::Database, SecurityRepository, TenantRepository, UserMcpTokenRepository,
+        UserRepository,
+    },
     errors::{AppError, AppResult},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -38,7 +41,7 @@ pub async fn create(
     info!("User Creating {} user: {}", role_str, email);
 
     // Check if user already exists and handle accordingly
-    if let Ok(Some(existing_user)) = database.get_user_by_email(&email).await {
+    if let Ok(Some(existing_user)) = database.get_by_email(&email).await {
         update_existing_admin_user(
             database,
             existing_user,
@@ -108,7 +111,7 @@ async fn update_existing_admin_user(
         auth_provider: existing_user.auth_provider,
     };
 
-    database.create_user(&updated_user).await?;
+    UserRepository::create(database, &updated_user).await?;
     Ok(())
 }
 
@@ -136,10 +139,7 @@ async fn create_default_mcp_token_for_user(database: &Database, user_id: Uuid) {
         expires_in_days: None, // Never expires
     };
 
-    match database
-        .create_user_mcp_token(user_id, &token_request)
-        .await
-    {
+    match UserMcpTokenRepository::create_token(database, user_id, &token_request).await {
         Ok(token_result) => {
             info!(
                 user_id = %user_id,
@@ -178,10 +178,10 @@ async fn create_and_link_personal_tenant(
         updated_at: Utc::now(),
     };
 
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(database, &tenant).await?;
     info!("Created personal tenant: {} ({})", tenant.name, tenant_id);
 
-    database.update_user_tenant_id(user_id, tenant_id).await?;
+    database.update_tenant_id(user_id, tenant_id).await?;
 
     Ok(())
 }
@@ -237,7 +237,7 @@ async fn create_new_admin_user(
         .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?;
     let new_user = build_admin_user(user_id, email, password_hash, name, role);
 
-    database.create_user(&new_user).await?;
+    UserRepository::create(database, &new_user).await?;
     info!("Created {} user: {}", role_str, email);
 
     create_and_link_personal_tenant(database, user_id, name, "admin").await?;

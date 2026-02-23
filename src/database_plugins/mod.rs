@@ -18,8 +18,13 @@ pub mod social_postgres;
 /// Shared database logic (enum conversions, validation, mappers, encryption, etc.)
 pub mod shared;
 
-pub use pierre_database::provider::DatabaseProvider;
-pub use pierre_database::provider::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthDbOps,
-    OAuthTokenOps, SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+pub use pierre_database::repositories::{
+    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
+    FitnessConfigRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
+    LlmUsageRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
+    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository, ProfileRepository,
+    ProviderConnectionRepository, RecipeRepository, SecurityRepository, SocialRepository,
+    TenantRepository, ToolSelectionRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserRepository,
 };
+pub use pierre_database::DatabaseProvider;

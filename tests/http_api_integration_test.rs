@@ -26,7 +26,9 @@ use pierre_mcp_server::{
     },
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, ApiKeyDbOps, DatabaseProvider, TenantDbOps, UserDbOps},
+    database_plugins::{
+        factory::Database, ApiKeyRepository, DatabaseProvider, TenantRepository, UserRepository,
+    },
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -83,7 +85,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = database.create_user(&admin_user).await?;
+    let admin_id = UserRepository::create(&*database, &admin_user).await?;
 
     // Create tenant
     let tenant_id = TenantId::new();
@@ -97,7 +99,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(&*database, &tenant).await?;
 
     // Store tenant OAuth credentials
     let strava_credentials = TenantOAuthCredentials {
@@ -110,7 +112,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         rate_limit_per_day: 15000,
     };
     database
-        .store_tenant_oauth_credentials(&strava_credentials)
+        .store_oauth_credentials(&strava_credentials)
         .await?;
 
     let fitbit_credentials = TenantOAuthCredentials {
@@ -123,7 +125,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         rate_limit_per_day: 15000,
     };
     database
-        .store_tenant_oauth_credentials(&fitbit_credentials)
+        .store_oauth_credentials(&fitbit_credentials)
         .await?;
 
     // Create basic config with correct structure
@@ -332,7 +334,7 @@ async fn create_approved_test_user(
     active_user.user_status = UserStatus::Active;
     active_user.approved_at = Some(chrono::Utc::now());
 
-    database.create_user(&active_user).await?;
+    UserRepository::create(database, &active_user).await?;
     Ok(user_id.to_string())
 }
 
@@ -353,7 +355,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
 
     // Test 2: Verify user is created with pending status
     let user_id = uuid::Uuid::parse_str(&register_response.user_id)?;
-    let user = database.get_user_global(user_id).await?.unwrap();
+    let user = database.get_global(user_id).await?.unwrap();
     assert_eq!(user.user_status, UserStatus::Pending);
 
     // Test 3: Login succeeds for pending user but returns pending status
@@ -378,7 +380,7 @@ async fn test_sdk_user_registration_flow() -> Result<()> {
 
     // Test 4: Approve user and verify status changes to active
     database
-        .update_user_status(user_id, UserStatus::Active, None)
+        .update_status(user_id, UserStatus::Active, None)
         .await?;
 
     let active_login_response = auth_routes
@@ -448,7 +450,7 @@ async fn test_sdk_api_key_management() -> Result<()> {
     };
 
     let (api_key, api_key_string) = api_key_manager.create_api_key(user_id, create_request)?;
-    database.create_api_key(&api_key).await?;
+    ApiKeyRepository::create(&*database, &api_key).await?;
 
     // Test 2: Verify API key is created
     assert!(!api_key_string.is_empty());
@@ -457,8 +459,7 @@ async fn test_sdk_api_key_management() -> Result<()> {
     assert_eq!(api_key.user_id, user_id);
 
     // Test 3: Verify API key in database
-    let api_key_details = database
-        .get_api_key_by_id(&api_key.id, None)
+    let api_key_details = ApiKeyRepository::get_by_id(&*database, &api_key.id, None)
         .await?
         .unwrap();
     assert_eq!(api_key_details.name, "SDK Test Key");
@@ -560,7 +561,7 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
 
     // Step 2: Admin approves user (simulated, service token approval)
     database
-        .update_user_status(user_id, UserStatus::Active, None)
+        .update_status(user_id, UserStatus::Active, None)
         .await?;
 
     // Step 3: User logs in
@@ -591,18 +592,17 @@ async fn test_sdk_complete_onboarding_simulation() -> Result<()> {
     };
 
     let (api_key, api_key_string) = api_key_manager.create_api_key(user_id, create_request)?;
-    database.create_api_key(&api_key).await?;
+    ApiKeyRepository::create(&*database, &api_key).await?;
 
     // Step 6: Verify complete setup
-    let user = database.get_user_global(user_id).await?.unwrap();
+    let user = database.get_global(user_id).await?.unwrap();
     assert_eq!(user.user_status, UserStatus::Active);
     assert_eq!(user.email, "complete_test@example.com");
 
     // Skip OAuth app verification for now due to type mismatch
     // The OAuth URLs are generated successfully using environment variables
 
-    let stored_api_key = database
-        .get_api_key_by_id(&api_key.id, None)
+    let stored_api_key = ApiKeyRepository::get_by_id(&*database, &api_key.id, None)
         .await?
         .unwrap();
     assert_eq!(stored_api_key.name, "Complete Test API Key");
