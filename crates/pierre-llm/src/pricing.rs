@@ -29,6 +29,14 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
     // Gemini models (provider name matches GeminiProvider::name() = "gemini")
     (
         "gemini",
+        "gemini-3-flash",
+        ModelPricing {
+            input_per_million: 0.50,
+            output_per_million: 3.0,
+        },
+    ),
+    (
+        "gemini",
         "gemini-2.5-pro",
         ModelPricing {
             input_per_million: 1.25,
