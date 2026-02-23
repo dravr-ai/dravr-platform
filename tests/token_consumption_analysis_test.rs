@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(clippy::cast_possible_wrap)]
 #![allow(missing_docs)]
 
 use pierre_mcp_server::formatters::{format_output, OutputFormat, TokenEfficiencyMetrics};
@@ -59,8 +60,8 @@ fn create_realistic_activities(count: usize) -> Vec<ActivitySample> {
                 elapsed_time_seconds: 2000 + (i as u32 * 50),
                 total_elevation_gain: (i as f64) * 12.5,
                 start_date: format!("2026-{month:02}-{day:02}T07:30:00Z"),
-                average_speed: 2.5 + (i as f64 * 0.05),
-                max_speed: 4.0 + (i as f64 * 0.08),
+                average_speed: (i as f64).mul_add(0.05, 2.5),
+                max_speed: (i as f64).mul_add(0.08, 4.0),
                 average_heartrate: if i % 3 == 0 {
                     None
                 } else {
@@ -74,9 +75,9 @@ fn create_realistic_activities(count: usize) -> Vec<ActivitySample> {
                 suffer_score: if i % 4 == 0 {
                     None
                 } else {
-                    Some(50.0 + i as f64 * 2.0)
+                    Some((i as f64).mul_add(2.0, 50.0))
                 },
-                calories: Some(300.0 + i as f64 * 15.0),
+                calories: Some((i as f64).mul_add(15.0, 300.0)),
             }
         })
         .collect()
@@ -92,9 +93,12 @@ mod axis1_schema_tokens {
         let estimate = registry.total_schema_token_estimate();
 
         println!("\n=== AXIS 1: Tool Schema Token Budget (DRAVR-419) ===");
-        println!("Total tools registered: {}", estimate.tool_count);
-        println!("Total schema bytes:     {}", estimate.total_bytes);
-        println!("Estimated tokens:       {}", estimate.estimated_tokens);
+        let tool_count = estimate.tool_count;
+        let total_bytes = estimate.total_bytes;
+        let estimated_tokens = estimate.estimated_tokens;
+        println!("Total tools registered: {tool_count}");
+        println!("Total schema bytes:     {total_bytes}");
+        println!("Estimated tokens:       {estimated_tokens}");
         println!();
         println!("Top 10 tools by token cost:");
         println!("{:<40} {:>8} {:>8}", "Tool", "Bytes", "Tokens");
@@ -128,6 +132,17 @@ mod axis1_schema_tokens {
 
 mod axis1_toon_efficiency {
     use super::*;
+
+    #[derive(Serialize)]
+    struct Stats {
+        total_distance: f64,
+        total_duration: u32,
+        activity_count: u32,
+        avg_heartrate: f64,
+        max_heartrate: f64,
+        total_elevation: f64,
+        weekly_volume: f64,
+    }
 
     #[test]
     fn test_toon_vs_json_savings_with_realistic_data() {
@@ -172,14 +187,12 @@ mod axis1_toon_efficiency {
 
         println!();
         println!("--- Detailed: 50 activities ---");
-        println!(
-            "JSON: {} bytes, {} tokens",
-            json_m.byte_size, json_m.estimated_tokens
-        );
-        println!(
-            "TOON: {} bytes, {} tokens",
-            toon_m.byte_size, toon_m.estimated_tokens
-        );
+        let json_bytes = json_m.byte_size;
+        let json_tokens = json_m.estimated_tokens;
+        let toon_bytes = toon_m.byte_size;
+        let toon_tokens = toon_m.estimated_tokens;
+        println!("JSON: {json_bytes} bytes, {json_tokens} tokens");
+        println!("TOON: {toon_bytes} bytes, {toon_tokens} tokens");
         println!(
             "Savings: {:.1}% bytes, compression ratio {:.2}x",
             toon_m.token_savings_percent, toon_m.compression_ratio
@@ -214,16 +227,6 @@ mod axis1_toon_efficiency {
         }
 
         // Small stats object
-        #[derive(Serialize)]
-        struct Stats {
-            total_distance: f64,
-            total_duration: u32,
-            activity_count: u32,
-            avg_heartrate: f64,
-            max_heartrate: f64,
-            total_elevation: f64,
-            weekly_volume: f64,
-        }
         let stats = Stats {
             total_distance: 245_000.0,
             total_duration: 86_400,
@@ -271,7 +274,7 @@ mod axis2_prompt_sizes {
         for (name, content) in prompts {
             let bytes = content.len();
             let tokens = TokenEfficiencyMetrics::estimate_tokens(content);
-            println!("{:<30} {:>10} {:>12}", name, bytes, tokens);
+            println!("{name:<30} {bytes:>10} {tokens:>12}");
             total_bytes += bytes;
             total_tokens += tokens;
             if *name == "PIERRE_SYSTEM_PROMPT" {
@@ -284,11 +287,8 @@ mod axis2_prompt_sizes {
 
         let system_pct = system_tokens as f64 / total_tokens as f64 * 100.0;
         println!();
-        println!("Total: {} bytes, {} tokens", total_bytes, total_tokens);
-        println!(
-            "System prompt is {:.1}% of total static prompt budget",
-            system_pct
-        );
+        println!("Total: {total_bytes} bytes, {total_tokens} tokens");
+        println!("System prompt is {system_pct:.1}% of total static prompt budget");
 
         assert!(system_tokens > 0, "System prompt should have tokens");
         // System prompt should be the largest
@@ -311,11 +311,8 @@ mod axis2_prompt_sizes {
         let per_turn = user_tokens_per_turn + assistant_tokens_per_turn + tool_tokens_per_turn;
 
         println!("\n=== AXIS 2: Conversation Token Growth Projection (DRAVR-420) ===");
-        println!("System prompt:     {} tokens", system_tokens);
-        println!(
-            "Per-turn budget:   {} tokens (user={}, assistant={}, tools={})",
-            per_turn, user_tokens_per_turn, assistant_tokens_per_turn, tool_tokens_per_turn
-        );
+        println!("System prompt:     {system_tokens} tokens");
+        println!("Per-turn budget:   {per_turn} tokens (user={user_tokens_per_turn}, assistant={assistant_tokens_per_turn}, tools={tool_tokens_per_turn})");
         println!();
         println!(
             "{:<8} {:>14} {:>14} {:>16} {:>16}",
@@ -341,10 +338,7 @@ mod axis2_prompt_sizes {
                 total_output as i64,
             );
 
-            println!(
-                "{:<8} {:>14} {:>14} {:>15.6} {:>15.6}",
-                turns, total_billed, total_output, cost_3flash, cost_25flash
-            );
+            println!("{turns:<8} {total_billed:>14} {total_output:>14} {cost_3flash:>15.6} {cost_25flash:>15.6}");
         }
 
         assert!(
@@ -468,14 +462,8 @@ mod axis2_cost_projections {
 
         println!();
         println!("Single operation costs (gemini-3-flash):");
-        println!(
-            "  Insight generation: {} input tokens + {} output → ${:.6}",
-            insight_tokens, insight_output, insight_cost
-        );
-        println!(
-            "  Coach generation:   {} input tokens + {} output → ${:.6}",
-            coach_tokens, coach_output, coach_cost
-        );
+        println!("  Insight generation: {insight_tokens} input tokens + {insight_output} output → ${insight_cost:.6}");
+        println!("  Coach generation:   {coach_tokens} input tokens + {coach_output} output → ${coach_cost:.6}");
     }
 
     #[test]
@@ -506,29 +494,17 @@ mod axis2_cost_projections {
         let total_monthly_waste = redundant_system_tokens + redundant_activity_tokens;
 
         println!("\n=== AXIS 2: Cache Opportunity Analysis (DRAVR-420) ===");
-        println!(
-            "System prompt: {} tokens, sent {} times/month",
-            system_tokens, system_prompt_sends
-        );
-        println!(
-            "  Redundant: {} tokens (74 extra sends) → ${:.6} waste",
-            redundant_system_tokens, system_waste_cost
-        );
+        println!("System prompt: {system_tokens} tokens, sent {system_prompt_sends} times/month");
+        println!("  Redundant: {redundant_system_tokens} tokens (74 extra sends) → ${system_waste_cost:.6} waste");
         println!();
         println!(
-            "Activity data: {} tokens/fetch, {} fetches/month",
-            activity_data_tokens, activity_fetches
+            "Activity data: {activity_data_tokens} tokens/fetch, {activity_fetches} fetches/month"
         );
-        println!(
-            "  Redundant: {} tokens (49 extra fetches) → ${:.6} waste",
-            redundant_activity_tokens, activity_waste_cost
-        );
+        println!("  Redundant: {redundant_activity_tokens} tokens (49 extra fetches) → ${activity_waste_cost:.6} waste");
         println!();
-        println!("Total monthly token waste: {}", total_monthly_waste);
-        println!(
-            "Total monthly cost waste:  ${:.6}",
-            system_waste_cost + activity_waste_cost
-        );
+        println!("Total monthly token waste: {total_monthly_waste}");
+        let total_waste_cost = system_waste_cost + activity_waste_cost;
+        println!("Total monthly cost waste:  ${total_waste_cost:.6}");
         println!();
         println!("Batch API eligibility:");
         println!("  Insight generation: YES (async, no user interaction)");
