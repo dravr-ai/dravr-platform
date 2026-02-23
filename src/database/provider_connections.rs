@@ -7,8 +7,10 @@
 use crate::database::Database;
 use crate::errors::AppResult;
 use crate::models::{ConnectionType, ProviderConnection};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::ProviderConnectionRepository;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -174,5 +176,45 @@ impl Database {
         .await?;
 
         Ok(count > 0)
+    }
+}
+
+#[async_trait]
+impl ProviderConnectionRepository for Database {
+    async fn register_connection(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        connection_type: &ConnectionType,
+        metadata: Option<&str>,
+    ) -> AppResult<()> {
+        Self::register_provider_connection_impl(
+            self,
+            user_id,
+            tenant_id,
+            provider,
+            connection_type,
+            metadata,
+        )
+        .await
+    }
+    async fn remove_connection(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        Self::remove_provider_connection_impl(self, user_id, tenant_id, provider).await
+    }
+    async fn get_for_user(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<ProviderConnection>> {
+        Self::get_user_provider_connections_impl(self, user_id, tenant_id).await
+    }
+    async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
+        Self::is_provider_connected_impl(self, user_id, provider).await
     }
 }

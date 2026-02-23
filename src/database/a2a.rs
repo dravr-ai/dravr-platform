@@ -10,10 +10,12 @@ use super::Database;
 use crate::database_plugins::shared::transactions::SqliteTransactionGuard;
 use crate::database_plugins::shared::{enums, mappers};
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 pub use pierre_core::models::a2a::{
     A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
+use pierre_database::repositories::A2ARepository;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
@@ -1162,5 +1164,110 @@ impl Database {
     /// Returns error if database operation fails
     pub async fn update_a2a_session_activity(&self, session_token: &str) -> AppResult<()> {
         self.update_a2a_session_activity_impl(session_token).await
+    }
+}
+
+#[async_trait]
+impl A2ARepository for Database {
+    async fn create_client(
+        &self,
+        client: &A2AClient,
+        client_secret: &str,
+        api_key_id: &str,
+    ) -> AppResult<String> {
+        Self::create_a2a_client(self, client, client_secret, api_key_id).await
+    }
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
+        Self::get_a2a_client_impl(self, client_id).await
+    }
+    async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
+        Self::get_a2a_client_by_api_key_id_impl(self, api_key_id).await
+    }
+    async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
+        Self::get_a2a_client_by_name_impl(self, name).await
+    }
+    async fn list_clients(&self, user_id: &Uuid) -> AppResult<Vec<A2AClient>> {
+        Self::list_a2a_clients_impl(self, user_id).await
+    }
+    async fn deactivate_client(&self, client_id: &str) -> AppResult<()> {
+        Self::deactivate_a2a_client_impl(self, client_id).await
+    }
+    async fn get_client_credentials(&self, client_id: &str) -> AppResult<Option<(String, String)>> {
+        Self::get_a2a_client_credentials(self, client_id).await
+    }
+    async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
+        Self::invalidate_a2a_client_sessions_impl(self, client_id).await
+    }
+    async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()> {
+        Self::deactivate_client_api_keys_impl(self, client_id).await
+    }
+    async fn create_session(
+        &self,
+        client_id: &str,
+        user_id: Option<&Uuid>,
+        granted_scopes: &[String],
+        expires_in_hours: i64,
+    ) -> AppResult<String> {
+        Self::create_a2a_session(self, client_id, user_id, granted_scopes, expires_in_hours).await
+    }
+    async fn get_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
+        Self::get_a2a_session_impl(self, session_token).await
+    }
+    async fn update_session_activity(&self, session_token: &str) -> AppResult<()> {
+        Self::update_a2a_session_activity_impl(self, session_token).await
+    }
+    async fn get_active_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
+        Self::get_active_a2a_sessions_impl(self, client_id).await
+    }
+    async fn create_task(
+        &self,
+        client_id: &str,
+        session_id: Option<&str>,
+        task_type: &str,
+        input_data: &Value,
+    ) -> AppResult<String> {
+        Self::create_a2a_task(self, client_id, session_id, task_type, input_data).await
+    }
+    async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
+        Self::get_a2a_task_impl(self, task_id).await
+    }
+    async fn list_tasks(
+        &self,
+        client_id: Option<&str>,
+        status_filter: Option<&TaskStatus>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<A2ATask>> {
+        Self::list_a2a_tasks(self, client_id, status_filter, limit, offset).await
+    }
+    async fn update_task_status(
+        &self,
+        task_id: &str,
+        status: &TaskStatus,
+        result: Option<&Value>,
+        error: Option<&str>,
+    ) -> AppResult<()> {
+        Self::update_a2a_task_status(self, task_id, status, result, error).await
+    }
+    async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
+        Self::record_a2a_usage_impl(self, usage).await
+    }
+    async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
+        Self::get_a2a_client_current_usage_impl(self, client_id).await
+    }
+    async fn get_usage_stats(
+        &self,
+        client_id: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    ) -> AppResult<A2AUsageStats> {
+        Self::get_a2a_usage_stats(self, client_id, start_date, end_date).await
+    }
+    async fn get_client_usage_history(
+        &self,
+        client_id: &str,
+        days: u32,
+    ) -> AppResult<Vec<(DateTime<Utc>, u32, u32)>> {
+        Self::get_a2a_client_usage_history(self, client_id, days).await
     }
 }

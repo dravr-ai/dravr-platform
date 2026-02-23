@@ -6,9 +6,13 @@
 
 use crate::config::fitness::FitnessConfig;
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use pierre_core::models::TenantId;
+use pierre_database::repositories::FitnessConfigRepository;
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
+
+use super::Database;
 
 /// Database representation of a fitness configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -340,5 +344,82 @@ impl FitnessConfigurationManager {
         }
 
         Ok(records)
+    }
+}
+
+#[async_trait]
+impl FitnessConfigRepository for Database {
+    async fn save_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let manager = self.fitness_configurations();
+        manager
+            .save_tenant_config(tenant_id, configuration_name, config)
+            .await
+    }
+
+    async fn save_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        let manager = self.fitness_configurations();
+        manager
+            .save_user_config(tenant_id, user_id, configuration_name, config)
+            .await
+    }
+
+    async fn get_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        let manager = self.fitness_configurations();
+        manager
+            .get_tenant_config(tenant_id, configuration_name)
+            .await
+    }
+
+    async fn get_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        let manager = self.fitness_configurations();
+        manager
+            .get_user_config(tenant_id, user_id, configuration_name)
+            .await
+    }
+
+    async fn list_tenant_configurations(&self, tenant_id: TenantId) -> AppResult<Vec<String>> {
+        let manager = self.fitness_configurations();
+        manager.list_tenant_configurations(tenant_id).await
+    }
+
+    async fn list_user_configurations(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Vec<String>> {
+        let manager = self.fitness_configurations();
+        manager.list_user_configurations(tenant_id, user_id).await
+    }
+
+    async fn delete_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<&str>,
+        configuration_name: &str,
+    ) -> AppResult<bool> {
+        let manager = self.fitness_configurations();
+        manager
+            .delete_config(tenant_id, user_id, configuration_name)
+            .await
     }
 }

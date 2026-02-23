@@ -8,6 +8,7 @@ use super::Database;
 use crate::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats};
 use crate::database_plugins::ApiKeyRepository;
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -628,5 +629,54 @@ impl Database {
     /// Returns error if database operation fails
     pub async fn get_api_key_current_usage(&self, api_key_id: &str) -> AppResult<u32> {
         self.get_api_key_current_usage_impl(api_key_id).await
+    }
+}
+
+#[async_trait]
+impl ApiKeyRepository for Database {
+    async fn create(&self, api_key: &ApiKey) -> AppResult<()> {
+        Self::create_api_key_impl(self, api_key).await
+    }
+    async fn get_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
+        Self::get_api_key_by_prefix_impl(self, prefix, hash).await
+    }
+    async fn get_for_user(&self, user_id: Uuid) -> AppResult<Vec<ApiKey>> {
+        Self::get_user_api_keys_impl(self, user_id).await
+    }
+    async fn update_last_used(&self, api_key_id: &str) -> AppResult<()> {
+        Self::update_api_key_last_used_impl(self, api_key_id).await
+    }
+    async fn deactivate(&self, api_key_id: &str, user_id: Uuid) -> AppResult<()> {
+        Self::deactivate_api_key_impl(self, api_key_id, user_id).await
+    }
+    async fn get_by_id(
+        &self,
+        api_key_id: &str,
+        user_id: Option<Uuid>,
+    ) -> AppResult<Option<ApiKey>> {
+        Self::get_api_key_by_id_impl(self, api_key_id, user_id).await
+    }
+    async fn get_filtered(
+        &self,
+        _user_email: Option<&str>,
+        active_only: bool,
+        limit: Option<i32>,
+        offset: Option<i32>,
+    ) -> AppResult<Vec<ApiKey>> {
+        Self::get_api_keys_filtered(
+            self,
+            None,
+            None,
+            Some(active_only),
+            limit.unwrap_or(10),
+            offset.unwrap_or(0),
+        )
+        .await
+    }
+    async fn cleanup_expired(&self) -> AppResult<u64> {
+        Self::cleanup_expired_api_keys_impl(self).await
+    }
+    async fn get_expired(&self) -> AppResult<Vec<ApiKey>> {
+        Self::get_expired_api_keys_impl(self).await
     }
 }

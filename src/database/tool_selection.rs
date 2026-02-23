@@ -6,8 +6,10 @@
 
 use crate::errors::{AppError, AppResult};
 use crate::models::{TenantPlan, TenantToolOverride, ToolCatalogEntry, ToolCategory};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::ToolSelectionRepository;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use std::collections::HashMap;
@@ -351,4 +353,65 @@ fn map_tenant_tool_override_row(row: &SqliteRow) -> AppResult<TenantToolOverride
         updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
             .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc)),
     })
+}
+
+#[async_trait]
+impl ToolSelectionRepository for Database {
+    async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tool_catalog_impl(self).await
+    }
+
+    async fn get_tool_catalog_entry(&self, tool_name: &str) -> AppResult<Option<ToolCatalogEntry>> {
+        Self::get_tool_catalog_entry_impl(self, tool_name).await
+    }
+
+    async fn get_tools_by_category(
+        &self,
+        category: ToolCategory,
+    ) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tools_by_category_impl(self, category).await
+    }
+
+    async fn get_tools_by_min_plan(&self, plan: TenantPlan) -> AppResult<Vec<ToolCatalogEntry>> {
+        Self::get_tools_by_min_plan_impl(self, plan).await
+    }
+
+    async fn get_overrides(&self, tenant_id: TenantId) -> AppResult<Vec<TenantToolOverride>> {
+        Self::get_tenant_tool_overrides_impl(self, tenant_id).await
+    }
+
+    async fn get_override(
+        &self,
+        tenant_id: TenantId,
+        tool_name: &str,
+    ) -> AppResult<Option<TenantToolOverride>> {
+        Self::get_tenant_tool_override_impl(self, tenant_id, tool_name).await
+    }
+
+    async fn upsert_override(
+        &self,
+        tenant_id: TenantId,
+        tool_name: &str,
+        is_enabled: bool,
+        enabled_by_user_id: Option<Uuid>,
+        reason: Option<String>,
+    ) -> AppResult<TenantToolOverride> {
+        Self::upsert_tenant_tool_override_impl(
+            self,
+            tenant_id,
+            tool_name,
+            is_enabled,
+            enabled_by_user_id,
+            reason,
+        )
+        .await
+    }
+
+    async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool> {
+        Self::delete_tenant_tool_override_impl(self, tenant_id, tool_name).await
+    }
+
+    async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
+        Self::count_enabled_tools_impl(self, tenant_id).await
+    }
 }

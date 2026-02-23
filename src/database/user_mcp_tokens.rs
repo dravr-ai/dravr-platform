@@ -6,8 +6,10 @@
 
 use super::Database;
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Duration, Utc};
+use pierre_database::repositories::UserMcpTokenRepository;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use sqlx::sqlite::SqliteRow;
@@ -281,5 +283,36 @@ impl Database {
         })?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl UserMcpTokenRepository for Database {
+    async fn create_token(
+        &self,
+        user_id: Uuid,
+        request: &CreateUserMcpTokenRequest,
+    ) -> AppResult<UserMcpTokenCreated> {
+        Self::create_user_mcp_token(self, user_id, request).await
+    }
+
+    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid> {
+        Self::validate_user_mcp_token(self, token_value).await
+    }
+
+    async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+        Self::list_user_mcp_tokens(self, user_id).await
+    }
+
+    async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+        Self::revoke_user_mcp_token(self, token_id, user_id).await
+    }
+
+    async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>> {
+        Self::get_user_mcp_token(self, token_id, user_id).await
+    }
+
+    async fn cleanup_expired_tokens(&self) -> AppResult<u64> {
+        Self::cleanup_expired_user_mcp_tokens(self).await
     }
 }

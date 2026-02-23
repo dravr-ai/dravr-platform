@@ -6,9 +6,11 @@
 
 use super::Database;
 use crate::errors::{AppError, AppResult};
-use crate::models::UserOAuthToken;
+use crate::models::{UserOAuthApp, UserOAuthToken};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::OAuthTokenRepository;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
@@ -396,5 +398,132 @@ impl Database {
         tenant_id: TenantId,
     ) -> AppResult<()> {
         self.delete_user_oauth_tokens_impl(user_id, tenant_id).await
+    }
+}
+
+#[async_trait]
+impl OAuthTokenRepository for Database {
+    async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+        use super::user_oauth_tokens::OAuthTokenData;
+
+        let tenant_id: TenantId = token
+            .tenant_id
+            .parse()
+            .map_err(|e| AppError::internal(format!("Invalid tenant_id in OAuth token: {e}")))?;
+
+        let token_data = OAuthTokenData {
+            id: &token.id,
+            user_id: token.user_id,
+            tenant_id,
+            provider: &token.provider,
+            access_token: &token.access_token,
+            refresh_token: token.refresh_token.as_deref(),
+            token_type: &token.token_type,
+            expires_at: token.expires_at,
+            scope: token.scope.as_deref().unwrap_or(""),
+        };
+
+        Self::upsert_user_oauth_token(self, &token_data).await
+    }
+    async fn get_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthToken>> {
+        Self::get_user_oauth_token(self, user_id, tenant_id, provider).await
+    }
+    async fn get_tokens(
+        &self,
+        user_id: Uuid,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        Self::get_user_oauth_tokens_impl(self, user_id, tenant_id).await
+    }
+    async fn get_tenant_provider_tokens(
+        &self,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<UserOAuthToken>> {
+        Self::get_tenant_provider_tokens(self, tenant_id, provider).await
+    }
+    async fn delete_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        Self::delete_user_oauth_token(self, user_id, tenant_id, provider).await
+    }
+    async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+        Self::delete_user_oauth_tokens_impl(self, user_id, tenant_id).await
+    }
+    async fn refresh_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> AppResult<()> {
+        Self::refresh_user_oauth_token(
+            self,
+            user_id,
+            tenant_id,
+            provider,
+            access_token,
+            refresh_token,
+            expires_at,
+        )
+        .await
+    }
+    async fn store_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        client_id: &str,
+        client_secret: &str,
+        redirect_uri: &str,
+    ) -> AppResult<()> {
+        Self::store_user_oauth_app_impl(
+            self,
+            user_id,
+            provider,
+            client_id,
+            client_secret,
+            redirect_uri,
+        )
+        .await
+    }
+    async fn get_user_oauth_app(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> AppResult<Option<UserOAuthApp>> {
+        Self::get_user_oauth_app_impl(self, user_id, provider).await
+    }
+    async fn list_user_oauth_apps(&self, user_id: Uuid) -> AppResult<Vec<UserOAuthApp>> {
+        Self::list_user_oauth_apps_impl(self, user_id).await
+    }
+    async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
+        Self::remove_user_oauth_app_impl(self, user_id, provider).await
+    }
+    async fn get_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<DateTime<Utc>>> {
+        Self::get_provider_last_sync(self, user_id, tenant_id, provider).await
+    }
+    async fn update_provider_last_sync(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        sync_time: DateTime<Utc>,
+    ) -> AppResult<()> {
+        Self::update_provider_last_sync(self, user_id, tenant_id, provider, sync_time).await
     }
 }

@@ -6,7 +6,9 @@
 
 use crate::database::Database;
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use chrono::Utc;
+use pierre_database::repositories::PasswordResetRepository;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -118,5 +120,25 @@ impl Database {
         .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl PasswordResetRepository for Database {
+    async fn store_token(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+    ) -> AppResult<Uuid> {
+        Self::store_password_reset_token_impl(self, user_id, token_hash, created_by).await
+    }
+
+    async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
+        Self::consume_password_reset_token_impl(self, token_hash).await
+    }
+
+    async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
+        Self::invalidate_user_reset_tokens_impl(self, user_id).await
     }
 }

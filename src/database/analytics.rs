@@ -5,11 +5,16 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
+use crate::api_keys::{ApiKeyUsage, ApiKeyUsageStats};
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::models::RequestLog as CoreRequestLog;
 use pierre_core::models::{JwtUsage, ToolUsage};
+use pierre_database::repositories::{InsightRepository, UsageRepository};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::Row;
 use tracing::{error, warn};
 use uuid::Uuid;
@@ -691,5 +696,140 @@ impl Database {
     ) -> AppResult<Vec<ToolUsage>> {
         self.get_top_tools_analysis_impl(user_id, start_time, end_time)
             .await
+    }
+}
+
+#[async_trait]
+impl UsageRepository for Database {
+    async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()> {
+        Self::record_api_key_usage_impl(self, usage).await
+    }
+    async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
+        Self::get_api_key_current_usage_impl(self, api_key_id).await
+    }
+    async fn get_api_key_stats(
+        &self,
+        api_key_id: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    ) -> AppResult<ApiKeyUsageStats> {
+        Self::get_api_key_usage_stats(self, api_key_id, start_date, end_date).await
+    }
+    async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()> {
+        Self::record_jwt_usage_impl(self, usage).await
+    }
+    async fn get_jwt_current_usage(&self, user_id: Uuid) -> AppResult<u32> {
+        Self::get_jwt_current_usage_impl(self, user_id).await
+    }
+    async fn get_request_logs(
+        &self,
+        user_id: Option<Uuid>,
+        api_key_id: Option<&str>,
+        start_time: Option<DateTime<Utc>>,
+        end_time: Option<DateTime<Utc>>,
+        status_filter: Option<&str>,
+        tool_filter: Option<&str>,
+    ) -> AppResult<Vec<CoreRequestLog>> {
+        let max_results: i32 = 1000;
+
+        let mut query = String::from(
+            r"SELECT id, user_id, api_key_id, timestamp, method, endpoint,
+                     status_code, response_time_ms, error_message
+              FROM request_logs
+              WHERE 1=1",
+        );
+        let mut bind_values: Vec<String> = vec![];
+
+        if let Some(uid) = user_id {
+            query.push_str(" AND user_id = ?");
+            bind_values.push(uid.to_string());
+        }
+
+        if let Some(key_id) = api_key_id {
+            query.push_str(" AND api_key_id = ?");
+            bind_values.push(key_id.to_owned());
+        }
+
+        if let Some(start) = start_time {
+            query.push_str(" AND timestamp >= ?");
+            bind_values.push(start.to_rfc3339());
+        }
+
+        if let Some(end) = end_time {
+            query.push_str(" AND timestamp <= ?");
+            bind_values.push(end.to_rfc3339());
+        }
+
+        if let Some(status) = status_filter {
+            query.push_str(" AND CAST(status_code AS TEXT) LIKE ?");
+            bind_values.push(format!("{status}%"));
+        }
+
+        if let Some(tool) = tool_filter {
+            query.push_str(" AND endpoint LIKE ?");
+            bind_values.push(format!("%{tool}%"));
+        }
+
+        query.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+        let mut sql_query = sqlx::query(&query);
+        for value in &bind_values {
+            sql_query = sql_query.bind(value);
+        }
+        sql_query = sql_query.bind(max_results);
+
+        let rows = sql_query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to get request logs: {e}")))?;
+
+        let mut logs = Vec::with_capacity(rows.len());
+        for row in rows {
+            let status_raw: i32 = row.get("status_code");
+            logs.push(CoreRequestLog {
+                id: row.get("id"),
+                timestamp: row.get("timestamp"),
+                api_key_id: row
+                    .get::<Option<String>, _>("api_key_id")
+                    .unwrap_or_default(),
+                api_key_name: "Unknown".into(),
+                tool_name: row
+                    .get::<Option<String>, _>("endpoint")
+                    .unwrap_or_else(|| "Unknown".into()),
+                status_code: status_raw,
+                response_time_ms: row.get::<Option<i32>, _>("response_time_ms"),
+                error_message: row.get("error_message"),
+                request_size_bytes: None,
+                response_size_bytes: None,
+            });
+        }
+
+        Ok(logs)
+    }
+    async fn get_system_stats(&self, tenant_id: Option<TenantId>) -> AppResult<(u64, u64)> {
+        Self::get_system_stats_impl(self, tenant_id).await
+    }
+    async fn get_top_tools_analysis(
+        &self,
+        user_id: Uuid,
+        start_time: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> AppResult<Vec<ToolUsage>> {
+        Self::get_top_tools_analysis_impl(self, user_id, start_time, end_time).await
+    }
+}
+
+#[async_trait]
+impl InsightRepository for Database {
+    async fn store(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
+        Self::store_insight_impl(self, user_id, insight_data).await
+    }
+    async fn get_for_user(
+        &self,
+        user_id: Uuid,
+        insight_type: Option<&str>,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<Value>> {
+        Self::get_user_insights(self, user_id, insight_type, limit).await
     }
 }
