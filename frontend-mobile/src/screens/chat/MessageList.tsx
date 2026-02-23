@@ -1,7 +1,7 @@
 // ABOUTME: Message list component with FlatList rendering and empty states
 // ABOUTME: Handles message display, thinking indicator, and coach grid for new chats
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -141,6 +141,58 @@ const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } 
   }
 };
 
+// Separator used by the backend to split activity list from LLM analysis
+const ACTIVITY_SEPARATOR = '\n\n---\n\n**Analysis:**\n\n';
+
+// Splits assistant content into an optional activity list and the main body.
+// Returns [activityList, analysisContent] or [null, fullContent].
+function splitActivityContent(content: string): [string | null, string] {
+  const sepIndex = content.indexOf(ACTIVITY_SEPARATOR);
+  if (sepIndex === -1) return [null, content];
+
+  const before = content.slice(0, sepIndex).trim();
+  const after = content.slice(sepIndex + ACTIVITY_SEPARATOR.length).trim();
+
+  // Only treat as an activity list when the prefix looks like one
+  if (before.startsWith('Your Activities:') || /^\d+\.\s+\[/.test(before)) {
+    return [before, after];
+  }
+  return [null, content];
+}
+
+// Collapsible section for the activity list — closed by default
+function CollapsibleActivities({ activityText }: { activityText: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Count activities (lines starting with a number followed by a dot)
+  const activityCount = (activityText.match(/^\d+\./gm) || []).length;
+  const label = `Your Activities (${activityCount})`;
+
+  return (
+    <View className="mb-2">
+      <TouchableOpacity
+        className="flex-row items-center py-2"
+        onPress={() => setExpanded((prev) => !prev)}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name={expanded ? 'chevron-down' : 'chevron-forward'}
+          size={16}
+          color={colors.text.secondary}
+        />
+        <Text className="text-sm font-medium text-text-secondary ml-1">
+          {label}
+        </Text>
+      </TouchableOpacity>
+      {expanded && (
+        <View className="ml-4">
+          <Markdown style={markdownStyles}>{activityText}</Markdown>
+        </View>
+      )}
+    </View>
+  );
+}
+
 interface MessageListProps {
   messages: Message[];
   coaches: Coach[];
@@ -241,6 +293,19 @@ export function MessageList({
               {cleanContent.trim()}
             </Markdown>
           )}
+        </View>
+      );
+    }
+
+    // Split activity list from analysis so the list can be collapsed
+    const [activityList, analysisContent] = splitActivityContent(content);
+    if (activityList) {
+      return (
+        <View>
+          <CollapsibleActivities activityText={activityList} />
+          <Markdown style={markdownStyles} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
+            {analysisContent}
+          </Markdown>
         </View>
       );
     }
