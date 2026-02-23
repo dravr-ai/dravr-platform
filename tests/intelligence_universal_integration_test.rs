@@ -14,7 +14,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_mcp_server::{
-    database_plugins::UserDbOps,
+    database_plugins::{ProfileRepository, UserRepository},
     intelligence::{
         insights::ActivityContext, ActivityAnalyzer, FitnessLevel, MetricsCalculator,
         TimeAvailability, UserFitnessProfile, UserPreferences,
@@ -37,7 +37,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
         "password_hash".to_owned(),
         Some("Test User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create test user and fitness profile
     let fitness_profile = UserFitnessProfile {
@@ -67,7 +67,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
 
     // Store user fitness profile in database
     let profile_data = serde_json::to_value(&fitness_profile)?;
-    database.upsert_user_profile(user.id, profile_data).await?;
+    database.upsert_profile(user.id, profile_data).await?;
 
     // Create test activity with advanced metrics
     let activity = ActivityBuilder::new(
@@ -199,7 +199,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
         "password_hash".to_owned(),
         Some("Test User 2".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create test user profile
     let fitness_profile = UserFitnessProfile {
@@ -230,7 +230,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
 
     // Store fitness profile
     let profile_data = serde_json::to_value(&fitness_profile)?;
-    database.upsert_user_profile(user.id, profile_data).await?;
+    database.upsert_profile(user.id, profile_data).await?;
 
     // Create cycling activity with power data
     let activity = ActivityBuilder::new(
@@ -316,7 +316,7 @@ async fn test_goal_tracking_integration() -> Result<()> {
         "password_hash".to_owned(),
         Some("Test User 3".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create a test goal
     let goal_data = serde_json::json!({
@@ -350,7 +350,7 @@ async fn test_goal_tracking_integration() -> Result<()> {
         .await?;
 
     // Verify goal was updated correctly
-    let goals = database.get_user_goals(user.id).await?;
+    let goals = database.get_goals(user.id).await?;
     assert_eq!(goals.len(), 1);
 
     let updated_goal = &goals[0];

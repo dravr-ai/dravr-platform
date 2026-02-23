@@ -22,7 +22,7 @@ use pierre_mcp_server::{
     config::environment::{OAuthConfig, OAuthProviderConfig},
     database::generate_encryption_key,
     database_plugins::{
-        factory::Database, DatabaseProvider, OAuthTokenOps, TenantDbOps, UserDbOps,
+        factory::Database, DatabaseProvider, OAuthTokenRepository, TenantRepository, UserRepository,
     },
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -74,9 +74,9 @@ async fn create_test_user(database: &Database, email: &str, tenant_id: TenantId)
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&user).await?;
+    UserRepository::create(database, &user).await?;
     // Associate user with tenant via tenant_users junction table
-    database.update_user_tenant_id(user_id, tenant_id).await?;
+    database.update_tenant_id(user_id, tenant_id).await?;
     Ok(user_id)
 }
 
@@ -477,7 +477,7 @@ async fn test_tenant_credentials_priority() -> Result<()> {
         "professional".to_owned(),
         user_id, // owner_user_id
     );
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(&database, &tenant).await?;
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
@@ -970,7 +970,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         "professional".to_owned(),
         user_id,
     );
-    database.create_tenant(&tenant).await?;
+    TenantRepository::create(&database, &tenant).await?;
 
     // Level 3: Server credentials
     let oauth_config = Arc::new(create_test_oauth_config());

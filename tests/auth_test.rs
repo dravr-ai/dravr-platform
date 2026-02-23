@@ -17,7 +17,7 @@ use pierre_mcp_server::{
     auth::{generate_jwt_secret, AuthManager, AuthMethod, Claims, JwtValidationError},
     config::environment::RateLimitConfig,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     middleware::McpAuthMiddleware,
     models::{AuthRequest, User, UserStatus, UserTier},
     utils::uuid::parse_uuid,
@@ -171,7 +171,7 @@ async fn test_mcp_auth_middleware() {
     let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
 
     // Create the user in the database first (required for JWT rate limiting)
-    database.create_user(&user).await.unwrap();
+    UserRepository::create(&*database, &user).await.unwrap();
 
     let jwks_manager = common::get_shared_test_jwks();
     let middleware = McpAuthMiddleware::new(
@@ -616,7 +616,9 @@ async fn test_check_setup_status_admin_exists() {
     admin_user.is_admin = true;
     admin_user.user_status = UserStatus::Active;
 
-    database.create_user(&admin_user).await.unwrap();
+    UserRepository::create(&database, &admin_user)
+        .await
+        .unwrap();
 
     let setup_status = auth_manager.check_setup_status(&database).await.unwrap();
     assert!(!setup_status.needs_setup);
@@ -684,7 +686,7 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
     {
         let mut user = create_test_user_with_tier(tier.clone());
         user.email = format!("tier_test_{i}@example.com"); // Unique email for each user
-        database.create_user(&user).await.unwrap();
+        UserRepository::create(&*database, &user).await.unwrap();
 
         let middleware = McpAuthMiddleware::new(
             auth_manager.clone(),

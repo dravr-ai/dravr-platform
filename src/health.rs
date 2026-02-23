@@ -35,8 +35,8 @@ use crate::constants::{
     get_server_config, http_status::UNAUTHORIZED, service_names::PIERRE_MCP_SERVER,
     time::HOUR_SECONDS,
 };
-use crate::database_plugins::ApiKeyDbOps;
-use crate::database_plugins::{factory::Database, UserDbOps};
+use crate::database_plugins::ApiKeyRepository;
+use crate::database_plugins::{factory::Database, UserRepository};
 use crate::errors::AppResult;
 use crate::utils::http_client::get_health_check_timeout_secs;
 
@@ -203,7 +203,7 @@ impl HealthChecker {
         loop {
             ticker.tick().await;
 
-            match database.cleanup_expired_api_keys().await {
+            match database.cleanup_expired().await {
                 Ok(count) => {
                     if count > 0 {
                         info!("Cleaned up {} expired API keys", count);
@@ -506,7 +506,7 @@ impl HealthChecker {
         let start = Instant::now();
 
         // Perform an actual database connectivity test
-        let user_count = self.database.get_user_count().await?;
+        let user_count = self.database.count().await?;
 
         let query_duration = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 

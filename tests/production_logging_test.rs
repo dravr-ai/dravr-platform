@@ -17,7 +17,7 @@ use axum::{
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, SecurityDbOps, UserDbOps},
+    database_plugins::{factory::Database, SecurityRepository, UserRepository},
     logging::LoggingConfig,
     middleware::{request_id_middleware, RequestId},
     models::{User, UserStatus, UserTier},
@@ -249,12 +249,12 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
     };
 
     // Test instrumented database operation (has #[tracing::instrument])
-    let created_id = database.create_user(&user).await?;
+    let created_id = UserRepository::create(&database, &user).await?;
 
     assert_eq!(created_id, user.id, "Created user ID should match");
 
     // Test instrumented get_user operation
-    let retrieved_user = database.get_user_global(user.id).await?;
+    let retrieved_user = database.get_global(user.id).await?;
 
     assert!(retrieved_user.is_some(), "User should be retrievable");
     if let Some(user) = retrieved_user {

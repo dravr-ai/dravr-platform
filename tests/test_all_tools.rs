@@ -20,7 +20,7 @@ use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::*,
     constants::oauth_providers,
-    database_plugins::{factory::Database, OAuthTokenOps, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, OAuthTokenRepository, TenantRepository, UserRepository},
     intelligence::insights::{Insight, InsightType},
     intelligence::{
         ActivityIntelligence, ContextualFactors, ContextualWeeklyLoad, PerformanceMetrics,
@@ -333,7 +333,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         auth_provider: String::new(),
     };
 
-    executor.resources.database.create_user(&user).await?;
+    UserRepository::create(&*executor.resources.database, &user).await?;
 
     // Now create the tenant with the user as owner
     let tenant_slug = format!("test-tenant-{tenant_id}");
@@ -348,7 +348,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         updated_at: chrono::Utc::now(),
     };
 
-    executor.resources.database.create_tenant(&tenant).await?;
+    TenantRepository::create(&*executor.resources.database, &tenant).await?;
 
     // Set up OAuth credentials for the tenant
     println!("Setting up tenant OAuth credentials...");
@@ -385,12 +385,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         Some(mock_token.scope.clone()), // scope as String
     );
 
-    match executor
-        .resources
-        .database
-        .upsert_user_oauth_token(&oauth_token)
-        .await
-    {
+    match executor.resources.database.upsert_token(&oauth_token).await {
         Ok(()) => println!(" Test tokens stored successfully"),
         Err(e) => {
             println!("⚠️ Failed to store test tokens: {e}");
@@ -416,7 +411,7 @@ async fn setup_tenant_oauth_credentials(
     match executor
         .resources
         .database
-        .get_tenant_oauth_credentials(tenant_id, "strava")
+        .get_oauth_credentials(tenant_id, "strava")
         .await
     {
         Ok(Some(_)) => {
@@ -452,7 +447,7 @@ async fn setup_tenant_oauth_credentials(
     if let Err(e) = executor
         .resources
         .database
-        .store_tenant_oauth_credentials(&tenant_oauth_creds)
+        .store_oauth_credentials(&tenant_oauth_creds)
         .await
     {
         println!("      Failed to store tenant OAuth credentials: {e}");

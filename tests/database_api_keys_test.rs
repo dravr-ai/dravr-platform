@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_mcp_server::{
     api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     database::test_utils::create_test_db,
-    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps, UserDbOps},
+    database_plugins::{factory::Database, ApiKeyRepository, UsageRepository, UserRepository},
     models::{User, UserStatus, UserTier},
 };
 use uuid::Uuid;
@@ -28,7 +28,9 @@ async fn create_test_user(db: &Database) -> User {
     user.user_status = UserStatus::Active;
     user.is_admin = false;
 
-    db.create_user(&user).await.expect("Failed to create user");
+    UserRepository::create(db, &user)
+        .await
+        .expect("Failed to create user");
     user
 }
 
@@ -55,13 +57,13 @@ async fn test_create_and_retrieve_api_key() {
         .expect("Failed to create API key");
 
     // Store in database
-    db.create_api_key(&api_key)
+    ApiKeyRepository::create(&db, &api_key)
         .await
         .expect("Failed to store API key");
 
     // Retrieve by prefix
     let retrieved = db
-        .get_api_key_by_prefix(&api_key.key_prefix, &api_key.key_hash)
+        .get_by_prefix(&api_key.key_prefix, &api_key.key_hash)
         .await
         .expect("Failed to get API key")
         .expect("API key not found");
@@ -93,7 +95,7 @@ async fn test_api_key_usage_tracking() {
         .create_api_key(user.id, request)
         .expect("Failed to create API key");
 
-    db.create_api_key(&api_key)
+    ApiKeyRepository::create(&db, &api_key)
         .await
         .expect("Failed to store API key");
 
@@ -112,20 +114,20 @@ async fn test_api_key_usage_tracking() {
         error_message: None,
     };
 
-    db.record_api_key_usage(&usage)
+    db.record_api_key(&usage)
         .await
         .expect("Failed to record usage");
 
     // Check current usage
     let current_usage = db
-        .get_api_key_current_usage(&api_key.id)
+        .get_api_key_current(&api_key.id)
         .await
         .expect("Failed to get current usage");
     assert_eq!(current_usage, 1);
 
     // Get usage stats
     let stats = db
-        .get_api_key_usage_stats(
+        .get_api_key_stats(
             &api_key.id,
             Utc::now() - Duration::hours(1),
             Utc::now() + Duration::hours(1),
@@ -167,28 +169,25 @@ async fn test_api_key_expiration() {
         created_at: Utc::now() - Duration::days(1),
     };
 
-    db.create_api_key(&api_key)
+    ApiKeyRepository::create(&db, &api_key)
         .await
         .expect("Failed to store API key");
 
     // Get expired keys
-    let expired = db
-        .get_expired_api_keys()
-        .await
-        .expect("Failed to get expired keys");
+    let expired = db.get_expired().await.expect("Failed to get expired keys");
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].id, api_key.id);
 
     // Cleanup expired keys
     let cleaned = db
-        .cleanup_expired_api_keys()
+        .cleanup_expired()
         .await
         .expect("Failed to cleanup expired keys");
     assert_eq!(cleaned, 1);
 
     // Verify key is deactivated
     let updated = db
-        .get_api_key_by_id(&api_key.id, None)
+        .get_by_id(&api_key.id, None)
         .await
         .expect("Failed to get API key")
         .expect("API key not found");

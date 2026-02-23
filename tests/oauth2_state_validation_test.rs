@@ -12,7 +12,7 @@ use chrono::{Duration, Utc};
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, OAuth2ServerOps},
+    database_plugins::{factory::Database, DatabaseProvider, OAuth2ServerRepository},
     oauth2_server::{
         client_registration::ClientRegistrationManager,
         models::{ClientRegistrationRequest, OAuth2State},
@@ -115,7 +115,7 @@ async fn test_state_storage_and_consumption() {
     };
 
     // Store state
-    let store_result = database.store_oauth2_state(&oauth2_state).await;
+    let store_result = database.store_state(&oauth2_state).await;
     assert!(
         store_result.is_ok(),
         "State storage should succeed: {:?}",
@@ -124,7 +124,7 @@ async fn test_state_storage_and_consumption() {
 
     // Consume state
     let consumed_state = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap();
 
@@ -185,11 +185,11 @@ async fn test_state_replay_attack_prevention() {
         used: false,
     };
 
-    database.store_oauth2_state(&oauth2_state).await.unwrap();
+    database.store_state(&oauth2_state).await.unwrap();
 
     // First consumption should succeed
     let first_consumption = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap();
     assert!(
@@ -199,7 +199,7 @@ async fn test_state_replay_attack_prevention() {
 
     // Second consumption should fail (replay attack)
     let second_consumption = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap();
     assert!(
@@ -253,11 +253,11 @@ async fn test_expired_state_rejection() {
         used: false,
     };
 
-    database.store_oauth2_state(&oauth2_state).await.unwrap();
+    database.store_state(&oauth2_state).await.unwrap();
 
     // Attempt to consume expired state
     let consumption_result = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap();
 
@@ -296,7 +296,7 @@ async fn test_state_not_found() {
 
     // Attempt to consume state that was never stored
     let consumption_result = database
-        .consume_oauth2_state(invalid_state, client_id, Utc::now())
+        .consume_state(invalid_state, client_id, Utc::now())
         .await
         .unwrap();
 
@@ -357,11 +357,11 @@ async fn test_state_client_id_mismatch() {
         used: false,
     };
 
-    database.store_oauth2_state(&oauth2_state).await.unwrap();
+    database.store_state(&oauth2_state).await.unwrap();
 
     // Attacker tries to consume state with different client_id
     let attacker_consumption = database
-        .consume_oauth2_state(state_value, attacker_client_id, Utc::now())
+        .consume_state(state_value, attacker_client_id, Utc::now())
         .await
         .unwrap();
 
@@ -372,7 +372,7 @@ async fn test_state_client_id_mismatch() {
 
     // Legitimate client should still be able to consume
     let legitimate_consumption = database
-        .consume_oauth2_state(state_value, correct_client_id, Utc::now())
+        .consume_state(state_value, correct_client_id, Utc::now())
         .await
         .unwrap();
 
@@ -428,10 +428,10 @@ async fn test_state_with_pkce_parameters() {
         used: false,
     };
 
-    database.store_oauth2_state(&oauth2_state).await.unwrap();
+    database.store_state(&oauth2_state).await.unwrap();
 
     let consumed_state = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap()
         .unwrap();
@@ -493,11 +493,11 @@ async fn test_state_expiration_boundary() {
         used: false,
     };
 
-    database.store_oauth2_state(&oauth2_state).await.unwrap();
+    database.store_state(&oauth2_state).await.unwrap();
 
     // Consume before expiry
     let before_expiry = database
-        .consume_oauth2_state(
+        .consume_state(
             state_value,
             client_id,
             expiry_time - Duration::milliseconds(100),
@@ -511,7 +511,7 @@ async fn test_state_expiration_boundary() {
 
     // Now it's consumed, so this should fail
     let after_consumption = database
-        .consume_oauth2_state(state_value, client_id, Utc::now())
+        .consume_state(state_value, client_id, Utc::now())
         .await
         .unwrap();
     assert!(

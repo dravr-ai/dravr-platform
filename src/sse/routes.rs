@@ -6,7 +6,7 @@
 
 use super::manager::SseManager;
 use crate::config::environment::SseBufferStrategy;
-use crate::database_plugins::A2ADbOps;
+use crate::database_plugins::A2ARepository;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::utils::auth::extract_bearer_token_owned as extract_token;
@@ -320,7 +320,7 @@ impl SseRoutes {
         // Verify task exists in database
         let task = resources
             .database
-            .get_a2a_task(&task_id)
+            .get_task(&task_id)
             .await
             .map_err(|e| {
                 error!(task_id = %task_id, error = %e, "Failed to fetch task for SSE streaming");

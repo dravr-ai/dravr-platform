@@ -18,7 +18,7 @@ use crate::{
     auth::{AuthManager, AuthResult},
     config::environment::RateLimitConfig,
     constants::rate_limits::WEBSOCKET_CHANNEL_CAPACITY,
-    database_plugins::{factory::Database, UsageDbOps},
+    database_plugins::{factory::Database, UsageRepository},
     errors::{AppError, AppResult},
     middleware::McpAuthMiddleware,
 };

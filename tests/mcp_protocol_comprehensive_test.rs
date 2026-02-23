@@ -16,7 +16,7 @@ mod common;
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::ServerConfig,
-    database_plugins::UserDbOps,
+    database_plugins::UserRepository,
     mcp::{
         multitenant::MultiTenantMcpServer,
         resources::{ServerResources, ServerResourcesOptions},
@@ -189,7 +189,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
         "password123".to_owned(),
         Some("MCP Auth Test".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Test authenticate request format
     let auth_params = json!({
@@ -403,7 +403,7 @@ async fn test_mcp_oauth_tool_calls() -> Result<()> {
         "password".to_owned(),
         Some("OAuth Test User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();
@@ -498,7 +498,7 @@ async fn test_mcp_intelligence_tool_calls() -> Result<()> {
         "password".to_owned(),
         Some("Intelligence Test User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();
@@ -568,7 +568,7 @@ async fn test_mcp_provider_required_tools() -> Result<()> {
         "password".to_owned(),
         Some("Provider Test User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();
@@ -649,7 +649,7 @@ async fn test_mcp_unknown_tool() -> Result<()> {
         "password".to_owned(),
         Some("Unknown Tool Test".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();
@@ -704,7 +704,7 @@ async fn test_mcp_api_key_authentication() -> Result<()> {
         "password".to_owned(),
         Some("API Key Test".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Simulate API key authentication format
     let api_key_token = format!("Bearer pk_test_{}", Uuid::new_v4().simple());
@@ -854,7 +854,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
         "password".to_owned(),
         Some("Concurrent Test".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create JWKS manager for RS256 token generation
     let jwks_manager = common::get_shared_test_jwks();

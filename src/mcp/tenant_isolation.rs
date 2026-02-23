@@ -7,8 +7,8 @@
 use super::resources::ServerResources;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims};
-use crate::database_plugins::{factory::Database, OAuthTokenOps};
-use crate::database_plugins::{TenantDbOps, UserDbOps};
+use crate::database_plugins::{factory::Database, OAuthTokenRepository};
+use crate::database_plugins::{TenantRepository, UserRepository};
 use crate::errors::{AppError, AppResult};
 use crate::models::{User, UserOAuthToken};
 use crate::tenant::{TenantContext, TenantRole};
@@ -106,7 +106,7 @@ impl TenantIsolation {
         let role = self
             .resources
             .database
-            .get_user_tenant_role(user_id, tenant_id)
+            .get_user_role(user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
 
@@ -127,7 +127,7 @@ impl TenantIsolation {
         let tenants = self
             .resources
             .database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
@@ -145,7 +145,7 @@ impl TenantIsolation {
         // SECURITY: Global lookup — tenant isolation resolves user to find their tenant
         self.resources
             .database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))
@@ -164,7 +164,7 @@ impl TenantIsolation {
 
     /// Get tenant name by ID
     pub async fn get_tenant_name(&self, tenant_id: TenantId) -> String {
-        match self.resources.database.get_tenant_by_id(tenant_id).await {
+        match self.resources.database.get_by_id(tenant_id).await {
             Ok(tenant) => tenant.name,
             Err(e) => {
                 warn!(
@@ -192,7 +192,7 @@ impl TenantIsolation {
         let role_str = self
             .resources
             .database
-            .get_user_tenant_role(user_id, tenant_id)
+            .get_user_role(user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
             .ok_or_else(|| {
@@ -376,7 +376,7 @@ impl TenantResources {
         provider: &str,
     ) -> AppResult<Option<TenantOAuthCredentials>> {
         self.database
-            .get_tenant_oauth_credentials(self.tenant_id, provider)
+            .get_oauth_credentials(self.tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenant OAuth credentials: {e}")))
     }
@@ -398,7 +398,7 @@ impl TenantResources {
         }
 
         self.database
-            .store_tenant_oauth_credentials(credential)
+            .store_oauth_credentials(credential)
             .await
             .map_err(|e| {
                 AppError::database(format!("Failed to store tenant OAuth credentials: {e}"))
@@ -415,7 +415,7 @@ impl TenantResources {
         provider: &str,
     ) -> AppResult<Option<UserOAuthToken>> {
         self.database
-            .get_user_oauth_token(user_id, self.tenant_id, provider)
+            .get_token(user_id, self.tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user OAuth token: {e}")))
     }
@@ -477,7 +477,7 @@ pub async fn validate_jwt_token_for_mcp(
 
     // SECURITY: Global lookup — tenant extraction from JWT, tenant not yet known
     database
-        .get_user_global(user_id)
+        .get_global(user_id)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
         .ok_or_else(|| AppError::not_found("User"))?;
@@ -491,7 +491,7 @@ pub async fn validate_jwt_token_for_mcp(
 
         // Verify user belongs to this tenant
         let role = database
-            .get_user_tenant_role(user_id, tid)
+            .get_user_role(user_id, tid)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
 
@@ -505,7 +505,7 @@ pub async fn validate_jwt_token_for_mcp(
     } else {
         // Get user's default tenant
         let tenants = database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
@@ -515,14 +515,14 @@ pub async fn validate_jwt_token_for_mcp(
             .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?
     };
 
-    let tenant_name = match database.get_tenant_by_id(tenant_id).await {
+    let tenant_name = match database.get_by_id(tenant_id).await {
         Ok(tenant) => tenant.name,
         _ => "Unknown Tenant".to_owned(),
     };
 
     // Get user's role in this tenant
     let user_role = database
-        .get_user_tenant_role(user_id, tenant_id)
+        .get_user_role(user_id, tenant_id)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
         .map_or(TenantRole::Member, |role_str| {
@@ -565,12 +565,9 @@ pub async fn extract_tenant_context_internal(
     if let Some(tenant_id) = tenant_id {
         // If user_id is provided, verify membership and get role
         let (user_role, verified_user_id) = if let Some(uid) = user_id {
-            let role_str = database
-                .get_user_tenant_role(uid, tenant_id)
-                .await
-                .map_err(|e| {
-                    AppError::database(format!("Failed to check tenant membership: {e}"))
-                })?;
+            let role_str = database.get_user_role(uid, tenant_id).await.map_err(|e| {
+                AppError::database(format!("Failed to check tenant membership: {e}"))
+            })?;
 
             let role = role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
             (role, uid)
@@ -578,7 +575,7 @@ pub async fn extract_tenant_context_internal(
             (TenantRole::Member, Uuid::nil())
         };
 
-        let tenant_name = match database.get_tenant_by_id(tenant_id).await {
+        let tenant_name = match database.get_by_id(tenant_id).await {
             Ok(tenant) => tenant.name,
             _ => "Unknown Tenant".to_owned(),
         };
@@ -599,11 +596,13 @@ pub async fn extract_tenant_context_internal(
                     // If user_id is provided, verify membership
                     let (user_role, verified_user_id) = if let Some(uid) = user_id {
                         let role_str = database
-                            .get_user_tenant_role(uid, header_tenant_id)
+                            .get_user_role(uid, header_tenant_id)
                             .await
                             .map_err(|e| {
-                            AppError::database(format!("Failed to check tenant membership: {e}"))
-                        })?;
+                                AppError::database(format!(
+                                    "Failed to check tenant membership: {e}"
+                                ))
+                            })?;
 
                         let role =
                             role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
@@ -612,7 +611,7 @@ pub async fn extract_tenant_context_internal(
                         (TenantRole::Member, Uuid::nil())
                     };
 
-                    let tenant_name = match database.get_tenant_by_id(header_tenant_id).await {
+                    let tenant_name = match database.get_by_id(header_tenant_id).await {
                         Ok(tenant) => tenant.name,
                         _ => "Unknown Tenant".to_owned(),
                     };
@@ -632,20 +631,20 @@ pub async fn extract_tenant_context_internal(
     if let Some(user_id) = user_id {
         // SECURITY: Global lookup — resolving user's default tenant
         database
-            .get_user_global(user_id)
+            .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
         // Get user's tenants from tenant_users table
         let tenants = database
-            .list_tenants_for_user(user_id)
+            .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
         if let Some(default_tenant) = tenants.first() {
             let user_role = database
-                .get_user_tenant_role(user_id, default_tenant.id)
+                .get_user_role(user_id, default_tenant.id)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
                 .map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));

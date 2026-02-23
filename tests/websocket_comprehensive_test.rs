@@ -150,7 +150,7 @@
 use anyhow::Result;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
-    database_plugins::UserDbOps,
+    database_plugins::UserRepository,
     models::User,
     websocket::{WebSocketManager, WebSocketMessage},
 };
@@ -192,7 +192,7 @@ async fn test_websocket_authentication_flow() -> Result<()> {
         "password123".to_owned(),
         Some("WebSocket Test User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Generate auth token
     let jwks_manager = common::get_shared_test_jwks();
@@ -416,7 +416,7 @@ async fn test_websocket_concurrent_client_management() -> Result<()> {
                 "password".to_owned(),
                 Some(format!("Concurrent User {i}")),
             );
-            db_clone.create_user(&user).await.unwrap();
+            UserRepository::create(&*db_clone, &user).await.unwrap();
 
             let jwks_manager = common::get_shared_test_jwks();
             let token = auth_clone.generate_token(&user, &jwks_manager).unwrap();

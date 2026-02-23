@@ -13,7 +13,7 @@ use rand::RngCore;
 use tracing::info;
 
 use crate::database::generate_encryption_key;
-use crate::database_plugins::{factory::Database, SecurityDbOps};
+use crate::database_plugins::{factory::Database, SecurityRepository};
 use crate::errors::{AppError, AppResult};
 
 /// Master Encryption Key (MEK) - Tier 1

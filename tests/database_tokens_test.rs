@@ -8,8 +8,11 @@
 #![allow(missing_docs)]
 
 use pierre_mcp_server::constants::oauth_providers;
-use pierre_mcp_server::database::{user_oauth_tokens::OAuthTokenData, Database};
-use pierre_mcp_server::models::{DecryptedToken, TenantId, User, UserStatus, UserTier};
+use pierre_mcp_server::database::Database;
+use pierre_mcp_server::database_plugins::{OAuthTokenRepository, UserRepository};
+use pierre_mcp_server::models::{
+    DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier,
+};
 use pierre_mcp_server::permissions::UserRole;
 use uuid::Uuid;
 
@@ -40,7 +43,9 @@ async fn test_strava_token_storage() {
         auth_provider: String::new(),
     };
 
-    db.create_user(&user).await.expect("Failed to create user");
+    UserRepository::create(&db, &user)
+        .await
+        .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
     let expires_at = chrono::Utc::now() + chrono::Duration::seconds(3600);
@@ -54,25 +59,22 @@ async fn test_strava_token_storage() {
     };
 
     // Store token
-    let token_id = uuid::Uuid::new_v4().to_string();
-    let oauth_token_data = OAuthTokenData {
-        id: &token_id,
-        user_id: user.id,
-        tenant_id: TenantId::from_uuid(Uuid::nil()),
-        provider: oauth_providers::STRAVA,
-        access_token: &token.access_token,
-        refresh_token: Some(&token.refresh_token),
-        token_type: "Bearer",
-        expires_at: Some(token.expires_at),
-        scope: &token.scope,
-    };
-    db.upsert_user_oauth_token(&oauth_token_data)
+    let oauth_token = UserOAuthToken::new(
+        user.id,
+        TenantId::from_uuid(Uuid::nil()).to_string(),
+        oauth_providers::STRAVA.to_owned(),
+        token.access_token.clone(),
+        Some(token.refresh_token.clone()),
+        Some(token.expires_at),
+        Some(token.scope.clone()),
+    );
+    db.upsert_token(&oauth_token)
         .await
         .expect("Failed to update Strava token");
 
     // Retrieve token
     let retrieved_oauth = db
-        .get_user_oauth_token(
+        .get_token(
             user.id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -94,7 +96,7 @@ async fn test_strava_token_storage() {
     assert_eq!(retrieved.scope, token.scope);
 
     // Clear token
-    db.delete_user_oauth_token(
+    db.delete_token(
         user.id,
         TenantId::from_uuid(Uuid::nil()),
         oauth_providers::STRAVA,
@@ -104,7 +106,7 @@ async fn test_strava_token_storage() {
 
     // Verify cleared
     let cleared = db
-        .get_user_oauth_token(
+        .get_token(
             user.id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -142,7 +144,9 @@ async fn test_fitbit_token_storage() {
         auth_provider: String::new(),
     };
 
-    db.create_user(&user).await.expect("Failed to create user");
+    UserRepository::create(&db, &user)
+        .await
+        .expect("Failed to create user");
 
     // Create test token with timestamp precision truncated to seconds
     let expires_at = chrono::Utc::now() + chrono::Duration::seconds(7200);
@@ -156,25 +160,22 @@ async fn test_fitbit_token_storage() {
     };
 
     // Store token
-    let token_id = uuid::Uuid::new_v4().to_string();
-    let oauth_token_data = OAuthTokenData {
-        id: &token_id,
+    let oauth_token = UserOAuthToken::new(
         user_id,
-        tenant_id: TenantId::from_uuid(Uuid::nil()),
-        provider: oauth_providers::FITBIT,
-        access_token: &token.access_token,
-        refresh_token: Some(&token.refresh_token),
-        token_type: "Bearer",
-        expires_at: Some(token.expires_at),
-        scope: &token.scope,
-    };
-    db.upsert_user_oauth_token(&oauth_token_data)
+        TenantId::from_uuid(Uuid::nil()).to_string(),
+        oauth_providers::FITBIT.to_owned(),
+        token.access_token.clone(),
+        Some(token.refresh_token.clone()),
+        Some(token.expires_at),
+        Some(token.scope.clone()),
+    );
+    db.upsert_token(&oauth_token)
         .await
         .expect("Failed to update Fitbit token");
 
     // Retrieve token
     let retrieved_oauth = db
-        .get_user_oauth_token(
+        .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::FITBIT,

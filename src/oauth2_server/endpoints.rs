@@ -15,7 +15,7 @@ use super::models::{
 use crate::admin::jwks::JwksManager;
 use crate::auth::{AuthManager, Claims, JwtValidationError};
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::{OAuth2ServerOps, TenantDbOps, UserDbOps};
+use crate::database_plugins::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
@@ -225,14 +225,10 @@ impl OAuth2AuthorizationServer {
             tid
         } else {
             // Resolve actual tenant from database - use first tenant user belongs to
-            let tenants = self
-                .database
-                .list_tenants_for_user(user_id)
-                .await
-                .map_err(|e| {
-                    error!("Failed to get tenants for user {}: {:#}", user_id, e);
-                    OAuth2Error::invalid_request("Failed to resolve user tenant")
-                })?;
+            let tenants = self.database.list_for_user(user_id).await.map_err(|e| {
+                error!("Failed to get tenants for user {}: {:#}", user_id, e);
+                OAuth2Error::invalid_request("Failed to resolve user tenant")
+            })?;
             tenants.first().map(|t| t.id.to_string()).ok_or_else(|| {
                 error!("User {} has no tenant memberships", user_id);
                 OAuth2Error::invalid_request("User does not belong to any tenant")
@@ -550,7 +546,7 @@ impl OAuth2AuthorizationServer {
                 used: false,
             };
 
-            if let Err(e) = self.database.store_oauth2_state(&oauth2_state).await {
+            if let Err(e) = self.database.store_state(&oauth2_state).await {
                 error!(
                     "Failed to store OAuth2 state for client_id={}: {:#}",
                     params.client_id, e
@@ -627,7 +623,7 @@ impl OAuth2AuthorizationServer {
         if let Some(state_value) = &auth_code.state {
             let consumed_state = self
                 .database
-                .consume_oauth2_state(state_value, client_id, Utc::now())
+                .consume_state(state_value, client_id, Utc::now())
                 .await
                 .map_err(|e| {
                     error!(
@@ -741,7 +737,7 @@ impl OAuth2AuthorizationServer {
 
     /// Store authorization code (database operation)
     async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        self.database.store_oauth2_auth_code(auth_code).await
+        self.database.store_auth_code(auth_code).await
     }
 
     /// Generate refresh token with secure randomness
@@ -758,9 +754,7 @@ impl OAuth2AuthorizationServer {
         &self,
         refresh_token: &super::models::OAuth2RefreshToken,
     ) -> AppResult<()> {
-        self.database
-            .store_oauth2_refresh_token(refresh_token)
-            .await
+        self.database.store_refresh_token(refresh_token).await
     }
 
     /// Validate and consume refresh token
@@ -829,7 +823,7 @@ impl OAuth2AuthorizationServer {
 
         match Uuid::parse_str(&claims.sub) {
             // SECURITY: Global lookup — OAuth2 token validation, no tenant context
-            Ok(user_id) => match self.database.get_user_global(user_id).await {
+            Ok(user_id) => match self.database.get_global(user_id).await {
                 Ok(Some(_user)) => Ok(ValidateRefreshResponse {
                     status: ValidationStatus::Valid,
                     expires_in: Some(claims.exp - Utc::now().timestamp()),

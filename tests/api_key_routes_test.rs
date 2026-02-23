@@ -26,7 +26,7 @@ use pierre_mcp_server::{
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
     database::generate_encryption_key,
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::User,
     rate_limiting::UnifiedRateLimitInfo,
@@ -80,7 +80,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
         "hashed_password".to_owned(),
         Some("Test User".to_owned()),
     );
-    let user_id = database.create_user(&user).await.unwrap();
+    let user_id = UserRepository::create(&database, &user).await.unwrap();
 
     // Generate JWT token for the user
     let jwks_manager = common::get_shared_test_jwks();

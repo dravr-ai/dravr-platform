@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::database::coaches::CoachesManager;
-use crate::database_plugins::TenantDbOps;
+use crate::database_plugins::TenantRepository;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::TenantId;
@@ -65,7 +65,7 @@ async fn verify_user_in_tenant(
     let user_tenants = ctx
         .resources
         .database
-        .list_tenants_for_user(target_user_id)
+        .list_for_user(target_user_id)
         .await
         .map_err(|e| {
             AppError::database(format!(

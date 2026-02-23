@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 use crate::cache::factory::Cache;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::UserRepository;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::intelligence::ActivityIntelligence;
 use crate::mcp::resources::ServerResources;
@@ -171,7 +171,7 @@ impl ToolExecutionContext {
         let user: User = self
             .resources
             .database
-            .get_user_global(self.user_id)
+            .get_global(self.user_id)
             .await?
             .ok_or_else(|| {
                 AppError::new(

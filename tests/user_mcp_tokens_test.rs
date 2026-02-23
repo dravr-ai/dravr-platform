@@ -23,7 +23,7 @@ use pierre_mcp_server::{
         SecurityHeadersConfig, ServerConfig,
     },
     database::CreateUserMcpTokenRequest,
-    database_plugins::AdminDbOps,
+    database_plugins::UserMcpTokenRepository,
     mcp::resources::{ServerResources, ServerResourcesOptions},
     routes::user_mcp_tokens::UserMcpTokenRoutes,
 };
@@ -359,7 +359,7 @@ async fn test_database_create_user_mcp_token() {
         expires_in_days: Some(30),
     };
 
-    let result = database.create_user_mcp_token(user_id, &request).await;
+    let result = UserMcpTokenRepository::create_token(&*database, user_id, &request).await;
     assert!(result.is_ok(), "Token creation should succeed");
 
     let created = result.unwrap();
@@ -385,13 +385,13 @@ async fn test_database_validate_user_mcp_token() {
         expires_in_days: None,
     };
 
-    let created = database
-        .create_user_mcp_token(user_id, &request)
+    let created = UserMcpTokenRepository::create_token(&*database, user_id, &request)
         .await
         .unwrap();
 
     // Validate token
-    let validated_user_id = database.validate_user_mcp_token(&created.token_value).await;
+    let validated_user_id =
+        UserMcpTokenRepository::validate_token(&*database, &created.token_value).await;
     assert!(validated_user_id.is_ok());
     assert_eq!(validated_user_id.unwrap(), user_id);
 }
@@ -412,19 +412,17 @@ async fn test_database_validate_revoked_token_fails() {
         expires_in_days: None,
     };
 
-    let created = database
-        .create_user_mcp_token(user_id, &request)
+    let created = UserMcpTokenRepository::create_token(&*database, user_id, &request)
         .await
         .unwrap();
 
     // Revoke token
-    database
-        .revoke_user_mcp_token(&created.token.id, user_id)
+    UserMcpTokenRepository::revoke_token(&*database, &created.token.id, user_id)
         .await
         .unwrap();
 
     // Validation should fail
-    let result = database.validate_user_mcp_token(&created.token_value).await;
+    let result = UserMcpTokenRepository::validate_token(&*database, &created.token_value).await;
     assert!(result.is_err());
 }
 
@@ -444,14 +442,15 @@ async fn test_database_list_user_mcp_tokens() {
             name: format!("Token {}", i),
             expires_in_days: None,
         };
-        database
-            .create_user_mcp_token(user_id, &request)
+        UserMcpTokenRepository::create_token(&*database, user_id, &request)
             .await
             .unwrap();
     }
 
     // List tokens
-    let tokens = database.list_user_mcp_tokens(user_id).await.unwrap();
+    let tokens = UserMcpTokenRepository::list_tokens(&*database, user_id)
+        .await
+        .unwrap();
     assert_eq!(tokens.len(), 3);
 }
 
@@ -471,22 +470,22 @@ async fn test_database_usage_count_increment() {
         expires_in_days: None,
     };
 
-    let created = database
-        .create_user_mcp_token(user_id, &request)
+    let created = UserMcpTokenRepository::create_token(&*database, user_id, &request)
         .await
         .unwrap();
     assert_eq!(created.token.usage_count, 0);
 
     // Validate token multiple times (should increment usage count)
     for _ in 0..3 {
-        database
-            .validate_user_mcp_token(&created.token_value)
+        UserMcpTokenRepository::validate_token(&*database, &created.token_value)
             .await
             .unwrap();
     }
 
     // Check usage count
-    let tokens = database.list_user_mcp_tokens(user_id).await.unwrap();
+    let tokens = UserMcpTokenRepository::list_tokens(&*database, user_id)
+        .await
+        .unwrap();
     assert_eq!(tokens[0].usage_count, 3);
 }
 
@@ -515,28 +514,29 @@ async fn test_database_token_isolation_between_users() {
         expires_in_days: None,
     };
 
-    let token1 = database
-        .create_user_mcp_token(user1_id, &request1)
+    let token1 = UserMcpTokenRepository::create_token(&*database, user1_id, &request1)
         .await
         .unwrap();
-    database
-        .create_user_mcp_token(user2_id, &request2)
+    UserMcpTokenRepository::create_token(&*database, user2_id, &request2)
         .await
         .unwrap();
 
     // User1 should only see their own token
-    let user1_tokens = database.list_user_mcp_tokens(user1_id).await.unwrap();
+    let user1_tokens = UserMcpTokenRepository::list_tokens(&*database, user1_id)
+        .await
+        .unwrap();
     assert_eq!(user1_tokens.len(), 1);
     assert_eq!(user1_tokens[0].name, "User1 Token");
 
     // User2 should only see their own token
-    let user2_tokens = database.list_user_mcp_tokens(user2_id).await.unwrap();
+    let user2_tokens = UserMcpTokenRepository::list_tokens(&*database, user2_id)
+        .await
+        .unwrap();
     assert_eq!(user2_tokens.len(), 1);
     assert_eq!(user2_tokens[0].name, "User2 Token");
 
     // User2 cannot revoke User1's token
-    let revoke_result = database
-        .revoke_user_mcp_token(&token1.token.id, user2_id)
-        .await;
+    let revoke_result =
+        UserMcpTokenRepository::revoke_token(&*database, &token1.token.id, user2_id).await;
     assert!(revoke_result.is_err());
 }

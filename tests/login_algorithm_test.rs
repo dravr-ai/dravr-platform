@@ -26,7 +26,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{User, UserStatus},
     routes::auth::AuthRoutes,
@@ -120,7 +120,7 @@ impl LoginAlgorithmTestSetup {
             user.approved_at = Some(Utc::now());
         }
 
-        self.database.create_user(&user).await?;
+        UserRepository::create(&*self.database, &user).await?;
         Ok(user)
     }
 }
@@ -466,7 +466,7 @@ async fn test_login_updates_last_active_timestamp() {
     // Fetch the updated user from database
     let updated_user = setup
         .database
-        .get_user_global(user.id)
+        .get_global(user.id)
         .await
         .expect("Failed to get user")
         .expect("User should exist");
@@ -494,7 +494,7 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Get initial last_active
     let initial_user = setup
         .database
-        .get_user_global(user.id)
+        .get_global(user.id)
         .await
         .expect("Failed to get user")
         .expect("User should exist");
@@ -522,7 +522,7 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Verify timestamp was NOT updated
     let after_user = setup
         .database
-        .get_user_global(user.id)
+        .get_global(user.id)
         .await
         .expect("Failed to get user")
         .expect("User should exist");

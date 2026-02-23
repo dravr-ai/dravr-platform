@@ -20,7 +20,7 @@
 
 use anyhow::Result;
 use pierre_mcp_server::{
-    database_plugins::UserDbOps,
+    database_plugins::UserRepository,
     models::User,
     protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor},
 };
@@ -56,7 +56,7 @@ async fn create_test_user_for_recipes(executor: &UniversalToolExecutor) -> Resul
         Some("Recipe Test User".to_owned()),
     );
     let user_id = user.id;
-    executor.resources.database.create_user(&user).await?;
+    UserRepository::create(&*executor.resources.database, &user).await?;
     Ok(user_id)
 }
 

@@ -6,7 +6,7 @@
 
 use crate::config::ToolSelectionConfig;
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::TenantDbOps;
+use crate::database_plugins::{TenantRepository, ToolSelectionRepository};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     CategorySummary, EffectiveTool, TenantPlan, TenantToolOverride, ToolAvailabilitySummary,
@@ -184,7 +184,7 @@ impl ToolSelectionService {
             .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
 
         // Try to get tenant; fall back to Enterprise plan if not found
-        let tenant_plan = match self.database.get_tenant_by_id(tenant_id).await {
+        let tenant_plan = match self.database.get_by_id(tenant_id).await {
             Ok(tenant) => TenantPlan::parse_str(&tenant.plan).unwrap_or(TenantPlan::Enterprise),
             Err(_) => TenantPlan::Enterprise,
         };
@@ -195,11 +195,7 @@ impl ToolSelectionService {
         }
 
         // Check tenant override (only if tenant exists - ignore errors here)
-        if let Ok(Some(override_entry)) = self
-            .database
-            .get_tenant_tool_override(tenant_id, tool_name)
-            .await
-        {
+        if let Ok(Some(override_entry)) = self.database.get_override(tenant_id, tool_name).await {
             return Ok(override_entry.is_enabled);
         }
 
@@ -231,7 +227,7 @@ impl ToolSelectionService {
         // Upsert override
         let override_entry = self
             .database
-            .upsert_tenant_tool_override(
+            .upsert_override(
                 tenant_id,
                 tool_name,
                 is_enabled,
@@ -256,10 +252,7 @@ impl ToolSelectionService {
         tenant_id: TenantId,
         tool_name: &str,
     ) -> AppResult<bool> {
-        let deleted = self
-            .database
-            .delete_tenant_tool_override(tenant_id, tool_name)
-            .await?;
+        let deleted = self.database.delete_override(tenant_id, tool_name).await?;
 
         // Invalidate cache
         self.invalidate_tenant(tenant_id).await;
@@ -344,13 +337,13 @@ impl ToolSelectionService {
     /// with Enterprise plan (no plan restrictions, all tools available by default).
     async fn compute_effective_tools(&self, tenant_id: TenantId) -> AppResult<Vec<EffectiveTool>> {
         // Try to get tenant; fall back to Enterprise plan if tenant doesn't exist
-        let (tenant_plan, override_map) = match self.database.get_tenant_by_id(tenant_id).await {
+        let (tenant_plan, override_map) = match self.database.get_by_id(tenant_id).await {
             Ok(tenant) => {
                 let plan = TenantPlan::parse_str(&tenant.plan).unwrap_or(TenantPlan::Enterprise);
 
                 // Load tenant overrides
                 let overrides: Vec<TenantToolOverride> =
-                    self.database.get_tenant_tool_overrides(tenant_id).await?;
+                    self.database.get_overrides(tenant_id).await?;
                 let map: HashMap<String, bool> = overrides
                     .into_iter()
                     .map(|o| (o.tool_name, o.is_enabled))

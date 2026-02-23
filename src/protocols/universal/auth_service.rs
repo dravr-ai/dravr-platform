@@ -102,7 +102,7 @@ impl AuthService {
             .get_token(user_id, tenant_id_parsed, provider)
             .await;
 
-        let token_result = token_result.map_err(AppError::from);
+        let token_result = token_result;
         Self::log_token_lookup_result(&token_result, user_id, tenant_id_str, provider);
 
         let Ok(Some(oauth_token)) = token_result else {

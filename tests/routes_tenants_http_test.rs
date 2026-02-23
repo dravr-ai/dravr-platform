@@ -22,7 +22,7 @@ use pierre_mcp_server::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
         SecurityHeadersConfig, ServerConfig,
     },
-    database_plugins::{TenantDbOps, UserDbOps},
+    database_plugins::{TenantRepository, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{Tenant, TenantId, User},
     routes::tenants::TenantRoutes,
@@ -243,10 +243,7 @@ async fn test_create_tenant_duplicate_slug() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant)
+    TenantRepository::create(&*setup.resources.database, &tenant)
         .await
         .expect("Failed to create first tenant");
 
@@ -290,10 +287,7 @@ async fn test_list_tenants_success() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant)
+    TenantRepository::create(&*setup.resources.database, &tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -425,10 +419,7 @@ async fn test_tenant_ownership() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant)
+    TenantRepository::create(&*setup.resources.database, &tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -467,10 +458,7 @@ async fn test_switch_tenant_success() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant)
+    TenantRepository::create(&*setup.resources.database, &tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -562,10 +550,7 @@ async fn test_switch_tenant_non_member() {
         "password_hash".to_owned(),
         Some("Other User".to_owned()),
     );
-    setup
-        .resources
-        .database
-        .create_user(&other_user)
+    UserRepository::create(&*setup.resources.database, &other_user)
         .await
         .expect("Failed to create other user");
 
@@ -583,10 +568,7 @@ async fn test_switch_tenant_non_member() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant)
+    TenantRepository::create(&*setup.resources.database, &tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -652,17 +634,11 @@ async fn test_switch_between_multiple_tenants() {
         updated_at: chrono::Utc::now(),
     };
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant1)
+    TenantRepository::create(&*setup.resources.database, &tenant1)
         .await
         .expect("Failed to create tenant1");
 
-    setup
-        .resources
-        .database
-        .create_tenant(&tenant2)
+    TenantRepository::create(&*setup.resources.database, &tenant2)
         .await
         .expect("Failed to create tenant2");
 

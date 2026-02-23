@@ -13,7 +13,7 @@
 //! - Encryption/decryption operations
 
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::SecurityDbOps;
+use crate::database_plugins::SecurityRepository;
 use crate::errors::AppResult;
 use pierre_core::models::TenantId;
 use std::sync::Arc;

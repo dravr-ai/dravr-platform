@@ -22,7 +22,7 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     auth::AuthManager,
     config::environment::{OAuthConfig, OAuthProviderConfig, ServerConfig},
-    database_plugins::{factory::Database, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, TenantRepository, UserRepository},
     intelligence::{
         ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
         TrendIndicators,
@@ -118,8 +118,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    database.create_user(&acme_admin).await?;
-    database.create_user(&beta_admin).await?;
+    UserRepository::create(&*database, &acme_admin).await?;
+    UserRepository::create(&*database, &beta_admin).await?;
 
     // Step 3: Create first tenant ("Acme Fitness Co.")
     let acme_tenant = Tenant {
@@ -133,7 +133,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         updated_at: chrono::Utc::now(),
     };
 
-    database.create_tenant(&acme_tenant).await?;
+    TenantRepository::create(&*database, &acme_tenant).await?;
 
     // Step 4: Create second tenant ("Beta Health Inc.") for isolation testing
     let beta_tenant = Tenant {
@@ -147,7 +147,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         updated_at: chrono::Utc::now(),
     };
 
-    database.create_tenant(&beta_tenant).await?;
+    TenantRepository::create(&*database, &beta_tenant).await?;
 
     // Step 5: Register OAuth applications for each tenant
     let acme_strava_app = OAuthApp {
@@ -424,7 +424,7 @@ async fn setup_multitenant_scenario(
         auth_provider: String::new(),
     };
 
-    database.create_user(&user).await?;
+    UserRepository::create(&**database, &user).await?;
 
     let tenant1 = Tenant {
         id: tenant1_id,
@@ -448,8 +448,8 @@ async fn setup_multitenant_scenario(
         updated_at: chrono::Utc::now(),
     };
 
-    database.create_tenant(&tenant1).await?;
-    database.create_tenant(&tenant2).await?;
+    TenantRepository::create(&**database, &tenant1).await?;
+    TenantRepository::create(&**database, &tenant2).await?;
 
     Ok((tenant1_id, tenant2_id, user_id))
 }

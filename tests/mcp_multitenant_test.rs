@@ -156,7 +156,7 @@ use pierre_mcp_server::{
     auth::{AuthManager, JwtValidationError},
     config::environment::RateLimitConfig,
     constants::oauth_providers,
-    database_plugins::{factory::Database, OAuthTokenOps, UserDbOps},
+    database_plugins::{factory::Database, OAuthTokenRepository, UserRepository},
     mcp::multitenant::MultiTenantMcpServer,
     middleware::McpAuthMiddleware,
     models::{TenantId, User, UserOAuthToken, UserTier},
@@ -200,7 +200,7 @@ async fn create_multiple_test_users(
             Some(format!("Test User {i}")),
         );
         let user_id = user.id;
-        database.create_user(&user).await?;
+        UserRepository::create(database, &user).await?;
 
         // Generate JWT token for user
         let token = auth_manager.generate_token(&user, jwks_manager)?;
@@ -230,7 +230,7 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
         Some("User 1".to_owned()),
     );
     let user1_id = user1.id;
-    database.create_user(&user1).await?;
+    UserRepository::create(&*database, &user1).await?;
 
     let user2 = User::new(
         "user2@test.com".to_owned(),
@@ -238,11 +238,11 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
         Some("User 2".to_owned()),
     );
     let user2_id = user2.id;
-    database.create_user(&user2).await?;
+    UserRepository::create(&*database, &user2).await?;
 
     // Verify users exist and are isolated
-    let retrieved_user1 = database.get_user_global(user1_id).await?.unwrap();
-    let retrieved_user2 = database.get_user_global(user2_id).await?.unwrap();
+    let retrieved_user1 = database.get_global(user1_id).await?.unwrap();
+    let retrieved_user2 = database.get_global(user2_id).await?.unwrap();
 
     assert_eq!(retrieved_user1.email, "user1@test.com");
     assert_eq!(retrieved_user2.email, "user2@test.com");
@@ -284,7 +284,7 @@ async fn test_authentication_middleware_integration() -> Result<()> {
         Some("Auth Test User".to_owned()),
     );
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     let token = auth_manager.generate_token(&user, &jwks_manager)?;
 
@@ -337,7 +337,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
             Some(expires_at),
             Some("read,activity:read_all".to_owned()),
         );
-        database.upsert_user_oauth_token(&strava_token).await?;
+        database.upsert_token(&strava_token).await?;
 
         // Store Fitbit tokens
         let fitbit_token = UserOAuthToken::new(
@@ -349,13 +349,13 @@ async fn test_tenant_data_isolation() -> Result<()> {
             Some(expires_at),
             Some("activity heartrate profile".to_owned()),
         );
-        database.upsert_user_oauth_token(&fitbit_token).await?;
+        database.upsert_token(&fitbit_token).await?;
     }
 
     // Verify data isolation
     for (i, (user_id, _email, _token)) in users.iter().enumerate() {
         let strava_token = database
-            .get_user_oauth_token(
+            .get_token(
                 *user_id,
                 TenantId::from_uuid(Uuid::nil()),
                 oauth_providers::STRAVA,
@@ -365,7 +365,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
         assert_eq!(strava_token.access_token, format!("strava_access_{i}"));
 
         let fitbit_token = database
-            .get_user_oauth_token(
+            .get_token(
                 *user_id,
                 TenantId::from_uuid(Uuid::nil()),
                 oauth_providers::FITBIT,
@@ -377,7 +377,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
 
     // Verify users cannot access each other's data
     let user0_strava = database
-        .get_user_oauth_token(
+        .get_token(
             users[0].0,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -385,7 +385,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
         .await?
         .unwrap();
     let user1_strava = database
-        .get_user_oauth_token(
+        .get_token(
             users[1].0,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -419,7 +419,7 @@ async fn test_concurrent_user_operations() -> Result<()> {
             let user_id = user.id;
 
             // Create user
-            db.create_user(&user).await?;
+            UserRepository::create(&*db, &user).await?;
 
             // Generate token
             let jwks_manager = common::get_shared_test_jwks();
@@ -440,11 +440,11 @@ async fn test_concurrent_user_operations() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_user_oauth_token(&oauth_token).await?;
+            db.upsert_token(&oauth_token).await?;
 
             // Retrieve and verify data
             let token_data = db
-                .get_user_oauth_token(
+                .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
                     oauth_providers::STRAVA,
@@ -481,7 +481,7 @@ async fn test_token_expiration_handling() -> Result<()> {
         "hashed_password".to_owned(),
         Some("Expired Token User".to_owned()),
     );
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Create auth manager with very short expiry (fraction of a second)
     let short_expiry_auth_manager = Arc::new(AuthManager::new(0)); // 0 hours expiry
@@ -558,7 +558,7 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Starter User".to_owned()),
     );
     starter_user.tier = UserTier::Starter;
-    database.create_user(&starter_user).await?;
+    database.create(&starter_user).await?;
 
     let mut pro_user = User::new(
         "pro@test.com".to_owned(),
@@ -566,7 +566,7 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Pro User".to_owned()),
     );
     pro_user.tier = UserTier::Professional;
-    database.create_user(&pro_user).await?;
+    database.create(&pro_user).await?;
 
     let mut enterprise_user = User::new(
         "enterprise@test.com".to_owned(),
@@ -574,12 +574,12 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Enterprise User".to_owned()),
     );
     enterprise_user.tier = UserTier::Enterprise;
-    database.create_user(&enterprise_user).await?;
+    database.create(&enterprise_user).await?;
 
     // Verify users have correct tiers
-    let retrieved_starter = database.get_user_global(starter_user.id).await?.unwrap();
-    let retrieved_pro = database.get_user_global(pro_user.id).await?.unwrap();
-    let retrieved_enterprise = database.get_user_global(enterprise_user.id).await?.unwrap();
+    let retrieved_starter = database.get_global(starter_user.id).await?.unwrap();
+    let retrieved_pro = database.get_global(pro_user.id).await?.unwrap();
+    let retrieved_enterprise = database.get_global(enterprise_user.id).await?.unwrap();
 
     assert_eq!(retrieved_starter.tier, UserTier::Starter);
     assert_eq!(retrieved_pro.tier, UserTier::Professional);
@@ -625,7 +625,7 @@ async fn test_database_encryption_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_user_oauth_token(&user1_oauth_token).await?;
+    database.upsert_token(&user1_oauth_token).await?;
 
     let user2_oauth_token = UserOAuthToken::new(
         *user2_id,
@@ -636,11 +636,11 @@ async fn test_database_encryption_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_user_oauth_token(&user2_oauth_token).await?;
+    database.upsert_token(&user2_oauth_token).await?;
 
     // Verify data is properly isolated and encrypted/decrypted
     let user1_token_data = database
-        .get_user_oauth_token(
+        .get_token(
             *user1_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -648,7 +648,7 @@ async fn test_database_encryption_isolation() -> Result<()> {
         .await?
         .unwrap();
     let user2_token_data = database
-        .get_user_oauth_token(
+        .get_token(
             *user2_id,
             TenantId::from_uuid(Uuid::nil()),
             oauth_providers::STRAVA,
@@ -680,20 +680,20 @@ async fn test_session_state_management() -> Result<()> {
         Some("Session Test User".to_owned()),
     );
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(&*database, &user).await?;
 
     // Update last active timestamp
     database.update_last_active(user_id).await?;
 
     // Verify the timestamp was updated
-    let updated_user = database.get_user_global(user_id).await?.unwrap();
+    let updated_user = database.get_global(user_id).await?.unwrap();
     // last_active is a DateTime<Utc>, not an Option
 
     // Test multiple updates
     sleep(Duration::from_millis(10)).await;
     database.update_last_active(user_id).await?;
 
-    let updated_user2 = database.get_user_global(user_id).await?.unwrap();
+    let updated_user2 = database.get_global(user_id).await?.unwrap();
 
     // The second timestamp should be different (or at least not earlier)
     assert!(updated_user2.last_active >= updated_user.last_active);
@@ -785,7 +785,7 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
             );
             let user_id = user.id;
 
-            db.create_user(&user).await?;
+            UserRepository::create(&*db, &user).await?;
 
             // Generate and validate token
             let token = am.generate_token(&user, &jwks_mgr)?;
@@ -803,10 +803,10 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_user_oauth_token(&oauth_token).await?;
+            db.upsert_token(&oauth_token).await?;
 
             let token_data = db
-                .get_user_oauth_token(
+                .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
                     oauth_providers::STRAVA,
@@ -885,7 +885,7 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
 
     // 1. Test invalid user ID
     let non_existent_user_id = Uuid::new_v4();
-    let result = database.get_user_global(non_existent_user_id).await?;
+    let result = database.get_global(non_existent_user_id).await?;
     assert!(result.is_none());
 
     // 2. Test invalid token validation
@@ -910,7 +910,7 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
     );
 
     // This should either fail or handle gracefully
-    let _result = database.create_user(&invalid_user).await;
+    let _result = database.create(&invalid_user).await;
     // The result depends on database validation, but it shouldn't panic
 
     Ok(())
@@ -955,10 +955,10 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_user_oauth_token(&oauth_token).await?;
+            db.upsert_token(&oauth_token).await?;
 
             let token_data = db
-                .get_user_oauth_token(
+                .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
                     oauth_providers::STRAVA,

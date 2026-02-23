@@ -10,8 +10,12 @@
 
 use super::DatabaseProvider;
 use super::{
-    A2ADbOps, AdminDbOps, ApiKeyDbOps, ChatDbOps, OAuth2ServerOps, OAuthAccountOps, OAuthTokenOps,
-    SecurityDbOps, SocialDbOps, TenantDbOps, UsageDbOps, UserDbOps,
+    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, FitnessConfigRepository,
+    ImpersonationRepository, InsightRepository, LlmCredentialRepository, LlmUsageRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    SecurityRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 use crate::admin::models::{
     AdminToken, AdminTokenUsage, CreateAdminTokenRequest, GeneratedAdminToken,
@@ -395,47 +399,47 @@ pub fn detect_database_type(database_url: &str) -> AppResult<DatabaseType> {
 // Implement DatabaseProvider for the enum by delegating to the appropriate implementation
 #[async_trait]
 #[async_trait]
-impl UserDbOps for Database {
-    async fn create_user(&self, user: &User) -> AppResult<uuid::Uuid> {
+impl UserRepository for Database {
+    async fn create(&self, user: &User) -> AppResult<uuid::Uuid> {
         match self {
-            Self::SQLite(db) => db.create_user(user).await,
+            Self::SQLite(db) => UserRepository::create(db, user).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.create_user(user).await,
+            Self::PostgreSQL(db) => UserRepository::create(db, user).await,
         }
     }
-    async fn get_user(&self, user_id: uuid::Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
+    async fn get(&self, user_id: uuid::Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
         match self {
-            Self::SQLite(db) => db.get_user(user_id, tenant_id).await,
+            Self::SQLite(db) => db.get(user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.get(user_id, tenant_id).await,
         }
     }
-    async fn get_user_global(&self, user_id: uuid::Uuid) -> AppResult<Option<User>> {
+    async fn get_global(&self, user_id: uuid::Uuid) -> AppResult<Option<User>> {
         match self {
-            Self::SQLite(db) => db.get_user_global(user_id).await,
+            Self::SQLite(db) => db.get_global(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_global(user_id).await,
+            Self::PostgreSQL(db) => db.get_global(user_id).await,
         }
     }
-    async fn get_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
         match self {
-            Self::SQLite(db) => db.get_user_by_email(email).await,
+            Self::SQLite(db) => db.get_by_email(email).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_by_email(email).await,
+            Self::PostgreSQL(db) => db.get_by_email(email).await,
         }
     }
-    async fn get_user_by_email_required(&self, email: &str) -> AppResult<User> {
+    async fn get_by_email_required(&self, email: &str) -> AppResult<User> {
         match self {
-            Self::SQLite(db) => db.get_user_by_email_required(email).await,
+            Self::SQLite(db) => db.get_by_email_required(email).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_by_email_required(email).await,
+            Self::PostgreSQL(db) => db.get_by_email_required(email).await,
         }
     }
-    async fn get_user_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
+    async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
         match self {
-            Self::SQLite(db) => db.get_user_by_firebase_uid(firebase_uid).await,
+            Self::SQLite(db) => db.get_by_firebase_uid(firebase_uid).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_by_firebase_uid(firebase_uid).await,
+            Self::PostgreSQL(db) => db.get_by_firebase_uid(firebase_uid).await,
         }
     }
     async fn update_last_active(&self, user_id: uuid::Uuid) -> AppResult<()> {
@@ -445,22 +449,22 @@ impl UserDbOps for Database {
             Self::PostgreSQL(db) => db.update_last_active(user_id).await,
         }
     }
-    async fn get_user_count(&self) -> AppResult<i64> {
+    async fn count(&self) -> AppResult<i64> {
         match self {
-            Self::SQLite(db) => db.get_user_count().await,
+            Self::SQLite(db) => db.count().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_count().await,
+            Self::PostgreSQL(db) => db.count().await,
         }
     }
-    async fn get_users_by_status(
+    async fn get_by_status(
         &self,
         status: &str,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<User>> {
         match self {
-            Self::SQLite(db) => db.get_users_by_status(status, tenant_id).await,
+            Self::SQLite(db) => db.get_by_status(status, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_users_by_status(status, tenant_id).await,
+            Self::PostgreSQL(db) => db.get_by_status(status, tenant_id).await,
         }
     }
     async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
@@ -470,93 +474,92 @@ impl UserDbOps for Database {
             Self::PostgreSQL(db) => db.get_first_admin_user().await,
         }
     }
-    async fn get_users_by_status_cursor(
+    async fn get_by_status_cursor(
         &self,
         status: &str,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<User>> {
         match self {
-            Self::SQLite(db) => db.get_users_by_status_cursor(status, params).await,
+            Self::SQLite(db) => db.get_by_status_cursor(status, params).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_users_by_status_cursor(status, params).await,
+            Self::PostgreSQL(db) => db.get_by_status_cursor(status, params).await,
         }
     }
-    async fn update_user_status(
+    async fn update_status(
         &self,
         user_id: uuid::Uuid,
         new_status: UserStatus,
         approved_by: Option<uuid::Uuid>,
     ) -> AppResult<User> {
         match self {
-            Self::SQLite(db) => {
-                db.update_user_status(user_id, new_status, approved_by)
-                    .await
-            }
+            Self::SQLite(db) => db.update_status(user_id, new_status, approved_by).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.update_user_status(user_id, new_status, approved_by)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.update_status(user_id, new_status, approved_by).await,
         }
     }
-    async fn update_user_tenant_id(
-        &self,
-        user_id: uuid::Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<()> {
+    async fn update_tenant_id(&self, user_id: uuid::Uuid, tenant_id: TenantId) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_user_tenant_id(user_id, tenant_id).await,
+            Self::SQLite(db) => db.update_tenant_id(user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_user_tenant_id(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.update_tenant_id(user_id, tenant_id).await,
         }
     }
-    async fn update_user_password(
-        &self,
-        user_id: uuid::Uuid,
-        password_hash: &str,
-    ) -> AppResult<()> {
+    async fn update_password(&self, user_id: uuid::Uuid, password_hash: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_user_password(user_id, password_hash).await,
+            Self::SQLite(db) => db.update_password(user_id, password_hash).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_user_password(user_id, password_hash).await,
+            Self::PostgreSQL(db) => db.update_password(user_id, password_hash).await,
         }
     }
-    async fn update_user_display_name(
+    async fn update_display_name(
         &self,
         user_id: uuid::Uuid,
         display_name: &str,
     ) -> AppResult<User> {
         match self {
-            Self::SQLite(db) => db.update_user_display_name(user_id, display_name).await,
+            Self::SQLite(db) => db.update_display_name(user_id, display_name).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_user_display_name(user_id, display_name).await,
+            Self::PostgreSQL(db) => db.update_display_name(user_id, display_name).await,
         }
     }
-    async fn delete_user(&self, user_id: uuid::Uuid) -> AppResult<()> {
+    async fn delete(&self, user_id: uuid::Uuid) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.delete_user(user_id).await,
+            Self::SQLite(db) => db.delete(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_user(user_id).await,
+            Self::PostgreSQL(db) => db.delete(user_id).await,
         }
     }
-    async fn upsert_user_profile(
+    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
+        match self {
+            Self::SQLite(db) => db.user_has_synthetic_activities_impl(user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.has_synthetic_activities(user_id).await,
+        }
+    }
+}
+
+#[async_trait]
+impl ProfileRepository for Database {
+    async fn upsert_profile(
         &self,
         user_id: uuid::Uuid,
         profile_data: serde_json::Value,
     ) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.upsert_user_profile(user_id, profile_data).await,
+            Self::SQLite(db) => db.upsert_profile(user_id, profile_data).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.upsert_user_profile(user_id, profile_data).await,
+            Self::PostgreSQL(db) => db.upsert_profile(user_id, profile_data).await,
         }
     }
-    async fn get_user_profile(&self, user_id: uuid::Uuid) -> AppResult<Option<serde_json::Value>> {
+
+    async fn get_profile(&self, user_id: uuid::Uuid) -> AppResult<Option<serde_json::Value>> {
         match self {
-            Self::SQLite(db) => db.get_user_profile(user_id).await,
+            Self::SQLite(db) => db.get_profile(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_profile(user_id).await,
+            Self::PostgreSQL(db) => db.get_profile(user_id).await,
         }
     }
+
     async fn create_goal(
         &self,
         user_id: uuid::Uuid,
@@ -568,13 +571,15 @@ impl UserDbOps for Database {
             Self::PostgreSQL(db) => db.create_goal(user_id, goal_data).await,
         }
     }
-    async fn get_user_goals(&self, user_id: uuid::Uuid) -> AppResult<Vec<serde_json::Value>> {
+
+    async fn get_goals(&self, user_id: uuid::Uuid) -> AppResult<Vec<serde_json::Value>> {
         match self {
-            Self::SQLite(db) => db.get_user_goals(user_id).await,
+            Self::SQLite(db) => db.get_goals(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_goals(user_id).await,
+            Self::PostgreSQL(db) => db.get_goals(user_id).await,
         }
     }
+
     async fn update_goal_progress(
         &self,
         goal_id: &str,
@@ -593,59 +598,58 @@ impl UserDbOps for Database {
             }
         }
     }
-    async fn get_user_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
+
+    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
         match self {
-            Self::SQLite(db) => db.get_user_configuration(user_id).await,
+            Self::SQLite(db) => db.get_configuration(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_configuration(user_id).await,
+            Self::PostgreSQL(db) => db.get_configuration(user_id).await,
         }
     }
-    async fn save_user_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
+
+    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.save_user_configuration(user_id, config_json).await,
+            Self::SQLite(db) => db.save_configuration(user_id, config_json).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.save_user_configuration(user_id, config_json).await,
-        }
-    }
-    async fn user_has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
-        match self {
-            Self::SQLite(db) => db.user_has_synthetic_activities_impl(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.user_has_synthetic_activities(user_id).await,
+            Self::PostgreSQL(db) => db.save_configuration(user_id, config_json).await,
         }
     }
 }
 
 #[async_trait]
-impl OAuthTokenOps for Database {
-    async fn upsert_user_oauth_token(&self, token: &UserOAuthToken) -> AppResult<()> {
+impl OAuthTokenRepository for Database {
+    async fn upsert_token(&self, token: &UserOAuthToken) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => OAuthTokenOps::upsert_user_oauth_token(db, token).await,
+            Self::SQLite(db) => OAuthTokenRepository::upsert_token(db, token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.upsert_user_oauth_token(token).await,
+            Self::PostgreSQL(db) => db.upsert_token(token).await,
         }
     }
-    async fn get_user_oauth_token(
+    async fn get_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<UserOAuthToken>> {
         match self {
-            Self::SQLite(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
+            Self::SQLite(db) => {
+                OAuthTokenRepository::get_token(db, user_id, tenant_id, provider).await
+            }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_oauth_token(user_id, tenant_id, provider).await,
+            Self::PostgreSQL(db) => {
+                OAuthTokenRepository::get_token(db, user_id, tenant_id, provider).await
+            }
         }
     }
-    async fn get_user_oauth_tokens(
+    async fn get_tokens(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<UserOAuthToken>> {
         match self {
-            Self::SQLite(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
+            Self::SQLite(db) => db.get_tokens(user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_oauth_tokens(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.get_tokens(user_id, tenant_id).await,
         }
     }
     async fn get_tenant_provider_tokens(
@@ -659,32 +663,26 @@ impl OAuthTokenOps for Database {
             Self::PostgreSQL(db) => db.get_tenant_provider_tokens(tenant_id, provider).await,
         }
     }
-    async fn delete_user_oauth_token(
+    async fn delete_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => {
-                db.delete_user_oauth_token(user_id, tenant_id, provider)
-                    .await
-            }
+            Self::SQLite(db) => db.delete_token(user_id, tenant_id, provider).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.delete_user_oauth_token(user_id, tenant_id, provider)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.delete_token(user_id, tenant_id, provider).await,
         }
     }
-    async fn delete_user_oauth_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+    async fn delete_tokens(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
+            Self::SQLite(db) => db.delete_tokens(user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_user_oauth_tokens(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.delete_tokens(user_id, tenant_id).await,
         }
     }
-    async fn refresh_user_oauth_token(
+    async fn refresh_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -695,7 +693,7 @@ impl OAuthTokenOps for Database {
     ) -> AppResult<()> {
         match self {
             Self::SQLite(db) => {
-                db.refresh_user_oauth_token(
+                db.refresh_token(
                     user_id,
                     tenant_id,
                     provider,
@@ -707,7 +705,7 @@ impl OAuthTokenOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.refresh_user_oauth_token(
+                db.refresh_token(
                     user_id,
                     tenant_id,
                     provider,
@@ -804,64 +802,61 @@ impl OAuthTokenOps for Database {
 }
 
 #[async_trait]
-impl OAuth2ServerOps for Database {
-    async fn store_oauth2_client(&self, client: &OAuth2Client) -> AppResult<()> {
+impl OAuth2ServerRepository for Database {
+    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.store_oauth2_client(client).await,
+            Self::SQLite(db) => db.store_client(client).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_oauth2_client(client).await,
+            Self::PostgreSQL(db) => db.store_client(client).await,
         }
     }
-    async fn get_oauth2_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
         match self {
-            Self::SQLite(db) => db.get_oauth2_client(client_id).await,
+            Self::SQLite(db) => OAuth2ServerRepository::get_client(db, client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_oauth2_client(client_id).await,
+            Self::PostgreSQL(db) => OAuth2ServerRepository::get_client(db, client_id).await,
         }
     }
-    async fn store_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.store_oauth2_auth_code(auth_code).await,
+            Self::SQLite(db) => db.store_auth_code(auth_code).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_oauth2_auth_code(auth_code).await,
+            Self::PostgreSQL(db) => db.store_auth_code(auth_code).await,
         }
     }
-    async fn get_oauth2_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+    async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
         match self {
-            Self::SQLite(db) => db.get_oauth2_auth_code(code).await,
+            Self::SQLite(db) => db.get_auth_code(code).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_oauth2_auth_code(code).await,
+            Self::PostgreSQL(db) => db.get_auth_code(code).await,
         }
     }
-    async fn update_oauth2_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+    async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_oauth2_auth_code(auth_code).await,
+            Self::SQLite(db) => db.update_auth_code(auth_code).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_oauth2_auth_code(auth_code).await,
+            Self::PostgreSQL(db) => db.update_auth_code(auth_code).await,
         }
     }
-    async fn store_oauth2_refresh_token(
-        &self,
-        refresh_token: &OAuth2RefreshToken,
-    ) -> AppResult<()> {
+    async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.store_oauth2_refresh_token(refresh_token).await,
+            Self::SQLite(db) => db.store_refresh_token(refresh_token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_oauth2_refresh_token(refresh_token).await,
+            Self::PostgreSQL(db) => db.store_refresh_token(refresh_token).await,
         }
     }
-    async fn get_oauth2_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+    async fn get_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
         match self {
-            Self::SQLite(db) => db.get_oauth2_refresh_token(token).await,
+            Self::SQLite(db) => db.get_refresh_token(token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_oauth2_refresh_token(token).await,
+            Self::PostgreSQL(db) => db.get_refresh_token(token).await,
         }
     }
-    async fn revoke_oauth2_refresh_token(&self, token: &str) -> AppResult<()> {
+    async fn revoke_refresh_token(&self, token: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.revoke_oauth2_refresh_token(token).await,
+            Self::SQLite(db) => db.revoke_refresh_token(token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.revoke_oauth2_refresh_token(token).await,
+            Self::PostgreSQL(db) => db.revoke_refresh_token(token).await,
         }
     }
     async fn consume_auth_code(
@@ -939,25 +934,33 @@ impl OAuth2ServerOps for Database {
             Self::PostgreSQL(db) => db.delete_authorization_code(code).await,
         }
     }
-    async fn store_oauth2_state(&self, state: &OAuth2State) -> AppResult<()> {
+    async fn store_state(&self, state: &OAuth2State) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.store_oauth2_state(state).await,
+            Self::SQLite(db) => OAuth2ServerRepository::store_state(db, state).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_oauth2_state(state).await,
+            Self::PostgreSQL(db) => OAuth2ServerRepository::store_state(db, state).await,
         }
     }
-    async fn consume_oauth2_state(
+    async fn consume_state(
         &self,
         state_value: &str,
         client_id: &str,
         now: DateTime<Utc>,
     ) -> AppResult<Option<OAuth2State>> {
         match self {
-            Self::SQLite(db) => db.consume_oauth2_state(state_value, client_id, now).await,
+            Self::SQLite(db) => {
+                OAuth2ServerRepository::consume_state(db, state_value, client_id, now).await
+            }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.consume_oauth2_state(state_value, client_id, now).await,
+            Self::PostgreSQL(db) => {
+                OAuth2ServerRepository::consume_state(db, state_value, client_id, now).await
+            }
         }
     }
+}
+
+#[async_trait]
+impl OAuthClientStateRepository for Database {
     async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
         match self {
             Self::SQLite(db) => db.store_oauth_client_state(state).await,
@@ -965,6 +968,7 @@ impl OAuth2ServerOps for Database {
             Self::PostgreSQL(db) => db.store_oauth_client_state(state).await,
         }
     }
+
     async fn consume_oauth_client_state(
         &self,
         state_value: &str,
@@ -986,8 +990,8 @@ impl OAuth2ServerOps for Database {
 }
 
 #[async_trait]
-impl OAuthAccountOps for Database {
-    async fn register_provider_connection(
+impl ProviderConnectionRepository for Database {
+    async fn register_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -1008,18 +1012,12 @@ impl OAuthAccountOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.register_provider_connection(
-                    user_id,
-                    tenant_id,
-                    provider,
-                    connection_type,
-                    metadata,
-                )
-                .await
+                db.register_connection(user_id, tenant_id, provider, connection_type, metadata)
+                    .await
             }
         }
     }
-    async fn remove_provider_connection(
+    async fn remove_connection(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -1031,13 +1029,10 @@ impl OAuthAccountOps for Database {
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.remove_provider_connection(user_id, tenant_id, provider)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.remove_connection(user_id, tenant_id, provider).await,
         }
     }
-    async fn get_user_provider_connections(
+    async fn get_for_user(
         &self,
         user_id: Uuid,
         tenant_id: Option<TenantId>,
@@ -1048,17 +1043,23 @@ impl OAuthAccountOps for Database {
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_provider_connections(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => {
+                ProviderConnectionRepository::get_for_user(db, user_id, tenant_id).await
+            }
         }
     }
-    async fn is_provider_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
+    async fn is_connected(&self, user_id: Uuid, provider: &str) -> AppResult<bool> {
         match self {
             Self::SQLite(db) => db.is_provider_connected_impl(user_id, provider).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.is_provider_connected(user_id, provider).await,
+            Self::PostgreSQL(db) => db.is_connected(user_id, provider).await,
         }
     }
-    async fn store_password_reset_token(
+}
+
+#[async_trait]
+impl PasswordResetRepository for Database {
+    async fn store_token(
         &self,
         user_id: uuid::Uuid,
         token_hash: &str,
@@ -1071,76 +1072,77 @@ impl OAuthAccountOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.store_password_reset_token(user_id, token_hash, created_by)
-                    .await
+                PasswordResetRepository::store_token(db, user_id, token_hash, created_by).await
             }
         }
     }
-    async fn consume_password_reset_token(&self, token_hash: &str) -> AppResult<uuid::Uuid> {
+
+    async fn consume_token(&self, token_hash: &str) -> AppResult<uuid::Uuid> {
         match self {
             Self::SQLite(db) => db.consume_password_reset_token_impl(token_hash).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.consume_password_reset_token(token_hash).await,
+            Self::PostgreSQL(db) => PasswordResetRepository::consume_token(db, token_hash).await,
         }
     }
-    async fn invalidate_user_reset_tokens(&self, user_id: uuid::Uuid) -> AppResult<()> {
+
+    async fn invalidate_tokens(&self, user_id: uuid::Uuid) -> AppResult<()> {
         match self {
             Self::SQLite(db) => db.invalidate_user_reset_tokens_impl(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.invalidate_user_reset_tokens(user_id).await,
+            Self::PostgreSQL(db) => db.invalidate_tokens(user_id).await,
         }
     }
 }
 
 #[async_trait]
-impl ApiKeyDbOps for Database {
-    async fn create_api_key(&self, api_key: &ApiKey) -> AppResult<()> {
+impl ApiKeyRepository for Database {
+    async fn create(&self, api_key: &ApiKey) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.create_api_key(api_key).await,
+            Self::SQLite(db) => ApiKeyRepository::create(db, api_key).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.create_api_key(api_key).await,
+            Self::PostgreSQL(db) => ApiKeyRepository::create(db, api_key).await,
         }
     }
-    async fn get_api_key_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
+    async fn get_by_prefix(&self, prefix: &str, hash: &str) -> AppResult<Option<ApiKey>> {
         match self {
-            Self::SQLite(db) => db.get_api_key_by_prefix(prefix, hash).await,
+            Self::SQLite(db) => db.get_by_prefix(prefix, hash).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_api_key_by_prefix(prefix, hash).await,
+            Self::PostgreSQL(db) => db.get_by_prefix(prefix, hash).await,
         }
     }
-    async fn get_user_api_keys(&self, user_id: uuid::Uuid) -> AppResult<Vec<ApiKey>> {
+    async fn get_for_user(&self, user_id: uuid::Uuid) -> AppResult<Vec<ApiKey>> {
         match self {
-            Self::SQLite(db) => db.get_user_api_keys(user_id).await,
+            Self::SQLite(db) => ApiKeyRepository::get_for_user(db, user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_api_keys(user_id).await,
+            Self::PostgreSQL(db) => ApiKeyRepository::get_for_user(db, user_id).await,
         }
     }
-    async fn update_api_key_last_used(&self, api_key_id: &str) -> AppResult<()> {
+    async fn update_last_used(&self, api_key_id: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_api_key_last_used(api_key_id).await,
+            Self::SQLite(db) => db.update_last_used(api_key_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_api_key_last_used(api_key_id).await,
+            Self::PostgreSQL(db) => db.update_last_used(api_key_id).await,
         }
     }
-    async fn deactivate_api_key(&self, api_key_id: &str, user_id: uuid::Uuid) -> AppResult<()> {
+    async fn deactivate(&self, api_key_id: &str, user_id: uuid::Uuid) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.deactivate_api_key(api_key_id, user_id).await,
+            Self::SQLite(db) => ApiKeyRepository::deactivate(db, api_key_id, user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.deactivate_api_key(api_key_id, user_id).await,
+            Self::PostgreSQL(db) => ApiKeyRepository::deactivate(db, api_key_id, user_id).await,
         }
     }
-    async fn get_api_key_by_id(
+    async fn get_by_id(
         &self,
         api_key_id: &str,
         user_id: Option<Uuid>,
     ) -> AppResult<Option<ApiKey>> {
         match self {
-            Self::SQLite(db) => db.get_api_key_by_id(api_key_id, user_id).await,
+            Self::SQLite(db) => ApiKeyRepository::get_by_id(db, api_key_id, user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_api_key_by_id(api_key_id, user_id).await,
+            Self::PostgreSQL(db) => ApiKeyRepository::get_by_id(db, api_key_id, user_id).await,
         }
     }
-    async fn get_api_keys_filtered(
+    async fn get_filtered(
         &self,
         user_email: Option<&str>,
         active_only: bool,
@@ -1149,63 +1151,57 @@ impl ApiKeyDbOps for Database {
     ) -> AppResult<Vec<ApiKey>> {
         match self {
             Self::SQLite(db) => {
-                ApiKeyDbOps::get_api_keys_filtered(db, user_email, active_only, limit, offset).await
+                ApiKeyRepository::get_filtered(db, user_email, active_only, limit, offset).await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.get_api_keys_filtered(user_email, active_only, limit, offset)
+                db.get_filtered(user_email, active_only, limit, offset)
                     .await
             }
         }
     }
-    async fn cleanup_expired_api_keys(&self) -> AppResult<u64> {
+    async fn cleanup_expired(&self) -> AppResult<u64> {
         match self {
-            Self::SQLite(db) => db.cleanup_expired_api_keys().await,
+            Self::SQLite(db) => db.cleanup_expired().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.cleanup_expired_api_keys().await,
+            Self::PostgreSQL(db) => db.cleanup_expired().await,
         }
     }
-    async fn get_expired_api_keys(&self) -> AppResult<Vec<ApiKey>> {
+    async fn get_expired(&self) -> AppResult<Vec<ApiKey>> {
         match self {
-            Self::SQLite(db) => db.get_expired_api_keys().await,
+            Self::SQLite(db) => db.get_expired().await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_expired_api_keys().await,
+            Self::PostgreSQL(db) => db.get_expired().await,
         }
     }
 }
 
 #[async_trait]
-impl UsageDbOps for Database {
-    async fn record_api_key_usage(&self, usage: &ApiKeyUsage) -> AppResult<()> {
+impl UsageRepository for Database {
+    async fn record_api_key(&self, usage: &ApiKeyUsage) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.record_api_key_usage(usage).await,
+            Self::SQLite(db) => db.record_api_key(usage).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.record_api_key_usage(usage).await,
+            Self::PostgreSQL(db) => db.record_api_key(usage).await,
         }
     }
-    async fn get_api_key_current_usage(&self, api_key_id: &str) -> AppResult<u32> {
+    async fn get_api_key_current(&self, api_key_id: &str) -> AppResult<u32> {
         match self {
-            Self::SQLite(db) => db.get_api_key_current_usage(api_key_id).await,
+            Self::SQLite(db) => db.get_api_key_current(api_key_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_api_key_current_usage(api_key_id).await,
+            Self::PostgreSQL(db) => db.get_api_key_current(api_key_id).await,
         }
     }
-    async fn get_api_key_usage_stats(
+    async fn get_api_key_stats(
         &self,
         api_key_id: &str,
         start_date: chrono::DateTime<chrono::Utc>,
         end_date: chrono::DateTime<chrono::Utc>,
     ) -> AppResult<ApiKeyUsageStats> {
         match self {
-            Self::SQLite(db) => {
-                db.get_api_key_usage_stats(api_key_id, start_date, end_date)
-                    .await
-            }
+            Self::SQLite(db) => db.get_api_key_stats(api_key_id, start_date, end_date).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.get_api_key_usage_stats(api_key_id, start_date, end_date)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.get_api_key_stats(api_key_id, start_date, end_date).await,
         }
     }
     async fn record_jwt_usage(&self, usage: &JwtUsage) -> AppResult<()> {
@@ -1233,7 +1229,7 @@ impl UsageDbOps for Database {
     ) -> AppResult<Vec<RequestLog>> {
         match self {
             Self::SQLite(db) => {
-                UsageDbOps::get_request_logs(
+                UsageRepository::get_request_logs(
                     db,
                     user_id,
                     api_key_id,
@@ -1283,36 +1279,11 @@ impl UsageDbOps for Database {
             }
         }
     }
-    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
-        match self {
-            Self::SQLite(db) => db.insert_llm_usage_impl(params).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.insert_llm_usage(params).await,
-        }
-    }
-    async fn get_llm_usage_aggregates(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-        match self {
-            Self::SQLite(db) => db.get_llm_usage_aggregates_impl(tenant_id, since).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_llm_usage_aggregates(tenant_id, since).await,
-        }
-    }
-    async fn get_llm_usage_daily_series(
-        &self,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageDailyRow>> {
-        match self {
-            Self::SQLite(db) => db.get_llm_usage_daily_series_impl(tenant_id, since).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_llm_usage_daily_series(tenant_id, since).await,
-        }
-    }
-    async fn increment_usage_counter(
+}
+
+#[async_trait]
+impl UsageCounterRepository for Database {
+    async fn increment_counter(
         &self,
         tenant_id: &str,
         user_id: &str,
@@ -1327,12 +1298,13 @@ impl UsageDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.increment_usage_counter(tenant_id, user_id, counter_key, period, amount)
+                db.increment_counter(tenant_id, user_id, counter_key, period, amount)
                     .await
             }
         }
     }
-    async fn get_usage_counter(
+
+    async fn get_counter(
         &self,
         tenant_id: &str,
         user_id: &str,
@@ -1346,90 +1318,117 @@ impl UsageDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.get_usage_counter(tenant_id, user_id, counter_key, period)
+                db.get_counter(tenant_id, user_id, counter_key, period)
                     .await
             }
         }
     }
-    async fn delete_old_usage_counters(&self, period_before: &str) -> AppResult<u64> {
+
+    async fn delete_old_counters(&self, period_before: &str) -> AppResult<u64> {
         match self {
             Self::SQLite(db) => db.delete_old_usage_counters_impl(period_before).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_old_usage_counters(period_before).await,
+            Self::PostgreSQL(db) => db.delete_old_counters(period_before).await,
         }
     }
 }
 
 #[async_trait]
-impl A2ADbOps for Database {
-    async fn create_a2a_client(
+impl LlmUsageRepository for Database {
+    async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
+        match self {
+            Self::SQLite(db) => db.insert_llm_usage_impl(params).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.insert_llm_usage(params).await,
+        }
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+        match self {
+            Self::SQLite(db) => db.get_llm_usage_aggregates_impl(tenant_id, since).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_llm_usage_aggregates(tenant_id, since).await,
+        }
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>> {
+        match self {
+            Self::SQLite(db) => db.get_llm_usage_daily_series_impl(tenant_id, since).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_llm_usage_daily_series(tenant_id, since).await,
+        }
+    }
+}
+
+#[async_trait]
+impl A2ARepository for Database {
+    async fn create_client(
         &self,
         client: &A2AClient,
         client_secret: &str,
         api_key_id: &str,
     ) -> AppResult<String> {
         match self {
-            Self::SQLite(db) => {
-                db.create_a2a_client(client, client_secret, api_key_id)
-                    .await
-            }
+            Self::SQLite(db) => db.create_client(client, client_secret, api_key_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.create_a2a_client(client, client_secret, api_key_id)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.create_client(client, client_secret, api_key_id).await,
         }
     }
-    async fn get_a2a_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<A2AClient>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client(client_id).await,
+            Self::SQLite(db) => A2ARepository::get_client(db, client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client(client_id).await,
+            Self::PostgreSQL(db) => A2ARepository::get_client(db, client_id).await,
         }
     }
-    async fn get_a2a_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_api_key_id(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client_by_api_key_id(api_key_id).await,
+            Self::SQLite(db) => db.get_client_by_api_key_id(api_key_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client_by_api_key_id(api_key_id).await,
+            Self::PostgreSQL(db) => db.get_client_by_api_key_id(api_key_id).await,
         }
     }
-    async fn get_a2a_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
+    async fn get_client_by_name(&self, name: &str) -> AppResult<Option<A2AClient>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client_by_name(name).await,
+            Self::SQLite(db) => db.get_client_by_name(name).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client_by_name(name).await,
+            Self::PostgreSQL(db) => db.get_client_by_name(name).await,
         }
     }
-    async fn list_a2a_clients(&self, user_id: &uuid::Uuid) -> AppResult<Vec<A2AClient>> {
+    async fn list_clients(&self, user_id: &uuid::Uuid) -> AppResult<Vec<A2AClient>> {
         match self {
-            Self::SQLite(db) => db.list_a2a_clients(user_id).await,
+            Self::SQLite(db) => db.list_clients(user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_a2a_clients(user_id).await,
+            Self::PostgreSQL(db) => db.list_clients(user_id).await,
         }
     }
-    async fn deactivate_a2a_client(&self, client_id: &str) -> AppResult<()> {
+    async fn deactivate_client(&self, client_id: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.deactivate_a2a_client(client_id).await,
+            Self::SQLite(db) => db.deactivate_client(client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.deactivate_a2a_client(client_id).await,
+            Self::PostgreSQL(db) => db.deactivate_client(client_id).await,
         }
     }
-    async fn get_a2a_client_credentials(
-        &self,
-        client_id: &str,
-    ) -> AppResult<Option<(String, String)>> {
+    async fn get_client_credentials(&self, client_id: &str) -> AppResult<Option<(String, String)>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client_credentials(client_id).await,
+            Self::SQLite(db) => db.get_client_credentials(client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client_credentials(client_id).await,
+            Self::PostgreSQL(db) => db.get_client_credentials(client_id).await,
         }
     }
-    async fn invalidate_a2a_client_sessions(&self, client_id: &str) -> AppResult<()> {
+    async fn invalidate_client_sessions(&self, client_id: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.invalidate_a2a_client_sessions(client_id).await,
+            Self::SQLite(db) => db.invalidate_client_sessions(client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.invalidate_a2a_client_sessions(client_id).await,
+            Self::PostgreSQL(db) => db.invalidate_client_sessions(client_id).await,
         }
     }
     async fn deactivate_client_api_keys(&self, client_id: &str) -> AppResult<()> {
@@ -1439,7 +1438,7 @@ impl A2ADbOps for Database {
             Self::PostgreSQL(db) => db.deactivate_client_api_keys(client_id).await,
         }
     }
-    async fn create_a2a_session(
+    async fn create_session(
         &self,
         client_id: &str,
         user_id: Option<&uuid::Uuid>,
@@ -1448,38 +1447,50 @@ impl A2ADbOps for Database {
     ) -> AppResult<String> {
         match self {
             Self::SQLite(db) => {
-                db.create_a2a_session(client_id, user_id, granted_scopes, expires_in_hours)
-                    .await
+                A2ARepository::create_session(
+                    db,
+                    client_id,
+                    user_id,
+                    granted_scopes,
+                    expires_in_hours,
+                )
+                .await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.create_a2a_session(client_id, user_id, granted_scopes, expires_in_hours)
-                    .await
+                A2ARepository::create_session(
+                    db,
+                    client_id,
+                    user_id,
+                    granted_scopes,
+                    expires_in_hours,
+                )
+                .await
             }
         }
     }
-    async fn get_a2a_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
+    async fn get_session(&self, session_token: &str) -> AppResult<Option<A2ASession>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_session(session_token).await,
+            Self::SQLite(db) => A2ARepository::get_session(db, session_token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_session(session_token).await,
+            Self::PostgreSQL(db) => A2ARepository::get_session(db, session_token).await,
         }
     }
-    async fn update_a2a_session_activity(&self, session_token: &str) -> AppResult<()> {
+    async fn update_session_activity(&self, session_token: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_a2a_session_activity(session_token).await,
+            Self::SQLite(db) => db.update_session_activity(session_token).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_a2a_session_activity(session_token).await,
+            Self::PostgreSQL(db) => db.update_session_activity(session_token).await,
         }
     }
-    async fn get_active_a2a_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
+    async fn get_active_sessions(&self, client_id: &str) -> AppResult<Vec<A2ASession>> {
         match self {
-            Self::SQLite(db) => db.get_active_a2a_sessions(client_id).await,
+            Self::SQLite(db) => A2ARepository::get_active_sessions(db, client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_active_a2a_sessions(client_id).await,
+            Self::PostgreSQL(db) => A2ARepository::get_active_sessions(db, client_id).await,
         }
     }
-    async fn create_a2a_task(
+    async fn create_task(
         &self,
         client_id: &str,
         session_id: Option<&str>,
@@ -1488,24 +1499,24 @@ impl A2ADbOps for Database {
     ) -> AppResult<String> {
         match self {
             Self::SQLite(db) => {
-                db.create_a2a_task(client_id, session_id, task_type, input_data)
+                db.create_task(client_id, session_id, task_type, input_data)
                     .await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.create_a2a_task(client_id, session_id, task_type, input_data)
+                db.create_task(client_id, session_id, task_type, input_data)
                     .await
             }
         }
     }
-    async fn get_a2a_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
+    async fn get_task(&self, task_id: &str) -> AppResult<Option<A2ATask>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_task(task_id).await,
+            Self::SQLite(db) => db.get_task(task_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_task(task_id).await,
+            Self::PostgreSQL(db) => db.get_task(task_id).await,
         }
     }
-    async fn list_a2a_tasks(
+    async fn list_tasks(
         &self,
         client_id: Option<&str>,
         status_filter: Option<&TaskStatus>,
@@ -1513,18 +1524,12 @@ impl A2ADbOps for Database {
         offset: Option<u32>,
     ) -> AppResult<Vec<A2ATask>> {
         match self {
-            Self::SQLite(db) => {
-                db.list_a2a_tasks(client_id, status_filter, limit, offset)
-                    .await
-            }
+            Self::SQLite(db) => db.list_tasks(client_id, status_filter, limit, offset).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.list_a2a_tasks(client_id, status_filter, limit, offset)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.list_tasks(client_id, status_filter, limit, offset).await,
         }
     }
-    async fn update_a2a_task_status(
+    async fn update_task_status(
         &self,
         task_id: &str,
         status: &TaskStatus,
@@ -1532,32 +1537,26 @@ impl A2ADbOps for Database {
         error: Option<&str>,
     ) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => {
-                db.update_a2a_task_status(task_id, status, result, error)
-                    .await
-            }
+            Self::SQLite(db) => db.update_task_status(task_id, status, result, error).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.update_a2a_task_status(task_id, status, result, error)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.update_task_status(task_id, status, result, error).await,
         }
     }
-    async fn record_a2a_usage(&self, usage: &A2AUsage) -> AppResult<()> {
+    async fn record_usage(&self, usage: &A2AUsage) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.record_a2a_usage(usage).await,
+            Self::SQLite(db) => A2ARepository::record_usage(db, usage).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.record_a2a_usage(usage).await,
+            Self::PostgreSQL(db) => A2ARepository::record_usage(db, usage).await,
         }
     }
-    async fn get_a2a_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
+    async fn get_client_current_usage(&self, client_id: &str) -> AppResult<u32> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client_current_usage(client_id).await,
+            Self::SQLite(db) => db.get_client_current_usage(client_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client_current_usage(client_id).await,
+            Self::PostgreSQL(db) => db.get_client_current_usage(client_id).await,
         }
     }
-    async fn get_a2a_usage_stats(
+    async fn get_usage_stats(
         &self,
         client_id: &str,
         start_date: chrono::DateTime<chrono::Utc>,
@@ -1565,32 +1564,30 @@ impl A2ADbOps for Database {
     ) -> AppResult<A2AUsageStats> {
         match self {
             Self::SQLite(db) => {
-                db.get_a2a_usage_stats(client_id, start_date, end_date)
-                    .await
+                A2ARepository::get_usage_stats(db, client_id, start_date, end_date).await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.get_a2a_usage_stats(client_id, start_date, end_date)
-                    .await
+                A2ARepository::get_usage_stats(db, client_id, start_date, end_date).await
             }
         }
     }
-    async fn get_a2a_client_usage_history(
+    async fn get_client_usage_history(
         &self,
         client_id: &str,
         days: u32,
     ) -> AppResult<Vec<(chrono::DateTime<chrono::Utc>, u32, u32)>> {
         match self {
-            Self::SQLite(db) => db.get_a2a_client_usage_history(client_id, days).await,
+            Self::SQLite(db) => db.get_client_usage_history(client_id, days).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_a2a_client_usage_history(client_id, days).await,
+            Self::PostgreSQL(db) => db.get_client_usage_history(client_id, days).await,
         }
     }
 }
 
 #[async_trait]
-impl AdminDbOps for Database {
-    async fn create_admin_token(
+impl AdminRepository for Database {
+    async fn create_token(
         &self,
         request: &CreateAdminTokenRequest,
         admin_jwt_secret: &str,
@@ -1598,63 +1595,61 @@ impl AdminDbOps for Database {
     ) -> AppResult<GeneratedAdminToken> {
         match self {
             Self::SQLite(db) => {
-                db.create_admin_token(request, admin_jwt_secret, jwks_manager)
-                    .await
+                AdminRepository::create_token(db, request, admin_jwt_secret, jwks_manager).await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.create_admin_token(request, admin_jwt_secret, jwks_manager)
-                    .await
+                AdminRepository::create_token(db, request, admin_jwt_secret, jwks_manager).await
             }
         }
     }
-    async fn get_admin_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
         match self {
-            Self::SQLite(db) => db.get_admin_token_by_id(token_id).await,
+            Self::SQLite(db) => db.get_token_by_id(token_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_admin_token_by_id(token_id).await,
+            Self::PostgreSQL(db) => db.get_token_by_id(token_id).await,
         }
     }
-    async fn get_admin_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
+    async fn get_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
         match self {
-            Self::SQLite(db) => db.get_admin_token_by_prefix(token_prefix).await,
+            Self::SQLite(db) => db.get_token_by_prefix(token_prefix).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_admin_token_by_prefix(token_prefix).await,
+            Self::PostgreSQL(db) => db.get_token_by_prefix(token_prefix).await,
         }
     }
-    async fn list_admin_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
+    async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
         match self {
-            Self::SQLite(db) => db.list_admin_tokens(include_inactive).await,
+            Self::SQLite(db) => AdminRepository::list_tokens(db, include_inactive).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_admin_tokens(include_inactive).await,
+            Self::PostgreSQL(db) => AdminRepository::list_tokens(db, include_inactive).await,
         }
     }
-    async fn deactivate_admin_token(&self, token_id: &str) -> AppResult<()> {
+    async fn deactivate_token(&self, token_id: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.deactivate_admin_token(token_id).await,
+            Self::SQLite(db) => db.deactivate_token(token_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.deactivate_admin_token(token_id).await,
+            Self::PostgreSQL(db) => db.deactivate_token(token_id).await,
         }
     }
-    async fn update_admin_token_last_used(
+    async fn update_token_last_used(
         &self,
         token_id: &str,
         ip_address: Option<&str>,
     ) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.update_admin_token_last_used(token_id, ip_address).await,
+            Self::SQLite(db) => db.update_token_last_used(token_id, ip_address).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.update_admin_token_last_used(token_id, ip_address).await,
+            Self::PostgreSQL(db) => db.update_token_last_used(token_id, ip_address).await,
         }
     }
-    async fn record_admin_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
+    async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.record_admin_token_usage(usage).await,
+            Self::SQLite(db) => db.record_token_usage(usage).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.record_admin_token_usage(usage).await,
+            Self::PostgreSQL(db) => db.record_token_usage(usage).await,
         }
     }
-    async fn get_admin_token_usage_history(
+    async fn get_token_usage_history(
         &self,
         token_id: &str,
         start_date: chrono::DateTime<chrono::Utc>,
@@ -1662,17 +1657,17 @@ impl AdminDbOps for Database {
     ) -> AppResult<Vec<AdminTokenUsage>> {
         match self {
             Self::SQLite(db) => {
-                db.get_admin_token_usage_history(token_id, start_date, end_date)
+                db.get_token_usage_history(token_id, start_date, end_date)
                     .await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.get_admin_token_usage_history(token_id, start_date, end_date)
+                db.get_token_usage_history(token_id, start_date, end_date)
                     .await
             }
         }
     }
-    async fn record_admin_provisioned_key(
+    async fn record_provisioned_key(
         &self,
         admin_token_id: &str,
         api_key_id: &str,
@@ -1683,7 +1678,7 @@ impl AdminDbOps for Database {
     ) -> AppResult<()> {
         match self {
             Self::SQLite(db) => {
-                db.record_admin_provisioned_key(
+                db.record_provisioned_key(
                     admin_token_id,
                     api_key_id,
                     user_email,
@@ -1695,7 +1690,7 @@ impl AdminDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.record_admin_provisioned_key(
+                db.record_provisioned_key(
                     admin_token_id,
                     api_key_id,
                     user_email,
@@ -1707,7 +1702,7 @@ impl AdminDbOps for Database {
             }
         }
     }
-    async fn get_admin_provisioned_keys(
+    async fn get_provisioned_keys(
         &self,
         admin_token_id: Option<&str>,
         start_date: chrono::DateTime<chrono::Utc>,
@@ -1715,108 +1710,61 @@ impl AdminDbOps for Database {
     ) -> AppResult<Vec<serde_json::Value>> {
         match self {
             Self::SQLite(db) => {
-                db.get_admin_provisioned_keys(admin_token_id, start_date, end_date)
+                db.get_provisioned_keys(admin_token_id, start_date, end_date)
                     .await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.get_admin_provisioned_keys(admin_token_id, start_date, end_date)
+                db.get_provisioned_keys(admin_token_id, start_date, end_date)
                     .await
             }
         }
     }
-    async fn create_user_mcp_token(
-        &self,
-        user_id: Uuid,
-        request: &CreateUserMcpTokenRequest,
-    ) -> AppResult<UserMcpTokenCreated> {
+}
+
+#[async_trait]
+impl ImpersonationRepository for Database {
+    async fn create_session(&self, session: &ImpersonationSession) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.create_user_mcp_token(user_id, request).await,
+            Self::SQLite(db) => ImpersonationRepository::create_session(db, session).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.create_user_mcp_token(user_id, request).await,
+            Self::PostgreSQL(db) => ImpersonationRepository::create_session(db, session).await,
         }
     }
-    async fn validate_user_mcp_token(&self, token_value: &str) -> AppResult<Uuid> {
+
+    async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>> {
         match self {
-            Self::SQLite(db) => db.validate_user_mcp_token(token_value).await,
+            Self::SQLite(db) => ImpersonationRepository::get_session(db, session_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.validate_user_mcp_token(token_value).await,
+            Self::PostgreSQL(db) => ImpersonationRepository::get_session(db, session_id).await,
         }
     }
-    async fn list_user_mcp_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+
+    async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>> {
         match self {
-            Self::SQLite(db) => db.list_user_mcp_tokens(user_id).await,
+            Self::SQLite(db) => ImpersonationRepository::get_active_session(db, user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_user_mcp_tokens(user_id).await,
+            Self::PostgreSQL(db) => ImpersonationRepository::get_active_session(db, user_id).await,
         }
     }
-    async fn revoke_user_mcp_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+
+    async fn end_session(&self, session_id: &str) -> AppResult<()> {
         match self {
-            Self::SQLite(db) => db.revoke_user_mcp_token(token_id, user_id).await,
+            Self::SQLite(db) => ImpersonationRepository::end_session(db, session_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.revoke_user_mcp_token(token_id, user_id).await,
+            Self::PostgreSQL(db) => ImpersonationRepository::end_session(db, session_id).await,
         }
     }
-    async fn get_user_mcp_token(
-        &self,
-        token_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<Option<UserMcpToken>> {
+
+    async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
         match self {
-            Self::SQLite(db) => db.get_user_mcp_token(token_id, user_id).await,
+            Self::SQLite(db) => db.end_all_sessions(impersonator_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_mcp_token(token_id, user_id).await,
+            Self::PostgreSQL(db) => db.end_all_sessions(impersonator_id).await,
         }
     }
-    async fn cleanup_expired_user_mcp_tokens(&self) -> AppResult<u64> {
-        match self {
-            Self::SQLite(db) => db.cleanup_expired_user_mcp_tokens().await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.cleanup_expired_user_mcp_tokens().await,
-        }
-    }
-    async fn create_impersonation_session(&self, session: &ImpersonationSession) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.create_impersonation_session(session).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.create_impersonation_session(session).await,
-        }
-    }
-    async fn get_impersonation_session(
-        &self,
-        session_id: &str,
-    ) -> AppResult<Option<ImpersonationSession>> {
-        match self {
-            Self::SQLite(db) => db.get_impersonation_session(session_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_impersonation_session(session_id).await,
-        }
-    }
-    async fn get_active_impersonation_session(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Option<ImpersonationSession>> {
-        match self {
-            Self::SQLite(db) => db.get_active_impersonation_session(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_active_impersonation_session(user_id).await,
-        }
-    }
-    async fn end_impersonation_session(&self, session_id: &str) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.end_impersonation_session(session_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.end_impersonation_session(session_id).await,
-        }
-    }
-    async fn end_all_impersonation_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
-        match self {
-            Self::SQLite(db) => db.end_all_impersonation_sessions(impersonator_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.end_all_impersonation_sessions(impersonator_id).await,
-        }
-    }
-    async fn list_impersonation_sessions(
+
+    async fn list_sessions(
         &self,
         impersonator_id: Option<Uuid>,
         target_user_id: Option<Uuid>,
@@ -1825,77 +1773,143 @@ impl AdminDbOps for Database {
     ) -> AppResult<Vec<ImpersonationSession>> {
         match self {
             Self::SQLite(db) => {
-                db.list_impersonation_sessions(impersonator_id, target_user_id, active_only, limit)
-                    .await
+                ImpersonationRepository::list_sessions(
+                    db,
+                    impersonator_id,
+                    target_user_id,
+                    active_only,
+                    limit,
+                )
+                .await
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.list_impersonation_sessions(impersonator_id, target_user_id, active_only, limit)
-                    .await
+                ImpersonationRepository::list_sessions(
+                    db,
+                    impersonator_id,
+                    target_user_id,
+                    active_only,
+                    limit,
+                )
+                .await
             }
         }
     }
 }
 
 #[async_trait]
-impl TenantDbOps for Database {
-    async fn create_tenant(&self, tenant: &Tenant) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.create_tenant(tenant).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.create_tenant(tenant).await,
-        }
-    }
-    async fn get_tenant_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
-        match self {
-            Self::SQLite(db) => db.get_tenant_by_id(tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_by_id(tenant_id).await,
-        }
-    }
-    async fn get_tenant_by_slug(&self, slug: &str) -> AppResult<Tenant> {
-        match self {
-            Self::SQLite(db) => db.get_tenant_by_slug(slug).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_by_slug(slug).await,
-        }
-    }
-    async fn list_tenants_for_user(&self, user_id: uuid::Uuid) -> AppResult<Vec<Tenant>> {
-        match self {
-            Self::SQLite(db) => db.list_tenants_for_user(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_tenants_for_user(user_id).await,
-        }
-    }
-    async fn store_tenant_oauth_credentials(
+impl UserMcpTokenRepository for Database {
+    async fn create_token(
         &self,
-        credentials: &TenantOAuthCredentials,
-    ) -> AppResult<()> {
+        user_id: Uuid,
+        request: &CreateUserMcpTokenRequest,
+    ) -> AppResult<UserMcpTokenCreated> {
         match self {
-            Self::SQLite(db) => db.store_tenant_oauth_credentials(credentials).await,
+            Self::SQLite(db) => UserMcpTokenRepository::create_token(db, user_id, request).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_tenant_oauth_credentials(credentials).await,
+            Self::PostgreSQL(db) => {
+                UserMcpTokenRepository::create_token(db, user_id, request).await
+            }
         }
     }
-    async fn get_tenant_oauth_providers(
+
+    async fn validate_token(&self, token_value: &str) -> AppResult<Uuid> {
+        match self {
+            Self::SQLite(db) => db.validate_token(token_value).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.validate_token(token_value).await,
+        }
+    }
+
+    async fn list_tokens(&self, user_id: Uuid) -> AppResult<Vec<UserMcpTokenInfo>> {
+        match self {
+            Self::SQLite(db) => UserMcpTokenRepository::list_tokens(db, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => UserMcpTokenRepository::list_tokens(db, user_id).await,
+        }
+    }
+
+    async fn revoke_token(&self, token_id: &str, user_id: Uuid) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.revoke_token(token_id, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.revoke_token(token_id, user_id).await,
+        }
+    }
+
+    async fn get_token(&self, token_id: &str, user_id: Uuid) -> AppResult<Option<UserMcpToken>> {
+        match self {
+            Self::SQLite(db) => UserMcpTokenRepository::get_token(db, token_id, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => UserMcpTokenRepository::get_token(db, token_id, user_id).await,
+        }
+    }
+
+    async fn cleanup_expired_tokens(&self) -> AppResult<u64> {
+        match self {
+            Self::SQLite(db) => db.cleanup_expired_tokens().await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.cleanup_expired_tokens().await,
+        }
+    }
+}
+
+#[async_trait]
+impl TenantRepository for Database {
+    async fn create(&self, tenant: &Tenant) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => TenantRepository::create(db, tenant).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => TenantRepository::create(db, tenant).await,
+        }
+    }
+    async fn get_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant> {
+        match self {
+            Self::SQLite(db) => TenantRepository::get_by_id(db, tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => TenantRepository::get_by_id(db, tenant_id).await,
+        }
+    }
+    async fn get_by_slug(&self, slug: &str) -> AppResult<Tenant> {
+        match self {
+            Self::SQLite(db) => db.get_by_slug(slug).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_by_slug(slug).await,
+        }
+    }
+    async fn list_for_user(&self, user_id: uuid::Uuid) -> AppResult<Vec<Tenant>> {
+        match self {
+            Self::SQLite(db) => db.list_for_user(user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.list_for_user(user_id).await,
+        }
+    }
+    async fn store_oauth_credentials(&self, credentials: &TenantOAuthCredentials) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.store_oauth_credentials(credentials).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.store_oauth_credentials(credentials).await,
+        }
+    }
+    async fn get_oauth_providers(
         &self,
         tenant_id: TenantId,
     ) -> AppResult<Vec<TenantOAuthCredentials>> {
         match self {
-            Self::SQLite(db) => db.get_tenant_oauth_providers(tenant_id).await,
+            Self::SQLite(db) => db.get_oauth_providers(tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_oauth_providers(tenant_id).await,
+            Self::PostgreSQL(db) => db.get_oauth_providers(tenant_id).await,
         }
     }
-    async fn get_tenant_oauth_credentials(
+    async fn get_oauth_credentials(
         &self,
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<TenantOAuthCredentials>> {
         match self {
-            Self::SQLite(db) => db.get_tenant_oauth_credentials(tenant_id, provider).await,
+            Self::SQLite(db) => db.get_oauth_credentials(tenant_id, provider).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_oauth_credentials(tenant_id, provider).await,
+            Self::PostgreSQL(db) => db.get_oauth_credentials(tenant_id, provider).await,
         }
     }
     async fn create_oauth_app(&self, app: &OAuthApp) -> AppResult<()> {
@@ -1919,199 +1933,24 @@ impl TenantDbOps for Database {
             Self::PostgreSQL(db) => db.list_oauth_apps_for_user(user_id).await,
         }
     }
-    async fn get_all_tenants(&self) -> AppResult<Vec<Tenant>> {
+    async fn get_all(&self) -> AppResult<Vec<Tenant>> {
         match self {
-            Self::SQLite(db) => db.get_all_tenants().await,
+            Self::SQLite(db) => TenantRepository::get_all(db).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_all_tenants().await,
+            Self::PostgreSQL(db) => TenantRepository::get_all(db).await,
         }
     }
-    async fn get_user_tenant_role(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
+    async fn get_user_role(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<String>> {
         match self {
-            Self::SQLite(db) => TenantDbOps::get_user_tenant_role(db, user_id, tenant_id).await,
+            Self::SQLite(db) => TenantRepository::get_user_role(db, user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_tenant_role(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.get_user_role(user_id, tenant_id).await,
         }
     }
-    async fn save_tenant_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        match self {
-            Self::SQLite(db) => {
-                db.save_tenant_fitness_config(tenant_id, configuration_name, config)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.save_tenant_fitness_config(tenant_id, configuration_name, config)
-                    .await
-            }
-        }
-    }
-    async fn save_user_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-        config: &FitnessConfig,
-    ) -> AppResult<String> {
-        match self {
-            Self::SQLite(db) => {
-                db.save_user_fitness_config(tenant_id, user_id, configuration_name, config)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.save_user_fitness_config(tenant_id, user_id, configuration_name, config)
-                    .await
-            }
-        }
-    }
-    async fn get_tenant_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        match self {
-            Self::SQLite(db) => {
-                db.get_tenant_fitness_config(tenant_id, configuration_name)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.get_tenant_fitness_config(tenant_id, configuration_name)
-                    .await
-            }
-        }
-    }
-    async fn get_user_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-        configuration_name: &str,
-    ) -> AppResult<Option<FitnessConfig>> {
-        match self {
-            Self::SQLite(db) => {
-                db.get_user_fitness_config(tenant_id, user_id, configuration_name)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.get_user_fitness_config(tenant_id, user_id, configuration_name)
-                    .await
-            }
-        }
-    }
-    async fn list_tenant_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<String>> {
-        match self {
-            Self::SQLite(db) => db.list_tenant_fitness_configurations(tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_tenant_fitness_configurations(tenant_id).await,
-        }
-    }
-    async fn list_user_fitness_configurations(
-        &self,
-        tenant_id: TenantId,
-        user_id: &str,
-    ) -> AppResult<Vec<String>> {
-        match self {
-            Self::SQLite(db) => {
-                db.list_user_fitness_configurations(tenant_id, user_id)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.list_user_fitness_configurations(tenant_id, user_id)
-                    .await
-            }
-        }
-    }
-    async fn delete_fitness_config(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<&str>,
-        configuration_name: &str,
-    ) -> AppResult<bool> {
-        match self {
-            Self::SQLite(db) => {
-                db.delete_fitness_config(tenant_id, user_id, configuration_name)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.delete_fitness_config(tenant_id, user_id, configuration_name)
-                    .await
-            }
-        }
-    }
-    async fn store_llm_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
-        match self {
-            Self::SQLite(db) => db.store_llm_credentials(record).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_llm_credentials(record).await,
-        }
-    }
-    async fn get_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<Uuid>,
-        provider: &str,
-    ) -> AppResult<Option<LlmCredentialRecord>> {
-        match self {
-            Self::SQLite(db) => db.get_llm_credentials(tenant_id, user_id, provider).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_llm_credentials(tenant_id, user_id, provider).await,
-        }
-    }
-    async fn list_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<LlmCredentialSummary>> {
-        match self {
-            Self::SQLite(db) => db.list_llm_credentials(tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.list_llm_credentials(tenant_id).await,
-        }
-    }
-    async fn delete_llm_credentials(
-        &self,
-        tenant_id: TenantId,
-        user_id: Option<Uuid>,
-        provider: &str,
-    ) -> AppResult<bool> {
-        match self {
-            Self::SQLite(db) => {
-                db.delete_llm_credentials(tenant_id, user_id, provider)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.delete_llm_credentials(tenant_id, user_id, provider)
-                    .await
-            }
-        }
-    }
-    async fn get_admin_config_override(
-        &self,
-        config_key: &str,
-        tenant_id: Option<TenantId>,
-    ) -> AppResult<Option<String>> {
-        match self {
-            Self::SQLite(db) => db.get_admin_config_override(config_key, tenant_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_admin_config_override(config_key, tenant_id).await,
-        }
-    }
+}
+
+#[async_trait]
+impl ToolSelectionRepository for Database {
     async fn get_tool_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
         match self {
             Self::SQLite(db) => db.get_tool_catalog_impl().await,
@@ -2119,6 +1958,7 @@ impl TenantDbOps for Database {
             Self::PostgreSQL(db) => db.get_tool_catalog().await,
         }
     }
+
     async fn get_tool_catalog_entry(&self, tool_name: &str) -> AppResult<Option<ToolCatalogEntry>> {
         match self {
             Self::SQLite(db) => db.get_tool_catalog_entry_impl(tool_name).await,
@@ -2126,6 +1966,7 @@ impl TenantDbOps for Database {
             Self::PostgreSQL(db) => db.get_tool_catalog_entry(tool_name).await,
         }
     }
+
     async fn get_tools_by_category(
         &self,
         category: ToolCategory,
@@ -2136,6 +1977,7 @@ impl TenantDbOps for Database {
             Self::PostgreSQL(db) => db.get_tools_by_category(category).await,
         }
     }
+
     async fn get_tools_by_min_plan(&self, plan: TenantPlan) -> AppResult<Vec<ToolCatalogEntry>> {
         match self {
             Self::SQLite(db) => db.get_tools_by_min_plan_impl(plan).await,
@@ -2143,17 +1985,16 @@ impl TenantDbOps for Database {
             Self::PostgreSQL(db) => db.get_tools_by_min_plan(plan).await,
         }
     }
-    async fn get_tenant_tool_overrides(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<TenantToolOverride>> {
+
+    async fn get_overrides(&self, tenant_id: TenantId) -> AppResult<Vec<TenantToolOverride>> {
         match self {
             Self::SQLite(db) => db.get_tenant_tool_overrides_impl(tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_tool_overrides(tenant_id).await,
+            Self::PostgreSQL(db) => db.get_overrides(tenant_id).await,
         }
     }
-    async fn get_tenant_tool_override(
+
+    async fn get_override(
         &self,
         tenant_id: TenantId,
         tool_name: &str,
@@ -2161,10 +2002,11 @@ impl TenantDbOps for Database {
         match self {
             Self::SQLite(db) => db.get_tenant_tool_override_impl(tenant_id, tool_name).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_tenant_tool_override(tenant_id, tool_name).await,
+            Self::PostgreSQL(db) => db.get_override(tenant_id, tool_name).await,
         }
     }
-    async fn upsert_tenant_tool_override(
+
+    async fn upsert_override(
         &self,
         tenant_id: TenantId,
         tool_name: &str,
@@ -2185,31 +2027,23 @@ impl TenantDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.upsert_tenant_tool_override(
-                    tenant_id,
-                    tool_name,
-                    is_enabled,
-                    enabled_by_user_id,
-                    reason,
-                )
-                .await
+                db.upsert_override(tenant_id, tool_name, is_enabled, enabled_by_user_id, reason)
+                    .await
             }
         }
     }
-    async fn delete_tenant_tool_override(
-        &self,
-        tenant_id: TenantId,
-        tool_name: &str,
-    ) -> AppResult<bool> {
+
+    async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool> {
         match self {
             Self::SQLite(db) => {
                 db.delete_tenant_tool_override_impl(tenant_id, tool_name)
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.delete_tenant_tool_override(tenant_id, tool_name).await,
+            Self::PostgreSQL(db) => db.delete_override(tenant_id, tool_name).await,
         }
     }
+
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
         match self {
             Self::SQLite(db) => db.count_enabled_tools_impl(tenant_id).await,
@@ -2220,8 +2054,177 @@ impl TenantDbOps for Database {
 }
 
 #[async_trait]
-impl ChatDbOps for Database {
-    async fn chat_create_conversation(
+impl LlmCredentialRepository for Database {
+    async fn store_credentials(&self, record: &LlmCredentialRecord) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.store_credentials(record).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.store_credentials(record).await,
+        }
+    }
+
+    async fn get_credentials(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<Uuid>,
+        provider: &str,
+    ) -> AppResult<Option<LlmCredentialRecord>> {
+        match self {
+            Self::SQLite(db) => db.get_credentials(tenant_id, user_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_credentials(tenant_id, user_id, provider).await,
+        }
+    }
+
+    async fn list_credentials(&self, tenant_id: TenantId) -> AppResult<Vec<LlmCredentialSummary>> {
+        match self {
+            Self::SQLite(db) => db.list_credentials(tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.list_credentials(tenant_id).await,
+        }
+    }
+
+    async fn delete_credentials(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<Uuid>,
+        provider: &str,
+    ) -> AppResult<bool> {
+        match self {
+            Self::SQLite(db) => db.delete_credentials(tenant_id, user_id, provider).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.delete_credentials(tenant_id, user_id, provider).await,
+        }
+    }
+
+    async fn get_admin_config_override(
+        &self,
+        config_key: &str,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Option<String>> {
+        match self {
+            Self::SQLite(db) => db.get_admin_config_override(config_key, tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_admin_config_override(config_key, tenant_id).await,
+        }
+    }
+}
+
+#[async_trait]
+impl FitnessConfigRepository for Database {
+    async fn save_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        match self {
+            Self::SQLite(db) => {
+                db.save_tenant_config(tenant_id, configuration_name, config)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.save_tenant_config(tenant_id, configuration_name, config)
+                    .await
+            }
+        }
+    }
+
+    async fn save_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+        config: &FitnessConfig,
+    ) -> AppResult<String> {
+        match self {
+            Self::SQLite(db) => {
+                db.save_user_config(tenant_id, user_id, configuration_name, config)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.save_user_config(tenant_id, user_id, configuration_name, config)
+                    .await
+            }
+        }
+    }
+
+    async fn get_tenant_config(
+        &self,
+        tenant_id: TenantId,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        match self {
+            Self::SQLite(db) => db.get_tenant_config(tenant_id, configuration_name).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_tenant_config(tenant_id, configuration_name).await,
+        }
+    }
+
+    async fn get_user_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        configuration_name: &str,
+    ) -> AppResult<Option<FitnessConfig>> {
+        match self {
+            Self::SQLite(db) => {
+                db.get_user_config(tenant_id, user_id, configuration_name)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.get_user_config(tenant_id, user_id, configuration_name)
+                    .await
+            }
+        }
+    }
+
+    async fn list_tenant_configurations(&self, tenant_id: TenantId) -> AppResult<Vec<String>> {
+        match self {
+            Self::SQLite(db) => db.list_tenant_configurations(tenant_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.list_tenant_configurations(tenant_id).await,
+        }
+    }
+
+    async fn list_user_configurations(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<Vec<String>> {
+        match self {
+            Self::SQLite(db) => db.list_user_configurations(tenant_id, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.list_user_configurations(tenant_id, user_id).await,
+        }
+    }
+
+    async fn delete_config(
+        &self,
+        tenant_id: TenantId,
+        user_id: Option<&str>,
+        configuration_name: &str,
+    ) -> AppResult<bool> {
+        match self {
+            Self::SQLite(db) => {
+                db.delete_config(tenant_id, user_id, configuration_name)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.delete_config(tenant_id, user_id, configuration_name)
+                    .await
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl ChatRepository for Database {
+    async fn create_conversation(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -2236,12 +2239,12 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_create_conversation(user_id, tenant_id, title, model, system_prompt)
+                db.create_conversation(user_id, tenant_id, title, model, system_prompt)
                     .await
             }
         }
     }
-    async fn chat_get_conversation(
+    async fn get_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -2254,12 +2257,12 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_get_conversation(conversation_id, user_id, tenant_id)
+                db.get_conversation(conversation_id, user_id, tenant_id)
                     .await
             }
         }
     }
-    async fn chat_list_conversations(
+    async fn list_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -2273,12 +2276,12 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_list_conversations(user_id, tenant_id, limit, offset)
+                db.list_conversations(user_id, tenant_id, limit, offset)
                     .await
             }
         }
     }
-    async fn chat_update_conversation_title(
+    async fn update_conversation_title(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -2292,12 +2295,12 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_update_conversation_title(conversation_id, user_id, tenant_id, title)
+                db.update_conversation_title(conversation_id, user_id, tenant_id, title)
                     .await
             }
         }
     }
-    async fn chat_delete_conversation(
+    async fn delete_conversation(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -2310,19 +2313,19 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_delete_conversation(conversation_id, user_id, tenant_id)
+                db.delete_conversation(conversation_id, user_id, tenant_id)
                     .await
             }
         }
     }
-    async fn chat_add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
+    async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
         match self {
             Self::SQLite(db) => db.chat_add_message_impl(params).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.chat_add_message(params).await,
+            Self::PostgreSQL(db) => db.add_message(params).await,
         }
     }
-    async fn chat_get_messages(
+    async fn get_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -2330,10 +2333,10 @@ impl ChatDbOps for Database {
         match self {
             Self::SQLite(db) => db.chat_get_messages_impl(conversation_id, user_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.chat_get_messages(conversation_id, user_id).await,
+            Self::PostgreSQL(db) => db.get_messages(conversation_id, user_id).await,
         }
     }
-    async fn chat_get_recent_messages(
+    async fn get_recent_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -2346,29 +2349,29 @@ impl ChatDbOps for Database {
             }
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => {
-                db.chat_get_recent_messages(conversation_id, user_id, limit)
+                db.get_recent_messages(conversation_id, user_id, limit)
                     .await
             }
         }
     }
-    async fn chat_get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
+    async fn get_message_count(&self, conversation_id: &str, user_id: &str) -> AppResult<i64> {
         match self {
             Self::SQLite(db) => {
                 db.chat_get_message_count_impl(conversation_id, user_id)
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.chat_get_message_count(conversation_id, user_id).await,
+            Self::PostgreSQL(db) => db.get_message_count(conversation_id, user_id).await,
         }
     }
-    async fn chat_count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+    async fn count_conversations(&self, user_id: &str, tenant_id: TenantId) -> AppResult<i64> {
         match self {
             Self::SQLite(db) => db.chat_count_conversations_impl(user_id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.chat_count_conversations(user_id, tenant_id).await,
+            Self::PostgreSQL(db) => db.count_conversations(user_id, tenant_id).await,
         }
     }
-    async fn chat_delete_all_user_conversations(
+    async fn delete_all_user_conversations(
         &self,
         user_id: &str,
         tenant_id: TenantId,
@@ -2379,16 +2382,13 @@ impl ChatDbOps for Database {
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.chat_delete_all_user_conversations(user_id, tenant_id)
-                    .await
-            }
+            Self::PostgreSQL(db) => db.delete_all_user_conversations(user_id, tenant_id).await,
         }
     }
 }
 
 #[async_trait]
-impl SecurityDbOps for Database {
+impl SecurityRepository for Database {
     async fn store_key_version(&self, version: &KeyVersion) -> AppResult<()> {
         match self {
             Self::SQLite(db) => db.store_key_version(version).await,
@@ -2482,71 +2482,6 @@ impl SecurityDbOps for Database {
             Self::PostgreSQL(db) => db.update_system_secret(secret_type, new_value).await,
         }
     }
-    async fn store_oauth_notification(
-        &self,
-        user_id: Uuid,
-        provider: &str,
-        success: bool,
-        message: &str,
-        expires_at: Option<&str>,
-    ) -> AppResult<String> {
-        match self {
-            Self::SQLite(db) => {
-                db.store_oauth_notification(user_id, provider, success, message, expires_at)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.store_oauth_notification(user_id, provider, success, message, expires_at)
-                    .await
-            }
-        }
-    }
-    async fn get_unread_oauth_notifications(
-        &self,
-        user_id: Uuid,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        match self {
-            Self::SQLite(db) => db.get_unread_oauth_notifications(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_unread_oauth_notifications(user_id).await,
-        }
-    }
-    async fn mark_oauth_notification_read(
-        &self,
-        notification_id: &str,
-        user_id: Uuid,
-    ) -> AppResult<bool> {
-        match self {
-            Self::SQLite(db) => {
-                db.mark_oauth_notification_read(notification_id, user_id)
-                    .await
-            }
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                db.mark_oauth_notification_read(notification_id, user_id)
-                    .await
-            }
-        }
-    }
-    async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
-        match self {
-            Self::SQLite(db) => db.mark_all_oauth_notifications_read(user_id).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.mark_all_oauth_notifications_read(user_id).await,
-        }
-    }
-    async fn get_all_oauth_notifications(
-        &self,
-        user_id: Uuid,
-        limit: Option<i64>,
-    ) -> AppResult<Vec<OAuthNotification>> {
-        match self {
-            Self::SQLite(db) => db.get_all_oauth_notifications(user_id, limit).await,
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_all_oauth_notifications(user_id, limit).await,
-        }
-    }
     async fn save_rsa_keypair(
         &self,
         kid: &str,
@@ -2615,28 +2550,96 @@ impl SecurityDbOps for Database {
 }
 
 #[async_trait]
-impl SocialDbOps for Database {
-    async fn store_insight(
+impl NotificationRepository for Database {
+    async fn store(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        success: bool,
+        message: &str,
+        expires_at: Option<&str>,
+    ) -> AppResult<String> {
+        match self {
+            Self::SQLite(db) => {
+                NotificationRepository::store(db, user_id, provider, success, message, expires_at)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                NotificationRepository::store(db, user_id, provider, success, message, expires_at)
+                    .await
+            }
+        }
+    }
+
+    async fn get_unread(&self, user_id: Uuid) -> AppResult<Vec<OAuthNotification>> {
+        match self {
+            Self::SQLite(db) => NotificationRepository::get_unread(db, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => NotificationRepository::get_unread(db, user_id).await,
+        }
+    }
+
+    async fn mark_read(&self, notification_id: &str, user_id: Uuid) -> AppResult<bool> {
+        match self {
+            Self::SQLite(db) => {
+                NotificationRepository::mark_read(db, notification_id, user_id).await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                NotificationRepository::mark_read(db, notification_id, user_id).await
+            }
+        }
+    }
+
+    async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64> {
+        match self {
+            Self::SQLite(db) => NotificationRepository::mark_all_read(db, user_id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => NotificationRepository::mark_all_read(db, user_id).await,
+        }
+    }
+
+    async fn get_all(
+        &self,
+        user_id: Uuid,
+        limit: Option<i64>,
+    ) -> AppResult<Vec<OAuthNotification>> {
+        match self {
+            Self::SQLite(db) => NotificationRepository::get_all(db, user_id, limit).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => NotificationRepository::get_all(db, user_id, limit).await,
+        }
+    }
+}
+
+#[async_trait]
+impl InsightRepository for Database {
+    async fn store(
         &self,
         user_id: uuid::Uuid,
         insight_data: serde_json::Value,
     ) -> AppResult<String> {
         match self {
-            Self::SQLite(db) => db.store_insight(user_id, insight_data).await,
+            Self::SQLite(db) => InsightRepository::store(db, user_id, insight_data).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.store_insight(user_id, insight_data).await,
+            Self::PostgreSQL(db) => InsightRepository::store(db, user_id, insight_data).await,
         }
     }
-    async fn get_user_insights(
+    async fn get_for_user(
         &self,
         user_id: uuid::Uuid,
         insight_type: Option<&str>,
         limit: Option<u32>,
     ) -> AppResult<Vec<serde_json::Value>> {
         match self {
-            Self::SQLite(db) => db.get_user_insights(user_id, insight_type, limit).await,
+            Self::SQLite(db) => {
+                InsightRepository::get_for_user(db, user_id, insight_type, limit).await
+            }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => db.get_user_insights(user_id, insight_type, limit).await,
+            Self::PostgreSQL(db) => {
+                InsightRepository::get_for_user(db, user_id, insight_type, limit).await
+            }
         }
     }
 }

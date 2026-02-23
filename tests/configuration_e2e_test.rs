@@ -21,7 +21,7 @@ use pierre_mcp_server::config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig,
 };
 use pierre_mcp_server::database_plugins::factory::Database;
-use pierre_mcp_server::database_plugins::UserDbOps;
+use pierre_mcp_server::database_plugins::UserRepository;
 use pierre_mcp_server::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
     TrendIndicators,
@@ -114,8 +114,7 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
         "hashed_password".to_owned(),
         Some("Config Test User".to_owned()),
     );
-    let user_id = database
-        .create_user(&test_user)
+    let user_id = UserRepository::create(&*database, &test_user)
         .await
         .expect("Failed to create test user");
 

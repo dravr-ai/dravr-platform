@@ -6,6 +6,7 @@
 
 use super::Database;
 use crate::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage, ApiKeyUsageStats};
+use crate::database_plugins::ApiKeyRepository;
 use crate::errors::{AppError, AppResult};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::sqlite::SqliteRow;
@@ -355,7 +356,7 @@ impl Database {
     pub async fn get_api_key_current_usage_impl(&self, api_key_id: &str) -> AppResult<u32> {
         // Get the API key to determine its rate limit window (system-level lookup, no user scoping)
         let api_key = self
-            .get_api_key_by_id(api_key_id, None)
+            .get_by_id(api_key_id, None)
             .await?
             .ok_or_else(|| AppError::not_found("API key"))?;
 

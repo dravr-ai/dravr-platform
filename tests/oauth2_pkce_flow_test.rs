@@ -15,7 +15,7 @@ use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     auth::AuthManager,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, DatabaseProvider, TenantDbOps, UserDbOps},
+    database_plugins::{factory::Database, DatabaseProvider, TenantRepository, UserRepository},
     models::{Tenant, TenantId, User},
     oauth2_server::{
         client_registration::ClientRegistrationManager,
@@ -112,7 +112,7 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         "hash".to_owned(),
         Some("Test User".to_owned()),
     );
-    database.create_user(&user).await.unwrap();
+    UserRepository::create(database, &user).await.unwrap();
 
     // Create tenant with user as owner - this adds user to tenant_users table
     let tenant = Tenant {
@@ -125,7 +125,7 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    database.create_tenant(&tenant).await.unwrap();
+    TenantRepository::create(database, &tenant).await.unwrap();
 
     user
 }

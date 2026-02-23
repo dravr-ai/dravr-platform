@@ -166,7 +166,7 @@ use pierre_mcp_server::{
         SleepToolParamsConfig, SqlxConfig, SseConfig, StravaApiConfig, TlsConfig,
         TokioRuntimeConfig, TrainingZonesConfig, WeatherServiceConfig,
     },
-    database_plugins::{factory::Database, ApiKeyDbOps, UsageDbOps},
+    database_plugins::{factory::Database, ApiKeyRepository, UsageRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     rate_limiting::UnifiedRateLimitInfo,
     routes::dashboard::service::DashboardRoutes,
@@ -384,7 +384,7 @@ impl DashboardTestSetup {
 
         let manager = ApiKeyManager::new();
         let (pro_key, _) = manager.create_api_key(user_id, request_pro)?;
-        database.create_api_key(&pro_key).await?;
+        database.create(&pro_key).await?;
         api_keys.push(pro_key);
 
         // Create enterprise tier API key
@@ -397,7 +397,7 @@ impl DashboardTestSetup {
         };
 
         let (enterprise_key, _) = manager.create_api_key(user_id, request_enterprise)?;
-        database.create_api_key(&enterprise_key).await?;
+        database.create(&enterprise_key).await?;
         api_keys.push(enterprise_key);
 
         // Create some usage data for testing
@@ -480,7 +480,7 @@ impl DashboardTestSetup {
                     };
 
                     // Record the usage
-                    database.record_api_key_usage(&usage).await?;
+                    database.record_api_key(&usage).await?;
                 }
             }
         }

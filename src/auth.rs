@@ -34,7 +34,7 @@ use crate::constants::{
     time_constants::SECONDS_PER_HOUR,
 };
 use crate::database_plugins::factory::Database;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::UserRepository;
 use crate::errors::{AppError, AppResult};
 use crate::models::{AuthRequest, AuthResponse, User, UserSession};
 use crate::rate_limiting::UnifiedRateLimitInfo;
@@ -647,7 +647,7 @@ impl AuthManager {
     /// - User data deserialization fails
     pub async fn check_setup_status(&self, database: &Database) -> AppResult<SetupStatusResponse> {
         // Check for any active user with is_admin=true (consistent with admin setup endpoint)
-        match database.get_users_by_status("active", None).await {
+        match database.get_by_status("active", None).await {
             Ok(users) => {
                 let admin_exists = users.iter().any(|u| u.is_admin);
                 if admin_exists {

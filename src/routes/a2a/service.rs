@@ -18,7 +18,7 @@ use crate::a2a::{
     A2AError,
 };
 use crate::constants::time::DAY_SECONDS;
-use crate::database_plugins::A2ADbOps;
+use crate::database_plugins::A2ARepository;
 use crate::mcp::resources::ServerResources;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
@@ -467,7 +467,7 @@ impl A2ARoutes {
         // Also create an A2A session for tracking purposes
         self.resources
             .database
-            .create_a2a_session(client_id, None, &granted_scopes, 24)
+            .create_session(client_id, None, &granted_scopes, 24)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to create session: {e}")))?;
 
@@ -609,7 +609,7 @@ impl A2ARoutes {
         match self
             .resources
             .database
-            .update_a2a_session_activity(&token)
+            .update_session_activity(&token)
             .await
         {
             Ok(()) => Ok(json!({

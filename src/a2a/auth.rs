@@ -11,7 +11,7 @@
 
 use crate::a2a::{client::ClientRegistrationRequest, A2AError};
 use crate::auth::{AuthMethod, AuthResult};
-use crate::database_plugins::{A2ADbOps, TenantDbOps};
+use crate::database_plugins::{A2ARepository, TenantRepository};
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::providers::errors::ProviderError;
@@ -138,7 +138,7 @@ impl A2AAuthenticator {
     async fn get_a2a_client_by_api_key(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
         self.resources
             .database
-            .get_a2a_client_by_api_key_id(api_key_id)
+            .get_client_by_api_key_id(api_key_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to lookup A2A client by API key: {e}")))
     }
@@ -202,7 +202,7 @@ impl A2AAuthenticator {
         let active_tenant_id = self
             .resources
             .database
-            .list_tenants_for_user(client.user_id)
+            .list_for_user(client.user_id)
             .await
             .map_err(|e| {
                 AppError::database(format!(
@@ -263,7 +263,7 @@ impl A2AAuthenticator {
     pub async fn get_client(&self, client_id: &str) -> Result<Option<A2AClient>, A2AError> {
         self.resources
             .database
-            .get_a2a_client(client_id)
+            .get_client(client_id)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to get A2A client: {e}")))
     }

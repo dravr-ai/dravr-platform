@@ -9,7 +9,7 @@
 
 use anyhow::Result;
 use pierre_mcp_server::{
-    database::oauth_notifications::OAuthNotification, database_plugins::SecurityDbOps,
+    database::oauth_notifications::OAuthNotification, database_plugins::NotificationRepository,
     sse::manager::SseManager,
 };
 use reqwest::Client;
@@ -90,7 +90,7 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
     // Save notification to database using the correct method signature
     resources
         .database
-        .store_oauth_notification(
+        .store(
             user_id,
             &oauth_notification.provider,
             oauth_notification.success,

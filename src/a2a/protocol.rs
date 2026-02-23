@@ -17,7 +17,7 @@ use crate::a2a::{
     A2AErrorResponse, A2AInitializeRequest, A2AInitializeResponse, A2ARequest, A2AResponse,
     A2A_VERSION,
 };
-use crate::database_plugins::{A2ADbOps, OAuthTokenOps};
+use crate::database_plugins::{A2ARepository, OAuthTokenRepository};
 use crate::mcp::resources::ServerResources;
 use crate::mcp::tenant_isolation::extract_tenant_context_internal;
 use crate::tools::context::{AuthMethod, ToolExecutionContext};
@@ -330,7 +330,7 @@ impl A2AServer {
     ) -> Result<Vec<String>, String> {
         resources
             .database
-            .list_a2a_clients(user_id)
+            .list_clients(user_id)
             .await
             .map(|clients| clients.into_iter().map(|c| c.id).collect())
             .map_err(|e| format!("Failed to list A2A clients: {e}"))
@@ -516,7 +516,7 @@ impl A2AServer {
         // Persist task to database and get generated task_id
         let database = &resources.database;
         let task_id = match database
-            .create_a2a_task(
+            .create_task(
                 &client_id,
                 None, // session_id - optional
                 &task_type,
@@ -608,7 +608,7 @@ impl A2AServer {
         let database = &resources.database;
 
         // Get task from database
-        match database.get_a2a_task(task_id).await {
+        match database.get_task(task_id).await {
             Ok(Some(task)) => {
                 // Verify the task belongs to a client owned by the authenticated user
                 if let Err(err) = Self::verify_client_ownership(
@@ -710,7 +710,7 @@ impl A2AServer {
             });
 
         match database
-            .list_a2a_tasks(scoped_client_id, status_filter.as_ref(), limit, offset)
+            .list_tasks(scoped_client_id, status_filter.as_ref(), limit, offset)
             .await
         {
             Ok(tasks) => {

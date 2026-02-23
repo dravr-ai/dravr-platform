@@ -14,7 +14,7 @@ use anyhow::Result;
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::models::CreateAdminTokenRequest,
-    database_plugins::{factory::Database, AdminDbOps, DatabaseProvider, UserDbOps},
+    database_plugins::{factory::Database, AdminRepository, DatabaseProvider, UserRepository},
     key_management::KeyManager,
     models::{TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -82,7 +82,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
         auth_provider: String::new(),
     };
     let admin_user_id = admin_user.id;
-    database.create_user(&admin_user).await?;
+    UserRepository::create(&database, &admin_user).await?;
 
     // Create a test admin token
     let admin_request = CreateAdminTokenRequest {
@@ -97,7 +97,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let admin_token = database
-        .create_admin_token(&admin_request, TEST_JWT_SECRET, &jwks_manager)
+        .create_token(&admin_request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
 
     Ok((database, admin_token.token_id, admin_user_id))
@@ -128,7 +128,7 @@ async fn test_get_pending_users() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&pending_user).await?;
+    database.create(&pending_user).await?;
 
     let active_user = User {
         id: Uuid::new_v4(),
@@ -149,10 +149,10 @@ async fn test_get_pending_users() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&active_user).await?;
+    database.create(&active_user).await?;
 
     // Test getting pending users via database query
-    let pending_users = database.get_users_by_status("pending", None).await?;
+    let pending_users = database.get_by_status("pending", None).await?;
     assert_eq!(pending_users.len(), 1);
     assert_eq!(pending_users[0].email, "pending@test.com");
 
@@ -188,14 +188,14 @@ async fn test_approve_user() -> Result<()> {
         auth_provider: String::new(),
     };
     let user_id = pending_user.id;
-    database.create_user(&pending_user).await?;
+    database.create(&pending_user).await?;
 
     // Test updating the user's status to approved
     // For this test, we'll skip the update_user_status call since it uses token_id, not user_id
     // Instead, we'll directly test creating users with approved_by field set
 
     // Verify the pending user was created correctly
-    let pending_user_check = database.get_user_global(user_id).await?.unwrap();
+    let pending_user_check = database.get_global(user_id).await?.unwrap();
     assert_eq!(pending_user_check.user_status, UserStatus::Pending);
 
     // Now test creating a new user with approved_by set to the admin
@@ -220,13 +220,10 @@ async fn test_approve_user() -> Result<()> {
     };
 
     // This should succeed since the admin user exists
-    database.create_user(&new_approved_user).await?;
+    database.create(&new_approved_user).await?;
 
     // Verify the new user was created with approval fields set
-    let created_user = database
-        .get_user_global(new_approved_user.id)
-        .await?
-        .unwrap();
+    let created_user = database.get_global(new_approved_user.id).await?.unwrap();
     assert_eq!(created_user.user_status, UserStatus::Active);
     assert_eq!(created_user.approved_by, Some(admin_user_id));
     assert!(created_user.approved_at.is_some());
@@ -263,15 +260,15 @@ async fn test_suspend_user() -> Result<()> {
         auth_provider: String::new(),
     };
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(&database, &user).await?;
 
     // Suspend user directly via database (service token approvals use None)
     database
-        .update_user_status(user_id, UserStatus::Suspended, None)
+        .update_status(user_id, UserStatus::Suspended, None)
         .await?;
 
     // Verify user status in database
-    let updated_user = database.get_user_global(user_id).await?.unwrap();
+    let updated_user = database.get_global(user_id).await?.unwrap();
     assert_eq!(updated_user.user_status, UserStatus::Suspended);
 
     // Clean up test environment variable
@@ -306,10 +303,10 @@ async fn test_user_status_transitions() -> Result<()> {
         auth_provider: String::new(),
     };
     let user_id = user.id;
-    database.create_user(&user).await?;
+    UserRepository::create(&database, &user).await?;
 
     // Test status is initially pending
-    let retrieved_user = database.get_user_global(user_id).await?.unwrap();
+    let retrieved_user = database.get_global(user_id).await?.unwrap();
     assert_eq!(retrieved_user.user_status, UserStatus::Pending);
     assert!(retrieved_user.approved_by.is_none());
 
@@ -327,7 +324,7 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
     // Set up admin user with a specific tenant_id
     let admin_tenant_id = TenantId::from(Uuid::new_v4());
     database
-        .update_user_tenant_id(admin_user_id, admin_tenant_id)
+        .update_tenant_id(admin_user_id, admin_tenant_id)
         .await?;
 
     // Verify admin's tenant assignment happened (via update_user_tenant_id)
@@ -354,7 +351,7 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    database.create_user(&pending_user).await?;
+    database.create(&pending_user).await?;
 
     // User starts without a tenant assignment (tenant is assigned upon approval)
     // Tenant assignment is now managed via user_tenants junction table
@@ -363,14 +360,14 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
     // This is what handle_approve_user does in web_admin.rs
     // Service token approvals use None for approved_by
     database
-        .update_user_status(pending_user_id, UserStatus::Active, None)
+        .update_status(pending_user_id, UserStatus::Active, None)
         .await?;
     database
-        .update_user_tenant_id(pending_user_id, admin_tenant_id)
+        .update_tenant_id(pending_user_id, admin_tenant_id)
         .await?;
 
     // Verify user is now active
-    let user_after = database.get_user_global(pending_user_id).await?.unwrap();
+    let user_after = database.get_global(pending_user_id).await?.unwrap();
     assert_eq!(user_after.user_status, UserStatus::Active);
     // Tenant assignment is managed via user_tenants junction table
 
@@ -388,7 +385,7 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
     // Set up admin user with a specific tenant_id
     let shared_tenant_id = TenantId::from(Uuid::new_v4());
     database
-        .update_user_tenant_id(admin_user_id, shared_tenant_id)
+        .update_tenant_id(admin_user_id, shared_tenant_id)
         .await?;
 
     // Create and approve multiple users
@@ -414,27 +411,25 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        database.create_user(&user).await?;
+        UserRepository::create(&database, &user).await?;
 
         // Approve and assign to admin's tenant (service token approvals use None)
         database
-            .update_user_status(user_id, UserStatus::Active, None)
+            .update_status(user_id, UserStatus::Active, None)
             .await?;
-        database
-            .update_user_tenant_id(user_id, shared_tenant_id)
-            .await?;
+        database.update_tenant_id(user_id, shared_tenant_id).await?;
 
         approved_user_ids.push(user_id);
     }
 
     // Verify all approved users are active (tenant assignment managed via user_tenants table)
     for user_id in approved_user_ids {
-        let user = database.get_user_global(user_id).await?.unwrap();
+        let user = database.get_global(user_id).await?.unwrap();
         assert_eq!(user.user_status, UserStatus::Active);
     }
 
     // Admin should still exist
-    let admin = database.get_user_global(admin_user_id).await?.unwrap();
+    let admin = database.get_global(admin_user_id).await?.unwrap();
     assert!(admin.is_admin);
 
     // Clean up test environment variable
@@ -469,17 +464,17 @@ async fn test_delete_user() -> Result<()> {
         auth_provider: String::new(),
     };
     let user_id = user_to_delete.id;
-    database.create_user(&user_to_delete).await?;
+    database.create(&user_to_delete).await?;
 
     // Verify user exists before deletion
-    let user_before = database.get_user_global(user_id).await?;
+    let user_before = database.get_global(user_id).await?;
     assert!(user_before.is_some(), "User should exist before deletion");
 
     // Delete the user
-    database.delete_user(user_id).await?;
+    database.delete(user_id).await?;
 
     // Verify user no longer exists
-    let user_after = database.get_user_global(user_id).await?;
+    let user_after = database.get_global(user_id).await?;
     assert!(user_after.is_none(), "User should not exist after deletion");
 
     // Clean up test environment variable
@@ -495,7 +490,7 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
 
     // Try to delete a user that doesn't exist
     let nonexistent_id = Uuid::new_v4();
-    let result = database.delete_user(nonexistent_id).await;
+    let result = database.delete(nonexistent_id).await;
 
     // Should return an error
     assert!(

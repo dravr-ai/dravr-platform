@@ -24,7 +24,7 @@ use pierre_mcp_server::{
     },
     context::ServerContext,
     database::generate_encryption_key,
-    database_plugins::{factory::Database, UserDbOps},
+    database_plugins::{factory::Database, UserRepository},
     mcp::resources::{ServerResources, ServerResourcesOptions},
     models::{User, UserStatus, UserTier},
     permissions::UserRole,
@@ -825,15 +825,13 @@ async fn test_login_with_correct_credentials() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    server_resources
-        .database
-        .create_user(&admin_user)
+    UserRepository::create(&*server_resources.database, &admin_user)
         .await
         .unwrap();
 
     server_resources
         .database
-        .update_user_status(user_id, UserStatus::Active, Some(admin_id))
+        .update_status(user_id, UserStatus::Active, Some(admin_id))
         .await
         .unwrap();
 

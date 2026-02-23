@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use crate::config::environment::default_provider;
-use crate::database_plugins::UserDbOps;
+use crate::database_plugins::ProfileRepository;
 use crate::errors::AppError;
 use crate::errors::AppResult;
 use crate::intelligence::goal_engine::{AdvancedGoalEngine, GoalDifficulty, GoalEngineTrait};
@@ -606,7 +606,7 @@ impl McpTool for TrackProgressTool {
         let goals: Vec<Value> = context
             .resources
             .database
-            .get_user_goals(context.user_id)
+            .get_goals(context.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to load goals: {e}")))?;
 

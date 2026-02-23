@@ -13,7 +13,7 @@ use anyhow::Result;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::database::generate_encryption_key;
-use pierre_mcp_server::database_plugins::{factory::Database, UserDbOps};
+use pierre_mcp_server::database_plugins::{factory::Database, UserRepository};
 use pierre_mcp_server::models::User;
 use std::env;
 use std::fs;
@@ -62,8 +62,8 @@ async fn test_memory_database_no_physical_files() -> Result<()> {
         Some("Memory Test User".to_owned()),
     );
 
-    let user_id = database.create_user(&user).await?;
-    let retrieved_user = database.get_user_global(user_id).await?.unwrap();
+    let user_id = UserRepository::create(&database, &user).await?;
+    let retrieved_user = database.get_global(user_id).await?.unwrap();
 
     assert_eq!(retrieved_user.email, "test@memory.test");
     assert_eq!(
@@ -115,16 +115,16 @@ async fn test_multiple_memory_databases_isolated() -> Result<()> {
         Some("User 2".to_owned()),
     );
 
-    let user1_id = database1.create_user(&user1).await?;
-    let user2_id = database2.create_user(&user2).await?;
+    let user1_id = UserRepository::create(&database1, &user1).await?;
+    let user2_id = UserRepository::create(&database2, &user2).await?;
 
     // Verify isolation - each database only contains its own user
-    assert!(database1.get_user_global(user1_id).await?.is_some());
-    assert!(database2.get_user_global(user2_id).await?.is_some());
+    assert!(database1.get_global(user1_id).await?.is_some());
+    assert!(database2.get_global(user2_id).await?.is_some());
 
     // User1 should not exist in database2 and vice versa
-    assert!(database2.get_user_global(user1_id).await?.is_none());
-    assert!(database1.get_user_global(user2_id).await?.is_none());
+    assert!(database2.get_global(user1_id).await?.is_none());
+    assert!(database1.get_global(user2_id).await?.is_none());
 
     Ok(())
 }

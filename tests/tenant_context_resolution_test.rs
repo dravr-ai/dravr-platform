@@ -11,7 +11,7 @@ use chrono::Utc;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
-    database_plugins::{factory::Database, TenantDbOps},
+    database_plugins::{factory::Database, TenantRepository},
     models::{Tenant, TenantId},
 };
 
@@ -50,16 +50,16 @@ async fn test_tenant_operations_work_through_factory() {
     };
 
     // CRITICAL TEST: This should NOT fail with "Tenant management not yet implemented"
-    database.create_tenant(&tenant).await.unwrap();
+    TenantRepository::create(&database, &tenant).await.unwrap();
 
     // CRITICAL TEST: get_tenant_by_id should work (was previously stubbed)
-    let retrieved_tenant = database.get_tenant_by_id(tenant_id).await.unwrap();
+    let retrieved_tenant = database.get_by_id(tenant_id).await.unwrap();
     assert_eq!(retrieved_tenant.id, tenant_id);
     assert_eq!(retrieved_tenant.name, "Test Tenant");
     assert_eq!(retrieved_tenant.slug, "test-tenant");
 
     // CRITICAL TEST: get_tenant_by_slug should work (was previously stubbed)
-    let retrieved_by_slug = database.get_tenant_by_slug("test-tenant").await.unwrap();
+    let retrieved_by_slug = database.get_by_slug("test-tenant").await.unwrap();
     assert_eq!(retrieved_by_slug.id, tenant_id);
 
     println!("SUCCESS: Factory delegation is FIXED!");

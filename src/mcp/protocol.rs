@@ -22,7 +22,7 @@ use crate::constants::{
     },
     protocol::{server_name_multitenant, SERVER_VERSION},
 };
-use crate::database_plugins::{OAuthTokenOps, SecurityDbOps};
+use crate::database_plugins::{NotificationRepository, OAuthTokenRepository};
 use crate::mcp::resources::ServerResources;
 use crate::mcp::schema::{
     get_tools, CompleteRequest, CompleteResult, Completion, InitializeRequest, InitializeResponse,
@@ -334,11 +334,7 @@ impl ProtocolHandler {
         match uri.as_str() {
             "oauth://notifications" => {
                 // Get unread notifications
-                match resources
-                    .database
-                    .get_unread_oauth_notifications(user_id)
-                    .await
-                {
+                match resources.database.get_unread(user_id).await {
                     Ok(notifications) => {
                         let response_data = serde_json::json!({
                             "contents": [{
