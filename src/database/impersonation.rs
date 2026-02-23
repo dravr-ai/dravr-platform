@@ -7,7 +7,9 @@
 use super::Database;
 use crate::errors::{AppError, AppResult};
 use crate::permissions::impersonation::ImpersonationSession;
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_database::repositories::ImpersonationRepository;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
@@ -235,5 +237,39 @@ impl Database {
                 .map_err(|e| AppError::database(format!("Invalid created_at timestamp: {e}")))?
                 .with_timezone(&Utc),
         })
+    }
+}
+
+#[async_trait]
+impl ImpersonationRepository for Database {
+    async fn create_session(&self, session: &ImpersonationSession) -> AppResult<()> {
+        Self::create_impersonation_session(self, session).await
+    }
+
+    async fn get_session(&self, session_id: &str) -> AppResult<Option<ImpersonationSession>> {
+        Self::get_impersonation_session(self, session_id).await
+    }
+
+    async fn get_active_session(&self, user_id: Uuid) -> AppResult<Option<ImpersonationSession>> {
+        Self::get_active_impersonation_session(self, user_id).await
+    }
+
+    async fn end_session(&self, session_id: &str) -> AppResult<()> {
+        Self::end_impersonation_session(self, session_id).await
+    }
+
+    async fn end_all_sessions(&self, impersonator_id: Uuid) -> AppResult<u64> {
+        Self::end_all_impersonation_sessions(self, impersonator_id).await
+    }
+
+    async fn list_sessions(
+        &self,
+        impersonator_id: Option<Uuid>,
+        target_user_id: Option<Uuid>,
+        active_only: bool,
+        limit: u32,
+    ) -> AppResult<Vec<ImpersonationSession>> {
+        Self::list_impersonation_sessions(self, impersonator_id, target_user_id, active_only, limit)
+            .await
     }
 }

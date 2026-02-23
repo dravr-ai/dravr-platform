@@ -6,6 +6,8 @@
 
 use super::Database;
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
+use pierre_database::repositories::NotificationRepository;
 use sqlx::Row;
 use tracing::debug;
 use uuid::Uuid;
@@ -214,5 +216,39 @@ impl Database {
     /// Returns error if database operation fails
     pub async fn mark_all_oauth_notifications_read(&self, user_id: Uuid) -> AppResult<u64> {
         self.mark_all_oauth_notifications_read_impl(user_id).await
+    }
+}
+
+#[async_trait]
+impl NotificationRepository for Database {
+    async fn store(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+        success: bool,
+        message: &str,
+        expires_at: Option<&str>,
+    ) -> AppResult<String> {
+        Self::store_oauth_notification(self, user_id, provider, success, message, expires_at).await
+    }
+
+    async fn get_unread(&self, user_id: Uuid) -> AppResult<Vec<OAuthNotification>> {
+        Self::get_unread_oauth_notifications(self, user_id).await
+    }
+
+    async fn mark_read(&self, notification_id: &str, user_id: Uuid) -> AppResult<bool> {
+        Self::mark_oauth_notification_read(self, notification_id, user_id).await
+    }
+
+    async fn mark_all_read(&self, user_id: Uuid) -> AppResult<u64> {
+        Self::mark_all_oauth_notifications_read_impl(self, user_id).await
+    }
+
+    async fn get_all(
+        &self,
+        user_id: Uuid,
+        limit: Option<i64>,
+    ) -> AppResult<Vec<OAuthNotification>> {
+        Self::get_all_oauth_notifications(self, user_id, limit).await
     }
 }

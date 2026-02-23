@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use pierre_core::models::UsageCounterRecord;
+use pierre_database::repositories::UsageCounterRepository;
 
 use super::Database;
 
@@ -113,5 +115,35 @@ impl Database {
         .map_err(|e| AppError::database(format!("Failed to delete old usage counters: {e}")))?;
 
         Ok(result.rows_affected())
+    }
+}
+
+#[async_trait]
+impl UsageCounterRepository for Database {
+    async fn increment_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+        amount: i64,
+    ) -> AppResult<UsageCounterRecord> {
+        self.increment_usage_counter_impl(tenant_id, user_id, counter_key, period, amount)
+            .await
+    }
+
+    async fn get_counter(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_key: &str,
+        period: &str,
+    ) -> AppResult<UsageCounterRecord> {
+        self.get_usage_counter_impl(tenant_id, user_id, counter_key, period)
+            .await
+    }
+
+    async fn delete_old_counters(&self, period_before: &str) -> AppResult<u64> {
+        self.delete_old_usage_counters_impl(period_before).await
     }
 }

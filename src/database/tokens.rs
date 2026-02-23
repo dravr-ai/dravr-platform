@@ -6,16 +6,23 @@
 // NOTE: All `.clone()` calls in this file are Safe - they are necessary for:
 // - Option<String> ownership for OAuth token scope fields
 
-use super::{Database, EncryptionHelper};
+use super::Database;
 use crate::errors::{AppError, AppResult};
-use crate::models::{DecryptedToken, EncryptedToken};
+use crate::models::{AuthorizationCode, DecryptedToken, EncryptedToken};
+use crate::oauth2_client::OAuthClientState;
+use crate::oauth2_server::models::{OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State};
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use pierre_database::repositories::{OAuth2ServerRepository, OAuthClientStateRepository};
 use sqlx::Row;
 use uuid::Uuid;
 
 /// OAuth provider types
 #[derive(Debug, Clone, Copy)]
 pub enum OAuthProvider {
+    /// Strava fitness platform
     Strava,
+    /// Fitbit health tracking platform
     Fitbit,
 }
 
@@ -45,7 +52,7 @@ impl Database {
             &token.refresh_token,
             token.expires_at,
             token.scope.clone(),
-            self.encryption_key(),
+            &self.encryption_key,
         )?;
 
         let prefix = provider.column_prefix();
@@ -61,7 +68,7 @@ impl Database {
         );
 
         sqlx::query(&query)
-            .bind(user_id.to_owned())
+            .bind(user_id)
             .bind(&encrypted.access_token)
             .bind(&encrypted.refresh_token)
             .bind(encrypted.expires_at.timestamp())
@@ -92,7 +99,7 @@ impl Database {
         );
 
         let row = sqlx::query(&query)
-            .bind(user_id.to_owned())
+            .bind(user_id)
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to query OAuth token: {e}")))?;
@@ -113,12 +120,13 @@ impl Database {
                 let encrypted = EncryptedToken {
                     access_token: access,
                     refresh_token: refresh,
-                    expires_at: chrono::DateTime::from_timestamp(expires_at, 0)
-                        .ok_or_else(|| AppError::internal(format!("Invalid timestamp: {expires_at}")))?,
+                    expires_at: chrono::DateTime::from_timestamp(expires_at, 0).ok_or_else(
+                        || AppError::internal(format!("Invalid timestamp: {expires_at}")),
+                    )?,
                     scope: scope.unwrap_or_default(),
                 };
 
-                let decrypted = encrypted.decrypt(self.encryption_key())?;
+                let decrypted = encrypted.decrypt(&self.encryption_key)?;
                 Ok(Some(decrypted))
             } else {
                 Ok(None)
@@ -147,17 +155,106 @@ impl Database {
         );
 
         sqlx::query(&query)
-            .bind(user_id.to_owned())
+            .bind(user_id)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to clear OAuth token: {e}")))?;
 
         Ok(())
     }
+}
 
+#[async_trait]
+impl OAuth2ServerRepository for Database {
+    async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
+        Self::store_oauth2_client_impl(self, client).await
+    }
+    async fn get_client(&self, client_id: &str) -> AppResult<Option<OAuth2Client>> {
+        Self::get_oauth2_client_impl(self, client_id).await
+    }
+    async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        Self::store_oauth2_auth_code_impl(self, auth_code).await
+    }
+    async fn get_auth_code(&self, code: &str) -> AppResult<Option<OAuth2AuthCode>> {
+        Self::get_oauth2_auth_code_impl(self, code).await
+    }
+    async fn update_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
+        Self::update_oauth2_auth_code_impl(self, auth_code).await
+    }
+    async fn store_refresh_token(&self, refresh_token: &OAuth2RefreshToken) -> AppResult<()> {
+        Self::store_oauth2_refresh_token_impl(self, refresh_token).await
+    }
+    async fn get_refresh_token(&self, token: &str) -> AppResult<Option<OAuth2RefreshToken>> {
+        Self::get_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn revoke_refresh_token(&self, token: &str) -> AppResult<()> {
+        Self::revoke_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn consume_auth_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2AuthCode>> {
+        Self::consume_auth_code_impl(self, code, client_id, redirect_uri, now).await
+    }
+    async fn consume_refresh_token(
+        &self,
+        token: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        Self::consume_refresh_token_impl(self, token, client_id, now).await
+    }
+    async fn get_refresh_token_by_value(
+        &self,
+        token: &str,
+    ) -> AppResult<Option<OAuth2RefreshToken>> {
+        // Delegate to get_oauth2_refresh_token_impl which handles token hashing
+        Self::get_oauth2_refresh_token_impl(self, token).await
+    }
+    async fn store_authorization_code(
+        &self,
+        code: &str,
+        client_id: &str,
+        redirect_uri: &str,
+        scope: &str,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        Self::store_authorization_code(self, code, client_id, redirect_uri, scope, user_id).await
+    }
+    async fn get_authorization_code(&self, code: &str) -> AppResult<AuthorizationCode> {
+        Self::get_authorization_code_impl(self, code).await
+    }
+    async fn delete_authorization_code(&self, code: &str) -> AppResult<()> {
+        Self::delete_authorization_code_impl(self, code).await
+    }
+    async fn store_state(&self, state: &OAuth2State) -> AppResult<()> {
+        Self::store_oauth2_state_impl(self, state).await
+    }
+    async fn consume_state(
+        &self,
+        state_value: &str,
+        client_id: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuth2State>> {
+        Self::consume_oauth2_state_impl(self, state_value, client_id, now).await
+    }
+}
 
+#[async_trait]
+impl OAuthClientStateRepository for Database {
+    async fn store_oauth_client_state(&self, state: &OAuthClientState) -> AppResult<()> {
+        Self::store_oauth_client_state_impl(self, state).await
+    }
 
-
-
-
+    async fn consume_oauth_client_state(
+        &self,
+        state_value: &str,
+        provider: &str,
+        now: DateTime<Utc>,
+    ) -> AppResult<Option<OAuthClientState>> {
+        Self::consume_oauth_client_state_impl(self, state_value, provider, now).await
+    }
 }

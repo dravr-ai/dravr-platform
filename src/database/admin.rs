@@ -11,8 +11,10 @@ use crate::admin::models::{
     GeneratedAdminToken,
 };
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::admin::jwt::JwtSigner;
+use pierre_database::repositories::AdminRepository;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use tracing::debug;
@@ -591,5 +593,75 @@ impl Database {
     /// Returns error if database operation fails
     pub async fn deactivate_admin_token(&self, token_id: &str) -> AppResult<()> {
         self.deactivate_admin_token_impl(token_id).await
+    }
+}
+
+#[async_trait]
+impl AdminRepository for Database {
+    async fn create_token(
+        &self,
+        request: &CreateAdminTokenRequest,
+        admin_jwt_secret: &str,
+        jwks_manager: &dyn JwtSigner,
+    ) -> AppResult<GeneratedAdminToken> {
+        Self::create_admin_token(self, request, admin_jwt_secret, jwks_manager).await
+    }
+    async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>> {
+        Self::get_admin_token_by_id(self, token_id).await
+    }
+    async fn get_token_by_prefix(&self, token_prefix: &str) -> AppResult<Option<AdminToken>> {
+        Self::get_admin_token_by_prefix(self, token_prefix).await
+    }
+    async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>> {
+        Self::list_admin_tokens(self, include_inactive).await
+    }
+    async fn deactivate_token(&self, token_id: &str) -> AppResult<()> {
+        Self::deactivate_admin_token_impl(self, token_id).await
+    }
+    async fn update_token_last_used(
+        &self,
+        token_id: &str,
+        ip_address: Option<&str>,
+    ) -> AppResult<()> {
+        Self::update_admin_token_last_used(self, token_id, ip_address).await
+    }
+    async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {
+        Self::record_admin_token_usage(self, usage).await
+    }
+    async fn get_token_usage_history(
+        &self,
+        token_id: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    ) -> AppResult<Vec<AdminTokenUsage>> {
+        Self::get_admin_token_usage_history(self, token_id, start_date, end_date).await
+    }
+    async fn record_provisioned_key(
+        &self,
+        admin_token_id: &str,
+        api_key_id: &str,
+        user_email: &str,
+        tier: &str,
+        rate_limit_requests: u32,
+        rate_limit_period: &str,
+    ) -> AppResult<()> {
+        Self::record_admin_provisioned_key(
+            self,
+            admin_token_id,
+            api_key_id,
+            user_email,
+            tier,
+            rate_limit_requests,
+            rate_limit_period,
+        )
+        .await
+    }
+    async fn get_provisioned_keys(
+        &self,
+        admin_token_id: Option<&str>,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+    ) -> AppResult<Vec<serde_json::Value>> {
+        Self::get_admin_provisioned_keys(self, admin_token_id, start_date, end_date).await
     }
 }

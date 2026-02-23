@@ -11,6 +11,9 @@ use crate::intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, Us
 use crate::models::{TenantId, User, UserStatus};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::permissions::UserRole;
+use async_trait::async_trait;
+use pierre_database::repositories::{ProfileRepository, UserRepository};
+use serde_json::Value;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use tracing::warn;
@@ -924,5 +927,109 @@ impl Database {
         }
 
         Ok(())
+    }
+}
+
+#[async_trait]
+impl UserRepository for Database {
+    async fn create(&self, user: &User) -> AppResult<Uuid> {
+        Self::create_user_impl(self, user).await
+    }
+    async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
+        Self::get_user_tenant_impl(self, user_id, tenant_id).await
+    }
+    async fn get_global(&self, user_id: Uuid) -> AppResult<Option<User>> {
+        Self::get_user_global_impl(self, user_id).await
+    }
+    async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
+        Self::get_user_by_email_impl(self, email).await
+    }
+    async fn get_by_email_required(&self, email: &str) -> AppResult<User> {
+        Self::get_user_by_email_required_impl(self, email).await
+    }
+    async fn get_by_firebase_uid(&self, firebase_uid: &str) -> AppResult<Option<User>> {
+        Self::get_user_by_firebase_uid(self, firebase_uid).await
+    }
+    async fn update_last_active(&self, user_id: Uuid) -> AppResult<()> {
+        Self::update_last_active_impl(self, user_id).await
+    }
+    async fn count(&self) -> AppResult<i64> {
+        Self::get_user_count_impl(self).await
+    }
+    async fn get_by_status(
+        &self,
+        status: &str,
+        tenant_id: Option<TenantId>,
+    ) -> AppResult<Vec<User>> {
+        Self::get_users_by_status_impl(self, status, tenant_id).await
+    }
+    async fn get_by_status_cursor(
+        &self,
+        status: &str,
+        params: &PaginationParams,
+    ) -> AppResult<CursorPage<User>> {
+        Self::get_users_by_status_cursor(self, status, params).await
+    }
+    async fn update_status(
+        &self,
+        user_id: Uuid,
+        new_status: UserStatus,
+        approved_by: Option<Uuid>,
+    ) -> AppResult<User> {
+        Self::update_user_status(self, user_id, new_status, approved_by).await
+    }
+    async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
+        Self::update_user_tenant_id_impl(self, user_id, tenant_id).await
+    }
+    async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
+        Self::update_user_password(self, user_id, password_hash).await
+    }
+    async fn update_display_name(&self, user_id: Uuid, display_name: &str) -> AppResult<User> {
+        Self::update_user_display_name(self, user_id, display_name).await
+    }
+    async fn delete(&self, user_id: Uuid) -> AppResult<()> {
+        Self::delete_user(self, user_id).await
+    }
+    async fn get_first_admin_user(&self) -> AppResult<Option<User>> {
+        Self::get_first_admin_user(self).await
+    }
+    async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
+        Self::user_has_synthetic_activities_impl(self, user_id).await
+    }
+}
+
+#[async_trait]
+impl ProfileRepository for Database {
+    async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
+        Self::upsert_user_profile_impl(self, user_id, profile_data).await
+    }
+
+    async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>> {
+        Self::get_user_profile_impl(self, user_id).await
+    }
+
+    async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String> {
+        Self::create_goal_impl(self, user_id, goal_data).await
+    }
+
+    async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>> {
+        Self::get_user_goals_impl(self, user_id).await
+    }
+
+    async fn update_goal_progress(
+        &self,
+        goal_id: &str,
+        user_id: Uuid,
+        current_value: f64,
+    ) -> AppResult<()> {
+        Self::update_goal_progress_impl(self, goal_id, user_id, current_value).await
+    }
+
+    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>> {
+        Self::get_user_configuration_impl(self, user_id).await
+    }
+
+    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()> {
+        Self::save_user_configuration_impl(self, user_id, config_json).await
     }
 }

@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::errors::{AppError, AppResult};
+use async_trait::async_trait;
 use pierre_core::models::LlmUsageRecord;
+use pierre_database::repositories::LlmUsageRepository;
 use uuid::Uuid;
 
 pub use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
@@ -173,5 +175,31 @@ impl Database {
                 },
             )
             .collect())
+    }
+}
+
+#[async_trait]
+impl LlmUsageRepository for Database {
+    async fn insert_llm_usage(
+        &self,
+        params: &super::llm_usage::InsertLlmUsage<'_>,
+    ) -> AppResult<LlmUsageRecord> {
+        self.insert_llm_usage_impl(params).await
+    }
+
+    async fn get_llm_usage_aggregates(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<super::llm_usage::LlmUsageAggregateRow>> {
+        self.get_llm_usage_aggregates_impl(tenant_id, since).await
+    }
+
+    async fn get_llm_usage_daily_series(
+        &self,
+        tenant_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<super::llm_usage::LlmUsageDailyRow>> {
+        self.get_llm_usage_daily_series_impl(tenant_id, since).await
     }
 }
