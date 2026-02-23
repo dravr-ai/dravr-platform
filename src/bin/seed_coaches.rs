@@ -155,6 +155,13 @@ async fn main() -> SeedResult<()> {
     // Summary
     print_summary(&stats, args.dry_run);
 
+    if !stats.errors.is_empty() {
+        return Err(SeedError::Validation(format!(
+            "{} coach(es) failed to seed",
+            stats.errors.len()
+        )));
+    }
+
     Ok(())
 }
 
@@ -505,13 +512,15 @@ async fn insert_coach(
         r"
         INSERT INTO coaches (
             id, user_id, tenant_id, title, description, system_prompt,
-            category, tags, sample_prompts, token_count, is_favorite, use_count,
-            last_used_at, created_at, updated_at, is_system, visibility, is_active,
+            category, tags, sample_prompts, token_count,
+            created_at, updated_at, is_system, visibility,
             slug, purpose, when_to_use, instructions, example_inputs, example_outputs,
             success_criteria, prerequisites, source_file, content_hash, startup_query
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-            $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16, $17, $18, $19, $20,
+            $21, $22, $23, $24, $25
         )
         ",
     )
@@ -525,14 +534,10 @@ async fn insert_coach(
     .bind(&tags_json)
     .bind(&sample_prompts_json)
     .bind(i64::from(coach.token_count))
-    .bind(false)
-    .bind(0i64)
-    .bind(Option::<String>::None)
     .bind(now)
     .bind(now)
     .bind(1i64) // is_system = true for markdown-defined coaches
     .bind(coach.frontmatter.visibility.as_str())
-    .bind(false)
     // Markdown section columns
     .bind(&coach.frontmatter.name)
     .bind(&coach.sections.purpose)
