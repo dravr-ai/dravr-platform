@@ -1,13 +1,7 @@
-// ABOUTME: Cryptography module providing secure encryption and key management
-// ABOUTME: Centralizes all cryptographic operations for the pierre_mcp_server
+// ABOUTME: Thin re-export layer delegating to the pierre-auth crate
+// ABOUTME: Preserves `crate::crypto::*` paths for the rest of the root crate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Cryptographic utilities for Pierre MCP Server
-
-/// Key management for A2A protocol
-pub mod keys;
-
-/// Re-export key management types
-pub use keys::{A2AKeyManager, A2AKeypair, A2APublicKey};
+pub use pierre_auth::crypto::*;

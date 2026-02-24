@@ -297,7 +297,7 @@ impl OAuthService {
         let oauth_config = self
             .create_oauth_config_with_tenant(provider, tenant_id)
             .await?;
-        let oauth_client = OAuth2Client::new(oauth_config);
+        let oauth_client = OAuth2Client::new(oauth_config)?;
 
         let token = if let Some(verifier) = pkce_code_verifier {
             // Use PKCE-enhanced token exchange when verifier was stored with the state

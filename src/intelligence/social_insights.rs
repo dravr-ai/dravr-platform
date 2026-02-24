@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    config::SocialInsightsConfig,
+    config::{social, SocialInsightsConfig},
     models::{Activity, InsightType, ShareVisibility, SharedInsight, TrainingPhase},
 };
 
@@ -169,7 +169,7 @@ impl SharedInsightGenerator {
         context: &InsightGenerationContext,
         suggestions: &mut Vec<InsightSuggestion>,
     ) {
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
         if context.total_activity_count < config.milestone_thresholds.min_activities_for_milestone {
             return;
         }
@@ -209,7 +209,7 @@ impl SharedInsightGenerator {
         context: &InsightGenerationContext,
         suggestions: &mut Vec<InsightSuggestion>,
     ) {
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
         for &milestone in &config.distance_milestones.thresholds_km {
             // Within configured percentage of milestone
             let threshold = milestone * (config.distance_milestones.near_milestone_percent / 100.0);
@@ -242,7 +242,7 @@ impl SharedInsightGenerator {
         context: &InsightGenerationContext,
         suggestions: &mut Vec<InsightSuggestion>,
     ) {
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
         if context.current_streak_days >= config.streak_config.min_for_sharing {
             for &milestone in &config.streak_config.milestone_days {
                 if context.current_streak_days >= milestone
@@ -434,7 +434,7 @@ impl InsightContextBuilder {
             return (0, 0);
         }
 
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
         let cutoff = Utc::now() - Duration::days(config.streak_config.lookback_days);
 
         // Get unique activity dates within lookback period

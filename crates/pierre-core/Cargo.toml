@@ -37,6 +37,9 @@ crypto-errors = ["dep:ring"]
 # TOON format support
 toon = ["dep:toon-format"]
 
+# Admin JWT utilities (AdminJwtManager with token generation, hashing)
+admin-jwt = ["dep:sha2", "dep:rand", "dep:bcrypt"]
+
 # All error features (convenience for main crate)
 all-errors = ["database-errors", "provider-errors", "crypto-errors"]
 
@@ -68,6 +71,11 @@ ring = { version = "0.17", optional = true }
 
 # Optional: TOON format
 toon-format = { version = "0.2", optional = true }
+
+# Optional: Admin JWT utilities
+sha2 = { version = "0.10", optional = true }
+rand = { version = "0.8", optional = true }
+bcrypt = { version = "0.16", optional = true }
 
 [lints]
 workspace = true

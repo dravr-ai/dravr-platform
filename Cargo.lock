@@ -2421,6 +2421,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-auth"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "async-trait",
+ "axum 0.7.9",
+ "base64",
+ "bcrypt",
+ "bitflags",
+ "chrono",
+ "dashmap",
+ "ed25519-dalek",
+ "hex",
+ "http",
+ "jsonwebtoken",
+ "num-traits",
+ "pierre-core",
+ "pierre-database",
+ "pierre-llm",
+ "rand 0.8.5",
+ "reqwest",
+ "ring",
+ "rsa",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "pierre-cache"
 version = "0.1.0"
 dependencies = [
@@ -2442,13 +2479,16 @@ version = "0.3.0"
 dependencies = [
  "axum 0.7.9",
  "base64",
+ "bcrypt",
  "bitflags",
  "chrono",
  "http",
+ "rand 0.8.5",
  "reqwest",
  "ring",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "thiserror 2.0.17",
  "toon-format",
@@ -2461,9 +2501,19 @@ name = "pierre-database"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
+ "hex",
  "pierre-core",
+ "pierre-intelligence",
+ "rand 0.8.5",
+ "ring",
+ "serde",
  "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2560,6 +2610,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry_sdk",
  "pierre-a2a",
+ "pierre-auth",
  "pierre-cache",
  "pierre-core",
  "pierre-database",

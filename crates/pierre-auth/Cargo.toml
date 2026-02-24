@@ -1,0 +1,80 @@
+# ABOUTME: Authentication, authorization, and security for the Pierre platform
+# ABOUTME: JWT auth, OAuth2 client/server, tenant management, cryptographic utilities
+
+[package]
+name = "pierre-auth"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Auth layer for Pierre platform - JWT, OAuth2, security, tenant, crypto"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = []
+testing = []
+
+[dependencies]
+# Workspace crates
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
+pierre-database = { version = "0.1.0", path = "../pierre-database" }
+pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
+
+# Async runtime and traits
+async-trait = "0.1"
+tokio = { version = "1.45", features = ["time", "sync"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Identifiers
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# HTTP framework (for cookie/header types)
+axum = { version = "0.7", features = ["json"], default-features = false }
+http = "1.0"
+
+# HTTP client (for OAuth flows)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# URL handling
+url = "2.5"
+
+# JWT
+jsonwebtoken = { version = "10.3", features = ["rust_crypto", "use_pem"], default-features = false }
+
+# Cryptography
+ring = "0.17"
+sha2 = "0.10"
+rand = "0.8"
+aes-gcm = "0.10"
+rsa = "0.9"
+ed25519-dalek = "2.1"
+argon2 = "0.5"
+bcrypt = "0.16"
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["alloc"] }
+
+# Encoding
+base64 = "0.22"
+hex = "0.4"
+urlencoding = "2.1"
+
+# Concurrent data structures
+dashmap = "5.5"
+
+# Logging
+tracing = "0.1"
+
+# Bitflags (for permission flags)
+bitflags = { version = "2.6", features = ["serde"] }
+
+# Number traits
+num-traits = "0.2"
+
+[lints]
+workspace = true

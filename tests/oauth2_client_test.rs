@@ -210,7 +210,7 @@ fn test_oauth2_client_creation() {
         use_pkce: true,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
 
     assert_eq!(client.config().client_id, "test_client_id");
     assert!(client.config().use_pkce);
@@ -228,7 +228,7 @@ fn test_oauth2_client_get_authorization_url() {
         use_pkce: false,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
     let state = "random_state_value";
 
     let url = client.get_authorization_url(state).unwrap();
@@ -253,7 +253,7 @@ fn test_oauth2_client_get_authorization_url_with_pkce() {
         use_pkce: true,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
     let state = "pkce_state";
     let pkce = PkceParams::generate();
 
@@ -280,7 +280,7 @@ fn test_oauth2_client_authorization_url_invalid_base_url() {
         use_pkce: false,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
     let result = client.get_authorization_url("state");
 
     assert!(result.is_err());
@@ -298,7 +298,7 @@ fn test_oauth2_client_http_client_accessible() {
         use_pkce: false,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
 
     // Verify we can access the HTTP client (it exists and is usable)
     let _http_client = client.http_client();
@@ -458,7 +458,7 @@ fn test_oauth2_config_empty_scopes() {
         use_pkce: false,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
     let url = client.get_authorization_url("state").unwrap();
 
     // URL should still be valid even with empty scopes
@@ -477,7 +477,7 @@ fn test_oauth2_config_special_characters_in_redirect_uri() {
         use_pkce: false,
     };
 
-    let client = OAuth2Client::new(config);
+    let client = OAuth2Client::new(config).unwrap();
     let url = client.get_authorization_url("state").unwrap();
 
     // URL should properly encode the redirect URI

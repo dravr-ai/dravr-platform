@@ -22,9 +22,8 @@ pub use crate::config::api_providers::{
     StravaApiConfig, WeatherServiceConfig,
 };
 // Cache and rate limiting
-pub use crate::config::cache::{
-    CacheConfig, CacheTtlConfig, RateLimitConfig, RedisConnectionConfig,
-};
+pub use crate::config::cache::{CacheConfig, CacheTtlConfig, RedisConnectionConfig};
+pub use pierre_auth::config::RateLimitConfig;
 // Database
 pub use crate::config::database::{
     BackupConfig, DatabaseConfig, DatabaseUrl, PostgresPoolConfig, SqlxConfig,

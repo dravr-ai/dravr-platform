@@ -225,6 +225,7 @@ lto = "fat"
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "crates/pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon"] }
 pierre-database = { version = "0.1.0", path = "crates/pierre-database" }
+pierre-auth = { version = "0.1.0", path = "crates/pierre-auth" }
 pierre-intelligence = { version = "0.1.0", path = "crates/pierre-intelligence" }
 pierre-llm = { version = "0.1.0", path = "crates/pierre-llm" }
 pierre-cache = { version = "0.1.0", path = "crates/pierre-cache", features = ["redis"] }
