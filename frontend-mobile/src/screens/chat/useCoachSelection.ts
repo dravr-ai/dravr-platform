@@ -34,6 +34,7 @@ export interface CoachSelectionActions {
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
+      setActivityLists?: React.Dispatch<React.SetStateAction<Record<string, string>>>;
     }
   ) => Promise<void>;
   setPendingCoachAction: (action: { coach: Coach } | null) => void;
@@ -111,6 +112,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
+      setActivityLists?: React.Dispatch<React.SetStateAction<Record<string, string>>>;
     }
   ) => {
     try {
@@ -140,6 +142,14 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       options.setMessages([userMessage]);
 
       const response = await chatApi.sendMessage(conversation.id, initialMessage);
+
+      // Store activity list if the API returned one
+      if (response.activity_list && response.assistant_message?.id && options.setActivityLists) {
+        options.setActivityLists(prev => ({
+          ...prev,
+          [response.assistant_message.id]: response.activity_list as string,
+        }));
+      }
 
       options.setMessages(prev => {
         const filtered = prev.filter(m => m.id !== userMessage.id);

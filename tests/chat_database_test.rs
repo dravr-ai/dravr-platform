@@ -94,7 +94,8 @@ async fn create_test_db() -> SqlitePool {
             finish_reason TEXT,
             created_at TEXT NOT NULL,
             prompt_tokens INTEGER,
-            model TEXT
+            model TEXT,
+            activity_list TEXT
         )
         ",
     )
@@ -348,6 +349,7 @@ async fn test_add_message() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -380,6 +382,7 @@ async fn test_add_assistant_message_with_finish_reason() {
             finish_reason: Some("STOP"),
             prompt_tokens: Some(20),
             model: Some("gemini-1.5-flash"),
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -412,6 +415,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -425,6 +429,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -438,6 +443,7 @@ async fn test_get_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -474,6 +480,7 @@ async fn test_get_recent_messages() {
                 finish_reason: None,
                 prompt_tokens: None,
                 model: None,
+                activity_list: None,
             })
             .await
             .unwrap();
@@ -516,6 +523,7 @@ async fn test_message_updates_conversation_tokens() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -529,6 +537,7 @@ async fn test_message_updates_conversation_tokens() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -569,6 +578,7 @@ async fn test_get_message_count() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -582,6 +592,7 @@ async fn test_get_message_count() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -612,6 +623,7 @@ async fn test_cascade_delete_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();
@@ -625,6 +637,7 @@ async fn test_cascade_delete_messages() {
             finish_reason: None,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         })
         .await
         .unwrap();

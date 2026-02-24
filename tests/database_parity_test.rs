@@ -367,6 +367,7 @@ async fn test_parity_chat_messages() {
             finish_reason: *finish,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         };
         sqlite_db
             .add_message(&sqlite_params)
@@ -382,6 +383,7 @@ async fn test_parity_chat_messages() {
             finish_reason: *finish,
             prompt_tokens: None,
             model: None,
+            activity_list: None,
         };
         pg_db
             .add_message(&pg_params)

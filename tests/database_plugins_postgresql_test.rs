@@ -534,6 +534,7 @@ async fn test_pg_chat_messages() {
         finish_reason: None,
         prompt_tokens: None,
         model: None,
+        activity_list: None,
     };
     let msg1 = db
         .add_message(&msg1_params)
@@ -552,6 +553,7 @@ async fn test_pg_chat_messages() {
         finish_reason: Some("stop"),
         prompt_tokens: None,
         model: None,
+        activity_list: None,
     };
     let msg2 = db
         .add_message(&msg2_params)
