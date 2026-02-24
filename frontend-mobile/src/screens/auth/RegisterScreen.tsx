@@ -6,8 +6,6 @@ import {
   View,
   Text,
 
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   TouchableOpacity,
   Alert,
@@ -107,13 +105,10 @@ export function RegisterScreen({ navigation }: RegisterScreenProps) {
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary">
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           {/* Glassmorphism Card Container */}
           <View style={cardStyle}>
@@ -203,7 +198,6 @@ export function RegisterScreen({ navigation }: RegisterScreenProps) {
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
