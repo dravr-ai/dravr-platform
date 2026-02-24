@@ -51,5 +51,6 @@
   "files": [
     "src"
   ],
+  "sideEffects": false,
   "private": true
 }

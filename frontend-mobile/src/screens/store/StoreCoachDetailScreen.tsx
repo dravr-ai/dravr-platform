@@ -208,9 +208,9 @@ export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailSc
           <View className="px-4 py-3">
             <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Tags</Text>
             <View className="flex-row flex-wrap">
-              {coach.tags.map((tag, tagIndex) => (
+              {coach.tags.map((tag) => (
                 <View
-                  key={tagIndex}
+                  key={tag}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2"
                   style={{
                     backgroundColor: `${categoryColor}15`,
@@ -229,9 +229,9 @@ export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailSc
         {coach.sample_prompts.length > 0 && (
           <View className="px-4 py-3">
             <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Sample Prompts</Text>
-            {coach.sample_prompts.map((prompt, promptIndex) => (
+            {coach.sample_prompts.map((prompt) => (
               <View
-                key={promptIndex}
+                key={prompt}
                 className="p-3 rounded-xl mb-2 overflow-hidden"
                 style={{
                   ...glassCard,

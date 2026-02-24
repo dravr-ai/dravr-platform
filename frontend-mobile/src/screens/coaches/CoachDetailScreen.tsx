@@ -232,9 +232,9 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
           <View className="px-5 py-3">
             <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Tags</Text>
             <View className="flex-row flex-wrap">
-              {coach.tags.map((tag, index) => (
+              {coach.tags.map((tag) => (
                 <View
-                  key={index}
+                  key={tag}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2"
                   style={{
                     backgroundColor: 'rgba(139, 92, 246, 0.15)',

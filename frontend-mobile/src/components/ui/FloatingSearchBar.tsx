@@ -1,5 +1,5 @@
 // ABOUTME: Floating search bar component positioned at bottom of screen
-// ABOUTME: Keyboard-aware with glass effect per iOS design guidelines
+// ABOUTME: Keyboard-aware with glass effect per iOS design guidelines, animated on UI thread
 
 import React, { useRef, useEffect, useState } from 'react';
 import {
@@ -8,10 +8,14 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Keyboard,
-  Animated,
   Platform,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
@@ -50,7 +54,7 @@ export function FloatingSearchBar({
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const translateY = useRef(new Animated.Value(0)).current;
+  const translateY = useSharedValue(0);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -59,22 +63,18 @@ export function FloatingSearchBar({
     const showSubscription = Keyboard.addListener(showEvent, (e) => {
       const height = e.endCoordinates.height;
       setKeyboardHeight(height);
-      Animated.spring(translateY, {
-        toValue: -height + insets.bottom,
-        useNativeDriver: true,
+      translateY.value = withSpring(-height + insets.bottom, {
         damping: 20,
         stiffness: 300,
-      }).start();
+      });
     });
 
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
       setKeyboardHeight(0);
-      Animated.spring(translateY, {
-        toValue: 0,
-        useNativeDriver: true,
+      translateY.value = withSpring(0, {
         damping: 20,
         stiffness: 300,
-      }).start();
+      });
     });
 
     return () => {
@@ -82,6 +82,10 @@ export function FloatingSearchBar({
       hideSubscription.remove();
     };
   }, [translateY, insets.bottom]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const handleClear = () => {
     onChangeText('');
@@ -105,8 +109,8 @@ export function FloatingSearchBar({
           paddingBottom: keyboardHeight > 0 ? spacing.sm : insets.bottom + spacing.sm,
           paddingTop: spacing.sm,
           paddingHorizontal: spacing.md,
-          transform: [{ translateY }],
         },
+        animatedStyle,
       ]}
       testID={testID ? `${testID}-container` : undefined}
     >

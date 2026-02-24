@@ -2,7 +2,6 @@
 // ABOUTME: Tests coach auto-execute flow including message and sending state management
 
 import { renderHook, act, waitFor } from '@testing-library/react-native';
-import { Alert } from 'react-native';
 
 // Mock API service
 const mockListCoaches = jest.fn();
@@ -18,8 +17,6 @@ jest.mock('../src/services/api', () => ({
     sendMessage: (...args: unknown[]) => mockSendMessage(...args),
   },
 }));
-
-jest.spyOn(Alert, 'alert');
 
 // Helper to create an Axios-shaped error for quota testing
 function createAxiosQuotaError() {
@@ -319,8 +316,8 @@ describe('useCoachSelection', () => {
 
       // Should still call setIsSending(false) in finally block
       expect(setIsSending).toHaveBeenLastCalledWith(false);
-      // Should show alert with the error message
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Failed to create conversation');
+      // Should set error state (no Alert — single error display only)
+      expect(result.current.error).toBe('Failed to create conversation');
       // Should NOT call sendMessage
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -349,7 +346,7 @@ describe('useCoachSelection', () => {
       // Should still reset sending state
       expect(setIsSending).toHaveBeenLastCalledWith(false);
       // extractErrorMessage returns the Error.message for standard errors
-      expect(Alert.alert).toHaveBeenCalledWith('Error', 'Network error');
+      expect(result.current.error).toBe('Network error');
     });
 
     it('should show quota-aware message on 429 error', async () => {
@@ -374,8 +371,7 @@ describe('useCoachSelection', () => {
       });
 
       expect(setIsSending).toHaveBeenLastCalledWith(false);
-      expect(Alert.alert).toHaveBeenCalledWith(
-        'Error',
+      expect(result.current.error).toBe(
         'Conversation limit reached (2/2). Delete an existing conversation to start a new one.'
       );
     });

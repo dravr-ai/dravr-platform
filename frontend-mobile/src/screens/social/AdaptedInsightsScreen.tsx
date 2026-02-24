@@ -6,12 +6,12 @@ import {
   View,
   Text,
 
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   type ViewStyle,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -224,7 +224,7 @@ export function AdaptedInsightsScreen() {
       )}
 
       {/* Insights List */}
-      <FlatList
+      <FlashList
         data={insights}
         keyExtractor={item => item.id}
         renderItem={renderInsight}

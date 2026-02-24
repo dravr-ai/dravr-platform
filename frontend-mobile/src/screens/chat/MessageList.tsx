@@ -5,13 +5,13 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   ScrollView,
   Platform,
   Image,
 } from 'react-native';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -184,7 +184,7 @@ interface MessageListProps {
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
-  flatListRef: React.RefObject<FlatList | null>;
+  flatListRef: React.RefObject<FlashListRef<Message> | null>;
   onScrollToBottom: () => void;
   onCoachSelect: (coach: Coach) => void;
   onCreateInsight: (content: string) => void;
@@ -521,11 +521,12 @@ export function MessageList({
   }
 
   return (
-    <FlatList
+    <FlashList
       ref={flatListRef}
       data={messages ?? []}
       renderItem={renderMessage}
-      keyExtractor={(item, index) => item?.id ? `${item.id}-${index}` : `fallback-${index}`}
+      keyExtractor={(item) => item?.id ?? `fallback-${Math.random()}`}
+
       contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: spacing.md }}
       showsVerticalScrollIndicator={false}
       onContentSizeChange={onScrollToBottom}

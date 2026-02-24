@@ -68,7 +68,6 @@
       "dependencies": {
         "@pierre/api-client": "file:../packages/api-client",
         "@pierre/chat-utils": "file:../packages/chat-utils",
-        "@pierre/domain-utils": "file:../packages/domain-utils",
         "@pierre/shared-types": "file:../packages/shared-types",
         "@pierre/ui-logic": "file:../packages/ui-logic",
         "@react-native-async-storage/async-storage": "^2.2.0",
@@ -89,6 +88,7 @@
         "expo-linear-gradient": "^15.0.8",
         "expo-secure-store": "^15.0.8",
         "expo-speech-recognition": "^3.1.0",
+        "expo-splash-screen": "^31.0.13",
         "expo-status-bar": "~3.0.9",
         "expo-web-browser": "^15.0.10",
         "firebase": "^12.7.0",
@@ -116,6 +116,7 @@
         "@types/react-native": "^0.73.0",
         "@typescript-eslint/eslint-plugin": "^8.53.0",
         "@typescript-eslint/parser": "^8.53.0",
+        "babel-plugin-react-compiler": "^1.0.0",
         "detox": "^20.46.3",
         "eslint": "^9.39.2",
         "eslint-plugin-react": "^7.37.5",
@@ -1535,6 +1536,8 @@
     "expo-server": ["expo-server@1.0.5", "", {}, "sha512-IGR++flYH70rhLyeXF0Phle56/k4cee87WeQ4mamS+MkVAVP+dDlOHf2nN06Z9Y2KhU0Gp1k+y61KkghF7HdhA=="],
 
     "expo-speech-recognition": ["expo-speech-recognition@3.1.0", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-DgCvY42hbhGDxDKJD0WjgjZboPOXY58JNNQ+zaBQmB+3M2PR2tS8ZTP/yIwslbe30Cnw8yf5JBxrqkZFiLmewQ=="],
+
+    "expo-splash-screen": ["expo-splash-screen@31.0.13", "", { "dependencies": { "@expo/prebuild-config": "^54.0.8" }, "peerDependencies": { "expo": "*" } }, "sha512-1epJLC1cDlwwj089R2h8cxaU5uk4ONVAC+vzGiTZH4YARQhL4Stlz1MbR6yAS173GMosvkE6CAeihR7oIbCkDA=="],
 
     "expo-status-bar": ["expo-status-bar@3.0.9", "", { "dependencies": { "react-native-is-edge-to-edge": "^1.2.1" }, "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-xyYyVg6V1/SSOZWh4Ni3U129XHCnFHBTcUo0dhWtFDrZbNp/duw5AGsQfb2sVeU0gxWHXSY1+5F0jnKYC7WuOw=="],
 

@@ -361,6 +361,7 @@ export function SocialFeedScreen() {
         data={feedItems}
         keyExtractor={item => item.insight.id}
         renderItem={renderFeedItem}
+
         ListHeaderComponent={renderSuggestionsBanner}
         ListEmptyComponent={renderEmptyState}
         ListFooterComponent={renderFooter}

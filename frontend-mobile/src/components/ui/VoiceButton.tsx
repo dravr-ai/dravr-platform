@@ -1,14 +1,21 @@
 // ABOUTME: Voice input button component with recording state indicator
-// ABOUTME: Provides visual feedback during speech recognition with pulse animation
+// ABOUTME: Provides visual feedback during speech recognition with pulse animation on UI thread
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import {
   TouchableOpacity,
-  Animated,
   View,
   ActivityIndicator,
   type ViewStyle,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  cancelAnimation,
+} from 'react-native-reanimated';
 import { colors, borderRadius } from '../../constants/theme';
 
 interface VoiceButtonProps {
@@ -40,33 +47,28 @@ export function VoiceButton({
   size = 'md',
   testID,
 }: VoiceButtonProps) {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseScale = useSharedValue(1);
   const buttonSize = BUTTON_SIZES[size];
   const iconScale = ICON_SCALES[size];
 
   useEffect(() => {
     if (isListening) {
-      // Pulse animation while listening
-      const animation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.15,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 600,
-            useNativeDriver: true,
-          }),
-        ])
+      pulseScale.value = withRepeat(
+        withSequence(
+          withTiming(1.15, { duration: 600 }),
+          withTiming(1, { duration: 600 }),
+        ),
+        -1, // infinite repeat
       );
-      animation.start();
-      return () => animation.stop();
     } else {
-      pulseAnim.setValue(1);
+      cancelAnimation(pulseScale);
+      pulseScale.value = withTiming(1, { duration: 150 });
     }
-  }, [isListening, pulseAnim]);
+  }, [isListening, pulseScale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
 
   // Hide button if voice recognition not available
   if (!isAvailable) {
@@ -124,7 +126,7 @@ export function VoiceButton({
     >
       <Animated.View
         className="items-center justify-center"
-        style={{ transform: [{ scale: isListening ? pulseAnim : 1 }] }}
+        style={animatedStyle}
       >
         {isListening ? (
           <ActivityIndicator size="small" color={colors.text.primary} />

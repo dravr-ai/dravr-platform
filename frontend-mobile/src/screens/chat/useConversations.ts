@@ -74,7 +74,6 @@ export function useConversations(): ConversationsState & ConversationsActions {
       const errorMessage = extractErrorMessage(err, 'Failed to create conversation');
       setError(errorMessage);
       console.error('Failed to create conversation:', err);
-      Alert.alert('Error', errorMessage);
       return null;
     }
   }, []);

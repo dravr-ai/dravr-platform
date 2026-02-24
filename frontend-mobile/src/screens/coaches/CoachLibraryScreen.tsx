@@ -6,7 +6,6 @@ import {
   View,
   Text,
 
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
@@ -17,6 +16,7 @@ import {
   Platform,
   type ViewStyle,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -695,11 +695,12 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
           <ActivityIndicator size="large" color={colors.primary[500]} />
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={filteredCoaches}
           renderItem={renderCoachCard}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ flexGrow: 1, padding: spacing.md, paddingBottom: 100, gap: spacing.md }}
+
+          contentContainerStyle={{ padding: spacing.md, paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
@@ -709,7 +710,7 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
             />
           }
           ListEmptyComponent={
-            <View className="flex-1 items-center justify-center pt-12 px-5">
+            <View className="items-center justify-center pt-12 px-5">
               <Text className="text-lg font-semibold text-text-primary mb-2 text-center">
                 {showFavoritesOnly
                   ? 'No favorite coaches'

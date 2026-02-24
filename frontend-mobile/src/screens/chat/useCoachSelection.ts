@@ -2,7 +2,6 @@
 // ABOUTME: Handles coach loading, selection logic, and auto-sending initial messages
 
 import React, { useState, useCallback } from 'react';
-import { Alert } from 'react-native';
 import { chatApi, coachesApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Coach, Message, Conversation } from '../../types';
@@ -171,7 +170,6 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       const errorMessage = extractErrorMessage(err, 'Failed to start coach conversation');
       setError(errorMessage);
       console.error('Failed to start coach conversation:', err);
-      Alert.alert('Error', errorMessage);
     } finally {
       options.setIsSending(false);
     }
