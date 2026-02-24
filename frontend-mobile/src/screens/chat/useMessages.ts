@@ -1,8 +1,8 @@
 // ABOUTME: Hook for managing chat messages state and operations
 // ABOUTME: Handles loading, sending, insights, feedback, and message rendering logic
 
-import React, { useState, useCallback, useRef } from 'react';
-import { FlatList } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { type FlashListRef } from '@shopify/flash-list';
 import { chatApi } from '../../services/api';
 import { isInsightPrompt, detectInsightMessages, createInsightPrompt } from '@pierre/chat-utils';
 import type { Message } from '../../types';
@@ -37,7 +37,7 @@ export interface MessagesActions {
   setActivityLists: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setIsSending: (sending: boolean) => void;
   scrollToBottom: () => void;
-  flatListRef: React.RefObject<FlatList | null>;
+  flatListRef: React.RefObject<FlashListRef<Message> | null>;
 }
 
 export function useMessages(): MessagesState & MessagesActions {
@@ -47,13 +47,34 @@ export function useMessages(): MessagesState & MessagesActions {
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
   const [activityLists, setActivityLists] = useState<Record<string, string>>({});
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<Message>>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollToBottom = useCallback(() => {
     if (flatListRef.current && messages.length > 0) {
       flatListRef.current.scrollToEnd({ animated: true });
     }
   }, [messages.length]);
+
+  // Safe deferred scroll that auto-clears previous timer
+  const deferredScrollToBottom = useCallback((delayMs: number) => {
+    if (scrollTimerRef.current) {
+      clearTimeout(scrollTimerRef.current);
+    }
+    scrollTimerRef.current = setTimeout(() => {
+      scrollToBottom();
+      scrollTimerRef.current = null;
+    }, delayMs);
+  }, [scrollToBottom]);
+
+  // Cleanup scroll timer on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadMessages = useCallback(async (conversationId: string) => {
     try {
@@ -85,13 +106,13 @@ export function useMessages(): MessagesState & MessagesActions {
         (msg: Message) => !(msg.role === 'user' && isInsightPrompt(msg.content))
       );
       setMessages(filteredMessages);
-      setTimeout(() => scrollToBottom(), 100);
+      deferredScrollToBottom(100);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load messages';
       setError(errorMessage);
       console.error('Failed to load messages:', err);
     }
-  }, [scrollToBottom]);
+  }, [deferredScrollToBottom]);
 
   const sendMessage = useCallback(async (
     conversationId: string,
@@ -109,7 +130,7 @@ export function useMessages(): MessagesState & MessagesActions {
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMessage]);
-    setTimeout(() => scrollToBottom(), 50);
+    deferredScrollToBottom(50);
 
     try {
       const response = await chatApi.sendMessage(conversationId, messageText);
@@ -137,9 +158,9 @@ export function useMessages(): MessagesState & MessagesActions {
         }
         return [...filtered, ...newMessages];
       });
-      setTimeout(() => scrollToBottom(), 50);
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to send message';
+      deferredScrollToBottom(50);
+    } catch (sendErr) {
+      const errorMsg = sendErr instanceof Error ? sendErr.message : 'Failed to send message';
       setError(errorMsg);
       const errorResponse: Message = {
         id: `error-${Date.now()}`,
@@ -154,11 +175,11 @@ export function useMessages(): MessagesState & MessagesActions {
         );
         return [...updated, errorResponse];
       });
-      setTimeout(() => scrollToBottom(), 50);
+      deferredScrollToBottom(50);
     } finally {
       setIsSending(false);
     }
-  }, [isSending, scrollToBottom]);
+  }, [isSending, deferredScrollToBottom]);
 
   const createInsight = useCallback(async (
     content: string,
@@ -177,7 +198,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     const insightPrompt = createInsightPrompt(content);
-    setTimeout(() => scrollToBottom(), 50);
+    deferredScrollToBottom(50);
 
     try {
       const response = await chatApi.sendMessage(resolvedConversationId, insightPrompt);
@@ -195,7 +216,7 @@ export function useMessages(): MessagesState & MessagesActions {
           execution_time_ms: response.execution_time_ms,
         }]);
       }
-      setTimeout(() => scrollToBottom(), 50);
+      deferredScrollToBottom(50);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to generate insight';
       setError(errorMsg);
@@ -203,7 +224,7 @@ export function useMessages(): MessagesState & MessagesActions {
     } finally {
       setIsSending(false);
     }
-  }, [isSending, scrollToBottom]);
+  }, [isSending, deferredScrollToBottom]);
 
   const retryMessage = useCallback(async (messageId: string, conversationId: string) => {
     const messageIndex = messages.findIndex(m => m.id === messageId);
@@ -237,7 +258,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
         return prev;
       });
-      setTimeout(() => scrollToBottom(), 50);
+      deferredScrollToBottom(50);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to get response';
       setError(errorMsg);
@@ -249,11 +270,11 @@ export function useMessages(): MessagesState & MessagesActions {
         isError: true,
       };
       setMessages(prev => [...prev, errorMessage]);
-      setTimeout(() => scrollToBottom(), 50);
+      deferredScrollToBottom(50);
     } finally {
       setIsSending(false);
     }
-  }, [messages, scrollToBottom]);
+  }, [messages, deferredScrollToBottom]);
 
   const handleThumbsUp = useCallback((messageId: string) => {
     setMessageFeedback(prev => ({

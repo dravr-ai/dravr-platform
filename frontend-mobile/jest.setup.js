@@ -168,6 +168,18 @@ jest.mock('react-native-reanimated', () => {
   const React = require('react');
   const View = require('react-native').View;
 
+  // Layout animation presets (entering/exiting)
+  const createLayoutAnimation = () => {
+    const anim = {
+      duration: () => anim,
+      delay: () => anim,
+      springify: () => anim,
+      damping: () => anim,
+      stiffness: () => anim,
+    };
+    return anim;
+  };
+
   return {
     __esModule: true,
     default: {
@@ -184,6 +196,9 @@ jest.mock('react-native-reanimated', () => {
     withSpring: (toValue) => toValue,
     withTiming: (toValue) => toValue,
     withDecay: (config) => 0,
+    withRepeat: (animation) => animation,
+    withSequence: (...animations) => animations[animations.length - 1],
+    cancelAnimation: jest.fn(),
     runOnJS: (fn) => fn,
     interpolate: (value, inputRange, outputRange) => {
       if (inputRange.length < 2 || outputRange.length < 2) return outputRange[0] || 0;
@@ -203,6 +218,12 @@ jest.mock('react-native-reanimated', () => {
       out: (t) => t,
       inOut: (t) => t,
     },
+    FadeIn: createLayoutAnimation(),
+    FadeOut: createLayoutAnimation(),
+    SlideInLeft: createLayoutAnimation(),
+    SlideOutRight: createLayoutAnimation(),
+    SlideInRight: createLayoutAnimation(),
+    SlideOutLeft: createLayoutAnimation(),
   };
 });
 

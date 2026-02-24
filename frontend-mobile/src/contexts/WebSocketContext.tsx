@@ -7,6 +7,8 @@ import React, {
   useState,
   useCallback,
   useRef,
+  useEffect,
+  useMemo,
   type ReactNode,
 } from 'react';
 import { chatApi } from '../services/api';
@@ -118,13 +120,24 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
     }));
   }, []);
 
-  const value: WebSocketContextType = {
+  // Cleanup WebSocket on unmount to prevent orphaned connections
+  useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+
+  // Memoize context value to prevent unnecessary re-renders of consumers
+  const value: WebSocketContextType = useMemo(() => ({
     status,
     streamingMessage,
     connect,
     disconnect,
     sendMessage,
-  };
+  }), [status, streamingMessage, connect, disconnect, sendMessage]);
 
   return (
     <WebSocketContext.Provider value={value}>

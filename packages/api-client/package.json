@@ -20,6 +20,7 @@
       "types": "./src/adapters/mobile.ts"
     }
   },
+  "sideEffects": false,
   "files": [
     "src"
   ],

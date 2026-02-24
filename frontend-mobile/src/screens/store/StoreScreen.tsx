@@ -1,7 +1,7 @@
 // ABOUTME: Discover screen for browsing and installing coaches
 // ABOUTME: Lists published coaches with category filters, search, and install actions
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -81,6 +81,16 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup search timer on unmount
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+      }
+    };
+  }, []);
 
   const loadCoaches = useCallback(async (isRefresh = false) => {
     if (!isAuthenticated) return;
@@ -169,9 +179,15 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
 
   const handleSearch = (text: string) => {
     setSearchQuery(text);
-    // Debounce search
+    // Debounce search with cleanup
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
     if (text.trim()) {
-      setTimeout(() => searchCoaches(text), 300);
+      searchTimerRef.current = setTimeout(() => {
+        searchCoaches(text);
+        searchTimerRef.current = null;
+      }, 300);
     } else {
       loadCoaches();
     }
@@ -259,8 +275,8 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
 
       {item.tags.length > 0 && (
         <View className="flex-row flex-wrap items-center">
-          {item.tags.slice(0, 3).map((tag, tagIndex) => (
-            <View key={tagIndex} className="bg-background-primary px-2 py-0.5 rounded mr-1 mb-1">
+          {item.tags.slice(0, 3).map((tag) => (
+            <View key={tag} className="bg-background-primary px-2 py-0.5 rounded mr-1 mb-1">
               <Text className="text-xs text-text-secondary">{tag}</Text>
             </View>
           ))}
@@ -359,6 +375,7 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
         data={coaches}
         keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => renderCoachCard({ item, index })}
+
         contentContainerStyle={{ padding: spacing.md, paddingBottom: 100 }}
         ListEmptyComponent={renderEmptyState}
         onEndReached={loadMoreCoaches}

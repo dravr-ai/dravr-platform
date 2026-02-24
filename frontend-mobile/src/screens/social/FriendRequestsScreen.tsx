@@ -6,11 +6,11 @@ import {
   View,
   Text,
 
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -277,7 +277,7 @@ export function FriendRequestsScreen() {
       </View>
 
       {/* Request List */}
-      <FlatList
+      <FlashList
         data={currentData}
         keyExtractor={item => item.id}
         renderItem={renderRequest}

@@ -55,6 +55,8 @@ module.exports = {
           minSdkVersion: 24,
           compileSdkVersion: 35,
           targetSdkVersion: 35,
+          enableProguardInReleaseBuilds: true,
+          enableShrinkResourcesInReleaseBuilds: true,
         },
         ios: {
           useFrameworks: 'static',

@@ -1,7 +1,7 @@
 // ABOUTME: Authentication context provider for Pierre Mobile app
 // ABOUTME: Manages user auth state, login/logout, and persists tokens with AsyncStorage
 
-import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { authApi, onAuthFailure } from '../services/api';
 import { signOutFromFirebase } from '../firebase';
 import type { User, FirebaseLoginResponse } from '../types';
@@ -98,15 +98,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // After registration, user needs to log in (or wait for approval if pending)
   }, []);
 
-  const value: AuthContextType = {
+  const isAuthenticated = !!user && user.user_status === 'active';
+
+  // Memoize context value to prevent unnecessary re-renders of consumers
+  const value: AuthContextType = useMemo(() => ({
     user,
-    isAuthenticated: !!user && user.user_status === 'active',
+    isAuthenticated,
     isLoading,
     login,
     loginWithFirebase,
     logout,
     register,
-  };
+  }), [user, isAuthenticated, isLoading, login, loginWithFirebase, logout, register]);
 
   return (
     <AuthContext.Provider value={value}>

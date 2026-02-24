@@ -1,16 +1,27 @@
 // ABOUTME: Root navigation component handling auth state
 // ABOUTME: Shows AuthStack for unauthenticated users, AppNavigator for authenticated users
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import * as SplashScreen from 'expo-splash-screen';
 import { useAuth } from '../contexts/AuthContext';
 import { AuthStack } from './AuthStack';
 import { AppNavigator } from './AppNavigator';
 import { colors } from '../constants/theme';
 
+// Keep the splash screen visible while auth state resolves
+SplashScreen.preventAutoHideAsync();
+
 export function RootNavigator() {
   const { isAuthenticated, isLoading, user } = useAuth();
+
+  // Hide splash screen once auth check is done
+  const onLayoutReady = useCallback(() => {
+    if (!isLoading) {
+      SplashScreen.hideAsync();
+    }
+  }, [isLoading]);
 
   // Show loading screen while checking auth state
   if (isLoading) {
@@ -25,7 +36,7 @@ export function RootNavigator() {
   const showAuthStack = !isAuthenticated || user?.user_status === 'pending';
 
   return (
-    <NavigationContainer>
+    <NavigationContainer onReady={onLayoutReady}>
       {showAuthStack ? <AuthStack /> : <AppNavigator />}
     </NavigationContainer>
   );

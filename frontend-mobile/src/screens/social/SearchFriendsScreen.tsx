@@ -6,10 +6,10 @@ import {
   View,
   Text,
 
-  FlatList,
   TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -190,11 +190,12 @@ export function SearchFriendsScreen() {
           <Text className="text-text-secondary mt-4">Searching...</Text>
         </View>
       ) : (
-        <FlatList
+        <FlashList
           testID="search-results-list"
           data={users}
           keyExtractor={item => item.id}
           renderItem={renderUser}
+
           ListEmptyComponent={renderEmptyState}
           contentContainerStyle={users.length === 0 ? { flexGrow: 1, paddingBottom: 100 } : { paddingVertical: spacing.sm, paddingBottom: 100 }}
           keyboardShouldPersistTaps="handled"

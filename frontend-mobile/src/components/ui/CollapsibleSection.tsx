@@ -1,15 +1,11 @@
 // ABOUTME: Reusable collapsible accordion section with animated chevron
-// ABOUTME: Glass card styling with smooth expand/collapse transitions
+// ABOUTME: Glass card styling with smooth expand/collapse transitions on UI thread
 
 import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { Feather } from '@expo/vector-icons';
 import { colors, glassCard } from '../../constants/theme';
-
-// Enable LayoutAnimation on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 interface CollapsibleSectionProps {
   title: string;
@@ -27,7 +23,6 @@ export function CollapsibleSection({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   const toggle = useCallback(() => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => !prev);
   }, []);
 
@@ -55,9 +50,14 @@ export function CollapsibleSection({
       </TouchableOpacity>
 
       {expanded && (
-        <View className="px-3.5 pb-3.5" testID={testID ? `${testID}-content` : undefined}>
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          exiting={FadeOut.duration(150)}
+          className="px-3.5 pb-3.5"
+          testID={testID ? `${testID}-content` : undefined}
+        >
           {children}
-        </View>
+        </Animated.View>
       )}
     </View>
   );

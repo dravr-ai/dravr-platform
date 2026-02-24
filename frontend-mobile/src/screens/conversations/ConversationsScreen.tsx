@@ -5,7 +5,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
-  FlatList,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
@@ -13,6 +12,7 @@ import {
   Modal,
   type ViewStyle,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -314,11 +314,12 @@ export function ConversationsScreen({ navigation }: ConversationsScreenProps) {
           <ActivityIndicator size="large" color={colors.primary[500]} />
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={filteredConversations}
           renderItem={renderConversation}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ flexGrow: 1, paddingBottom: 80 }}
+
+          contentContainerStyle={{ paddingBottom: 80 }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View className="flex-1 items-center justify-center pt-16">
