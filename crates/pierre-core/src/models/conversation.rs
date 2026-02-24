@@ -48,8 +48,6 @@ pub struct MessageRecord {
     pub model: Option<String>,
     /// Finish reason for assistant messages
     pub finish_reason: Option<String>,
-    /// Activity list from `get_activities` tool (persisted for history reload)
-    pub activity_list: Option<String>,
     /// When the message was created (ISO 8601)
     pub created_at: String,
 }
@@ -91,6 +89,4 @@ pub struct AddMessageParams<'a> {
     pub prompt_tokens: Option<u32>,
     /// LLM model identifier used for this message
     pub model: Option<&'a str>,
-    /// Activity list from `get_activities` tool (for persisting alongside the message)
-    pub activity_list: Option<&'a str>,
 }
