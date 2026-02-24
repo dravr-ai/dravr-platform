@@ -16,7 +16,7 @@ React Native mobile app for Pierre Fitness Platform, providing a conversational 
 - **Navigation**: React Navigation (Drawer + Native Stack)
 - **Styling**: NativeWind (TailwindCSS for React Native)
 - **State Management**: React Query + Context API
-- **Testing**: Jest + React Native Testing Library + Detox (E2E)
+- **Testing**: Jest + React Native Testing Library + Maestro (E2E)
 - **TypeScript**: Full type safety throughout
 
 ## Project Structure
@@ -37,7 +37,7 @@ frontend-mobile/
 │   ├── services/         # API client and utilities
 │   └── types/            # TypeScript type definitions
 ├── __tests__/            # Unit tests
-├── e2e/                  # Detox E2E tests
+├── .maestro/             # Maestro E2E tests
 ├── App.tsx               # App entry point
 └── package.json
 ```
@@ -114,14 +114,16 @@ bun run test:coverage
 bun run test:watch
 ```
 
-### E2E Testing (Detox)
+### E2E Testing (Maestro)
 
 ```bash
-# Build for iOS simulator
-bun run e2e:build
+# Run all Maestro E2E tests
+bun run maestro
 
-# Run E2E tests
-bun run e2e:test
+# Run specific test suite
+bun run maestro:chat
+bun run maestro:coaches
+bun run maestro:settings
 ```
 
 ## Configuration
