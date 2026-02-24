@@ -20,7 +20,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    config::{environment::default_provider, SocialInsightsConfig},
+    config::{environment::default_provider, social},
     database::repositories::UserRepository,
     database::social_dispatch::SocialManagerBackend,
     errors::{AppError, ErrorCode},
@@ -1029,7 +1029,7 @@ impl SocialRoutes {
         tenant_id: Option<&str>,
         activity_limit: Option<usize>,
     ) -> Result<InsightGenerationContext, AppError> {
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
 
         // Use client limit if provided, but cap at server's max client limit
         let effective_limit = activity_limit.map_or(
@@ -1061,7 +1061,7 @@ impl SocialRoutes {
         provider_name: &str,
         tenant_id: Option<&str>,
     ) -> Result<UserTrainingContext, AppError> {
-        let config = SocialInsightsConfig::global();
+        let config = social::global();
         let activities = Self::fetch_activities_from_provider(
             resources,
             user_id,

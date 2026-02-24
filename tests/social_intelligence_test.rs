@@ -8,7 +8,7 @@
 //! insight adaptation, and friend activity caching.
 
 use chrono::{Duration, Utc};
-use pierre_mcp_server::config::SocialInsightsConfig;
+use pierre_mcp_server::config::social::global as social_insights_global;
 use pierre_mcp_server::intelligence::{
     friend_activity_cache::{
         CacheConfig, DurationCategory, EffortLevel, FriendActivityCache, FriendActivitySummary,
@@ -742,7 +742,7 @@ fn test_generator_create_insight() {
 
 #[test]
 fn test_milestone_relevance() {
-    let config = SocialInsightsConfig::global();
+    let config = social_insights_global();
     assert_eq!(calculate_milestone_relevance(1000, config), 95);
     assert_eq!(calculate_milestone_relevance(100, config), 80);
     assert_eq!(calculate_milestone_relevance(10, config), 65);
@@ -750,7 +750,7 @@ fn test_milestone_relevance() {
 
 #[test]
 fn test_milestone_relevance_all_tiers() {
-    let config = SocialInsightsConfig::global();
+    let config = social_insights_global();
     // Test all milestone tiers
     assert_eq!(calculate_milestone_relevance(1500, config), 95); // 1000+
     assert_eq!(calculate_milestone_relevance(750, config), 90); // 500-999

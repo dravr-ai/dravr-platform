@@ -7,5 +7,10 @@
 /// Admin data models (tokens, permissions, usage)
 pub mod models;
 
-/// JWT signing abstraction for admin token creation
+/// JWT signing abstraction and admin token management
 pub mod jwt;
+
+#[cfg(feature = "admin-jwt")]
+pub use jwt::AdminJwtManager;
+#[cfg(feature = "admin-jwt")]
+pub use jwt::TokenGenerationConfig;

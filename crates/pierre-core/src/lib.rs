@@ -48,3 +48,6 @@ pub mod redaction;
 
 /// Admin authentication and authorization types
 pub mod admin;
+
+/// UUID parsing, formatting, and generation utilities
+pub mod uuid_utils;

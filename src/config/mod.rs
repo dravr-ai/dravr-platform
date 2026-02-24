@@ -113,7 +113,8 @@ pub use network::{
 };
 
 // Re-export cache types
-pub use cache::{CacheConfig, CacheTtlConfig, RateLimitConfig, RedisConnectionConfig};
+pub use cache::{CacheConfig, CacheTtlConfig, RedisConnectionConfig};
+pub use pierre_auth::config::RateLimitConfig;
 
 // Re-export security types
 pub use security::{AuthConfig, MonitoringConfig, SecurityConfig, SecurityHeadersConfig};
@@ -190,7 +191,7 @@ pub fn init_configs() -> AppResult<()> {
     );
 
     // Initialize global social insights config
-    let social_config = SocialInsightsConfig::global();
+    let social_config = social::global();
     debug!(
         "Social insights config initialized successfully (activity limit: {})",
         social_config.activity_fetch_limits.insight_context_limit
