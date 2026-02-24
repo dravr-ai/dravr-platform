@@ -415,6 +415,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           isCoachConversation={isCoachConversation}
           messageFeedback={messagesHook.messageFeedback}
           insightMessages={messagesHook.insightMessages}
+          activityLists={messagesHook.activityLists}
           flatListRef={messagesHook.flatListRef}
           onScrollToBottom={messagesHook.scrollToBottom}
           onCoachSelect={handleCoachSelect}

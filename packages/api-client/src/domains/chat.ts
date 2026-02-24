@@ -28,6 +28,8 @@ export interface SendMessageResponse {
   conversation_updated_at: string;
   model: string;
   execution_time_ms: number;
+  /** Activity list from get_activities tool, separate from message content */
+  activity_list?: string;
 }
 
 export interface CreateConversationOptions {

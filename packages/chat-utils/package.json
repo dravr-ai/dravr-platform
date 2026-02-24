@@ -17,6 +17,10 @@
     "./message": {
       "types": "./src/message.ts",
       "import": "./src/message.ts"
+    },
+    "./activity": {
+      "types": "./src/activity.ts",
+      "import": "./src/activity.ts"
     }
   },
   "scripts": {

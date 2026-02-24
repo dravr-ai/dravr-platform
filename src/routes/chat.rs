@@ -294,6 +294,9 @@ pub struct ChatCompletionResponse {
     pub model: String,
     /// Total execution time in milliseconds (including tool calls)
     pub execution_time_ms: u64,
+    /// Activity list from `get_activities` tool, kept separate from message content
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_list: Option<String>,
 }
 
 /// Response for messages list
@@ -1301,12 +1304,8 @@ impl ChatRoutes {
         let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
         let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
 
-        // Process content: parse insight JSON if applicable, prepend activity list if present
-        let final_content = Self::post_process_content(
-            &result.content,
-            result.activity_list.as_deref(),
-            is_insight_request,
-        );
+        // Process content: parse insight JSON if applicable
+        let final_content = Self::post_process_content(&result.content, is_insight_request);
 
         // Persist assistant response with full token usage and model name
         let assistant_params = AddMessageParams {
@@ -1374,6 +1373,7 @@ impl ChatRoutes {
             conversation_updated_at: updated_conv.updated_at,
             model: conv.model.clone(),
             execution_time_ms,
+            activity_list: result.activity_list,
         };
 
         // Build response with usage warning headers
@@ -1514,26 +1514,12 @@ impl ChatRoutes {
         }
     }
 
-    /// Post-process LLM content: parse insight JSON and prepend activity list if present
-    fn post_process_content(
-        raw_content: &str,
-        activity_list: Option<&str>,
-        is_insight_request: bool,
-    ) -> String {
-        let processed = if is_insight_request {
+    /// Post-process LLM content: parse insight JSON if applicable
+    fn post_process_content(raw_content: &str, is_insight_request: bool) -> String {
+        if is_insight_request {
             parse_insight_json_response(raw_content)
         } else {
             raw_content.to_owned()
-        };
-
-        if let Some(list) = activity_list {
-            info!(
-                "Prepending activity list ({} chars) to LLM response",
-                list.len()
-            );
-            format!("{list}\n\n---\n\n**Analysis:**\n\n{processed}")
-        } else {
-            processed
         }
     }
 

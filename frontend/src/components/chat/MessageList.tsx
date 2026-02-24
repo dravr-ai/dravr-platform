@@ -6,7 +6,7 @@
 
 import { useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
-import { isInsightPrompt, detectInsightMessages } from '@pierre/chat-utils';
+import { isInsightPrompt, detectInsightMessages, splitActivityContent } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
@@ -15,6 +15,8 @@ interface MessageListProps {
   messages: Message[];
   messageMetadata: Map<string, MessageMetadata>;
   messageFeedback: Map<string, MessageFeedback>;
+  /** Activity lists keyed by assistant message ID (from new API field) */
+  activityLists: Map<string, string>;
   insightMessageIds: Set<string>;
   isLoading: boolean;
   isStreaming: boolean;
@@ -37,6 +39,7 @@ export default function MessageList({
   messages,
   messageMetadata,
   messageFeedback,
+  activityLists,
   insightMessageIds,
   isLoading,
   isStreaming,
@@ -80,6 +83,19 @@ export default function MessageList({
       {visibleMessages.map((msg) => {
         // Combine passed-in insight IDs with detected ones
         const isInsight = insightMessageIds.has(msg.id) || detectedInsightIds.has(msg.id);
+
+        // Resolve activity list: new API field first, then parse old baked-in content
+        let resolvedActivityList: string | undefined;
+        if (msg.role === 'assistant') {
+          const apiList = activityLists.get(msg.id);
+          if (apiList) {
+            resolvedActivityList = apiList;
+          } else {
+            const [parsed] = splitActivityContent(msg.content);
+            resolvedActivityList = parsed ?? undefined;
+          }
+        }
+
         return (
           <MessageItem
             key={msg.id}
@@ -88,6 +104,7 @@ export default function MessageList({
             feedback={messageFeedback.get(msg.id)}
             isError={msg.isError}
             hasInsight={isInsight}
+            activityList={resolvedActivityList}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
             onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
             onCreateInsight={msg.role === 'assistant' ? () => onCreateInsight(msg.content) : undefined}
