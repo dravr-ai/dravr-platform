@@ -116,6 +116,10 @@ pub struct ServerConfig {
     pub sqlx: SqlxConfig,
     /// System monitoring configuration
     pub monitoring: MonitoringConfig,
+    /// Resend API key for transactional emails (optional — emails are skipped if unset)
+    pub resend_api_key: Option<String>,
+    /// Sender email address for Resend (e.g., "Pierre <noreply@pierre.dev>")
+    pub resend_from_email: Option<String>,
 }
 
 impl ServerConfig {
@@ -166,6 +170,8 @@ impl ServerConfig {
             tokio_runtime: TokioRuntimeConfig::from_env(),
             sqlx: SqlxConfig::from_env(),
             monitoring: MonitoringConfig::from_env(),
+            resend_api_key: env::var("RESEND_API_KEY").ok(),
+            resend_from_email: env::var("RESEND_FROM_EMAIL").ok(),
         };
 
         config.validate()?;

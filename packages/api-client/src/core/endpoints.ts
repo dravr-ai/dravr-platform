@@ -23,6 +23,10 @@ export const ENDPOINTS = {
     REFRESH: '/api/auth/refresh',
     /** Restore session from httpOnly cookie */
     SESSION: '/api/auth/session',
+    /** Self-service forgot password (send reset code) */
+    FORGOT_PASSWORD: '/api/auth/forgot-password',
+    /** Complete password reset with code */
+    COMPLETE_RESET: '/api/auth/complete-reset',
   },
 
   // ==================== CHAT ====================

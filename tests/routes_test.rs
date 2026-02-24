@@ -219,6 +219,8 @@ async fn test_register_user() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -402,6 +404,8 @@ async fn test_register_duplicate_user() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(

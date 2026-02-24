@@ -1088,6 +1088,108 @@ pub(super) async fn handle_complete_reset(
         .into_response())
 }
 
+/// Handle self-service forgot-password requests
+///
+/// Generates a 6-digit numeric code, stores its SHA-256 hash with a 15-minute TTL,
+/// and sends it to the user via email (if Resend is configured).
+///
+/// Security: Always returns HTTP 200 with an identical message regardless of whether
+/// the email exists, to prevent account enumeration attacks.
+#[tracing::instrument(skip(resources, request), fields(route = "forgot_password"))]
+pub(super) async fn handle_forgot_password(
+    State(resources): State<Arc<ServerResources>>,
+    Json(request): Json<super::types::ForgotPasswordRequest>,
+) -> Result<Response, AppError> {
+    use crate::constants::password_reset;
+    use rand::Rng;
+    use sha2::{Digest, Sha256};
+
+    let anti_enum_message =
+        "If an account with that email exists, a reset code has been sent.".to_owned();
+
+    // Basic email format validation
+    if !request.email.contains('@') || request.email.len() < 5 {
+        return Err(AppError::invalid_input("Invalid email format"));
+    }
+
+    // Look up user — if not found, return the same success message (anti-enumeration)
+    let user = resources.database.get_by_email(&request.email).await?;
+
+    let Some(user) = user else {
+        info!("Forgot password requested for nonexistent email (anti-enumeration)");
+        return Ok((
+            StatusCode::OK,
+            Json(super::types::ForgotPasswordResponse {
+                message: anti_enum_message,
+            }),
+        )
+            .into_response());
+    };
+
+    // Rate limit: max N codes per hour per user
+    let one_hour_ago = Utc::now() - chrono::Duration::hours(1);
+    let recent_count = resources
+        .database
+        .count_recent_tokens(user.id, one_hour_ago)
+        .await?;
+
+    if recent_count >= password_reset::MAX_CODES_PER_HOUR {
+        info!(
+            user_id = %user.id,
+            recent_count = recent_count,
+            "Rate limit reached for password reset codes — skipping silently"
+        );
+        return Ok((
+            StatusCode::OK,
+            Json(super::types::ForgotPasswordResponse {
+                message: anti_enum_message,
+            }),
+        )
+            .into_response());
+    }
+
+    // Generate 6-digit numeric code
+    let code: u32 = rand::thread_rng()
+        .gen_range(password_reset::CODE_RANGE_MIN..password_reset::CODE_RANGE_MAX);
+    let code_str = code.to_string();
+
+    // Hash the code before storing (same SHA-256 approach as admin tokens)
+    let code_hash = format!("{:x}", Sha256::digest(code_str.as_bytes()));
+
+    // Store with short TTL
+    resources
+        .database
+        .store_token_with_ttl(
+            user.id,
+            &code_hash,
+            password_reset::CREATED_BY_SELF_SERVICE,
+            password_reset::CODE_TTL_MINUTES,
+        )
+        .await?;
+
+    // Send email (or log warning if Resend not configured)
+    if let Some(email_svc) = &resources.email_service {
+        if let Err(e) = email_svc
+            .send_password_reset_code(&request.email, &code_str)
+            .await
+        {
+            warn!(error = %e, "Failed to send password reset email — user will not receive code");
+        }
+    } else {
+        warn!("Email service not configured — password reset code generated but not delivered");
+    }
+
+    info!(user_id = %user.id, "Password reset code issued via self-service flow");
+
+    Ok((
+        StatusCode::OK,
+        Json(super::types::ForgotPasswordResponse {
+            message: anti_enum_message,
+        }),
+    )
+        .into_response())
+}
+
 /// Handle user stats request for dashboard
 ///
 /// Returns aggregated stats: connected providers, activities synced, and days active.

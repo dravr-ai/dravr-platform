@@ -54,9 +54,10 @@ function PierreLogo() {
 
 interface LoginProps {
   onNavigateToRegister?: () => void;
+  onNavigateToForgotPassword?: () => void;
 }
 
-export default function Login({ onNavigateToRegister }: LoginProps) {
+export default function Login({ onNavigateToRegister, onNavigateToForgotPassword }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -232,6 +233,18 @@ export default function Login({ onNavigateToRegister }: LoginProps) {
                   }
                 />
               </div>
+
+              {onNavigateToForgotPassword && (
+                <div className="flex justify-end -mt-1">
+                  <button
+                    type="button"
+                    onClick={onNavigateToForgotPassword}
+                    className="text-xs text-zinc-400 hover:text-pierre-violet-light transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
 
               <Button
                 type="submit"

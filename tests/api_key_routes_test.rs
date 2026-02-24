@@ -247,6 +247,8 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                     sqlx: SqlxConfig::default(),
                     monitoring: MonitoringConfig::default(),
                     frontend_url: None,
+                    resend_api_key: None,
+                    resend_from_email: None,
                 }
             }),
             cache,

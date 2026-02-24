@@ -274,6 +274,8 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache_config = MemoryCacheConfig {

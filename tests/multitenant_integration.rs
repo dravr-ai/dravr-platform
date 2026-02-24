@@ -340,6 +340,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create test cache with background cleanup disabled
@@ -837,6 +839,8 @@ async fn test_input_validation() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create test cache with background cleanup disabled

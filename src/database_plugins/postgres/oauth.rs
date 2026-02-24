@@ -1274,6 +1274,36 @@ impl PasswordResetRepository for PostgresDatabase {
         )
     }
 
+    async fn store_token_with_ttl(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<Uuid> {
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(ttl_minutes);
+
+        sqlx::query(
+            r"
+            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ",
+        )
+        .bind(id.to_string())
+        .bind(user_id.to_string())
+        .bind(token_hash)
+        .bind(expires_at.to_rfc3339())
+        .bind(created_by)
+        .bind(now.to_rfc3339())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
+
+        Ok(id)
+    }
+
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
         let now = Utc::now().to_rfc3339();
 
@@ -1292,5 +1322,23 @@ impl PasswordResetRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
 
         Ok(())
+    }
+
+    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64> {
+        let row = sqlx::query(
+            r"
+            SELECT COUNT(*) as cnt
+            FROM password_reset_tokens
+            WHERE user_id = $1
+              AND created_at >= $2
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(since.to_rfc3339())
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count recent reset tokens: {e}")))?;
+
+        Ok(row.get::<i64, _>("cnt"))
     }
 }

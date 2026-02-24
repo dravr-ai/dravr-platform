@@ -336,6 +336,8 @@ impl DashboardTestSetup {
             sqlx: SqlxConfig::default(),
             monitoring: MonitoringConfig::default(),
             frontend_url: None,
+            resend_api_key: None,
+            resend_from_email: None,
         });
 
         // Create test cache
@@ -755,6 +757,8 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();

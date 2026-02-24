@@ -7,7 +7,7 @@
 use crate::database::Database;
 use crate::errors::{AppError, AppResult};
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_database::repositories::PasswordResetRepository;
 use sqlx::Row;
 use uuid::Uuid;
@@ -121,6 +121,72 @@ impl Database {
 
         Ok(())
     }
+    /// Store a password reset token with a custom TTL
+    ///
+    /// Similar to `store_password_reset_token_impl` but allows specifying the
+    /// expiry duration in minutes instead of using the default 1-hour TTL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database insert fails.
+    pub async fn store_password_reset_token_with_ttl_impl(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<Uuid> {
+        let id = Uuid::new_v4();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(ttl_minutes);
+
+        sqlx::query(
+            r"
+            INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_by, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ",
+        )
+        .bind(id.to_string())
+        .bind(user_id.to_string())
+        .bind(token_hash)
+        .bind(expires_at.to_rfc3339())
+        .bind(created_by)
+        .bind(now.to_rfc3339())
+        .execute(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
+
+        Ok(id)
+    }
+
+    /// Count password reset tokens created for a user since a given timestamp
+    ///
+    /// Used for rate limiting to prevent abuse of the self-service reset flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn count_recent_password_reset_tokens_impl(
+        &self,
+        user_id: Uuid,
+        since: DateTime<Utc>,
+    ) -> AppResult<i64> {
+        let row = sqlx::query(
+            r"
+            SELECT COUNT(*) as cnt
+            FROM password_reset_tokens
+            WHERE user_id = ?1
+              AND created_at >= ?2
+            ",
+        )
+        .bind(user_id.to_string())
+        .bind(since.to_rfc3339())
+        .fetch_one(self.pool())
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count recent reset tokens: {e}")))?;
+
+        Ok(row.get::<i64, _>("cnt"))
+    }
 }
 
 #[async_trait]
@@ -134,11 +200,32 @@ impl PasswordResetRepository for Database {
         Self::store_password_reset_token_impl(self, user_id, token_hash, created_by).await
     }
 
+    async fn store_token_with_ttl(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<Uuid> {
+        Self::store_password_reset_token_with_ttl_impl(
+            self,
+            user_id,
+            token_hash,
+            created_by,
+            ttl_minutes,
+        )
+        .await
+    }
+
     async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
         Self::consume_password_reset_token_impl(self, token_hash).await
     }
 
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
         Self::invalidate_user_reset_tokens_impl(self, user_id).await
+    }
+
+    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64> {
+        Self::count_recent_password_reset_tokens_impl(self, user_id, since).await
     }
 }

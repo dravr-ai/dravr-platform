@@ -32,6 +32,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 type AuthStackParamList = {
   Login: undefined;
   Register: undefined;
+  ForgotPassword: undefined;
+  ResetPassword: { email: string };
   PendingApproval: undefined;
 };
 
@@ -227,6 +229,14 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
                   error={errors.password}
                   testID="password-input"
                 />
+
+                <TouchableOpacity
+                  onPress={() => navigation.navigate('ForgotPassword')}
+                  className="self-end mb-2"
+                  testID="forgot-password-link"
+                >
+                  <Text className="text-xs text-text-tertiary">Forgot password?</Text>
+                </TouchableOpacity>
 
                 <Button
                   title="Sign In"

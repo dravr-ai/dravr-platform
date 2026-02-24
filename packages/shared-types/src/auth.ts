@@ -74,6 +74,16 @@ export interface SessionResponse {
   csrf_token: string;
 }
 
+/** Response from forgot-password endpoint */
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+/** Response from complete-reset endpoint */
+export interface ResetPasswordResponse {
+  message: string;
+}
+
 // ========== OAUTH TYPES ==========
 
 /** Status of a provider connection */

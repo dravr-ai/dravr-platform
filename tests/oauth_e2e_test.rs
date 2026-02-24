@@ -343,6 +343,8 @@ async fn test_oauth_flow_through_mcp() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create server instance
@@ -655,6 +657,8 @@ async fn test_oauth_callback_error_handling() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -929,6 +933,8 @@ async fn test_oauth_state_csrf_protection() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1122,6 +1128,8 @@ async fn test_connection_status_tracking() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();

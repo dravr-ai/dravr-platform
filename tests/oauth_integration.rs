@@ -203,6 +203,8 @@ async fn test_oauth_authorization_url_generation() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -504,6 +506,8 @@ async fn test_oauth_state_validation() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -706,6 +710,8 @@ async fn test_connection_status_no_providers() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let user_id = Uuid::new_v4();
@@ -940,6 +946,8 @@ async fn test_invalid_provider_error() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1138,6 +1146,8 @@ async fn test_disconnect_provider() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1450,6 +1460,8 @@ async fn test_oauth_urls_contain_required_parameters() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(

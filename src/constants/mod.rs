@@ -846,6 +846,24 @@ pub mod sleep_recovery {
     pub const MINUTES_PER_DAY: i64 = 1440;
 }
 
+/// Self-service password reset flow configuration
+pub mod password_reset {
+    /// Code expires after 15 minutes (shorter than admin-issued 1-hour tokens)
+    pub const CODE_TTL_MINUTES: i64 = 15;
+
+    /// Maximum reset codes a user can request per hour
+    pub const MAX_CODES_PER_HOUR: i64 = 3;
+
+    /// Lower bound of the 6-digit code range (inclusive)
+    pub const CODE_RANGE_MIN: u32 = 100_000;
+
+    /// Upper bound of the 6-digit code range (exclusive)
+    pub const CODE_RANGE_MAX: u32 = 1_000_000;
+
+    /// Label used as `created_by` for self-service reset tokens
+    pub const CREATED_BY_SELF_SERVICE: &str = "self_service";
+}
+
 /// Goal management and feasibility constants
 ///
 /// Configuration for goal setting, progress tracking, and feasibility analysis.

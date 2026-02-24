@@ -24,10 +24,11 @@ pub use oauth::{OAuthRoutes, OAuthService};
 
 pub use types::{
     ChangePasswordRequest, CompleteResetRequest, ConnectionStatus, FirebaseLoginRequest,
-    LoginRequest, LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
-    OAuthAuthorizationResponse, OAuthStatus, ProviderStatus, ProvidersStatusResponse,
-    RefreshTokenRequest, RegisterRequest, RegisterResponse, SessionResponse, UpdateProfileRequest,
-    UpdateProfileResponse, UserInfo, UserStatsResponse,
+    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, LoginResponse,
+    OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse, OAuthAuthorizationResponse,
+    OAuthStatus, ProviderStatus, ProvidersStatusResponse, RefreshTokenRequest, RegisterRequest,
+    RegisterResponse, SessionResponse, UpdateProfileRequest, UpdateProfileResponse, UserInfo,
+    UserStatsResponse,
 };
 
 // Re-export OAuthCallbackResponse from types module (moved for proper layering)
@@ -61,6 +62,10 @@ impl AuthRoutes {
             .route(
                 "/api/user/change-password",
                 put(login::handle_change_password),
+            )
+            .route(
+                "/api/auth/forgot-password",
+                post(login::handle_forgot_password),
             )
             .route(
                 "/api/auth/complete-reset",

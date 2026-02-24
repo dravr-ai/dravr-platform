@@ -481,6 +481,37 @@ impl PasswordResetRepository for Database {
         }
     }
 
+    async fn store_token_with_ttl(
+        &self,
+        user_id: uuid::Uuid,
+        token_hash: &str,
+        created_by: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<uuid::Uuid> {
+        match self {
+            Self::SQLite(db) => {
+                db.store_password_reset_token_with_ttl_impl(
+                    user_id,
+                    token_hash,
+                    created_by,
+                    ttl_minutes,
+                )
+                .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                PasswordResetRepository::store_token_with_ttl(
+                    db,
+                    user_id,
+                    token_hash,
+                    created_by,
+                    ttl_minutes,
+                )
+                .await
+            }
+        }
+    }
+
     async fn consume_token(&self, token_hash: &str) -> AppResult<uuid::Uuid> {
         match self {
             Self::SQLite(db) => db.consume_password_reset_token_impl(token_hash).await,
@@ -494,6 +525,23 @@ impl PasswordResetRepository for Database {
             Self::SQLite(db) => db.invalidate_user_reset_tokens_impl(user_id).await,
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.invalidate_tokens(user_id).await,
+        }
+    }
+
+    async fn count_recent_tokens(
+        &self,
+        user_id: uuid::Uuid,
+        since: DateTime<Utc>,
+    ) -> AppResult<i64> {
+        match self {
+            Self::SQLite(db) => {
+                db.count_recent_password_reset_tokens_impl(user_id, since)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                PasswordResetRepository::count_recent_tokens(db, user_id, since).await
+            }
         }
     }
 }
