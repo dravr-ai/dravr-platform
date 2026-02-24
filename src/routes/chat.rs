@@ -277,6 +277,9 @@ pub struct MessageResponse {
     pub content: String,
     /// Token count
     pub token_count: Option<i64>,
+    /// Activity list from `get_activities` tool (persisted for history reload)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_list: Option<String>,
     /// Creation timestamp
     pub created_at: String,
 }
@@ -1167,6 +1170,7 @@ impl ChatRoutes {
                 role: m.role,
                 content: m.content,
                 token_count: m.token_count,
+                activity_list: m.activity_list,
                 created_at: m.created_at,
             })
             .collect();
@@ -1317,6 +1321,7 @@ impl ChatRoutes {
             finish_reason: result.finish_reason.as_deref(),
             prompt_tokens,
             model: Some(&conv.model),
+            activity_list: result.activity_list.as_deref(),
         };
         let (assistant_msg, updated_conv) = chat_orchestration::persist_assistant_response(
             resources.database.as_ref(),
@@ -1361,6 +1366,7 @@ impl ChatRoutes {
                 role: user_msg.role,
                 content: user_msg.content,
                 token_count: user_msg.token_count,
+                activity_list: None,
                 created_at: user_msg.created_at,
             },
             assistant_message: MessageResponse {
@@ -1368,6 +1374,7 @@ impl ChatRoutes {
                 role: assistant_msg.role,
                 content: assistant_msg.content,
                 token_count: assistant_msg.token_count,
+                activity_list: assistant_msg.activity_list,
                 created_at: assistant_msg.created_at,
             },
             conversation_updated_at: updated_conv.updated_at,

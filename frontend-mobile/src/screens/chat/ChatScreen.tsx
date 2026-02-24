@@ -216,6 +216,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           setMessages: messagesHook.setMessages,
           setIsSending: messagesHook.setIsSending,
           scrollToBottom: messagesHook.scrollToBottom,
+          setActivityLists: messagesHook.setActivityLists,
         });
       },
     });
@@ -228,6 +229,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
       setMessages: messagesHook.setMessages,
       setIsSending: messagesHook.setIsSending,
       scrollToBottom: messagesHook.scrollToBottom,
+      setActivityLists: messagesHook.setActivityLists,
     });
   }, [coachSelection, conversations, messagesHook]);
 
