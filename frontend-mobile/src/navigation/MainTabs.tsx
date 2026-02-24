@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../constants/theme';
 import { TabSwipeWrapper } from '../components/ui';
+import { ServerStatusBanner } from '../components/ServerStatusBanner';
+import { useServerStatus } from '../hooks/useServerStatus';
 import { ChatScreen } from '../screens/chat/ChatScreen';
 import { ConversationsScreen } from '../screens/conversations/ConversationsScreen';
 import { SocialFeedScreen } from '../screens/social/SocialFeedScreen';
@@ -261,39 +263,46 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 export function MainTabs() {
+  const { isServerReachable, isChecking, checkNow } = useServerStatus();
+
   return (
-    <Tab.Navigator
-      tabBar={(props: BottomTabBarProps) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Tab.Screen
-        name="ChatTab"
-        component={ChatStackScreen}
-        options={{ tabBarLabel: 'Chat' }}
-      />
-      <Tab.Screen
-        name="CoachesTab"
-        component={CoachesStackScreen}
-        options={{ tabBarLabel: 'Coaches' }}
-      />
-      <Tab.Screen
-        name="DiscoverTab"
-        component={DiscoverStackScreen}
-        options={{ tabBarLabel: 'Discover' }}
-      />
-      <Tab.Screen
-        name="SocialTab"
-        component={SocialStackScreen}
-        options={{ tabBarLabel: 'Insights' }}
-      />
-      <Tab.Screen
-        name="SettingsTab"
-        component={SettingsStackScreen}
-        options={{ tabBarLabel: 'Profile' }}
-      />
-    </Tab.Navigator>
+    <View className="flex-1">
+      {!isServerReachable && (
+        <ServerStatusBanner onRetry={checkNow} isChecking={isChecking} />
+      )}
+      <Tab.Navigator
+        tabBar={(props: BottomTabBarProps) => <CustomTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+        }}
+      >
+        <Tab.Screen
+          name="ChatTab"
+          component={ChatStackScreen}
+          options={{ tabBarLabel: 'Chat' }}
+        />
+        <Tab.Screen
+          name="CoachesTab"
+          component={CoachesStackScreen}
+          options={{ tabBarLabel: 'Coaches' }}
+        />
+        <Tab.Screen
+          name="DiscoverTab"
+          component={DiscoverStackScreen}
+          options={{ tabBarLabel: 'Discover' }}
+        />
+        <Tab.Screen
+          name="SocialTab"
+          component={SocialStackScreen}
+          options={{ tabBarLabel: 'Insights' }}
+        />
+        <Tab.Screen
+          name="SettingsTab"
+          component={SettingsStackScreen}
+          options={{ tabBarLabel: 'Profile' }}
+        />
+      </Tab.Navigator>
+    </View>
   );
 }
 
