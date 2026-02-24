@@ -1199,6 +1199,7 @@ impl PostgresDatabase {
                 prompt_tokens BIGINT,
                 model VARCHAR(255),
                 finish_reason VARCHAR(50),
+                activity_list TEXT,
                 created_at TIMESTAMPTZ NOT NULL
             )
             ",
