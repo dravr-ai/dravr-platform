@@ -13,6 +13,8 @@ export interface MessagesState {
   error: string | null;
   messageFeedback: Record<string, 'up' | 'down' | null>;
   insightMessages: Set<string>;
+  /** Activity lists keyed by assistant message ID (from new API field) */
+  activityLists: Record<string, string>;
 }
 
 export interface MessagesActions {
@@ -43,6 +45,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [error, setError] = useState<string | null>(null);
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
+  const [activityLists, setActivityLists] = useState<Record<string, string>>({});
   const flatListRef = useRef<FlatList>(null);
 
   const scrollToBottom = useCallback(() => {
@@ -98,6 +101,15 @@ export function useMessages(): MessagesState & MessagesActions {
 
     try {
       const response = await chatApi.sendMessage(conversationId, messageText);
+
+      // Store activity list if the API returned one
+      if (response.activity_list && response.assistant_message?.id) {
+        setActivityLists(prev => ({
+          ...prev,
+          [response.assistant_message.id]: response.activity_list as string,
+        }));
+      }
+
       setMessages(prev => {
         const filtered = prev.filter(m => m.id !== userMessage.id);
         const newMessages: Message[] = [];
@@ -195,6 +207,14 @@ export function useMessages(): MessagesState & MessagesActions {
     try {
       const response = await chatApi.sendMessage(conversationId, userMessage.content);
 
+      // Store activity list if the API returned one
+      if (response.activity_list && response.assistant_message?.id) {
+        setActivityLists(prev => ({
+          ...prev,
+          [response.assistant_message.id]: response.activity_list as string,
+        }));
+      }
+
       setMessages(prev => {
         if (response.assistant_message?.id) {
           return [...prev, {
@@ -248,6 +268,7 @@ export function useMessages(): MessagesState & MessagesActions {
     error,
     messageFeedback,
     insightMessages,
+    activityLists,
     loadMessages,
     sendMessage,
     createInsight,

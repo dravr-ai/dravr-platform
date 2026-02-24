@@ -61,6 +61,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [pendingCoachAction, setPendingCoachAction] = useState<PendingCoachAction | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, MessageFeedback>>(new Map());
+  const [activityLists, setActivityLists] = useState<Map<string, string>>(new Map());
   const [showCoachModal, setShowCoachModal] = useState(false);
   const [editingCoachId, setEditingCoachId] = useState<string | null>(null);
   const [coachFormData, setCoachFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
@@ -382,6 +383,15 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         setMessageMetadata(prev => {
           const newMap = new Map(prev);
           newMap.set(assistantMessageId, { model, executionTimeMs });
+          return newMap;
+        });
+      }
+
+      // Store activity list if the API returned one (separate from message content)
+      if (data.activity_list && assistantMessageId) {
+        setActivityLists(prev => {
+          const newMap = new Map(prev);
+          newMap.set(assistantMessageId, data.activity_list);
           return newMap;
         });
       }
@@ -708,6 +718,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messages={messagesData?.messages || []}
                 messageMetadata={messageMetadata}
                 messageFeedback={messageFeedback}
+                activityLists={activityLists}
                 insightMessageIds={new Set<string>()}
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}

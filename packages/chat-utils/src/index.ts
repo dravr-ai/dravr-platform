@@ -11,3 +11,6 @@ export {
 
 // Message processing utilities
 export { stripContextPrefix } from './message';
+
+// Activity list parsing (backward compat for old messages with baked-in content)
+export { splitActivityContent, countActivities } from './activity';

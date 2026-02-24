@@ -16,6 +16,7 @@ import Markdown from 'react-native-markdown-display';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Alert, Share } from 'react-native';
+import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { colors, spacing, fontSize, borderRadius, aiGlow } from '../../constants/theme';
 import type { Message, Coach } from '../../types';
 
@@ -141,31 +142,11 @@ const isOAuthUrl = (url: string): { isOAuth: boolean; provider: string | null } 
   }
 };
 
-// Separator used by the backend to split activity list from LLM analysis
-const ACTIVITY_SEPARATOR = '\n\n---\n\n**Analysis:**\n\n';
-
-// Splits assistant content into an optional activity list and the main body.
-// Returns [activityList, analysisContent] or [null, fullContent].
-function splitActivityContent(content: string): [string | null, string] {
-  const sepIndex = content.indexOf(ACTIVITY_SEPARATOR);
-  if (sepIndex === -1) return [null, content];
-
-  const before = content.slice(0, sepIndex).trim();
-  const after = content.slice(sepIndex + ACTIVITY_SEPARATOR.length).trim();
-
-  // Only treat as an activity list when the prefix looks like one
-  if (before.startsWith('Your Activities:') || /^\d+\.\s+\[/.test(before)) {
-    return [before, after];
-  }
-  return [null, content];
-}
-
 // Collapsible section for the activity list — closed by default
 function CollapsibleActivities({ activityText }: { activityText: string }) {
   const [expanded, setExpanded] = useState(false);
 
-  // Count activities (lines starting with a number followed by a dot)
-  const activityCount = (activityText.match(/^\d+\./gm) || []).length;
+  const activityCount = countActivities(activityText);
   const label = `Your Activities (${activityCount})`;
 
   return (
@@ -201,6 +182,8 @@ interface MessageListProps {
   isCoachConversation: boolean;
   messageFeedback: Record<string, 'up' | 'down' | null>;
   insightMessages: Set<string>;
+  /** Activity lists keyed by assistant message ID (from new API field) */
+  activityLists: Record<string, string>;
   flatListRef: React.RefObject<FlatList | null>;
   onScrollToBottom: () => void;
   onCoachSelect: (coach: Coach) => void;
@@ -220,6 +203,7 @@ export function MessageList({
   isCoachConversation,
   messageFeedback,
   insightMessages,
+  activityLists,
   flatListRef,
   onScrollToBottom,
   onCoachSelect,
@@ -247,7 +231,7 @@ export function MessageList({
     }
   };
 
-  const renderMessageContent = (content: string, isUser: boolean) => {
+  const renderMessageContent = (content: string, isUser: boolean, messageId?: string) => {
     if (isUser) {
       return (
         <Text className="text-base text-text-primary leading-6">
@@ -297,14 +281,19 @@ export function MessageList({
       );
     }
 
-    // Split activity list from analysis so the list can be collapsed
-    const [activityList, analysisContent] = splitActivityContent(content);
-    if (activityList) {
+    // Check for activity list: new API field first, then fall back to parsing old content
+    const apiActivityList = messageId ? activityLists[messageId] : undefined;
+    const [parsedActivityList, analysisContent] = apiActivityList
+      ? [null, content]
+      : splitActivityContent(content);
+    const activityText = apiActivityList ?? parsedActivityList;
+
+    if (activityText) {
       return (
         <View>
-          <CollapsibleActivities activityText={activityList} />
+          <CollapsibleActivities activityText={activityText} />
           <Markdown style={markdownStyles} onLinkPress={(url) => { onOpenUrl(url); return false; }}>
-            {analysisContent}
+            {apiActivityList ? content : analysisContent}
           </Markdown>
         </View>
       );
@@ -352,7 +341,7 @@ export function MessageList({
             </View>
           )}
           <View className="flex-1">
-            {renderMessageContent(item.content, isUser)}
+            {renderMessageContent(item.content, isUser, item.id)}
           </View>
         </View>
         {!isUser && (

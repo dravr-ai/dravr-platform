@@ -8,6 +8,7 @@ import { memo } from 'react';
 import Markdown from 'react-markdown';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb } from 'lucide-react';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
+import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
 
 interface MessageItemProps {
@@ -16,6 +17,8 @@ interface MessageItemProps {
   feedback?: MessageFeedback;
   isError?: boolean;
   hasInsight?: boolean;
+  /** Pre-resolved activity list text (from API field or parsed from old content) */
+  activityList?: string;
   onCopy?: () => void;
   onShare?: () => void;
   onShareToFeed?: () => void;
@@ -31,6 +34,7 @@ const MessageItem = memo(function MessageItem({
   feedback,
   isError = false,
   hasInsight = false,
+  activityList,
   onCopy,
   onShare,
   onShareToFeed,
@@ -40,7 +44,10 @@ const MessageItem = memo(function MessageItem({
   onRetry,
 }: MessageItemProps) {
   const isUser = message.role === 'user';
-  const content = stripContextPrefix(message.content);
+  const rawContent = stripContextPrefix(message.content);
+
+  // When an activity list is present, strip it from the displayed content (for old baked-in messages)
+  const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;
 
   return (
     <div className="flex gap-3">
@@ -61,6 +68,17 @@ const MessageItem = memo(function MessageItem({
         <div className="font-medium text-white text-sm mb-1">
           {isUser ? 'You' : 'Pierre'}
         </div>
+        {/* Collapsible activity list (collapsed by default) */}
+        {activityList && (
+          <details className="mb-3">
+            <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-300 transition-colors select-none">
+              Your Activities ({countActivities(activityList)})
+            </summary>
+            <div className="mt-2 ml-4 text-zinc-300 text-sm prose prose-sm prose-invert max-w-none">
+              <Markdown>{activityList}</Markdown>
+            </div>
+          </details>
+        )}
         <div className={`text-zinc-300 text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
           <Markdown
             components={{
