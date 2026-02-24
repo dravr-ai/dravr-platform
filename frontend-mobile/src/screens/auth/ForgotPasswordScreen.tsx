@@ -5,8 +5,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   TouchableOpacity,
   Alert,
@@ -81,10 +79,6 @@ export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) 
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="forgot-password-screen">
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
@@ -93,6 +87,7 @@ export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) 
             paddingVertical: spacing.xl,
           }}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           <View style={cardStyle}>
             <LinearGradient
@@ -151,7 +146,6 @@ export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) 
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

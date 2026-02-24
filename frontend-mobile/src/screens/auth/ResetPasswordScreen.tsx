@@ -5,8 +5,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   TouchableOpacity,
   Alert,
@@ -114,10 +112,6 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="reset-password-screen">
-      <KeyboardAvoidingView
-        className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
         <ScrollView
           contentContainerStyle={{
             flexGrow: 1,
@@ -126,6 +120,7 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
             paddingVertical: spacing.xl,
           }}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
         >
           <View style={cardStyle}>
             <LinearGradient
@@ -209,7 +204,6 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
