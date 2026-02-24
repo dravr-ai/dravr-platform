@@ -137,7 +137,7 @@ frontend-mobile/
 │   ├── services/         # API client
 │   └── types/            # TypeScript definitions
 ├── __tests__/            # Unit tests
-└── e2e/                  # E2E tests (Detox)
+└── .maestro/             # Maestro E2E tests
 ```
 
 ### Key Files
@@ -160,8 +160,8 @@ bun run typecheck   # TypeScript type checking
 bun run lint        # ESLint
 bun test            # Run unit tests
 bun run test:coverage  # Tests with coverage report
-bun run e2e:build   # Build for Detox E2E
-bun run e2e:test    # Run Detox E2E tests
+bun run maestro     # Run Maestro E2E tests
+bun run e2e:test    # Run Maestro E2E tests
 ```
 
 ## Testing
@@ -194,19 +194,22 @@ Test files are in `__tests__/` directory:
 - `theme.test.ts` - Theme constants tests
 - `types.test.ts` - Type definition tests
 
-### E2E Tests (Detox)
+### E2E Tests (Maestro)
 
-E2E tests require iOS Simulator:
+E2E tests require iOS Simulator and [Maestro](https://maestro.mobile.dev/):
 
 ```bash
-# Build app for testing
-bun run e2e:build
+# Run all E2E tests
+bun run maestro
 
-# Run E2E tests
-bun run e2e:test
+# Run specific suite
+bun run maestro:chat
+bun run maestro:coaches
+bun run maestro:settings
+
+# Run with JUnit output (CI)
+bun run maestro:ci
 ```
-
-> **Note**: E2E tests may be flaky on CI due to simulator timing issues.
 
 ## Debugging
 

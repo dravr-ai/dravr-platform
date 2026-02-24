@@ -1,6 +1,6 @@
 # Maestro E2E Tests for Pierre Mobile
 
-This directory contains Maestro E2E tests, migrated from the previous Detox implementation.
+This directory contains Maestro E2E tests for the Pierre mobile app.
 
 ## Prerequisites
 
