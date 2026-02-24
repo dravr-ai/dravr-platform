@@ -313,6 +313,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -612,6 +614,8 @@ async fn test_user_login_success() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -904,6 +908,8 @@ async fn test_token_refresh_success() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1144,6 +1150,8 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1653,6 +1661,8 @@ async fn test_complete_auth_flow() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1971,6 +1981,8 @@ async fn test_concurrent_logins() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();

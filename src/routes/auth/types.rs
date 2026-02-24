@@ -115,6 +115,23 @@ pub struct CompleteResetRequest {
     pub new_password: String,
 }
 
+/// Request to initiate a self-service password reset
+///
+/// Sends a 6-digit code to the user's email address. Always returns success
+/// regardless of whether the email exists (anti-enumeration).
+#[derive(Debug, Deserialize)]
+pub struct ForgotPasswordRequest {
+    /// Email address to send the reset code to
+    pub email: String,
+}
+
+/// Response for the forgot-password endpoint
+#[derive(Debug, Serialize)]
+pub struct ForgotPasswordResponse {
+    /// Human-readable status message (always the same for anti-enumeration)
+    pub message: String,
+}
+
 /// Session restore response for authenticated users
 ///
 /// Returned by `GET /api/auth/session` to restore sessions using httpOnly cookies.

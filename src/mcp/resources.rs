@@ -31,6 +31,7 @@ use crate::database::repositories::{
 use crate::database::store_listings::StoreListingsManager;
 use crate::database_plugins::factory::Database;
 use crate::database_plugins::SecurityRepository;
+use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
     ActivityIntelligence, ContextualFactors, PerformanceMetrics, TimeOfDay, TrendDirection,
@@ -186,6 +187,8 @@ pub struct ServerResources {
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
     /// Abort handle for the background usage counter pruning task
     pub pruning_abort_handle: Option<AbortHandle>,
+    /// Optional email service for transactional emails (password reset codes, etc.)
+    pub email_service: Option<Arc<ResendEmailService>>,
 }
 
 impl ServerResources {
@@ -294,6 +297,19 @@ impl ServerResources {
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
 
+        // Create email service if Resend credentials are configured
+        let email_service = config
+            .resend_api_key
+            .as_ref()
+            .zip(config.resend_from_email.as_ref())
+            .map(|(api_key, from_email)| {
+                info!("Resend email service configured");
+                Arc::new(ResendEmailService::new(api_key.clone(), from_email.clone()))
+            });
+        if email_service.is_none() {
+            warn!("Resend email service not configured — password reset emails will be skipped");
+        }
+
         // Create and populate tool registry with all built-in tools
         let tool_registry = Arc::new(Self::create_tool_registry());
 
@@ -331,6 +347,7 @@ impl ServerResources {
             tool_registry,
             llm_provider,
             pruning_abort_handle,
+            email_service,
         }
     }
 

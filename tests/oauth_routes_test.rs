@@ -173,6 +173,8 @@ async fn test_email_validation() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -393,6 +395,8 @@ async fn test_password_validation() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -585,6 +589,8 @@ async fn test_duplicate_user_registration() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -768,6 +774,8 @@ async fn test_login_with_correct_credentials() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -991,6 +999,8 @@ async fn test_login_with_wrong_password() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();
@@ -1181,6 +1191,8 @@ async fn test_login_with_non_existent_user() {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     let cache = common::create_test_cache().await.unwrap();

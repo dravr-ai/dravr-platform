@@ -94,6 +94,8 @@ export type {
   UserManagementResponse,
   ApproveUserRequest,
   SuspendUserRequest,
+  ForgotPasswordResponse,
+  ResetPasswordResponse,
 } from './auth.js';
 
 // API types (chat, prompts, common patterns)

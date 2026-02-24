@@ -185,6 +185,32 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
       const user = await authStorage.getUser<User>();
       return !!(token && user);
     },
+
+    /**
+     * Request a password reset code for the given email.
+     * Always returns success to prevent account enumeration.
+     */
+    async forgotPassword(email: string): Promise<{ message: string }> {
+      const response = await axios.post<{ message: string }>(
+        ENDPOINTS.AUTH.FORGOT_PASSWORD,
+        { email },
+      );
+      return response.data;
+    },
+
+    /**
+     * Complete a password reset using the 6-digit code and new password.
+     */
+    async resetPassword(
+      code: string,
+      newPassword: string,
+    ): Promise<{ message: string }> {
+      const response = await axios.post<{ message: string }>(
+        ENDPOINTS.AUTH.COMPLETE_RESET,
+        { reset_token: code, new_password: newPassword },
+      );
+      return response.data;
+    },
   };
 }
 

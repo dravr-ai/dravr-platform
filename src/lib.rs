@@ -101,6 +101,9 @@ pub mod database;
 /// Database abstraction layer with plugin support
 pub mod database_plugins;
 
+/// Transactional email delivery via Resend API
+pub mod email;
+
 /// Unified error handling system with standard error codes and HTTP responses
 pub mod errors;
 

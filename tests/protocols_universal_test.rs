@@ -218,6 +218,8 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create ServerResources for the test
@@ -635,6 +637,8 @@ async fn test_set_goal_tool() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create ServerResources for the test
@@ -1382,6 +1386,8 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         sqlx: SqlxConfig::default(),
         monitoring: MonitoringConfig::default(),
         frontend_url: None,
+        resend_api_key: None,
+        resend_from_email: None,
     });
 
     // Create ServerResources for the test

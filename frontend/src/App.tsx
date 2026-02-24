@@ -5,6 +5,8 @@ import { useState, useEffect } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import ImpersonationBanner from './components/ImpersonationBanner';
@@ -38,12 +40,13 @@ function getOAuthCallbackParams(): { provider: string; success: boolean; error?:
   return null;
 }
 
-type AuthView = 'login' | 'register';
+type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [authView, setAuthView] = useState<AuthView>('login');
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+  const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
   const localQueryClient = useQueryClient();
 
@@ -91,7 +94,7 @@ function AppContent() {
     );
   }
 
-  // Not authenticated - show login or register
+  // Not authenticated - show login, register, or forgot/reset password
   if (!isAuthenticated) {
     if (authView === 'register') {
       return (
@@ -104,6 +107,32 @@ function AppContent() {
             setRegistrationMessage(message);
             setAuthView('login');
           }}
+        />
+      );
+    }
+
+    if (authView === 'forgot-password') {
+      return (
+        <ForgotPassword
+          onNavigateToLogin={() => setAuthView('login')}
+          onCodeSent={(email) => {
+            setResetEmail(email);
+            setAuthView('reset-password');
+          }}
+        />
+      );
+    }
+
+    if (authView === 'reset-password') {
+      return (
+        <ResetPassword
+          email={resetEmail}
+          onNavigateToLogin={() => setAuthView('login')}
+          onResetSuccess={(message) => {
+            setRegistrationMessage(message);
+            setAuthView('login');
+          }}
+          onResendCode={() => setAuthView('forgot-password')}
         />
       );
     }
@@ -127,7 +156,10 @@ function AppContent() {
             </div>
           </div>
         )}
-        <Login onNavigateToRegister={() => setAuthView('register')} />
+        <Login
+          onNavigateToRegister={() => setAuthView('register')}
+          onNavigateToForgotPassword={() => setAuthView('forgot-password')}
+        />
       </div>
     );
   }

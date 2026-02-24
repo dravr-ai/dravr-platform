@@ -842,10 +842,26 @@ pub trait PasswordResetRepository: Send + Sync {
         token_hash: &str,
         created_by: &str,
     ) -> AppResult<Uuid>;
+    /// Store a password reset token with a custom TTL (in minutes)
+    ///
+    /// Used for self-service password reset codes that expire faster (15 min)
+    /// than admin-issued tokens (1 hour).
+    async fn store_token_with_ttl(
+        &self,
+        user_id: Uuid,
+        token_hash: &str,
+        created_by: &str,
+        ttl_minutes: i64,
+    ) -> AppResult<Uuid>;
     /// Consume a password reset token by its hash
     async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid>;
     /// Invalidate all unused reset tokens for a user
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()>;
+    /// Count recent reset tokens for a user (for rate limiting)
+    ///
+    /// Returns the number of tokens created for the user since the given timestamp,
+    /// regardless of whether they have been used or expired.
+    async fn count_recent_tokens(&self, user_id: Uuid, since: DateTime<Utc>) -> AppResult<i64>;
 }
 
 /// OAuth client-side state management repository
