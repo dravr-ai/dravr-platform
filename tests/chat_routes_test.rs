@@ -261,7 +261,7 @@ async fn test_create_conversation_invalid_token() {
 async fn test_list_conversations_pagination() {
     let (router, auth_token) = setup_test_environment().await;
 
-    // Create 2 conversations (within the default max_active_conversations=2 quota)
+    // Create 2 conversations (within the default max_active_conversations=10 quota)
     for i in 1..=2 {
         AxumTestRequest::post("/api/chat/conversations")
             .header("authorization", &auth_token)
