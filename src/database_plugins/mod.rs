@@ -5,3 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 pub use pierre_database::plugins::*;
+
+#[cfg(feature = "postgresql")]
+pub use pierre_database::plugins::social_postgres;
