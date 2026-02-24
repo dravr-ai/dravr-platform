@@ -11,8 +11,6 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   token_count?: number;
-  /** Activity list from get_activities tool (persisted for history reload) */
-  activity_list?: string;
   created_at: string;
   isError?: boolean;
 }

@@ -38,8 +38,6 @@ export interface Message {
   model?: string;
   /** Execution time in milliseconds */
   execution_time_ms?: number;
-  /** Activity list from get_activities tool (persisted for history reload) */
-  activity_list?: string;
   /** Error flag for failed message responses */
   isError?: boolean;
 }

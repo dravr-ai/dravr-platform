@@ -91,17 +91,6 @@ export function useMessages(): MessagesState & MessagesActions {
         });
       }
 
-      // Populate activity lists from persisted messages
-      const loadedActivityLists: Record<string, string> = {};
-      for (const msg of allMessages) {
-        if (msg.activity_list && msg.role === 'assistant') {
-          loadedActivityLists[msg.id] = msg.activity_list;
-        }
-      }
-      if (Object.keys(loadedActivityLists).length > 0) {
-        setActivityLists(prev => ({ ...prev, ...loadedActivityLists }));
-      }
-
       const filteredMessages = allMessages.filter(
         (msg: Message) => !(msg.role === 'user' && isInsightPrompt(msg.content))
       );

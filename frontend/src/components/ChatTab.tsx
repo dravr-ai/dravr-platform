@@ -142,24 +142,6 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   }, [selectedConversation]);
 
-  // Populate activity lists from persisted messages on load
-  useEffect(() => {
-    if (!messagesData?.messages) return;
-    const loaded = new Map<string, string>();
-    for (const msg of messagesData.messages) {
-      if (msg.activity_list && msg.role === 'assistant') {
-        loaded.set(msg.id, msg.activity_list);
-      }
-    }
-    if (loaded.size > 0) {
-      setActivityLists(prev => {
-        const merged = new Map(prev);
-        loaded.forEach((v, k) => merged.set(k, v));
-        return merged;
-      });
-    }
-  }, [messagesData?.messages]);
-
   // OAuth completion listener
   useEffect(() => {
     let isProcessingOAuth = false;
