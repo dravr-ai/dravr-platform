@@ -58,13 +58,13 @@ use uuid::Uuid;
 ///
 /// ```rust,no_run
 /// use pierre_cache::{CacheProvider, CacheConfig, CacheKey, CacheResource};
-/// use pierre_cache::memory::MemoryCache;
+/// use pierre_cache::memory::InMemoryCache;
 /// use pierre_core::models::TenantId;
 /// use std::time::Duration;
 /// use uuid::Uuid;
 ///
 /// # async fn example() -> pierre_core::errors::AppResult<()> {
-/// let cache = MemoryCache::new(CacheConfig::default()).await?;
+/// let cache = InMemoryCache::new(CacheConfig::default()).await?;
 ///
 /// let key = CacheKey::new(
 ///     TenantId::default(),
