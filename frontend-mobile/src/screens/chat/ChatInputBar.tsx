@@ -2,12 +2,12 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Chat input bar component with text input, voice, and send buttons
-// ABOUTME: Displays paperclip attachment, voice input, and send button with states
+// ABOUTME: Floats at bottom of screen with transparent background, only pill visible
 
 import React from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, glassCard } from '../../constants/theme';
+import { colors, spacing } from '../../constants/theme';
 import { VoiceButton } from '../../components/ui';
 
 interface ChatInputBarProps {
@@ -42,13 +42,24 @@ export function ChatInputBar({
   const canSend = inputText.trim() && !isSending && !isListening && !disabled;
 
   return (
-    <View className="px-4 py-2" style={{ paddingBottom: Math.max(insetBottom, 8) }}>
+    <View
+      style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        paddingHorizontal: spacing.md,
+        paddingTop: spacing.xs,
+        paddingBottom: spacing.sm,
+        backgroundColor: 'transparent',
+      }}
+    >
       <View
-        className="flex-row items-center rounded-full px-3 min-h-[36px] max-h-[100px]"
+        className="flex-row items-center rounded-full px-3 min-h-[44px] max-h-[100px]"
         style={{
-          ...glassCard,
-          backgroundColor: glassCard.background,
+          backgroundColor: 'rgba(30, 30, 46, 0.92)',
           borderColor: 'rgba(139, 92, 246, 0.4)',
+          borderWidth: 1,
           borderRadius: 9999,
         }}
       >
