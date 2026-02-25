@@ -25,8 +25,8 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::llm::{GeminiProvider, LlmProvider, ChatRequest, ChatMessage};
-//! use pierre_mcp_server::errors::AppError;
+//! use pierre_llm::{GeminiProvider, LlmProvider, ChatRequest, ChatMessage};
+//! use pierre_core::errors::AppError;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), AppError> {

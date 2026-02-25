@@ -130,11 +130,11 @@ impl TrainingLoadAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::training_load::{
+    /// use pierre_intelligence::algorithms::training_load::{
     ///     TrainingLoadAlgorithm, TssDataPoint,
     /// };
     /// use chrono::{Duration, Utc};
-    /// # fn example() -> Result<(), pierre_mcp_server::errors::AppError> {
+    /// # fn example() -> Result<(), pierre_core::errors::AppError> {
     ///
     /// // Create TSS data for the past week
     /// let now = Utc::now();

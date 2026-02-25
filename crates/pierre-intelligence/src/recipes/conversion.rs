@@ -420,8 +420,8 @@ fn lookup_density(ingredient_name: &str) -> Option<&'static IngredientDensity> {
 /// # Examples
 ///
 /// ```rust
-/// use pierre_mcp_server::intelligence::recipes::conversion::{convert_to_grams, ConversionError};
-/// use pierre_mcp_server::intelligence::recipes::IngredientUnit;
+/// use pierre_intelligence::recipes::conversion::{convert_to_grams, ConversionError};
+/// use pierre_intelligence::recipes::IngredientUnit;
 ///
 /// // Convert 2 cups of rice to grams
 /// let grams = convert_to_grams("rice", 2.0, IngredientUnit::Cups);

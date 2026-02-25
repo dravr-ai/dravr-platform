@@ -77,9 +77,9 @@ impl TssAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::tss::TssAlgorithm;
-    /// use pierre_mcp_server::models::Activity;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::tss::TssAlgorithm;
+    /// use pierre_core::models::Activity;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example(activity: &Activity) -> AppResult<()> {
     /// // Requires activity with power data

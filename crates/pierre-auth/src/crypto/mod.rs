@@ -1,5 +1,5 @@
 // ABOUTME: Cryptography module providing secure encryption and key management
-// ABOUTME: Centralizes all cryptographic operations for the pierre_mcp_server
+// ABOUTME: Centralizes all cryptographic operations for the pierre-auth crate
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

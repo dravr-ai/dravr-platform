@@ -73,8 +73,8 @@ impl MaxHrAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::maxhr::MaxHrAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_core::intelligence::algorithms::maxhr::MaxHrAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let max_hr = MaxHrAlgorithm::Tanaka.estimate(40, None)?;

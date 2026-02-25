@@ -119,7 +119,7 @@ pub struct SegmentEffort {
 /// # Examples
 ///
 /// ```rust
-/// use pierre_mcp_server::models::{Activity, ActivityBuilder, SportType};
+/// use pierre_core::models::{Activity, ActivityBuilder, SportType};
 /// use chrono::Utc;
 ///
 /// let activity = ActivityBuilder::new(
@@ -656,7 +656,7 @@ impl Default for Activity {
 /// # Examples
 ///
 /// ```rust
-/// use pierre_mcp_server::models::{ActivityBuilder, SportType};
+/// use pierre_core::models::{ActivityBuilder, SportType};
 /// use chrono::Utc;
 ///
 /// let activity = ActivityBuilder::new(

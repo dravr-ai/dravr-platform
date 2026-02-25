@@ -6,16 +6,15 @@
 
 //! Minimal JSON-RPC 2.0 type definitions for `pierre-a2a`.
 //!
-//! These types are **intentionally duplicated** from `pierre_mcp_server::jsonrpc`
-//! to avoid a circular dependency: `pierre-a2a` is a leaf crate that cannot
-//! depend on the main server crate. The structs are serde-compatible with the
-//! main crate's versions, so data serialised from one can be deserialised into
-//! the other. The main crate re-aliases `A2ARequest`/`A2AResponse` from its own
-//! `jsonrpc` module in `src/a2a/mod.rs`, keeping the HTTP layer on a single type.
+//! These types are **intentionally duplicated** from the main server crate's
+//! `jsonrpc` module to avoid a circular dependency: `pierre-a2a` is a leaf
+//! crate that cannot depend on the main server crate. The structs are
+//! serde-compatible with the main crate's versions, so data serialised from
+//! one can be deserialised into the other.
 //!
 //! If these structs diverge, update both locations:
 //! - `crates/pierre-a2a/src/jsonrpc.rs` (this file)
-//! - `src/jsonrpc/mod.rs` (main crate)
+//! - `crates/pierre-server/src/jsonrpc/mod.rs` (main crate)
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,7 +26,7 @@ pub const JSONRPC_VERSION: &str = "2.0";
 
 /// JSON-RPC 2.0 Request
 ///
-/// Structurally compatible with `pierre_mcp_server::jsonrpc::JsonRpcRequest`.
+/// Structurally compatible with the main server crate's `JsonRpcRequest`.
 /// Protocol-specific extensions (like `auth_token`) are included as optional fields.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {

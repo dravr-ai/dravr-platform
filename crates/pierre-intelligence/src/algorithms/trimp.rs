@@ -109,8 +109,8 @@ impl TrimpAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::trimp::TrimpAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::trimp::TrimpAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let algorithm = TrimpAlgorithm::BannisterMale;

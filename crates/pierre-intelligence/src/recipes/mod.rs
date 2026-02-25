@@ -26,7 +26,7 @@
 //! ## Example Usage
 //!
 //! ```text
-//! use pierre_mcp_server::intelligence::recipes::{
+//! use pierre_intelligence::recipes::{
 //!     Recipe, MealTiming, IngredientUnit,
 //! };
 //!

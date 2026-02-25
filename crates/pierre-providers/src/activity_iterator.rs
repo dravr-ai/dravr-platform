@@ -20,9 +20,9 @@
 //!
 //! ```rust,no_run
 //! use futures_util::StreamExt;
-//! use pierre_mcp_server::providers::activity_iterator::ActivityStreamExt;
+//! use pierre_providers::activity_iterator::ActivityStreamExt;
 //!
-//! async fn process_activities(provider: &dyn pierre_mcp_server::providers::CoreFitnessProvider) {
+//! async fn process_activities(provider: &dyn pierre_providers::CoreFitnessProvider) {
 //!     let mut stream = provider.activities_stream(50);
 //!
 //!     while let Some(result) = stream.next().await {
@@ -119,9 +119,9 @@ pub type ActivityStream<'a> =
 ///
 /// ```rust,no_run
 /// use futures_util::StreamExt;
-/// use pierre_mcp_server::providers::activity_iterator::{create_activity_stream, StreamConfig};
+/// use pierre_providers::activity_iterator::{create_activity_stream, StreamConfig};
 ///
-/// async fn example(provider: &dyn pierre_mcp_server::providers::CoreFitnessProvider) {
+/// async fn example(provider: &dyn pierre_providers::CoreFitnessProvider) {
 ///     let config = StreamConfig::with_page_size(25).with_max_activities(100);
 ///     let mut stream = create_activity_stream(provider, config);
 ///
@@ -204,9 +204,9 @@ pub trait ActivityStreamExt {
     ///
     /// ```rust,no_run
     /// use futures_util::StreamExt;
-    /// use pierre_mcp_server::providers::activity_iterator::ActivityStreamExt;
+    /// use pierre_providers::activity_iterator::ActivityStreamExt;
     ///
-    /// async fn example(provider: &dyn pierre_mcp_server::providers::CoreFitnessProvider) {
+    /// async fn example(provider: &dyn pierre_providers::CoreFitnessProvider) {
     ///     let mut stream = provider.activities_stream(50);
     ///     while let Some(result) = stream.next().await {
     ///         println!("Got activity: {:?}", result);

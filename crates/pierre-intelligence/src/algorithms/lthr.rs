@@ -133,8 +133,8 @@ impl LthrAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::lthr::LthrAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::lthr::LthrAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let algorithm = LthrAlgorithm::From30MinTest { avg_hr_30min: 165.0 };
