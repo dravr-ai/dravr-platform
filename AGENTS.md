@@ -149,6 +149,51 @@ When a service is configured in `.mcp.json`, **always use its MCP tools first** 
 - `PIERRE_JWT_TOKEN` — JWT token for Pierre MCP server auth
 - `OPENAI_API_KEY` — OpenAI API key for LLM features
 
+## Rust Workspace Architecture
+
+The backend is a Cargo workspace with 9 crates under `crates/`. Leaf crates are independent, reusable modules — none depend on `pierre_mcp_server`.
+
+| Crate | Package Name | Purpose |
+|-------|-------------|---------|
+| `crates/pierre-core` | `pierre-core` | Foundation: models, errors, config, pagination, formatters, permissions |
+| `crates/pierre-auth` | `pierre-auth` | JWT, OAuth2, tenant management, PKCE, rate limiting, crypto |
+| `crates/pierre-database` | `pierre-database` | Repository traits, SQLite/PostgreSQL implementations, migrations |
+| `crates/pierre-intelligence` | `pierre-intelligence` | Fitness algorithms (VDOT, TSS, TRIMP, FTP, VO2max), visitor pattern |
+| `crates/pierre-providers` | `pierre-providers` | Strava, Garmin, Terra, Fitbit, Whoop, COROS, synthetic provider |
+| `crates/pierre-llm` | `pierre-llm` | LLM providers (Gemini, Groq, Ollama, OpenAI-compatible) |
+| `crates/pierre-cache` | `pierre-cache` | Cache abstraction (in-memory + Redis backends) |
+| `crates/pierre-a2a` | `pierre-a2a` | A2A protocol types, agent card, JSON-RPC |
+| `crates/pierre-server` | `pierre_mcp_server` | Main server: routes, middleware, MCP, tools, binaries |
+
+### Dependency DAG (leaf crates never depend on pierre_mcp_server)
+```
+pierre-server (pierre_mcp_server)
+├── pierre-core
+├── pierre-auth       → pierre-core, pierre-database
+├── pierre-database   → pierre-core
+├── pierre-intelligence → pierre-core
+├── pierre-providers  → pierre-core
+├── pierre-llm        → pierre-core
+├── pierre-cache      → pierre-core
+└── pierre-a2a        → pierre-core (optional)
+```
+
+### Clippy Per-Crate
+```bash
+cargo clippy -p pierre-core              # models, errors, config
+cargo clippy -p pierre-auth              # JWT, OAuth, tenant
+cargo clippy -p pierre-database          # repositories, migrations
+cargo clippy -p pierre-intelligence      # algorithms, metrics
+cargo clippy -p pierre-providers         # fitness providers
+cargo clippy -p pierre-llm              # LLM providers
+cargo clippy -p pierre-cache            # cache layer
+cargo clippy -p pierre-a2a             # A2A protocol types
+cargo clippy -p pierre_mcp_server        # main server (note: underscore, not hyphen)
+```
+
+### Test Location
+All integration tests live in `crates/pierre-server/tests/` (234 files). Doc tests compile per-crate. No `#[cfg(test)]` in `src/` — tests are external only.
+
 ## Development Guides
 
 | Guide | Description |
@@ -432,7 +477,7 @@ Everything else, including all read-only operations and analysis tools, can be r
 ## Required Pre-Commit Validation
 
 ### IMPORTANT: Test Suite Timing Context
-- Full test suite: ~13 minutes (647 tests across 163 files)
+- Full test suite: ~13 minutes (3,462 tests across 238 test binaries, 234 test files)
 - Full clippy with tests: ~2 minutes
 - Clippy without tests: ~2.5 minutes
 - **DO NOT run `cargo test` without targeting** - use targeted tests during development
@@ -501,10 +546,10 @@ cargo test
 
 ### Test Targeting Patterns
 
-**CRITICAL: Always use `--test <file>` to avoid compiling all 163 test files!**
+**CRITICAL: Always use `--test <file>` to avoid compiling all 234 test files!**
 
 ```bash
-# ❌ SLOW - Compiles ALL 163 test files looking for a match
+# ❌ SLOW - Compiles ALL 234 test files looking for a match
 cargo test test_browse_store_with_cursor_pagination
 
 # ✅ FAST - Only compiles the specific test file
