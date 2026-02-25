@@ -18,7 +18,6 @@ interface ChatInputBarProps {
   /** When true, input and send are disabled (e.g. usage quota blocked) */
   disabled?: boolean;
   voiceAvailable: boolean;
-  insetBottom: number;
   inputRef: React.RefObject<TextInput | null>;
   onChangeText: (text: string) => void;
   onVoicePress: () => void;
@@ -32,7 +31,6 @@ export function ChatInputBar({
   isSending,
   disabled = false,
   voiceAvailable,
-  insetBottom,
   inputRef,
   onChangeText,
   onVoicePress,

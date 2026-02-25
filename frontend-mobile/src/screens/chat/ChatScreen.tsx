@@ -438,7 +438,6 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           isSending={messagesHook.isSending}
           disabled={usageStatus.sendDisabled}
           voiceAvailable={voiceInput.isAvailable}
-          insetBottom={insets.bottom}
           inputRef={inputRef}
           onChangeText={setInputText}
           onVoicePress={voiceInput.handleVoicePress}
