@@ -11,7 +11,6 @@ import {
   Alert,
   Modal,
   RefreshControl,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   type ViewStyle,
@@ -60,15 +59,6 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
   recipes: '#F59E0B',   // Amber
   mobility: '#EC4899',  // Pink - for stretching/yoga
   custom: '#8B5CF6',    // Violet per Stitch spec
-};
-
-// Search container shadow style
-const searchContainerShadow: ViewStyle = {
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.25,
-  shadowRadius: 4,
-  elevation: 4,
 };
 
 // Action menu with glassmorphism style
