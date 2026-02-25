@@ -13,7 +13,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use pierre_intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
+//! use pierre_intelligence::visitor::{TimeSeriesExt, TimeSeriesVisitor, StatsCollector};
 //! use pierre_core::models::TimeSeriesData;
 //!
 //! // Create time series data
@@ -308,7 +308,7 @@ impl StreamStats {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
+/// use pierre_intelligence::visitor::{TimeSeriesExt, TimeSeriesVisitor, StatsCollector};
 /// use pierre_core::models::TimeSeriesData;
 ///
 /// let time_series = TimeSeriesData {
@@ -405,7 +405,7 @@ impl Default for ZoneBoundaries {
 ///
 /// ```rust,no_run
 /// use pierre_intelligence::visitor::{
-///     TimeSeriesVisitor, ZoneTimeCalculator, ZoneBoundaries
+///     TimeSeriesExt, TimeSeriesVisitor, ZoneTimeCalculator, ZoneBoundaries
 /// };
 /// use pierre_core::models::TimeSeriesData;
 ///
@@ -558,7 +558,7 @@ impl TimeSeriesVisitor for ZoneTimeCalculator {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_intelligence::visitor::{TimeSeriesVisitor, NormalizedPowerCalculator};
+/// use pierre_intelligence::visitor::{TimeSeriesExt, TimeSeriesVisitor, NormalizedPowerCalculator};
 /// use pierre_core::models::TimeSeriesData;
 ///
 /// // Create power data (at least 30 seconds needed for NP calculation)
@@ -637,7 +637,7 @@ impl TimeSeriesVisitor for NormalizedPowerCalculator {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_intelligence::visitor::{TimeSeriesVisitor, DecouplingDetector};
+/// use pierre_intelligence::visitor::{TimeSeriesExt, TimeSeriesVisitor, DecouplingDetector};
 /// use pierre_core::models::TimeSeriesData;
 ///
 /// // Simulate HR drift: same speed but increasing heart rate over time
