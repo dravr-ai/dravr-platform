@@ -96,6 +96,7 @@ struct SeedStats {
     updated: u32,
     unchanged: u32,
     relations_created: u32,
+    store_published: u32,
     errors: Vec<String>,
 }
 
@@ -151,6 +152,9 @@ async fn main() -> SeedResult<()> {
 
     // Pass 2: Create relations
     sync_relations(&pool, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
+
+    // Pass 3: Publish system coaches to the store
+    publish_to_store(&pool, &slug_to_id, &admin, &mut stats, args.dry_run).await;
 
     // Summary
     print_summary(&stats, args.dry_run);
@@ -323,6 +327,9 @@ fn log_coach_counts(stats: &SeedStats) {
         stats.updated,
         stats.unchanged
     );
+    if stats.store_published > 0 {
+        info!("Published: {} coaches to store", stats.store_published);
+    }
 }
 
 /// Print error list if any errors occurred
@@ -341,6 +348,91 @@ fn log_dry_run_status(dry_run: bool) {
     if dry_run {
         info!("DRY RUN complete - no changes were made");
     }
+}
+
+/// Publish seeded coaches to the store (Pass 3)
+///
+/// System coaches are auto-published so they appear in the Discover tab.
+/// Uses INSERT OR IGNORE to be idempotent on re-runs.
+async fn publish_to_store(
+    pool: &SqlitePool,
+    slug_to_id: &HashMap<String, String>,
+    admin: &AdminUser,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    info!("");
+    info!("=== Pass 3: Publishing to Store ===");
+
+    for (slug, coach_id) in slug_to_id {
+        publish_or_skip(pool, slug, coach_id, admin, stats, dry_run).await;
+    }
+}
+
+/// Publish one coach or log skip in dry-run mode
+async fn publish_or_skip(
+    pool: &SqlitePool,
+    slug: &str,
+    coach_id: &str,
+    admin: &AdminUser,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    if dry_run {
+        info!("  Would publish: {slug}");
+        stats.store_published += 1;
+        return;
+    }
+
+    let result = publish_single_coach(pool, coach_id, admin).await;
+    log_publish_result(slug, result, stats);
+}
+
+/// Log and record the result of a store publish attempt
+fn log_publish_result(slug: &str, result: SeedResult<bool>, stats: &mut SeedStats) {
+    match result {
+        Ok(true) => {
+            info!("  + {slug} (published)");
+            stats.store_published += 1;
+        }
+        Ok(false) => {
+            debug!("  = {slug} (already published)");
+        }
+        Err(e) => {
+            warn!("  ✗ {slug} - Store publish error: {e}");
+            stats
+                .errors
+                .push(format!("{slug}: store publish failed: {e}"));
+        }
+    }
+}
+
+/// Publish a single coach to the store, returning true if newly published
+async fn publish_single_coach(
+    pool: &SqlitePool,
+    coach_id: &str,
+    admin: &AdminUser,
+) -> SeedResult<bool> {
+    let listing_id = Uuid::new_v4().to_string();
+    let now = Utc::now().to_rfc3339();
+
+    let result = sqlx::query(
+        r"
+        INSERT OR IGNORE INTO store_listings (
+            id, coach_id, tenant_id, publish_status, published_at,
+            install_count, author_id, created_at, updated_at
+        ) VALUES ($1, $2, $3, 'published', $4, 0, $5, $4, $4)
+        ",
+    )
+    .bind(&listing_id)
+    .bind(coach_id)
+    .bind(admin.tenant_id)
+    .bind(&now)
+    .bind(admin.id.to_string())
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
 }
 
 /// Discover and parse all coach markdown files
