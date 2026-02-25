@@ -134,31 +134,31 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
 
         while IFS= read -r file; do
             case "$file" in
-                src/database/*) add_tests database_test database_plugins_test tenant_data_isolation ;;
-                src/auth/*|src/routes/auth.rs) add_tests auth_test api_keys_test jwt_secret_persistence_test oauth2_security_test ;;
-                src/routes/*) add_tests routes_health_http_test security_headers_test rate_limiting_middleware_test ;;
-                src/protocols/*|src/mcp/*) add_tests mcp_compliance_test jsonrpc_test mcp_tools_unit ;;
-                src/tools/*) add_tests mcp_tools_unit ;;
-                src/intelligence/*) add_tests intelligence_algorithms_test ;;
-                src/a2a/*) add_tests a2a_system_user_test ;;
-                src/models/*) add_tests models_test ;;
-                src/errors/*) add_tests errors_test ;;
-                src/crypto/*) add_tests crypto_keys_test ;;
-                src/context/*|src/tenant/*) add_tests tenant_context_resolution_test tenant_data_isolation ;;
-                src/config/*) add_tests simple_integration_test ;;
-                migrations/*) add_tests database_test ;;
-                tests/*.rs)
+                crates/pierre-server/src/database/*) add_tests database_test database_plugins_test tenant_data_isolation ;;
+                crates/pierre-server/src/auth/*|crates/pierre-server/src/routes/auth.rs) add_tests auth_test api_keys_test jwt_secret_persistence_test oauth2_security_test ;;
+                crates/pierre-server/src/routes/*) add_tests routes_health_http_test security_headers_test rate_limiting_middleware_test ;;
+                crates/pierre-server/src/protocols/*|crates/pierre-server/src/mcp/*) add_tests mcp_compliance_test jsonrpc_test mcp_tools_unit ;;
+                crates/pierre-server/src/tools/*) add_tests mcp_tools_unit ;;
+                crates/pierre-server/src/intelligence/*) add_tests intelligence_algorithms_test ;;
+                crates/pierre-server/src/a2a/*) add_tests a2a_system_user_test ;;
+                crates/pierre-server/src/models/*) add_tests models_test ;;
+                crates/pierre-server/src/errors/*) add_tests errors_test ;;
+                crates/pierre-server/src/crypto/*) add_tests crypto_keys_test ;;
+                crates/pierre-server/src/context/*|crates/pierre-server/src/tenant/*) add_tests tenant_context_resolution_test tenant_data_isolation ;;
+                crates/pierre-server/src/config/*) add_tests simple_integration_test ;;
+                crates/pierre-database/migrations/*|migrations/*) add_tests database_test ;;
+                crates/pierre-server/tests/*.rs)
                     # Only process files directly in tests/, not subdirectories
                     # (case pattern * matches / in bash, so we need explicit check)
-                    if [[ "$file" =~ ^tests/[^/]+\.rs$ ]]; then
+                    if [[ "$file" =~ ^crates/pierre-server/tests/[^/]+\.rs$ ]]; then
                         test_name=$(basename "$file" .rs)
                         if [[ "$test_name" != "common" && "$test_name" != "helpers" && "$test_name" != "fixtures" ]]; then
                             add_tests "$test_name"
                         fi
                     fi
                     ;;
-                src/lib.rs|src/main.rs) add_tests simple_integration_test routes_health_http_test ;;
-                src/*) add_tests simple_integration_test ;;
+                crates/pierre-server/src/lib.rs) add_tests simple_integration_test routes_health_http_test ;;
+                crates/pierre-server/src/*) add_tests simple_integration_test ;;
             esac
         done <<< "$RUST_CHANGED_FILES"
 

@@ -75,7 +75,7 @@ pass_validation() {
 echo ""
 echo -e "${BLUE}==== Checking for backup files (fast-fail) ====${NC}"
 
-BACKUP_FILES=$(find src tests -name "*.backup" -o -name "*.bak" 2>/dev/null)
+BACKUP_FILES=$(find crates/pierre-server/src crates/pierre-server/tests -name "*.backup" -o -name "*.bak" 2>/dev/null)
 if [ -n "$BACKUP_FILES" ]; then
     echo -e "${RED}[FAIL] Backup files found (must be removed):${NC}"
     echo "$BACKUP_FILES"
@@ -157,36 +157,36 @@ eval "$(python3 "$SCRIPT_DIR/parse-validation-patterns.py" "$VALIDATION_PATTERNS
 # ============================================================================
 
 # Anti-Pattern Detection
-NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new|TenantOAuthManager::new" src/ -g "!src/mcp/multitenant.rs" -g "!src/mcp/resources.rs" -g "!src/bin/*" -g "!tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-FAKE_RESOURCES=$(rg "Arc::new\(ServerResources\s*[\{\:]" src/ -g "!src/bin/*" 2>/dev/null | wc -l | awk '{print $1+0}')
-OBSOLETE_FUNCTIONS=$(rg "fn.*run_http_server\(" src/ 2>/dev/null | wc -l | awk '{print $1+0}')
+NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+RESOURCE_CREATION=$(rg "AuthManager::new|OAuthManager::new|A2AClientManager::new|TenantOAuthManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/mcp/resources.rs" -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+FAKE_RESOURCES=$(rg "Arc::new\(ServerResources\s*[\{\:]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" 2>/dev/null | wc -l | awk '{print $1+0}')
+OBSOLETE_FUNCTIONS=$(rg "fn.*run_http_server\(" crates/pierre-server/src/ 2>/dev/null | wc -l | awk '{print $1+0}')
 
 # Error Handling Pattern Detection
-# Note: src/bin/* is now included - all binaries must use structured errors
-TOML_ERROR_CONTEXT=$(rg "$ERROR_CONTEXT_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-ANYHOW_IMPORTS=$(rg "$ANYHOW_IMPORT_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-ANYHOW_TYPES=$(rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-ANYHOW_METHODS=$(rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+# Note: crates/pierre-server/src/bin/* is now included - all binaries must use structured errors
+TOML_ERROR_CONTEXT=$(rg "$ERROR_CONTEXT_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+ANYHOW_IMPORTS=$(rg "$ANYHOW_IMPORT_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+ANYHOW_TYPES=$(rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+ANYHOW_METHODS=$(rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 # Code Quality Analysis
-PROBLEMATIC_UNWRAPS=$(rg "\.unwrap\(\)" src/ | rg -v "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PROBLEMATIC_EXPECTS=$(rg "\.expect\(" src/ | rg -v "// Safe|ServerResources.*required" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-PANICS=$(rg "panic!\(" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-TODOS_SRC=$(rg "TODO|FIXME|XXX" src/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-TODOS_TESTS=$(rg "TODO|FIXME|XXX" tests/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+PROBLEMATIC_UNWRAPS=$(rg "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe|hardcoded.*valid|static.*data|00000000-0000-0000-0000-000000000000" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PROBLEMATIC_EXPECTS=$(rg "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe|ServerResources.*required" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PANICS=$(rg "panic!\(" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+TODOS_SRC=$(rg "TODO|FIXME|XXX" crates/pierre-server/src/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+TODOS_TESTS=$(rg "TODO|FIXME|XXX" crates/pierre-server/tests/ -g "!*.json" -g "!*.md" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_SDK=$(rg "TODO|FIXME|XXX" sdk/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS_FRONTEND=$(rg "TODO|FIXME|XXX" frontend/ -g "!*.json" -g "!*.md" -g "!*.lock" -g "!node_modules/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TODOS=$((TODOS_SRC + TODOS_TESTS + TODOS_SDK + TODOS_FRONTEND))
-PRODUCTION_MOCKS=$(rg "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" src/ -g "!src/bin/*" -g "!tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PRODUCTION_MOCKS=$(rg "mock_|get_mock|return.*mock|demo purposes|for demo|stub implementation|mock implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Magic input anti-patterns: tools that generate fake data based on special input values
 # Excludes: synthetic_provider.rs (legitimate provider), registry.rs (provider registration), spi.rs (provider interface)
-MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" src/tools/ src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-PROBLEMATIC_UNDERSCORE_NAMES=$(rg "fn _|let _[a-zA-Z]|struct _|enum _" src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-CFG_TEST_IN_SRC=$(rg "#\[cfg\(test\)\]" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(clippy::" src/ -g '!src/routes/openapi.rs' | rg -v "cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-DEAD_CODE=$(rg "#\[allow\(dead_code\)\]" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-TEMP_SOLUTIONS=$(rg "\bhack\b|\bworkaround\b|\bquick.*fix\b|future.*implementation|temporary.*solution|temp.*fix" src/ --count-matches 2>/dev/null | cut -d: -f2 | python3 -c "import sys; lines = sys.stdin.readlines(); print(sum(int(x.strip()) for x in lines) if lines else 0)" 2>/dev/null || echo 0)
+MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ crates/pierre-server/src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+PROBLEMATIC_UNDERSCORE_NAMES=$(rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+CFG_TEST_IN_SRC=$(rg "#\[cfg\(test\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(clippy::" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' | rg -v "cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+DEAD_CODE=$(rg "#\[allow\(dead_code\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+TEMP_SOLUTIONS=$(rg "\bhack\b|\bworkaround\b|\bquick.*fix\b|future.*implementation|temporary.*solution|temp.*fix" crates/pierre-server/src/ --count-matches 2>/dev/null | cut -d: -f2 | python3 -c "import sys; lines = sys.stdin.readlines(); print(sum(int(x.strip()) for x in lines) if lines else 0)" 2>/dev/null || echo 0)
 # Ignored tests detection - matches both #[ignore] and #[ignore = "reason"]
 # Allowlist is defined in validation-patterns.toml [ignored_tests_allowlist]
 IGNORED_TESTS_ALLOWLIST_FILES=$(python3 -c "
@@ -194,20 +194,20 @@ import tomllib
 with open('$SCRIPT_DIR/validation-patterns.toml', 'rb') as f:
     config = tomllib.load(f)
 files = config.get('ignored_tests_allowlist', {}).get('files', [])
-print(' '.join(['tests/' + f for f in files]))
+print(' '.join(['crates/pierre-server/tests/' + f for f in files]))
 " 2>/dev/null || echo "")
-IGNORED_TESTS=$(rg '#\[ignore' tests/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+IGNORED_TESTS=$(rg '#\[ignore' crates/pierre-server/tests/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ -n "$IGNORED_TESTS_ALLOWLIST_FILES" ]; then
     IGNORED_TESTS_ALLOWED=$(rg '#\[ignore' $IGNORED_TESTS_ALLOWLIST_FILES --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 else
     IGNORED_TESTS_ALLOWED=0
 fi
 IGNORED_TESTS_UNAUTHORIZED=$((IGNORED_TESTS - IGNORED_TESTS_ALLOWED))
-BACKUP_FILES=$(find src/ -name "*.bak" -o -name "*.backup" -o -name "*~" 2>/dev/null | wc -l | tr -d ' ')
+BACKUP_FILES=$(find crates/pierre-server/src/ -name "*.bak" -o -name "*.backup" -o -name "*~" 2>/dev/null | wc -l | tr -d ' ')
 BACKUP_FILES=${BACKUP_FILES:-0}
 
 # Memory Management Analysis
-TOTAL_CLONES=$(rg "\.clone\(\)" src/ | grep -v 'src/bin/' | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+TOTAL_CLONES=$(rg "\.clone\(\)" crates/pierre-server/src/ | grep -v 'crates/pierre-server/src/bin/' | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Legitimate clone patterns include:
 # - Arc/shared resource cloning (Arc::, resources., database., *_manager.)
 # - String conversions (.to_string(), format!, String::from)
@@ -222,25 +222,25 @@ TOTAL_CLONES=$(rg "\.clone\(\)" src/ | grep -v 'src/bin/' | wc -l 2>/dev/null | 
 # - Intelligence outputs (pattern, insight, warning, slug, permissions, address, cache, nutrition, algorithm)
 # - Protocol/config fields (placeholder, version, logging, mcp, grant, oauth)
 # - Documented safe clones (// Safe, // NOTE)
-LEGITIMATE_CLONES=$(rg "\.clone\(\)" src/ | grep -v 'src/bin/' | rg "Arc::|resources\.|database\.|auth_manager\.|sse_manager\.|websocket_manager\.|\.to_string\(\)|format!|String::from|token|url|name|path|message|error|Error|client_id|client_secret|redirect_uri|access_token|refresh_token|user_id|tenant_id|request\.|response\.|context\.|config\.|profile\.|email|password|hash|key|plan|tier|args|params|value|data|manager|pool|conn|sender|tx|client|id\.|header|description|weather|// Safe|// NOTE|\.id\b|_id\b|scope|stdout|store|session|jwks|plugin|service|host|target|goal|sport|provider|result|validation|overrides|town|village|suburb|state|county|road|country|amenity|natural|tourism|leisure|pattern|insight|warning|slug|permissions|address|placeholder|version|logging|mcp|city|location|region|display|cache|nutrition|algorithm|grant|oauth" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+LEGITIMATE_CLONES=$(rg "\.clone\(\)" crates/pierre-server/src/ | grep -v 'crates/pierre-server/src/bin/' | rg "Arc::|resources\.|database\.|auth_manager\.|sse_manager\.|websocket_manager\.|\.to_string\(\)|format!|String::from|token|url|name|path|message|error|Error|client_id|client_secret|redirect_uri|access_token|refresh_token|user_id|tenant_id|request\.|response\.|context\.|config\.|profile\.|email|password|hash|key|plan|tier|args|params|value|data|manager|pool|conn|sender|tx|client|id\.|header|description|weather|// Safe|// NOTE|\.id\b|_id\b|scope|stdout|store|session|jwks|plugin|service|host|target|goal|sport|provider|result|validation|overrides|town|village|suburb|state|county|road|country|amenity|natural|tourism|leisure|pattern|insight|warning|slug|permissions|address|placeholder|version|logging|mcp|city|location|region|display|cache|nutrition|algorithm|grant|oauth" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 PROBLEMATIC_CLONES=$((TOTAL_CLONES - LEGITIMATE_CLONES))
-TOTAL_ARCS=$(rg "Arc::" src/ | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+TOTAL_ARCS=$(rg "Arc::" crates/pierre-server/src/ | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 # Magic number detection - must use positive glob first to avoid ripgrep negative-glob-only bug
 # Excludes: constants directory, config directory, and legitimate patterns in strings/comments
-# Note: globs need **/ prefix to match paths within subdirectories of src/
-MAGIC_NUMBERS=$(rg "\b[0-9]{4,}\b" src/ -g '*.rs' -g '!**/constants/**' -g '!**/config/**' | grep -v -E "(Licensed|http://|https://|Duration|timestamp|//.*[0-9]|seconds|minutes|hours|Version|\.[0-9]|[0-9]\.|test|mock|example|error.*code|status.*code|port|timeout|limit|capacity|-32[0-9]{3}|1000\.0|60\.0|24\.0|7\.0|365\.0|METERS_PER|PER_METER|conversion|unit|\.60934|12345|0000-0000|202[0-9]-[0-9]{2}-[0-9]{2}|Some\([0-9]+\)|Trial.*1000|Standard.*10000|RFC [0-9]|ISO [0-9]|scientific_basis|backoff|cache_|RSA|key_size|unwrap_or\([0-9]|\.into\(\)|max_entries|max_tokens|DIVISOR|SECONDS)" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+# Note: globs need **/ prefix to match paths within subdirectories of crates/pierre-server/src/
+MAGIC_NUMBERS=$(rg "\b[0-9]{4,}\b" crates/pierre-server/src/ -g '*.rs' -g '!**/constants/**' -g '!**/config/**' | grep -v -E "(Licensed|http://|https://|Duration|timestamp|//.*[0-9]|seconds|minutes|hours|Version|\.[0-9]|[0-9]\.|test|mock|example|error.*code|status.*code|port|timeout|limit|capacity|-32[0-9]{3}|1000\.0|60\.0|24\.0|7\.0|365\.0|METERS_PER|PER_METER|conversion|unit|\.60934|12345|0000-0000|202[0-9]-[0-9]{2}-[0-9]{2}|Some\([0-9]+\)|Trial.*1000|Standard.*10000|RFC [0-9]|ISO [0-9]|scientific_basis|backoff|cache_|RSA|key_size|unwrap_or\([0-9]|\.into\(\)|max_entries|max_tokens|DIVISOR|SECONDS)" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 
 # Repository pattern — detect nominal (defined but unwired) repository traits
-# A trait defined in repositories/mod.rs with zero occurrences elsewhere in src/ is dead weight:
+# A trait defined in repositories/mod.rs with zero occurrences elsewhere in crates/pierre-server/src/ is dead weight:
 # no blanket impl, no direct impl, no call site. This is the "defined but not wired" anti-pattern.
 NOMINAL_REPOS_COUNT=0
 NOMINAL_REPOS_LIST=""
-REPOS_MOD="src/database/repositories/mod.rs"
+REPOS_MOD="crates/pierre-server/src/database/repositories/mod.rs"
 if [ -f "$REPOS_MOD" ]; then
     while IFS= read -r trait_name; do
         [ -z "$trait_name" ] && continue
-        USAGE_COUNT=$(rg "\b${trait_name}\b" src/ \
-            --glob '!src/database/repositories/mod.rs' \
+        USAGE_COUNT=$(rg "\b${trait_name}\b" crates/pierre-server/src/ \
+            --glob '!crates/pierre-server/src/database/repositories/mod.rs' \
             --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
         if [ "$USAGE_COUNT" -eq 0 ]; then
             NOMINAL_REPOS_COUNT=$((NOMINAL_REPOS_COUNT + 1))
@@ -255,7 +255,7 @@ if [ -f "$REPOS_MOD" ]; then
 fi
 
 # Unsafe and dangerous patterns
-UNSAFE_BLOCKS=$(rg "unsafe \{" src/ -g "!src/health.rs" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+UNSAFE_BLOCKS=$(rg "unsafe \{" crates/pierre-server/src/ -g "!crates/pierre-server/src/health.rs" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 # ============================================================================
 # CRITICAL PATTERN VALIDATION (Fast-Fail)
@@ -264,45 +264,45 @@ UNSAFE_BLOCKS=$(rg "unsafe \{" src/ -g "!src/health.rs" --count 2>/dev/null | aw
 echo -e "${BLUE}Checking for critical anti-patterns...${NC}"
 
 # NULL UUID detection (absolute blocker)
-NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+NULL_UUIDS=$(rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$NULL_UUIDS" -gt 0 ]; then
     echo -e "${RED}❌ CRITICAL: Found $NULL_UUIDS null UUIDs (test/placeholder code)${NC}"
-    rg "00000000-0000-0000-0000-000000000000" src/ -n
+    rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ -n
     fail_validation "Null UUIDs indicate incomplete implementation"
     exit 1
 fi
 
 # Implementation placeholders
-IMPLEMENTATION_PLACEHOLDERS=$(rg -i "$CRITICAL_PATTERNS" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+IMPLEMENTATION_PLACEHOLDERS=$(rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$IMPLEMENTATION_PLACEHOLDERS" -gt 0 ]; then
     echo -e "${RED}❌ Found $IMPLEMENTATION_PLACEHOLDERS placeholder implementations${NC}"
-    rg -i "$CRITICAL_PATTERNS" src/ -n | head -10
+    rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ -n | head -10
     fail_validation "Placeholder implementations must be completed"
 fi
 
 # FORBIDDEN anyhow! macro usage (CLAUDE.md violation)
 if [ "$TOML_ERROR_CONTEXT" -gt 0 ]; then
     echo -e "${RED}❌ FORBIDDEN: Found $TOML_ERROR_CONTEXT uses of anyhow! macro${NC}"
-    rg "\\banyhow!\\(|anyhow::anyhow!\\(" src/ -g "!tests/*" -n | head -5
+    rg "\\banyhow!\\(|anyhow::anyhow!\\(" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" -n | head -5
     fail_validation "Use AppError/DatabaseError/ProviderError instead of anyhow!"
 fi
 
 # STRICT unsafe code usage validation (CLAUDE.md enforcement)
-# Only allowed in src/health.rs for Windows FFI (GlobalMemoryStatusEx, GetDiskFreeSpaceExW)
+# Only allowed in crates/pierre-server/src/health.rs for Windows FFI (GlobalMemoryStatusEx, GetDiskFreeSpaceExW)
 echo -e "${BLUE}Validating unsafe code usage...${NC}"
-UNSAFE_USAGE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" src/ -g "!src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+UNSAFE_USAGE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$UNSAFE_USAGE" -gt 0 ]; then
     # Check if unsafe usage is ONLY in approved locations
-    APPROVED_UNSAFE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" src/health.rs --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-    UNAPPROVED_UNSAFE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" src/ -g "!src/health.rs" -g "!src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+    APPROVED_UNSAFE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" crates/pierre-server/src/health.rs --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+    UNAPPROVED_UNSAFE=$(rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" crates/pierre-server/src/ -g "!crates/pierre-server/src/health.rs" -g "!crates/pierre-server/src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
     if [ "$UNAPPROVED_UNSAFE" -gt 0 ]; then
         echo -e "${RED}❌ FORBIDDEN: Found $UNAPPROVED_UNSAFE unauthorized unsafe code usages${NC}"
-        echo -e "${RED}Unsafe code is ONLY permitted in src/health.rs for Windows FFI${NC}"
-        rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" src/ -g "!src/health.rs" -g "!src/bin/*" -n | head -10
+        echo -e "${RED}Unsafe code is ONLY permitted in crates/pierre-server/src/health.rs for Windows FFI${NC}"
+        rg "#\[allow\(unsafe_code\)\]|unsafe \{|unsafe fn" crates/pierre-server/src/ -g "!crates/pierre-server/src/health.rs" -g "!crates/pierre-server/src/bin/*" -n | head -10
         fail_validation "Remove unsafe code or get explicit approval before committing"
     else
-        pass_validation "Unsafe code usage limited to approved locations (src/health.rs for Windows FFI)"
+        pass_validation "Unsafe code usage limited to approved locations (crates/pierre-server/src/health.rs for Windows FFI)"
     fi
 else
     pass_validation "No unsafe code found in production code"
@@ -332,16 +332,16 @@ echo -e "${BLUE}Validating clippy allow attribute usage...${NC}"
 ALLOWED_CLIPPY_ALLOWS="cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self"
 
 # Find all #[allow(clippy::...)] usages
-CLIPPY_ALLOWS=$(rg "#\[allow\(clippy::" src/ -g "!src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+CLIPPY_ALLOWS=$(rg "#\[allow\(clippy::" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$CLIPPY_ALLOWS" -gt 0 ]; then
     # Check if any are NOT in the allowed exceptions list
-    FORBIDDEN_ALLOWS=$(rg "#\[allow\(clippy::" src/ -g "!src/bin/*" | grep -v -E "$ALLOWED_CLIPPY_ALLOWS" | wc -l | awk '{print $1+0}')
+    FORBIDDEN_ALLOWS=$(rg "#\[allow\(clippy::" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" | grep -v -E "$ALLOWED_CLIPPY_ALLOWS" | wc -l | awk '{print $1+0}')
 
     if [ "$FORBIDDEN_ALLOWS" -gt 0 ]; then
         echo -e "${RED}❌ FORBIDDEN: Found $FORBIDDEN_ALLOWS unauthorized #[allow(clippy::)] attributes${NC}"
         echo -e "${RED}Only allowed for: cast_possible_truncation, cast_sign_loss, cast_precision_loss${NC}"
-        rg "#\[allow\(clippy::" src/ -g "!src/bin/*" -n | grep -v -E "$ALLOWED_CLIPPY_ALLOWS" | head -10
+        rg "#\[allow\(clippy::" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -n | grep -v -E "$ALLOWED_CLIPPY_ALLOWS" | head -10
         fail_validation "Fix the underlying issue instead of silencing warnings"
     else
         pass_validation "Clippy allow attributes limited to approved cast exceptions"
@@ -359,12 +359,12 @@ echo -e "${BLUE}Validating underscore-prefixed names...${NC}"
 # Pattern: fn _, let _foo, struct _, enum _
 # Note: This allows single underscore (_) for unused variables, but forbids
 # names like _foo, _bar, _test, etc.
-UNDERSCORE_NAMES=$(rg "fn _[a-zA-Z]|let _[a-zA-Z]|struct _[a-zA-Z]|enum _[a-zA-Z]" src/ -g "!src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+UNDERSCORE_NAMES=$(rg "fn _[a-zA-Z]|let _[a-zA-Z]|struct _[a-zA-Z]|enum _[a-zA-Z]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$UNDERSCORE_NAMES" -gt 0 ]; then
     echo -e "${RED}❌ FORBIDDEN: Found $UNDERSCORE_NAMES underscore-prefixed names${NC}"
     echo -e "${RED}Use meaningful names or proper unused variable handling${NC}"
-    rg "fn _[a-zA-Z]|let _[a-zA-Z]|struct _[a-zA-Z]|enum _[a-zA-Z]" src/ -g "!src/bin/*" -n | head -10
+    rg "fn _[a-zA-Z]|let _[a-zA-Z]|struct _[a-zA-Z]|enum _[a-zA-Z]" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -n | head -10
     fail_validation "Replace underscore-prefixed names with meaningful identifiers"
 else
     pass_validation "No underscore-prefixed names found"
@@ -396,7 +396,7 @@ if [ -n "$MIGRATED_ALGORITHMS" ]; then
                 EXCLUDE_FLAGS="$EXCLUDE_FLAGS -g !$exclude"
             done
 
-            violations=$(rg "$patterns" src/ $EXCLUDE_FLAGS 2>/dev/null | grep -v "^\s*//" | wc -l | awk '{print $1+0}')
+            violations=$(rg "$patterns" crates/pierre-server/src/ $EXCLUDE_FLAGS 2>/dev/null | grep -v "^\s*//" | wc -l | awk '{print $1+0}')
 
             if [ "$violations" -gt 0 ]; then
                 TOTAL_ALGORITHM_VIOLATIONS=$((TOTAL_ALGORITHM_VIOLATIONS + violations))
@@ -412,7 +412,7 @@ fi
 
 if [ "$TOTAL_ALGORITHM_VIOLATIONS" -gt 0 ]; then
     echo -e "${RED}❌ Algorithm DI violations: $ALGORITHMS_WITH_VIOLATIONS${NC}"
-    fail_validation "Use enum-based DI in src/intelligence/algorithms/"
+    fail_validation "Use enum-based DI in crates/pierre-server/src/intelligence/algorithms/"
 else
     pass_validation "Algorithm DI architecture compliance"
 fi
@@ -426,7 +426,7 @@ echo -e "${BLUE}Validating repository trait wiring...${NC}"
 if [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
     echo -e "${RED}❌ REPOSITORY PATTERN VIOLATION: $NOMINAL_REPOS_COUNT nominal (unwired) repository traits${NC}"
     echo -e "${RED}These traits are defined in repositories/mod.rs but have zero implementations${NC}"
-    echo -e "${RED}and zero call sites anywhere in src/ — they are purely dead API surface:${NC}"
+    echo -e "${RED}and zero call sites anywhere in crates/pierre-server/src/ — they are purely dead API surface:${NC}"
     echo ""
     IFS=', ' read -ra REPO_NAMES <<< "$NOMINAL_REPOS_LIST"
     for repo in "${REPO_NAMES[@]}"; do
@@ -434,9 +434,9 @@ if [ "$NOMINAL_REPOS_COUNT" -gt 0 ]; then
     done
     echo ""
     echo -e "${RED}Each nominal trait MUST have:${NC}"
-    echo -e "${RED}  1. An implementation in src/database/repositories/blanket_impls.rs${NC}"
+    echo -e "${RED}  1. An implementation in crates/pierre-server/src/database/repositories/blanket_impls.rs${NC}"
     echo -e "${RED}     (or a direct impl on Database if the method delegation differs)${NC}"
-    echo -e "${RED}  2. At least one call site in src/ outside repositories/mod.rs${NC}"
+    echo -e "${RED}  2. At least one call site in crates/pierre-server/src/ outside repositories/mod.rs${NC}"
     echo -e "${RED}     (route handlers or services must import and use the trait)${NC}"
     fail_validation "Wire all repository traits before committing"
 else
@@ -462,11 +462,11 @@ echo ""
 echo -e "${BLUE}==== Rust Idiom Enforcement ====${NC}"
 
 # Check for .map().unwrap_or(false) anti-pattern - should use is_some_and()
-OPTION_MAP_UNWRAP=$(rg '\.map\([^)]+\)\.unwrap_or\(false\)' src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+OPTION_MAP_UNWRAP=$(rg '\.map\([^)]+\)\.unwrap_or\(false\)' crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$OPTION_MAP_UNWRAP" -gt 0 ]; then
     echo -e "${YELLOW}⚠️  Found $OPTION_MAP_UNWRAP uses of .map().unwrap_or(false) - prefer is_some_and()${NC}"
-    rg '\.map\([^)]+\)\.unwrap_or\(false\)' src/ -n | head -3
+    rg '\.map\([^)]+\)\.unwrap_or\(false\)' crates/pierre-server/src/ -n | head -3
 else
     pass_validation "Modern Option patterns used (is_some_and preferred)"
 fi
@@ -480,14 +480,14 @@ echo -e "${BLUE}==== Ignored Doctests Validation ====${NC}"
 
 # Check for ignored doctests - these are not compiled or tested
 # Patterns: ```ignore, ```rust,ignore, ```rust, ignore
-IGNORED_DOCTESTS=$(rg '///\s*```(rust,\s*)?ignore' src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+IGNORED_DOCTESTS=$(rg '///\s*```(rust,\s*)?ignore' crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$IGNORED_DOCTESTS" -gt 0 ]; then
     echo -e "${RED}❌ Found $IGNORED_DOCTESTS ignored doctests${NC}"
     echo -e "${RED}Doctests marked with 'ignore' are not compiled or tested.${NC}"
     echo -e "${RED}Use 'no_run' if code should compile but not execute,${NC}"
     echo -e "${RED}or remove the code fence if it's not meant to be code.${NC}"
-    rg '///\s*```(rust,\s*)?ignore' src/ -n | head -5
+    rg '///\s*```(rust,\s*)?ignore' crates/pierre-server/src/ -n | head -5
     fail_validation "Replace 'ignore' with 'no_run' or remove code fence"
 else
     pass_validation "No ignored doctests found"
@@ -598,11 +598,11 @@ fi
 echo ""
 echo -e "${BLUE}==== Legacy Function Detection ====${NC}"
 
-LEGACY_OAUTH=$(rg "Legacy OAuth not supported|legacy.*oauth|connect_strava|connect_fitbit" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-DEPRECATED_FUNCTIONS=$(rg "deprecated.*use.*instead|Universal.*deprecated|ProviderManager deprecated" src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+LEGACY_OAUTH=$(rg "Legacy OAuth not supported|legacy.*oauth|connect_strava|connect_fitbit" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+DEPRECATED_FUNCTIONS=$(rg "deprecated.*use.*instead|Universal.*deprecated|ProviderManager deprecated" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 # Exclude A2A service - those are legitimate A2A protocol handlers returning JSON Values
-PLACEHOLDER_IMPLEMENTATIONS=$(rg "fn handle_.*-> Value" src/ --glob '!src/routes/a2a/service.rs' --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-DISCARDED_EXPENSIVE_OPS=$(rg -B 2 -A 5 'let _ = \(' src/ | grep -v 'src/bin/' | rg '\.clone\(\)' | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+PLACEHOLDER_IMPLEMENTATIONS=$(rg "fn handle_.*-> Value" crates/pierre-server/src/ --glob '!crates/pierre-server/src/routes/a2a/service.rs' --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+DISCARDED_EXPENSIVE_OPS=$(rg -B 2 -A 5 'let _ = \(' crates/pierre-server/src/ | grep -v 'crates/pierre-server/src/bin/' | rg '\.clone\(\)' | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 
 LEGACY_ISSUES=0
 LEGACY_ISSUES=$((LEGACY_ISSUES + LEGACY_OAUTH + DEPRECATED_FUNCTIONS + PLACEHOLDER_IMPLEMENTATIONS + DISCARDED_EXPENSIVE_OPS))
@@ -628,16 +628,16 @@ echo -e "${BLUE}==== Pre-Release Legacy Code Detection ====${NC}"
 # Before first production release, there should be NO legacy code or backward compatibility
 # Excludes:
 # - external/usda_client.rs: "SR Legacy" is an actual USDA database name
-# - tests/: test files may reference legacy patterns for testing
+# - crates/pierre-server/tests/: test files may reference legacy patterns for testing
 # - *.md files: documentation
-LEGACY_CODE_REFS=$(rg -i "legacy|backward.?compat" src/ -g "!src/external/usda_client.rs" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+LEGACY_CODE_REFS=$(rg -i "legacy|backward.?compat" crates/pierre-server/src/ -g "!crates/pierre-server/src/external/usda_client.rs" --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$LEGACY_CODE_REFS" -gt 0 ]; then
     echo -e "${RED}❌ FORBIDDEN: Found $LEGACY_CODE_REFS 'legacy' or 'backward compatibility' references${NC}"
     echo -e "${RED}No legacy code allowed before first production release!${NC}"
     echo ""
     echo "Violations:"
-    rg -i "legacy|backward.?compat" src/ -g "!src/external/usda_client.rs" -n | head -20
+    rg -i "legacy|backward.?compat" crates/pierre-server/src/ -g "!crates/pierre-server/src/external/usda_client.rs" -n | head -20
     fail_validation "Remove all legacy code and backward compatibility - not released yet!"
 else
     pass_validation "No pre-release legacy code found"
@@ -660,7 +660,7 @@ printf "│ %-35s │ %5d │ " "NULL UUIDs" "$NULL_UUIDS"
 if [ "$NULL_UUIDS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No test/placeholder UUIDs"
 else
-    FIRST_NULL=$(get_first_location 'rg "00000000-0000-0000-0000-000000000000" src/ -n')
+    FIRST_NULL=$(get_first_location 'rg "00000000-0000-0000-0000-000000000000" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_NULL"
 fi
 
@@ -668,7 +668,7 @@ printf "│ %-35s │ %5d │ " "Placeholder implementations" "$IMPLEMENTATION_P
 if [ "$IMPLEMENTATION_PLACEHOLDERS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No placeholder implementations"
 else
-    FIRST_PLACEHOLDER=$(get_first_location 'rg -i "$CRITICAL_PATTERNS" src/ -n')
+    FIRST_PLACEHOLDER=$(get_first_location 'rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PLACEHOLDER"
 fi
 
@@ -676,7 +676,7 @@ printf "│ %-35s │ %5d │ " "Resource creation patterns" "$RESOURCE_CREATION
 if [ "$RESOURCE_CREATION" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Using dependency injection"
 else
-    FIRST_RESOURCE=$(get_first_location 'rg "AuthManager::new|OAuthManager::new" src/ -g "!src/mcp/multitenant.rs" -g "!src/bin/*" -n')
+    FIRST_RESOURCE=$(get_first_location 'rg "AuthManager::new|OAuthManager::new" crates/pierre-server/src/ -g "!crates/pierre-server/src/mcp/multitenant.rs" -g "!crates/pierre-server/src/bin/*" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_RESOURCE"
 fi
 
@@ -684,7 +684,7 @@ printf "│ %-35s │ %5d │ " "Fake resource assemblies" "$FAKE_RESOURCES"
 if [ "$FAKE_RESOURCES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No fake ServerResources"
 else
-    FIRST_FAKE=$(get_first_location 'rg "Arc::new\(ServerResources" src/ -g "!src/bin/*" -n')
+    FIRST_FAKE=$(get_first_location 'rg "Arc::new\(ServerResources" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_FAKE"
 fi
 
@@ -692,7 +692,7 @@ printf "│ %-35s │ %5d │ " "Unsafe code blocks" "$UNSAFE_BLOCKS"
 if [ "$UNSAFE_BLOCKS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Limited to approved locations"
 else
-    FIRST_UNSAFE=$(get_first_location 'rg "unsafe \{" src/ -g "!src/health.rs" -n')
+    FIRST_UNSAFE=$(get_first_location 'rg "unsafe \{" crates/pierre-server/src/ -g "!crates/pierre-server/src/health.rs" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_UNSAFE"
 fi
 
@@ -700,7 +700,7 @@ printf "│ %-35s │ %5d │ " "Forbidden anyhow! macro usage" "$TOML_ERROR_CON
 if [ "$TOML_ERROR_CONTEXT" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Using structured error types"
 else
-    FIRST_ANYHOW=$(get_first_location 'rg "\\banyhow!\\(|anyhow::anyhow!\\(" src/ -g "!tests/*" -n')
+    FIRST_ANYHOW=$(get_first_location 'rg "\\banyhow!\\(|anyhow::anyhow!\\(" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_ANYHOW"
     VALIDATION_FAILED=true
 fi
@@ -709,7 +709,7 @@ printf "│ %-35s │ %5d │ " "Forbidden anyhow imports" "$ANYHOW_IMPORTS"
 if [ "$ANYHOW_IMPORTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Using AppResult imports"
 else
-    FIRST_IMPORT=$(get_first_location 'rg "$ANYHOW_IMPORT_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" -n')
+    FIRST_IMPORT=$(get_first_location 'rg "$ANYHOW_IMPORT_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_IMPORT"
     VALIDATION_FAILED=true
 fi
@@ -718,7 +718,7 @@ printf "│ %-35s │ %5d │ " "Forbidden anyhow::Result types" "$ANYHOW_TYPES"
 if [ "$ANYHOW_TYPES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Using AppResult types"
 else
-    FIRST_TYPE=$(get_first_location 'rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" -n')
+    FIRST_TYPE=$(get_first_location 'rg "$ANYHOW_TYPE_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_TYPE"
     VALIDATION_FAILED=true
 fi
@@ -731,7 +731,7 @@ if [ "$ANYHOW_METHODS" -le "$MAX_ANYHOW_METHOD_ANTIPATTERNS" ]; then
         printf "$(format_status "⚠️ INFO")│ %-39s │\n" "Migration in progress (threshold: $MAX_ANYHOW_METHOD_ANTIPATTERNS)"
     fi
 else
-    FIRST_CONTEXT=$(get_first_location 'rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" src/ -g "!tests/*" -n')
+    FIRST_CONTEXT=$(get_first_location 'rg "$ANYHOW_METHOD_ANTIPATTERNS_PATTERNS" crates/pierre-server/src/ -g "!crates/pierre-server/tests/*" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_CONTEXT"
 fi
 
@@ -756,7 +756,7 @@ printf "│ %-35s │ %5d │ " "Problematic unwraps" "$PROBLEMATIC_UNWRAPS"
 if [ "$PROBLEMATIC_UNWRAPS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_UNWRAP=$(get_first_location 'rg "\.unwrap\(\)" src/ | rg -v "// Safe" -n')
+    FIRST_UNWRAP=$(get_first_location 'rg "\.unwrap\(\)" crates/pierre-server/src/ | rg -v "// Safe" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_UNWRAP"
     VALIDATION_FAILED=true
 fi
@@ -765,7 +765,7 @@ printf "│ %-35s │ %5d │ " "Problematic expects" "$PROBLEMATIC_EXPECTS"
 if [ "$PROBLEMATIC_EXPECTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Proper error handling"
 else
-    FIRST_EXPECT=$(get_first_location 'rg "\.expect\(" src/ | rg -v "// Safe" -n')
+    FIRST_EXPECT=$(get_first_location 'rg "\.expect\(" crates/pierre-server/src/ | rg -v "// Safe" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_EXPECT"
     VALIDATION_FAILED=true
 fi
@@ -774,7 +774,7 @@ printf "│ %-35s │ %5d │ " "Panic calls" "$PANICS"
 if [ "$PANICS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No panic! found"
 else
-    FIRST_PANIC=$(get_first_location 'rg "panic!\(" src/ -n')
+    FIRST_PANIC=$(get_first_location 'rg "panic!\(" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PANIC"
     VALIDATION_FAILED=true
 fi
@@ -792,7 +792,7 @@ printf "│ %-35s │ %5d │ " "Production mock implementations" "$PRODUCTION_M
 if [ "$PRODUCTION_MOCKS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No mock code in production"
 else
-    FIRST_MOCK=$(get_first_location 'rg "mock_|get_mock|stub implementation" src/ -g "!src/bin/*" -g "!tests/*" -n')
+    FIRST_MOCK=$(get_first_location 'rg "mock_|get_mock|stub implementation" crates/pierre-server/src/ -g "!crates/pierre-server/src/bin/*" -g "!crates/pierre-server/tests/*" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_MOCK"
 fi
 
@@ -800,7 +800,7 @@ printf "│ %-35s │ %5d │ " "Magic input anti-patterns" "$MAGIC_INPUT_ANTIPA
 if [ "$MAGIC_INPUT_ANTIPATTERNS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Tools require explicit input"
 else
-    FIRST_MAGIC=$(get_first_location 'rg "SyntheticProvider::new|SyntheticProvider::from_seed|generate_.*_data\(|if.*provider.*==.*synthetic" src/tools/ src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -n')
+    FIRST_MAGIC=$(get_first_location 'rg "SyntheticProvider::new|SyntheticProvider::from_seed|generate_.*_data\(|if.*provider.*==.*synthetic" crates/pierre-server/src/tools/ crates/pierre-server/src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_MAGIC"
     VALIDATION_FAILED=true
 fi
@@ -809,15 +809,15 @@ printf "│ %-35s │ %5d │ " "Underscore-prefixed names" "$PROBLEMATIC_UNDERS
 if [ "$PROBLEMATIC_UNDERSCORE_NAMES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Good naming conventions"
 else
-    FIRST_UNDERSCORE=$(get_first_location 'rg "fn _|let _[a-zA-Z]|struct _|enum _" src/ | rg -v "let _[[:space:]]*=" -n')
+    FIRST_UNDERSCORE=$(get_first_location 'rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_UNDERSCORE"
 fi
 
-printf "│ %-35s │ %5d │ " "Test modules in src/" "$CFG_TEST_IN_SRC"
+printf "│ %-35s │ %5d │ " "Test modules in crates/pierre-server/src/" "$CFG_TEST_IN_SRC"
 if [ "$CFG_TEST_IN_SRC" -eq 0 ]; then
-    printf "$(format_status "✅ PASS")│ %-39s │\n" "Tests in tests/ directory"
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "Tests in crates/pierre-server/tests/ directory"
 else
-    FIRST_CFG=$(get_first_location 'rg "#\[cfg\(test\)\]" src/ -n')
+    FIRST_CFG=$(get_first_location 'rg "#\[cfg\(test\)\]" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_CFG"
     VALIDATION_FAILED=true
 fi
@@ -826,7 +826,7 @@ printf "│ %-35s │ %5d │ " "Problematic clippy allows" "$CLIPPY_ALLOWS_PROB
 if [ "$CLIPPY_ALLOWS_PROBLEMATIC" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Fix issues, don't silence"
 else
-    FIRST_ALLOW=$(get_first_location 'rg "#\[allow\(clippy::" src/ -g "!src/routes/openapi.rs" | rg -v "cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self" -n')
+    FIRST_ALLOW=$(get_first_location 'rg "#\[allow\(clippy::" crates/pierre-server/src/ -g "!crates/pierre-server/src/routes/openapi.rs" | rg -v "cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self" -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_ALLOW"
 fi
 
@@ -834,7 +834,7 @@ printf "│ %-35s │ %5d │ " "Dead code annotations" "$DEAD_CODE"
 if [ "$DEAD_CODE" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Remove, don't hide"
 else
-    FIRST_DEAD=$(get_first_location 'rg "#\[allow\(dead_code\)\]" src/ -n')
+    FIRST_DEAD=$(get_first_location 'rg "#\[allow\(dead_code\)\]" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_DEAD"
     VALIDATION_FAILED=true
 fi
@@ -843,7 +843,7 @@ printf "│ %-35s │ %5d │ " "Temporary solutions" "$TEMP_SOLUTIONS"
 if [ "$TEMP_SOLUTIONS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No temporary code"
 else
-    FIRST_TEMP=$(get_first_location 'rg "\bhack\b|\bworkaround\b" src/ -n')
+    FIRST_TEMP=$(get_first_location 'rg "\bhack\b|\bworkaround\b" crates/pierre-server/src/ -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_TEMP"
 fi
 
@@ -855,7 +855,7 @@ elif [ "$IGNORED_TESTS_UNAUTHORIZED" -eq 0 ]; then
 else
     # Find first unauthorized ignored test (not in allowlist files)
     ALLOWLIST_GREP=$(echo "$IGNORED_TESTS_ALLOWLIST_FILES" | tr ' ' '|' | sed 's/tests\///g')
-    FIRST_IGNORED=$(rg '#\[ignore' tests/ -l 2>/dev/null | grep -v -E "$ALLOWLIST_GREP" | head -1)
+    FIRST_IGNORED=$(rg '#\[ignore' crates/pierre-server/tests/ -l 2>/dev/null | grep -v -E "$ALLOWLIST_GREP" | head -1)
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$IGNORED_TESTS_UNAUTHORIZED in: $FIRST_IGNORED"
 fi
 
@@ -863,7 +863,7 @@ printf "│ %-35s │ %5d │ " "Ignored doctests" "$IGNORED_DOCTESTS"
 if [ "$IGNORED_DOCTESTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "All doctests compiled/tested"
 else
-    FIRST_DOCTEST=$(get_first_location 'rg "///\s*\`\`\`(rust,\s*)?ignore" src/ -n')
+    FIRST_DOCTEST=$(get_first_location 'rg "///\s*\`\`\`(rust,\s*)?ignore" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_DOCTEST"
 fi
 
@@ -887,7 +887,7 @@ printf "│ %-35s │ %5d │ " "Backup files" "${BACKUP_FILES:-0}"
 if [ "${BACKUP_FILES:-0}" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No backup files"
 else
-    FIRST_BACKUP=$(find src/ -name "*.bak" -o -name "*.backup" -o -name "*~" 2>/dev/null | head -1)
+    FIRST_BACKUP=$(find crates/pierre-server/src/ -name "*.bak" -o -name "*.backup" -o -name "*~" 2>/dev/null | head -1)
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$(truncate_text "$FIRST_BACKUP" 37)"
 fi
 
@@ -895,7 +895,7 @@ printf "│ %-35s │ %5d │ " "Legacy UX anti-patterns" "$LEGACY_ISSUES"
 if [ "$LEGACY_ISSUES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No legacy functions"
 else
-    FIRST_LEGACY=$(get_first_location 'rg "Legacy OAuth not supported|connect_strava|deprecated.*use.*instead" src/ -n')
+    FIRST_LEGACY=$(get_first_location 'rg "Legacy OAuth not supported|connect_strava|deprecated.*use.*instead" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_LEGACY"
 fi
 
@@ -906,7 +906,7 @@ printf "│ %-35s │ %5d │ " "Problematic clones" "$PROBLEMATIC_CLONES"
 if [ "$PROBLEMATIC_CLONES" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "All clones documented"
 else
-    FIRST_CLONE=$(get_first_location 'rg "\.clone\(\)" src/ | rg -v "// Safe|Arc::|String::from" -n')
+    FIRST_CLONE=$(get_first_location 'rg "\.clone\(\)" crates/pierre-server/src/ | rg -v "// Safe|Arc::|String::from" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_CLONE"
 fi
 
@@ -921,7 +921,7 @@ printf "│ %-35s │ %5d │ " "Magic numbers" "$MAGIC_NUMBERS"
 if [ "$MAGIC_NUMBERS" -lt 10 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "Good configuration practices"
 else
-    FIRST_MAGIC=$(get_first_location 'rg "\b[0-9]{4,}\b" src/ -g "!src/constants.rs" -g "!src/config/*" | grep -v -E "(http://|https://|Duration)" -n')
+    FIRST_MAGIC=$(get_first_location 'rg "\b[0-9]{4,}\b" crates/pierre-server/src/ -g "!crates/pierre-server/src/constants.rs" -g "!crates/pierre-server/src/config/*" | grep -v -E "(http://|https://|Duration)" -n')
     printf "$(format_status "⚠️ WARN")│ %-39s │\n" "$FIRST_MAGIC"
 fi
 

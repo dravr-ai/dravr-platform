@@ -439,14 +439,14 @@ allowed = [
 
 [exclusions]
 # Files where some patterns might be legitimate
-test_files = ["tests/**", "**/*_test.rs", "**/test_*.rs"]
+test_files = ["crates/pierre-server/tests/**", "**/*_test.rs", "**/test_*.rs"]
 example_files = ["examples/**", "**/examples/**"]
-bin_files = ["src/bin/**"]
+bin_files = ["crates/pierre-server/src/bin/**"]
 
 # Error handling exclusions - files where unwrap/expect might be acceptable
 error_handling_exclusions = [
-    "src/bin/**",
-    "tests/**",
+    "crates/pierre-server/src/bin/**",
+    "crates/pierre-server/tests/**",
     "**/*_test.rs"
 ]
 
@@ -458,8 +458,8 @@ development_artifacts_exclusions = [
 
 # Magic numbers exclusions - files where large numbers are expected
 magic_numbers_exclusions = [
-    "src/constants.rs",
-    "src/config/**",
+    "crates/pierre-server/src/constants.rs",
+    "crates/pierre-server/src/config/**",
     "**/migrations/**"
 ]
 
@@ -487,7 +487,7 @@ legitimate_handles = [
 # Algorithm DI Architecture - Enum-Based Dependency Injection Enforcement
 # ============================================================================
 # These patterns detect hardcoded algorithm formulas that should use enum-based DI
-# All algorithms must be implemented in src/intelligence/algorithms/ as enums
+# All algorithms must be implemented in crates/pierre-server/src/intelligence/algorithms/ as enums
 
 [algorithm_di_patterns]
 # Algorithms that have been migrated to enum-based DI
@@ -497,8 +497,8 @@ migrated_algorithms = ["maxhr", "trimp", "tss", "vdot", "ctl_atl_tsb", "recovery
 [algorithm_di_patterns.maxhr]
 name = "MaxHR"
 enum_name = "MaxHrAlgorithm"
-module_path = "src/intelligence/algorithms/maxhr.rs"
-exclude_paths = ["src/intelligence/algorithms/maxhr.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/maxhr.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/maxhr.rs"]
 
 [algorithm_di_patterns.maxhr.formulas]
 fox = 'let.*=.*220\.0.*-|220\.0\s*-\s*f64::from|=\s*220\s*-\s*age|return.*220.*-.*age'
@@ -510,8 +510,8 @@ gulati = 'let.*=.*206.*-.*0\.88|=\s*206\s*-\s*0\.88|0\.88f64.*mul_add.*-.*206'
 [algorithm_di_patterns.trimp]
 name = "TRIMP"
 enum_name = "TrimpAlgorithm"
-module_path = "src/intelligence/algorithms/trimp.rs"
-exclude_paths = ["src/intelligence/algorithms/trimp.rs", "src/intelligence/physiological_constants.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/trimp.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/trimp.rs", "crates/pierre-server/src/intelligence/physiological_constants.rs"]
 
 [algorithm_di_patterns.trimp.formulas]
 male_coefficient = '=>\s*1\.92|:\s*f64\s*=\s*1\.92|gender_factor.*1\.92|let.*=.*1\.92.*Male|TRIMP.*1\.92'
@@ -522,8 +522,8 @@ base_multiplier = 'hr_ratio\s*\*\s*0\.64|0\.64\s*\*.*hr_ratio|\*\s*0\.64\s*\*.*g
 [algorithm_di_patterns.tss]
 name = "TSS"
 enum_name = "TssAlgorithm"
-module_path = "src/intelligence/algorithms/tss.rs"
-exclude_paths = ["src/intelligence/algorithms/tss.rs", "src/intelligence/training_load.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/tss.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/tss.rs", "crates/pierre-server/src/intelligence/training_load.rs"]
 
 [algorithm_di_patterns.tss.formulas]
 power_formula = '\(power\s*/\s*ftp\)\.powi\(2\)|\(power\s*/\s*ftp\)\s*\*\s*\(power\s*/\s*ftp\)|intensity_factor\s*\*\s*intensity_factor\s*\*\s*(100|TSS_BASE_MULTIPLIER)'
@@ -532,8 +532,8 @@ power_formula = '\(power\s*/\s*ftp\)\.powi\(2\)|\(power\s*/\s*ftp\)\s*\*\s*\(pow
 [algorithm_di_patterns.vdot]
 name = "VDOT"
 enum_name = "VdotAlgorithm"
-module_path = "src/intelligence/algorithms/vdot.rs"
-exclude_paths = ["src/intelligence/algorithms/vdot.rs", "src/intelligence/performance_prediction.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/vdot.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/vdot.rs", "crates/pierre-server/src/intelligence/performance_prediction.rs"]
 
 [algorithm_di_patterns.vdot.formulas]
 daniels_vo2_formula = '-4\.60|0\.182258|0\.182_258|0\.000104|0\.000_104'
@@ -543,8 +543,8 @@ velocity_calculation = '\(distance.*\/.*time\)\s*\*\s*60\.0'
 [algorithm_di_patterns.ctl_atl_tsb]
 name = "CTL/ATL/TSB"
 enum_name = "TrainingLoadAlgorithm"
-module_path = "src/intelligence/algorithms/training_load.rs"
-exclude_paths = ["src/intelligence/algorithms/training_load.rs", "src/intelligence/training_load.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/training_load.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/training_load.rs", "crates/pierre-server/src/intelligence/training_load.rs"]
 
 [algorithm_di_patterns.ctl_atl_tsb.formulas]
 ctl_window = 'const\s+CTL_WINDOW.*=.*42|let.*ctl.*window.*=.*42'
@@ -555,10 +555,10 @@ tsb_formula = 'tsb.*=.*ctl\s*-\s*atl|TSB.*CTL.*ATL'
 [algorithm_di_patterns.recovery_score]
 name = "Recovery Score"
 enum_name = "RecoveryScoreAlgorithm"
-module_path = "src/intelligence/algorithms/recovery.rs"
+module_path = "crates/pierre-server/src/intelligence/algorithms/recovery.rs"
 # Note: OAuth scope files excluded to avoid false positives from "sleep ... weight" scope strings
 # Tool implementation files excluded as they pass configuration values, not implement formulas
-exclude_paths = ["src/intelligence/algorithms/recovery.rs", "src/intelligence/algorithms/recovery_aggregation.rs", "src/intelligence/recovery_calculator.rs", "src/protocols/universal/handlers/sleep_recovery.rs", "src/config/intelligence/*", "src/constants/oauth/*", "src/config/oauth.rs", "src/providers/spi.rs", "src/tools/implementations/sleep.rs", "tests/*"]
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/recovery.rs", "crates/pierre-server/src/intelligence/algorithms/recovery_aggregation.rs", "crates/pierre-server/src/intelligence/recovery_calculator.rs", "crates/pierre-server/src/protocols/universal/handlers/sleep_recovery.rs", "crates/pierre-server/src/config/intelligence/*", "crates/pierre-server/src/constants/oauth/*", "crates/pierre-server/src/config/oauth.rs", "crates/pierre-server/src/providers/spi.rs", "crates/pierre-server/src/tools/implementations/sleep.rs", "crates/pierre-server/tests/*"]
 
 [algorithm_di_patterns.recovery_score.formulas]
 score_calculation = 'overall_score.*=.*(tsb.*\+.*sleep|sleep.*\+.*tsb)'
@@ -568,8 +568,8 @@ component_weights = 'tsb.*weight|sleep.*weight|hrv.*weight'
 [algorithm_di_patterns.ftp]
 name = "FTP"
 enum_name = "FtpAlgorithm"
-module_path = "src/intelligence/algorithms/ftp.rs"
-exclude_paths = ["src/intelligence/algorithms/ftp.rs", "src/config/vo2_max.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/ftp.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/ftp.rs", "crates/pierre-server/src/config/vo2_max.rs"]
 
 [algorithm_di_patterns.ftp.formulas]
 twenty_min_test = '0\.95.*power|power.*0\.95'
@@ -580,8 +580,8 @@ ramp_test = '0\.75.*max.*power|max.*power.*0\.75'
 [algorithm_di_patterns.lthr]
 name = "LTHR"
 enum_name = "LthrAlgorithm"
-module_path = "src/intelligence/algorithms/lthr.rs"
-exclude_paths = ["src/intelligence/algorithms/lthr.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/lthr.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/lthr.rs"]
 
 [algorithm_di_patterns.lthr.formulas]
 from_maxhr = 'max_hr.*0\.8[5-9]|max_hr.*0\.9[01]'
@@ -591,8 +591,8 @@ from_thirty_min = 'avg_hr.*1\.03|1\.03.*avg_hr'
 [algorithm_di_patterns.vo2max]
 name = "VO2max"
 enum_name = "Vo2maxAlgorithm"
-module_path = "src/intelligence/algorithms/vo2max.rs"
-exclude_paths = ["src/intelligence/algorithms/vo2max.rs", "src/configuration/vo2_max.rs"]
+module_path = "crates/pierre-server/src/intelligence/algorithms/vo2max.rs"
+exclude_paths = ["crates/pierre-server/src/intelligence/algorithms/vo2max.rs", "crates/pierre-server/src/configuration/vo2_max.rs"]
 
 [algorithm_di_patterns.vo2max.formulas]
 from_vdot = 'vdot.*3\.5|3\.5.*vdot'

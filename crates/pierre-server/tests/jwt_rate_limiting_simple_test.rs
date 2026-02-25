@@ -1,0 +1,116 @@
+// ABOUTME: Simple test to verify JWT rate limiting works correctly
+// ABOUTME: Tests critical security fix for JWT tokens having unlimited API access
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+
+//! Simple test to verify JWT rate limiting works
+//!
+//! This is a focused test to verify that the critical security vulnerability
+//! where JWT tokens had unlimited API access has been fixed.
+
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
+mod common;
+
+use pierre_auth::auth::AuthManager;
+use pierre_database::database::generate_encryption_key;
+use pierre_database::plugins::{factory::Database, UserRepository};
+#[cfg(feature = "postgresql")]
+use pierre_mcp_server::config::environment::PostgresPoolConfig;
+use pierre_mcp_server::config::environment::RateLimitConfig;
+use pierre_mcp_server::middleware::McpAuthMiddleware;
+use pierre_mcp_server::models::User;
+use std::sync::Arc;
+
+#[tokio::test]
+async fn test_jwt_tokens_now_have_rate_limiting() {
+    // Create test database
+    let database_url = "sqlite::memory:";
+    let encryption_key = generate_encryption_key().to_vec();
+
+    #[cfg(feature = "postgresql")]
+    let database = Arc::new(
+        Database::new(database_url, encryption_key, &PostgresPoolConfig::default())
+            .await
+            .unwrap(),
+    );
+
+    #[cfg(not(feature = "postgresql"))]
+    let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
+
+    // Create auth manager and middleware
+    let auth_manager = AuthManager::new(24);
+    let jwks_manager = common::get_shared_test_jwks();
+    let auth_middleware = Arc::new(McpAuthMiddleware::new(
+        auth_manager,
+        database.clone(),
+        jwks_manager.clone(),
+        RateLimitConfig::default(),
+    ));
+
+    // Create and store a test user (defaults to Starter tier with 10,000 requests/month)
+    let user = User::new(
+        "jwt_test@example.com".to_owned(),
+        "hashed_password".to_owned(),
+        Some("JWT Test User".to_owned()),
+    );
+    UserRepository::create(&*database, &user).await.unwrap();
+
+    // Create a JWT token for the user (using same secret for consistency)
+    let token_auth_manager = AuthManager::new(24);
+    let token = token_auth_manager
+        .generate_token(&user, &jwks_manager)
+        .expect("Failed to generate JWT token");
+
+    // Test authentication - should now include rate limiting info
+    let auth_result = auth_middleware
+        .authenticate_request(Some(&format!("Bearer {token}")))
+        .await
+        .expect("JWT authentication should succeed");
+
+    // CRITICAL SECURITY FIX VERIFICATION
+    // Before: JWT tokens had rate_limit: None (unlimited access)
+    // After: JWT tokens have proper rate limiting based on user tier
+
+    let rate_limit = &auth_result.rate_limit;
+
+    // Verify JWT now has rate limiting (not None!)
+    assert!(
+        !rate_limit.is_rate_limited,
+        "Fresh JWT should not be rate limited yet"
+    );
+
+    // Verify JWT has proper limits (10,000 for Starter tier)
+    assert_eq!(
+        rate_limit.limit,
+        Some(10_000),
+        "SECURITY FIX: JWT should have Starter tier limit, not unlimited!"
+    );
+
+    // Verify remaining requests are tracked
+    assert_eq!(
+        rate_limit.remaining,
+        Some(10_000),
+        "JWT should track remaining requests"
+    );
+
+    // Verify reset time is set
+    assert!(rate_limit.reset_at.is_some(), "JWT should have reset time");
+
+    // Verify tier tracking
+    assert_eq!(rate_limit.tier, "starter", "JWT should show user's tier");
+
+    // Verify auth method tracking
+    assert_eq!(
+        rate_limit.auth_method, "jwt_token",
+        "Should identify as JWT token authentication"
+    );
+
+    println!("SECURITY FIX VERIFIED: JWT tokens now have proper rate limiting!");
+    println!("   Before: Unlimited access (critical vulnerability)");
+    println!("   After: {:?} requests/month limit", rate_limit.limit);
+    println!("   Tier: {}", rate_limit.tier);
+    println!("   Auth Method: {}", rate_limit.auth_method);
+}

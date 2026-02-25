@@ -7,8 +7,8 @@ on:
   push:
     branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
     paths:
-      - 'src/routes/**'
-      - 'src/models/**'
+      - 'crates/pierre-server/src/routes/**'
+      - 'crates/pierre-server/src/models/**'
       - 'crates/**'
       - 'frontend/src/types/api-generated.ts'
       - 'frontend-mobile/src/types/api-generated.ts'
@@ -16,8 +16,8 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'src/routes/**'
-      - 'src/models/**'
+      - 'crates/pierre-server/src/routes/**'
+      - 'crates/pierre-server/src/models/**'
       - 'crates/**'
       - 'frontend/src/types/api-generated.ts'
       - 'frontend-mobile/src/types/api-generated.ts'
