@@ -644,7 +644,7 @@ fn evaluate_retry_attempt<T>(
 ///
 /// ```rust,no_run
 /// use pierre_providers::utils::{with_retry, RetryBackoffConfig};
-/// use pierre_providers::errors::ProviderResult;
+/// use pierre_providers::ProviderResult;
 ///
 /// async fn fetch_data_with_retry() -> ProviderResult<String> {
 ///     with_retry(
