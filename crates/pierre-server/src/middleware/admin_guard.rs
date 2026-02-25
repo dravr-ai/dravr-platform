@@ -13,8 +13,8 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::auth::AuthResult;
-//! use pierre_mcp_server::database_plugins::factory::Database;
+//! use pierre_auth::auth::AuthResult;
+//! use pierre_database::plugins::factory::Database;
 //! use pierre_mcp_server::middleware::admin_guard::require_admin;
 //! use std::sync::Arc;
 //!
@@ -55,10 +55,10 @@ use uuid::Uuid;
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_mcp_server::auth::AuthResult;
+/// use pierre_auth::auth::AuthResult;
 /// use pierre_mcp_server::middleware::admin_guard::require_admin;
 ///
-/// # async fn example(auth: AuthResult, db: std::sync::Arc<pierre_mcp_server::database_plugins::factory::Database>) -> Result<(), pierre_mcp_server::errors::AppError> {
+/// # async fn example(auth: AuthResult, db: std::sync::Arc<pierre_database::plugins::factory::Database>) -> Result<(), pierre_mcp_server::errors::AppError> {
 /// let admin = require_admin(auth.user_id, &db).await?;
 /// println!("Admin {} authorized", admin.email);
 /// # Ok(())
