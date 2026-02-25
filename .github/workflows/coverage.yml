@@ -4,18 +4,14 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'src/**'
       - 'crates/**'
-      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/coverage.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'src/**'
       - 'crates/**'
-      - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/coverage.yml'

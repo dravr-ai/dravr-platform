@@ -8,8 +8,8 @@ on:
     branches: [ "main", "feature/*", "claude/*", "copilot/*" ]
     paths:
       - 'examples/**'
-      - 'src/a2a/**'
-      - 'src/mcp/**'
+      - 'crates/pierre-server/src/a2a/**'
+      - 'crates/pierre-server/src/mcp/**'
   pull_request:
     branches: [ main ]
     paths:

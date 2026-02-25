@@ -4,14 +4,14 @@ on:
   push:
     branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
     paths:
-      - 'src/mcp/**'
+      - 'crates/pierre-server/src/mcp/**'
       - 'sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'src/mcp/**'
+      - 'crates/pierre-server/src/mcp/**'
       - 'sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/mcp-compliance.yml'

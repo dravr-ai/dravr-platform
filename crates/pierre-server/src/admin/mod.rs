@@ -1,0 +1,78 @@
+// ABOUTME: Admin token system module organization and exports
+// ABOUTME: Provides secure admin authentication for API key provisioning and user management
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
+//! Admin Token System
+//!
+//! This module provides secure admin authentication for API key provisioning.
+//! Admin services can authenticate using JWT tokens to provision, revoke, and
+//! manage API keys for users.
+
+/// Admin authentication service
+pub mod auth;
+/// Firebase Authentication token validation
+pub mod firebase;
+/// JWT token generation and validation for admin auth
+pub mod jwt;
+/// Admin system data models and permissions
+pub mod models;
+
+// Admin authentication service
+/// Admin authentication middleware for Axum
+pub use auth::middleware;
+pub use auth::AdminAuthService;
+
+// JWT token management for admin authentication
+
+/// Admin JWT token manager
+pub use jwt::AdminJwtManager;
+/// Token generation configuration
+pub use jwt::TokenGenerationConfig;
+
+// JWKS (JSON Web Key Set) management for asymmetric JWT (via pierre-auth crate)
+
+/// JSON Web Key representation
+pub use pierre_auth::admin::jwks::JsonWebKey;
+/// JSON Web Key Set container
+pub use pierre_auth::admin::jwks::JsonWebKeySet;
+/// JWKS manager for key rotation
+pub use pierre_auth::admin::jwks::JwksManager;
+/// RSA key pair for JWT signing
+pub use pierre_auth::admin::jwks::RsaKeyPair;
+
+// Admin system data models and permissions
+
+/// Admin action enumeration
+pub use models::AdminAction;
+/// Individual admin permission
+pub use models::AdminPermission;
+/// Set of admin permissions
+pub use models::AdminPermissions;
+/// Admin token with metadata
+pub use models::AdminToken;
+/// Redacted admin token for API responses (excludes sensitive hashes)
+pub use models::AdminTokenSummary;
+/// Admin token usage tracking
+pub use models::AdminTokenUsage;
+/// Request to provision API key
+pub use models::ApiKeyProvisionRequest;
+/// Request to create admin token
+pub use models::CreateAdminTokenRequest;
+/// Generated admin token response
+pub use models::GeneratedAdminToken;
+/// Provisioned API key response
+pub use models::ProvisionedApiKey;
+/// Rate limit period configuration
+pub use models::RateLimitPeriod;
+/// Validated admin token
+pub use models::ValidatedAdminToken;
+
+// Firebase Authentication
+
+/// Firebase Authentication handler
+pub use firebase::FirebaseAuth;
+/// Firebase ID token claims
+pub use firebase::FirebaseClaims;
+/// Firebase-specific token claims
+pub use firebase::FirebaseSpecificClaims;

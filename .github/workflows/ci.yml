@@ -4,10 +4,7 @@ on:
   push:
     branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
     paths:
-      - 'src/**'
       - 'crates/**'
-      - 'tests/**'
-      - 'benches/**'
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -16,10 +13,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - 'src/**'
       - 'crates/**'
-      - 'tests/**'
-      - 'benches/**'
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -64,19 +58,18 @@ jobs:
         with:
           filters: |
             database:
-              - 'src/database/**'
-              - 'src/database_plugins/**'
-              - 'migrations/**'
               - 'crates/pierre-database/**'
+              - 'crates/pierre-server/src/database/**'
+              - 'migrations/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
             cache:
-              - 'src/cache/**'
-              - 'tests/cache_redis_test.rs'
+              - 'crates/pierre-cache/**'
+              - 'crates/pierre-server/src/cache/**'
+              - 'crates/pierre-server/tests/cache_redis_test.rs'
               - 'Cargo.toml'
               - 'Cargo.lock'
             release-worthy:
-              - 'src/**'
               - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'

@@ -4,7 +4,6 @@
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-
 set -e
 
 # Colors
@@ -35,14 +34,14 @@ echo ""
 echo -e "${BLUE}--- 1. Division Safety ---${NC}"
 
 # Count zero-guard patterns near divisions
-ZERO_GUARDS=$(rg '\.max\(1\)|\.max\(1\.0\)|checked_div|if.*==.*0|if.*>.*0' src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+ZERO_GUARDS=$(rg '\.max\(1\)|\.max\(1\.0\)|checked_div|if.*==.*0|if.*>.*0' crates/pierre-server/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 pass "Zero-guard patterns found: $ZERO_GUARDS"
 
 # Check recipe/nutrition division safety
 # Note: guards may exist upstream in the function (e.g., early return on zero),
 # so adjacent-line detection has false positives. This is a WARN, not a FAIL.
 # The Claude Code /check-input-validation skill does deeper contextual analysis.
-SERVINGS_DIVISIONS=$(rg 'servings|portion|per_serving' src/ --type rust -A 3 2>/dev/null | \
+SERVINGS_DIVISIONS=$(rg 'servings|portion|per_serving' crates/pierre-server/src/ --type rust -A 3 2>/dev/null | \
   rg ' / ' | \
   rg -v '\.max\(1\)|\.max\(1\.0\)|checked_div|\.max\(|// Safe' | wc -l | tr -d ' ')
 
@@ -50,7 +49,7 @@ if [ "$SERVINGS_DIVISIONS" -eq 0 ]; then
     pass "Recipe/nutrition divisions — no divisions found or all have adjacent guards"
 else
     # Check if zero-guards exist elsewhere in the same files (upstream protection)
-    FILES_WITH_DIVISIONS=$(rg 'servings|portion|per_serving' src/ --type rust -A 3 2>/dev/null | \
+    FILES_WITH_DIVISIONS=$(rg 'servings|portion|per_serving' crates/pierre-server/src/ --type rust -A 3 2>/dev/null | \
       rg ' / ' | rg -v '\.max\(' | rg -o '^[^:]+' | sort -u)
     GUARDED_FILES=0
     for f in $FILES_WITH_DIVISIONS; do
@@ -72,7 +71,7 @@ echo ""
 echo -e "${BLUE}--- 2. Pagination Bounds ---${NC}"
 
 # Count pagination bound enforcement patterns
-PAGINATION_BOUNDS=$(rg 'limit.*clamp|limit.*min|limit.*max|\.min\(.*100\)|\.max\(.*1\)|\.clamp\(' src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+PAGINATION_BOUNDS=$(rg 'limit.*clamp|limit.*min|limit.*max|\.min\(.*100\)|\.max\(.*1\)|\.clamp\(' crates/pierre-server/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 if [ "$PAGINATION_BOUNDS" -gt 0 ]; then
     pass "Pagination bound enforcement patterns: $PAGINATION_BOUNDS"
@@ -81,7 +80,7 @@ else
 fi
 
 # Check for unbounded LIMIT in SQL (HARD FAIL)
-UNBOUNDED_LIMIT=$(rg 'LIMIT \$|LIMIT \{' src/ --type rust -B 3 2>/dev/null | \
+UNBOUNDED_LIMIT=$(rg 'LIMIT \$|LIMIT \{' crates/pierre-server/src/ --type rust -B 3 2>/dev/null | \
   rg -v 'clamp|min|max|\.max\(|\.min\(' | \
   rg 'LIMIT' | wc -l | tr -d ' ')
 
@@ -89,7 +88,7 @@ if [ "$UNBOUNDED_LIMIT" -eq 0 ]; then
     pass "All SQL LIMIT values have bounds"
 else
     warn "Found $UNBOUNDED_LIMIT potentially unbounded SQL LIMIT clauses"
-    rg 'LIMIT \$|LIMIT \{' src/ --type rust -B 3 -n 2>/dev/null | \
+    rg 'LIMIT \$|LIMIT \{' crates/pierre-server/src/ --type rust -B 3 -n 2>/dev/null | \
       rg -v 'clamp|min|max' | rg 'LIMIT' | head -5
 fi
 
@@ -100,21 +99,21 @@ echo ""
 echo -e "${BLUE}--- 3. Cache Key Completeness ---${NC}"
 
 # Check cache keys include tenant_id (using CacheKey struct enforces this at compile time)
-CACHE_KEY_STRUCT=$(rg 'struct CacheKey' src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-CACHE_KEY_TENANT=$(rg 'struct CacheKey' src/ --type rust -A 10 2>/dev/null | rg 'tenant_id' | wc -l | tr -d ' ')
+CACHE_KEY_STRUCT=$(rg 'struct CacheKey' crates/pierre-server/src/ --type rust --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+CACHE_KEY_TENANT=$(rg 'struct CacheKey' crates/pierre-server/src/ --type rust -A 10 2>/dev/null | rg 'tenant_id' | wc -l | tr -d ' ')
 
 if [ "$CACHE_KEY_STRUCT" -gt 0 ] && [ "$CACHE_KEY_TENANT" -gt 0 ]; then
     pass "CacheKey struct requires tenant_id (compile-time enforcement)"
 else
     # Fallback: check cache operations manually
-    CACHE_WITHOUT_TENANT=$(rg 'cache_key|format!.*cache|format!.*key' src/ --type rust -n 2>/dev/null | \
+    CACHE_WITHOUT_TENANT=$(rg 'cache_key|format!.*cache|format!.*key' crates/pierre-server/src/ --type rust -n 2>/dev/null | \
       rg -v 'tenant|test|//|use ' | wc -l | tr -d ' ')
 
     if [ "$CACHE_WITHOUT_TENANT" -eq 0 ]; then
         pass "Cache keys include tenant context"
     else
         warn "Found $CACHE_WITHOUT_TENANT cache key constructions without tenant_id"
-        rg 'cache_key|format!.*cache|format!.*key' src/ --type rust -n 2>/dev/null | \
+        rg 'cache_key|format!.*cache|format!.*key' crates/pierre-server/src/ --type rust -n 2>/dev/null | \
           rg -v 'tenant|test|//|use ' | head -5
     fi
 fi
@@ -126,7 +125,7 @@ echo ""
 echo -e "${BLUE}--- 4. Numeric Range Enforcement ---${NC}"
 
 # Check for numeric casts from params (potential range issues)
-UNVALIDATED_CASTS=$(rg 'params\.\w+.*as (f64|f32|i64|i32|u64|u32)' src/ --type rust -n 2>/dev/null | wc -l | tr -d ' ')
+UNVALIDATED_CASTS=$(rg 'params\.\w+.*as (f64|f32|i64|i32|u64|u32)' crates/pierre-server/src/ --type rust -n 2>/dev/null | wc -l | tr -d ' ')
 
 if [ "$UNVALIDATED_CASTS" -eq 0 ]; then
     pass "No direct numeric casts from params"
@@ -135,7 +134,7 @@ else
 fi
 
 # Check fitness metrics in routes have validation
-FITNESS_UNVALIDATED=$(rg 'weight|height|age|heart_rate|pace' src/routes/ --type rust -A 5 2>/dev/null | \
+FITNESS_UNVALIDATED=$(rg 'weight|height|age|heart_rate|pace' crates/pierre-server/src/routes/ --type rust -A 5 2>/dev/null | \
   rg 'params\.' | rg -v 'validate|clamp|min|max|range' | wc -l | tr -d ' ')
 
 if [ "$FITNESS_UNVALIDATED" -eq 0 ]; then

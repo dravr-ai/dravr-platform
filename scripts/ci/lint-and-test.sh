@@ -143,14 +143,14 @@ echo ""
 # ============================================================================
 # 1. DISABLED FILE DETECTION
 # ============================================================================
-DISABLED_TESTS=$(find tests -name "*.disabled" -o -name "*.warp-backup" 2>/dev/null)
-DISABLED_SRC=$(find src -name "*.disabled" 2>/dev/null)
+DISABLED_TESTS=$(find crates/pierre-server/tests -name "*.disabled" -o -name "*.warp-backup" 2>/dev/null)
+DISABLED_SRC=$(find crates/pierre-server/src -name "*.disabled" 2>/dev/null)
 DISABLED_COUNT=0
 [ -n "$DISABLED_TESTS" ] && DISABLED_COUNT=$((DISABLED_COUNT + $(echo "$DISABLED_TESTS" | wc -l)))
 [ -n "$DISABLED_SRC" ] && DISABLED_COUNT=$((DISABLED_COUNT + $(echo "$DISABLED_SRC" | wc -l)))
 
 if [ "$DISABLED_COUNT" -gt 0 ]; then
-    add_validation "Disabled files (.disabled/.warp-backup)" "$DISABLED_COUNT" "❌ FAIL" "Found in tests/ or src/"
+    add_validation "Disabled files (.disabled/.warp-backup)" "$DISABLED_COUNT" "❌ FAIL" "Found in crates/"
     VALIDATION_FAILED=true
 else
     add_validation "Disabled files (.disabled/.warp-backup)" "0" "✅ PASS" "All tests active"
@@ -159,7 +159,7 @@ fi
 # ============================================================================
 # 2. IGNORED TEST DETECTION
 # ============================================================================
-IGNORED_TESTS=$(rg "#\[ignore\]" tests/ -l 2>/dev/null || true)
+IGNORED_TESTS=$(rg "#\[ignore\]" crates/pierre-server/tests/ -l 2>/dev/null || true)
 IGNORED_COUNT=0
 [ -n "$IGNORED_TESTS" ] && IGNORED_COUNT=$(echo "$IGNORED_TESTS" | wc -l | tr -d ' ')
 
@@ -221,7 +221,7 @@ fi
 # ============================================================================
 # 5. ANYHOW ERROR BLANKET CONVERSION DETECTION (CLAUDE.MD ZERO TOLERANCE)
 # ============================================================================
-ANYHOW_FROM_IMPL=$(rg "impl From<anyhow::Error>" src/ -l 2>/dev/null || true)
+ANYHOW_FROM_IMPL=$(rg "impl From<anyhow::Error>" crates/pierre-server/src/ -l 2>/dev/null || true)
 ANYHOW_FROM_COUNT=0
 [ -n "$ANYHOW_FROM_IMPL" ] && ANYHOW_FROM_COUNT=$(echo "$ANYHOW_FROM_IMPL" | wc -l | tr -d ' ')
 
@@ -258,7 +258,7 @@ if [ -f "$SCRIPT_DIR/architectural-validation.sh" ]; then
     TODOS=$(echo "$ARCH_OUTPUT" | grep "TODOs/FIXMEs" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
     MOCK_IMPL=$(echo "$ARCH_OUTPUT" | grep "Production mock implementations" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
     UNDERSCORE_NAMES=$(echo "$ARCH_OUTPUT" | grep "Underscore-prefixed names" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
-    TEST_IN_SRC=$(echo "$ARCH_OUTPUT" | grep "Test modules in src/" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
+    TEST_IN_SRC=$(echo "$ARCH_OUTPUT" | grep "Test modules in" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
     CLIPPY_ALLOWS=$(echo "$ARCH_OUTPUT" | grep "Problematic clippy allows" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
     DEAD_CODE=$(echo "$ARCH_OUTPUT" | grep "Dead code annotations" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
     TEMP_SOLUTIONS=$(echo "$ARCH_OUTPUT" | grep "Temporary solutions" | grep -o "[0-9]*" | head -1 | tr -d '\n\r\t ' || echo 0)
@@ -319,7 +319,7 @@ if [ -f "$SCRIPT_DIR/architectural-validation.sh" ]; then
         { add_validation "Underscore-prefixed names" "$UNDERSCORE_NAMES" "❌ FAIL" "$(echo "$ARCH_OUTPUT" | grep "Underscore-prefixed names" | awk -F'│' '{print $5}' | tr -d '\n\r\t ' | sed 's/^ *//;s/ *$//')"; VALIDATION_FAILED=true; }
 
     [ "${TEST_IN_SRC:-0}" -eq 0 ] && add_validation "Test modules in src/" "0" "✅ PASS" "Tests in tests/ directory" || \
-        { add_validation "Test modules in src/" "$TEST_IN_SRC" "❌ FAIL" "$(echo "$ARCH_OUTPUT" | grep "Test modules in src/" | awk -F'│' '{print $5}' | tr -d '\n\r\t ' | sed 's/^ *//;s/ *$//')"; VALIDATION_FAILED=true; }
+        { add_validation "Test modules in src/" "$TEST_IN_SRC" "❌ FAIL" "$(echo "$ARCH_OUTPUT" | grep "Test modules in" | awk -F'│' '{print $5}' | tr -d '\n\r\t ' | sed 's/^ *//;s/ *$//')"; VALIDATION_FAILED=true; }
 
     [ "${CLIPPY_ALLOWS:-0}" -eq 0 ] && add_validation "Problematic clippy allows" "0" "✅ PASS" "Fix issues, don't silence" || \
         { add_validation "Problematic clippy allows" "$CLIPPY_ALLOWS" "❌ FAIL" "$(echo "$ARCH_OUTPUT" | grep "Problematic clippy allows" | awk -F'│' '{print $5}' | tr -d '\n\r\t ' | sed 's/^ *//;s/ *$//')"; VALIDATION_FAILED=true; }
@@ -396,7 +396,7 @@ if [ "$VALIDATION_FAILED" = true ]; then
     if [ "$IGNORED_COUNT" -gt 0 ]; then
         echo ""
         echo -e "${RED}Ignored tests found:${NC}"
-        rg "#\[ignore\]" tests/ -B 2 -A 1 2>/dev/null | head -30
+        rg "#\[ignore\]" crates/pierre-server/tests/ -B 2 -A 1 2>/dev/null | head -30
     fi
 
     # Show secret validation failures if any

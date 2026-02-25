@@ -138,12 +138,12 @@ check_license_headers() {
     local missing_headers=""
 
     # Get staged source files (added or modified)
-    # Rust files in src/ and tests/
-    local rs_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(src|tests)/.*\.rs$' | grep -v '/target/' || true)
+    # Rust files in crates/
+    local rs_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^crates/.*\.rs$' | grep -v '/target/' || true)
     # JS/TS files in sdk/, frontend/, and scripts/ (excluding node_modules)
     local js_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(sdk|frontend|scripts)/.*\.(ts|tsx|js|jsx)$' | grep -v node_modules || true)
-    # HTML files in templates/
-    local html_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^templates/.*\.html$' || true)
+    # HTML files in crates/pierre-server/templates/
+    local html_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^crates/pierre-server/templates/.*\.html$' || true)
     # Shell scripts in scripts/
     local sh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^scripts/.*\.sh$' || true)
     # Python files in scripts/
