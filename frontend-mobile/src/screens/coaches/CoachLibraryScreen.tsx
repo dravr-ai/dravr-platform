@@ -25,7 +25,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
+import { FloatingSearchBar, PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
 import type { Coach, CoachCategory } from '../../types';
 import type { CoachesStackParamList } from '../../navigation/MainTabs';
 
@@ -732,38 +732,15 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
         />
       )}
 
-      {/* Bottom Search Bar - liquid style above tab bar */}
-      <View className="px-4 py-2 flex-row items-center">
-        <View
-          className="flex-1 flex-row items-center rounded-full px-4"
-          style={[
-            {
-              height: 36,
-              backgroundColor: 'rgba(30, 27, 45, 0.95)',
-              borderWidth: 1,
-              borderColor: 'rgba(139, 92, 246, 0.4)',
-            },
-            searchContainerShadow,
-          ]}
-        >
-          <Feather name="search" size={18} color={colors.pierre.violet} style={{ marginRight: 8 }} />
-          <TextInput
-            className="flex-1 text-base text-text-primary"
-            placeholder="Search coaches..."
-            placeholderTextColor={colors.text.secondary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            testID="coach-search-input"
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Feather name="x" size={18} color={colors.text.secondary} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-
     </KeyboardAvoidingView>
+
+      {/* Floating search bar — transparent background, only pill visible */}
+      <FloatingSearchBar
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search coaches..."
+        testID="coach-search-input"
+      />
 
       {/* Action Menu Modal */}
       <Modal

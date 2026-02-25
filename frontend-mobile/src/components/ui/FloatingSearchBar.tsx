@@ -20,16 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
 
-// Glass effect container with shadow
+// Transparent container — only the inner pill is visible
 const containerStyle: ViewStyle = {
-  backgroundColor: colors.background.secondary + 'F5', // 96% opacity
-  borderTopWidth: 1,
-  borderTopColor: colors.border.default + '40',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: -4 },
-  shadowOpacity: 0.15,
-  shadowRadius: 8,
-  elevation: 8,
+  backgroundColor: 'transparent',
 };
 
 interface FloatingSearchBarProps {
@@ -106,15 +99,23 @@ export function FloatingSearchBar({
           bottom: 0,
           left: 0,
           right: 0,
-          paddingBottom: keyboardHeight > 0 ? spacing.sm : insets.bottom + spacing.sm,
-          paddingTop: spacing.sm,
+          paddingBottom: keyboardHeight > 0 ? spacing.sm : spacing.sm,
+          paddingTop: spacing.xs,
           paddingHorizontal: spacing.md,
         },
         animatedStyle,
       ]}
       testID={testID ? `${testID}-container` : undefined}
     >
-      <View className="flex-row items-center bg-background-tertiary rounded-lg px-4 py-3">
+      <View
+        className="flex-row items-center rounded-full px-4 min-h-[44px]"
+        style={{
+          backgroundColor: 'rgba(30, 30, 46, 0.92)',
+          borderColor: 'rgba(139, 92, 246, 0.4)',
+          borderWidth: 1,
+          borderRadius: 9999,
+        }}
+      >
         <Feather name="search" size={18} color={colors.text.tertiary} />
         <TextInput
           ref={inputRef}

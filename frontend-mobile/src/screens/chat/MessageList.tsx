@@ -476,7 +476,7 @@ export function MessageList({
   const renderEmptyChat = () => (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, paddingBottom: spacing.md }}
+      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, paddingBottom: 64 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
@@ -521,16 +521,18 @@ export function MessageList({
   }
 
   return (
-    <FlashList
-      ref={flatListRef}
-      data={messages ?? []}
-      renderItem={renderMessage}
-      keyExtractor={(item) => item?.id ?? `fallback-${Math.random()}`}
+    <View style={{ flex: 1 }}>
+      <FlashList
+        ref={flatListRef}
+        data={messages ?? []}
+        renderItem={renderMessage}
+        keyExtractor={(item) => item?.id ?? `fallback-${Math.random()}`}
 
-      contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: spacing.md }}
-      showsVerticalScrollIndicator={false}
-      onContentSizeChange={onScrollToBottom}
-      ListFooterComponent={isSending ? renderThinkingIndicator : null}
-    />
+        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: 64 }}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={onScrollToBottom}
+        ListFooterComponent={isSending ? renderThinkingIndicator : null}
+      />
+    </View>
   );
 }
