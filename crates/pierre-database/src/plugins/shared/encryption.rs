@@ -32,7 +32,7 @@ use uuid::Uuid;
 ///
 /// # Examples
 /// ```
-/// # use pierre_mcp_server::database_plugins::shared::encryption::create_token_aad_context;
+/// # use pierre_database::plugins::shared::encryption::create_token_aad_context;
 /// # use uuid::Uuid;
 /// let user_id = Uuid::new_v4();
 /// let aad = create_token_aad_context("tenant-123", user_id, "strava", "user_oauth_tokens");

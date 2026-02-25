@@ -13,8 +13,8 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
-//! use pierre_mcp_server::models::TimeSeriesData;
+//! use pierre_intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
+//! use pierre_core::models::TimeSeriesData;
 //!
 //! // Create time series data
 //! let time_series = TimeSeriesData {
@@ -308,8 +308,8 @@ impl StreamStats {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_mcp_server::intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
-/// use pierre_mcp_server::models::TimeSeriesData;
+/// use pierre_intelligence::visitor::{TimeSeriesVisitor, StatsCollector};
+/// use pierre_core::models::TimeSeriesData;
 ///
 /// let time_series = TimeSeriesData {
 ///     timestamps: vec![0, 1, 2, 3, 4],
@@ -404,10 +404,10 @@ impl Default for ZoneBoundaries {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_mcp_server::intelligence::visitor::{
+/// use pierre_intelligence::visitor::{
 ///     TimeSeriesVisitor, ZoneTimeCalculator, ZoneBoundaries
 /// };
-/// use pierre_mcp_server::models::TimeSeriesData;
+/// use pierre_core::models::TimeSeriesData;
 ///
 /// // Create calculator with max HR of 185 bpm
 /// let boundaries = ZoneBoundaries::default(); // 60%, 70%, 80%, 90% thresholds
@@ -558,8 +558,8 @@ impl TimeSeriesVisitor for ZoneTimeCalculator {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_mcp_server::intelligence::visitor::{TimeSeriesVisitor, NormalizedPowerCalculator};
-/// use pierre_mcp_server::models::TimeSeriesData;
+/// use pierre_intelligence::visitor::{TimeSeriesVisitor, NormalizedPowerCalculator};
+/// use pierre_core::models::TimeSeriesData;
 ///
 /// // Create power data (at least 30 seconds needed for NP calculation)
 /// let power_values: Vec<u32> = (0..60).map(|i| 200 + (i % 50)).collect();
@@ -637,8 +637,8 @@ impl TimeSeriesVisitor for NormalizedPowerCalculator {
 /// # Example
 ///
 /// ```rust,no_run
-/// use pierre_mcp_server::intelligence::visitor::{TimeSeriesVisitor, DecouplingDetector};
-/// use pierre_mcp_server::models::TimeSeriesData;
+/// use pierre_intelligence::visitor::{TimeSeriesVisitor, DecouplingDetector};
+/// use pierre_core::models::TimeSeriesData;
 ///
 /// // Simulate HR drift: same speed but increasing heart rate over time
 /// let timestamps: Vec<u32> = (0..40).collect();

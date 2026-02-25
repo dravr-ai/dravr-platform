@@ -116,11 +116,11 @@ impl Display for PkceMethod {
 /// # Example
 ///
 /// ```no_run
-/// use pierre_mcp_server::oauth2_server::{
+/// use pierre_auth::oauth2_server::{
 ///     AuthorizeResponse, Initial, OAuthFlow, TokenResponse,
 /// };
 ///
-/// fn example() -> Result<(), pierre_mcp_server::oauth2_server::OAuth2Error> {
+/// fn example() -> Result<(), pierre_auth::oauth2_server::OAuth2Error> {
 ///     // Start a new OAuth flow
 ///     let flow = OAuthFlow::<Initial>::new("client_123", "https://app.example.com/callback");
 ///

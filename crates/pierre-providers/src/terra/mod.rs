@@ -61,8 +61,8 @@
 //! ## Example Usage
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::providers::terra::{TerraProvider, TerraDataCache};
-//! use pierre_mcp_server::providers::CoreFitnessProvider;
+//! use pierre_providers::terra::{TerraProvider, TerraDataCache};
+//! use pierre_providers::CoreFitnessProvider;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {

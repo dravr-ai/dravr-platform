@@ -162,8 +162,8 @@ impl FtpAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::ftp::FtpAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::ftp::FtpAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let algorithm = FtpAlgorithm::From20MinTest { avg_power_20min: 250.0 };

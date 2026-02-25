@@ -162,8 +162,8 @@ impl Vo2maxAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::vo2max::Vo2maxAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::vo2max::Vo2maxAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let algorithm = Vo2maxAlgorithm::CooperTest { distance_meters: 2800.0 };

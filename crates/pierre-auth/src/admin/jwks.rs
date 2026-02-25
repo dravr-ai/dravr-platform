@@ -22,8 +22,8 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::admin::jwks::JwksManager;
-//! use pierre_mcp_server::errors::AppResult;
+//! use pierre_auth::admin::jwks::JwksManager;
+//! use pierre_core::errors::AppResult;
 //!
 //! # async fn example() -> AppResult<()> {
 //! let mut manager = JwksManager::new();

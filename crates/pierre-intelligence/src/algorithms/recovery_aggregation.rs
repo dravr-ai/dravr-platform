@@ -142,8 +142,8 @@ impl RecoveryAggregationAlgorithm {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use pierre_mcp_server::intelligence::algorithms::recovery_aggregation::RecoveryAggregationAlgorithm;
-    /// use pierre_mcp_server::errors::AppResult;
+    /// use pierre_intelligence::algorithms::recovery_aggregation::RecoveryAggregationAlgorithm;
+    /// use pierre_core::errors::AppResult;
     ///
     /// # fn example() -> AppResult<()> {
     /// let algorithm = RecoveryAggregationAlgorithm::WeightedAverage {

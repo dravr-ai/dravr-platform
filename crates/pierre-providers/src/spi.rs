@@ -19,7 +19,7 @@
 //! ## Example: Implementing a Custom Provider
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::providers::spi::{
+//! use pierre_providers::spi::{
 //!     ProviderDescriptor, OAuthEndpoints, OAuthParams, ProviderCapabilities
 //! };
 //!

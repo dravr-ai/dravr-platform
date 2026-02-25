@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// # Examples
 ///
 /// ```rust
-/// use pierre_mcp_server::models::Athlete;
+/// use pierre_core::models::Athlete;
 ///
 /// let athlete = Athlete {
 ///     id: "12345".into(),
@@ -53,7 +53,7 @@ pub struct Athlete {
 /// # Examples
 ///
 /// ```rust
-/// use pierre_mcp_server::models::Stats;
+/// use pierre_core::models::Stats;
 ///
 /// let stats = Stats {
 ///     total_activities: 150,

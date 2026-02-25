@@ -47,9 +47,9 @@
 //! ## Example: Adding a New Provider
 //!
 //! ```rust,no_run
-//! use pierre_mcp_server::providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
-//! use pierre_mcp_server::models::{Activity, Athlete, Stats};
-//! use pierre_mcp_server::errors::AppResult;
+//! use pierre_providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
+//! use pierre_core::models::{Activity, Athlete, Stats};
+//! use pierre_core::errors::AppResult;
 //! use async_trait::async_trait;
 //!
 //! // Step 1: Define provider struct
@@ -88,7 +88,7 @@
 //!
 //!     async fn get_activities_with_params(
 //!         &self,
-//!         _params: &pierre_mcp_server::providers::core::ActivityQueryParams,
+//!         _params: &pierre_providers::core::ActivityQueryParams,
 //!     ) -> AppResult<Vec<Activity>> {
 //!         // Fetch from provider API and map to shared Activity models
 //!         Ok(vec![])
@@ -97,16 +97,16 @@
 //!     // ... implement remaining trait methods
 //! #   async fn is_authenticated(&self) -> bool { true }
 //! #   async fn refresh_token_if_needed(&self) -> AppResult<()> { Ok(()) }
-//! #   async fn get_activities_cursor(&self, _params: &pierre_mcp_server::pagination::PaginationParams) -> AppResult<pierre_mcp_server::pagination::CursorPage<Activity>> {
-//! #       Ok(pierre_mcp_server::pagination::CursorPage::new(vec![], None, None, false))
+//! #   async fn get_activities_cursor(&self, _params: &pierre_core::pagination::PaginationParams) -> AppResult<pierre_core::pagination::CursorPage<Activity>> {
+//! #       Ok(pierre_core::pagination::CursorPage::new(vec![], None, None, false))
 //! #   }
 //! #   async fn get_activity(&self, _id: &str) -> AppResult<Activity> {
-//! #       Err(pierre_mcp_server::errors::AppError::not_found("Activity not found"))
+//! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
 //! #   async fn get_stats(&self) -> AppResult<Stats> {
 //! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0 })
 //! #   }
-//! #   async fn get_personal_records(&self) -> AppResult<Vec<pierre_mcp_server::models::PersonalRecord>> {
+//! #   async fn get_personal_records(&self) -> AppResult<Vec<pierre_core::models::PersonalRecord>> {
 //! #       Ok(vec![])
 //! #   }
 //! #   async fn disconnect(&self) -> AppResult<()> { Ok(()) }
@@ -177,7 +177,7 @@ pub struct OAuth2Credentials {
 /// # Example
 ///
 /// ```rust
-/// use pierre_mcp_server::providers::core::ProviderConfig;
+/// use pierre_providers::core::ProviderConfig;
 ///
 /// let config = ProviderConfig {
 ///     name: "strava".to_owned(),
@@ -298,8 +298,8 @@ pub trait FitnessProvider: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use pierre_mcp_server::providers::core::FitnessProvider;
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_mcp_server::errors::AppError> {
+    /// # use pierre_providers::core::FitnessProvider;
+    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
     /// let athlete = provider.get_athlete().await?;
     /// println!("Athlete: {} (ID: {})", athlete.username, athlete.id);
     /// if let Some(first) = &athlete.firstname {
@@ -336,9 +336,9 @@ pub trait FitnessProvider: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use pierre_mcp_server::providers::core::{FitnessProvider, ActivityQueryParams};
+    /// # use pierre_providers::core::{FitnessProvider, ActivityQueryParams};
     /// # use chrono::{Duration, Utc};
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_mcp_server::errors::AppError> {
+    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
     /// // Get last 10 activities
     /// let params = ActivityQueryParams::with_pagination(Some(10), None);
     /// let activities = provider.get_activities_with_params(&params).await?;
@@ -373,8 +373,8 @@ pub trait FitnessProvider: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use pierre_mcp_server::providers::core::FitnessProvider;
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_mcp_server::errors::AppError> {
+    /// # use pierre_providers::core::FitnessProvider;
+    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
     /// let activity = provider.get_activity("12345678").await?;
     /// println!("Activity: {}", activity.name());
     /// println!("Type: {:?}", activity.sport_type());
@@ -391,8 +391,8 @@ pub trait FitnessProvider: Send + Sync {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use pierre_mcp_server::providers::core::FitnessProvider;
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_mcp_server::errors::AppError> {
+    /// # use pierre_providers::core::FitnessProvider;
+    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
     /// let stats = provider.get_stats().await?;
     /// println!("Total activities: {}", stats.total_activities);
     /// println!("Total distance: {:.1} km", stats.total_distance / 1000.0);

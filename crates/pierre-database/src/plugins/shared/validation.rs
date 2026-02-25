@@ -28,7 +28,7 @@ use pierre_core::errors::{AppError, AppResult};
 ///
 /// # Examples
 /// ```
-/// # use pierre_mcp_server::database_plugins::shared::validation::validate_email;
+/// # use pierre_database::plugins::shared::validation::validate_email;
 /// assert!(validate_email("user@example.com").is_ok());
 /// assert!(validate_email("invalid").is_err());
 /// assert!(validate_email("@").is_err());
@@ -58,7 +58,7 @@ pub fn validate_email(email: &str) -> AppResult<()> {
 ///
 /// # Examples
 /// ```
-/// # use pierre_mcp_server::database_plugins::shared::validation::validate_tenant_ownership;
+/// # use pierre_database::plugins::shared::validation::validate_tenant_ownership;
 /// assert!(validate_tenant_ownership("tenant-123", "tenant-123", "User").is_ok());
 /// assert!(validate_tenant_ownership("tenant-123", "tenant-456", "User").is_err());
 /// ```
@@ -93,7 +93,7 @@ pub fn validate_tenant_ownership(
 ///
 /// # Examples
 /// ```
-/// # use pierre_mcp_server::database_plugins::shared::validation::validate_not_expired;
+/// # use pierre_database::plugins::shared::validation::validate_not_expired;
 /// # use chrono::{Utc, Duration};
 /// let now = Utc::now();
 /// let future = now + Duration::hours(1);
@@ -132,7 +132,7 @@ pub fn validate_not_expired(
 ///
 /// # Examples
 /// ```
-/// # use pierre_mcp_server::database_plugins::shared::validation::validate_scope_granted;
+/// # use pierre_database::plugins::shared::validation::validate_scope_granted;
 /// let granted = vec!["read".to_string(), "write".to_string()];
 /// let valid_request = vec!["read".to_string()];
 /// let invalid_request = vec!["admin".to_string()];
