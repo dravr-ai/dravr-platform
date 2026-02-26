@@ -27,6 +27,7 @@ import { useSuccessToast, useInfoToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import type {
   Message,
+  Conversation,
   Coach,
   MessageMetadata,
   MessageFeedback,
@@ -134,6 +135,28 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       setCoachDeleteConfirmation(null);
     },
   });
+
+  // Restore message metadata (model label) from conversation when loading existing messages
+  useEffect(() => {
+    if (!selectedConversation || !messagesData?.messages?.length) return;
+    const conversationsData = queryClient.getQueryData<{ conversations: Conversation[] }>(
+      QUERY_KEYS.chat.conversations()
+    );
+    const conversation = conversationsData?.conversations?.find(c => c.id === selectedConversation);
+    if (!conversation?.model) return;
+
+    setMessageMetadata(prev => {
+      const newMap = new Map(prev);
+      let changed = false;
+      for (const msg of messagesData.messages) {
+        if (msg.role === 'assistant' && !newMap.has(msg.id)) {
+          newMap.set(msg.id, { model: conversation.model!, executionTimeMs: 0 });
+          changed = true;
+        }
+      }
+      return changed ? newMap : prev;
+    });
+  }, [selectedConversation, messagesData, queryClient]);
 
   // Focus input when conversation is selected
   useEffect(() => {
