@@ -192,18 +192,18 @@ describe('Response Validation E2E Tests', () => {
     }, TIMEOUT);
   });
 
-  describe('Passthrough Behavior', () => {
-    test('should allow extra fields in responses', () => {
+  describe('Schema Strictness', () => {
+    test('should strip extra fields from responses', () => {
       const responseWithExtra = {
         activities: [],
         provider: 'strava',
-        extra_field: 'should be allowed',
+        extra_field: 'should be stripped',
         another_extra: { nested: true },
       };
 
       const result = validateToolResponse('get_activities', responseWithExtra);
       expect(result.success).toBe(true);
-      expect(result.data.extra_field).toBe('should be allowed');
+      expect(result.data.extra_field).toBeUndefined();
     }, TIMEOUT);
   });
 

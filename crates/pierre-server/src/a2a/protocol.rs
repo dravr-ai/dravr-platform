@@ -120,16 +120,7 @@ impl A2AServer {
         ) -> Pin<Box<dyn Future<Output = A2AResponse> + Send + '_>>,
     {
         let Some(resources) = &self.resources else {
-            return A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32000,
-                    message: "A2A server not properly configured".into(),
-                    data: None,
-                }),
-                id: request.id.clone(),
-            };
+            return Self::server_not_configured_error(request.id.clone());
         };
         match Self::authenticate_request(&request, resources) {
             Ok(user_id) => handler(self, request, user_id).await,
@@ -169,16 +160,7 @@ impl A2AServer {
     async fn handle_initialize_with_oauth(&self, request: A2ARequest) -> A2AResponse {
         // Extract resources with defensive error handling
         let Some(resources) = self.resources.as_ref() else {
-            return A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32603,
-                    message: "Internal error: Server resources not initialized".to_owned(),
-                    data: None,
-                }),
-                id: request.id.clone(),
-            };
+            return Self::a2a_error(-32603, "Internal server error", request.id.clone());
         };
 
         let user_id = match Self::authenticate_request(&request, resources) {
@@ -252,16 +234,10 @@ impl A2AServer {
                 error: None,
                 id: request.id,
             },
-            Err(e) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32603,
-                    message: format!("Failed to serialize A2A initialize response: {e}"),
-                    data: None,
-                }),
-                id: request.id,
-            },
+            Err(e) => {
+                error!("Failed to serialize A2A initialize response: {e}");
+                Self::a2a_error(-32603, "Internal server error", request.id)
+            }
         }
     }
 
@@ -277,17 +253,11 @@ impl A2AServer {
 
         // Extract auth token from request
         let auth_token = request.auth_token.as_deref().ok_or_else(|| {
-            Box::new(A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32001,
-                    message: "Authentication token required for OAuth credential storage"
-                        .to_owned(),
-                    data: None,
-                }),
-                id: Some(request_id.clone()), // Safe: JSON value ownership for error response
-            })
+            Box::new(Self::a2a_error(
+                -32001,
+                "Authentication token required",
+                Some(request_id.clone()),
+            ))
         })?;
 
         // Validate token and extract user_id
@@ -297,29 +267,19 @@ impl A2AServer {
         {
             Ok(claims) => Uuid::parse_str(&claims.sub).map_or_else(
                 |_| {
-                    Err(Box::new(A2AResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(A2AErrorResponse {
-                            code: -32001,
-                            message: "Invalid user ID in authentication token".to_owned(),
-                            data: None,
-                        }),
-                        id: Some(request_id.clone()), // Safe: JSON value ownership for error response
-                    }))
+                    Err(Box::new(Self::a2a_error(
+                        -32001,
+                        "Invalid user ID in authentication token",
+                        Some(request_id.clone()),
+                    )))
                 },
                 Ok,
             ),
-            Err(_) => Err(Box::new(A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32001,
-                    message: "Invalid authentication token".to_owned(),
-                    data: None,
-                }),
-                id: Some(request_id),
-            })),
+            Err(_) => Err(Box::new(Self::a2a_error(
+                -32001,
+                "Invalid authentication token",
+                Some(request_id),
+            ))),
         }
     }
 
@@ -345,15 +305,13 @@ impl A2AServer {
     ) -> Result<(), A2AResponse> {
         let owned_ids = Self::get_owned_client_ids(user_id, resources)
             .await
-            .map_err(|e| A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32000,
-                    message: format!("Failed to resolve client ownership: {e}"),
-                    data: None,
-                }),
-                id: request_id.cloned(),
+            .map_err(|e| {
+                error!("Failed to resolve client ownership: {e}");
+                Self::a2a_error(
+                    -32000,
+                    "Failed to resolve client ownership",
+                    request_id.cloned(),
+                )
             })?;
 
         if !owned_ids.iter().any(|id| id == client_id) {
@@ -364,12 +322,21 @@ impl A2AServer {
 
     /// Create a standard permission denied error response
     fn permission_denied_error(request_id: Option<Value>) -> A2AResponse {
+        Self::a2a_error(
+            -32001,
+            "Permission denied: client does not belong to authenticated user",
+            request_id,
+        )
+    }
+
+    /// Create a standard A2A JSON-RPC error response
+    fn a2a_error(code: i32, message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
         A2AResponse {
             jsonrpc: "2.0".into(),
             result: None,
             error: Some(A2AErrorResponse {
-                code: -32001,
-                message: "Permission denied: client does not belong to authenticated user".into(),
+                code,
+                message: message.into(),
                 data: None,
             }),
             id: request_id,
@@ -378,16 +345,7 @@ impl A2AServer {
 
     /// Create a standard server-not-configured error response
     fn server_not_configured_error(request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(A2AErrorResponse {
-                code: -32000,
-                message: "A2A server not properly configured".into(),
-                data: None,
-            }),
-            id: request_id,
-        }
+        Self::a2a_error(-32000, "A2A server not properly configured", request_id)
     }
 
     /// Store OAuth credentials provided during A2A initialization
@@ -478,7 +436,6 @@ impl A2AServer {
     }
 
     async fn handle_task_create(&self, request: A2ARequest, user_id: Uuid) -> A2AResponse {
-        // Parse request parameters using typed struct
         let params_value = request.params.as_ref().unwrap_or(&Value::Null);
 
         let task_params =
@@ -486,23 +443,13 @@ impl A2AServer {
                 Ok(params) => params,
                 Err(e) => {
                     error!("Failed to parse A2A task create parameters: {}", e);
-                    return A2AResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(A2AErrorResponse {
-                            code: -32602,
-                            message: format!("Invalid parameters: {e}"),
-                            data: None,
-                        }),
-                        id: request.id,
-                    };
+                    return Self::a2a_error(-32602, "Invalid parameters", request.id);
                 }
             };
 
         let client_id = task_params.client_id;
         let task_type = task_params.task_type;
 
-        // Verify the caller owns the client_id they're creating a task for
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -513,15 +460,22 @@ impl A2AServer {
             return err;
         }
 
-        // Persist task to database and get generated task_id
-        let database = &resources.database;
-        let task_id = match database
-            .create_task(
-                &client_id,
-                None, // session_id - optional
-                &task_type,
-                params_value,
-            )
+        self.persist_and_respond_task(resources, &client_id, &task_type, params_value, request.id)
+            .await
+    }
+
+    /// Persist a new task to the database and return the A2A response.
+    async fn persist_and_respond_task(
+        &self,
+        resources: &Arc<ServerResources>,
+        client_id: &str,
+        task_type: &str,
+        params_value: &Value,
+        request_id: Option<Value>,
+    ) -> A2AResponse {
+        let task_id = match resources
+            .database
+            .create_task(client_id, None, task_type, params_value)
             .await
         {
             Ok(id) => {
@@ -529,16 +483,8 @@ impl A2AServer {
                 id
             }
             Err(e) => {
-                return A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(A2AErrorResponse {
-                        code: -32000,
-                        message: format!("Failed to persist task: {e}"),
-                        data: None,
-                    }),
-                    id: request.id,
-                };
+                error!("Failed to persist task: {e}");
+                return Self::a2a_error(-32000, "Failed to persist task", request_id);
             }
         };
 
@@ -549,8 +495,8 @@ impl A2AServer {
             completed_at: None,
             result: None,
             error: None,
-            client_id,
-            task_type,
+            client_id: client_id.to_owned(),
+            task_type: task_type.to_owned(),
             input_data: params_value.clone(), // Safe: JSON value ownership for task input
             output_data: None,
             error_message: None,
@@ -562,21 +508,12 @@ impl A2AServer {
                 jsonrpc: "2.0".into(),
                 result: Some(task_value),
                 error: None,
-                id: request.id,
+                id: request_id,
             },
-            Err(e) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32603,
-                    message: "Internal error: Failed to serialize task".to_owned(),
-                    data: Some(json!({
-                        "error": e.to_string(),
-                        "context": "Task serialization failed"
-                    })),
-                }),
-                id: request.id,
-            },
+            Err(e) => {
+                error!("Failed to serialize A2A task: {e}");
+                Self::a2a_error(-32603, "Failed to serialize task", request_id)
+            }
         }
     }
 
@@ -591,16 +528,7 @@ impl A2AServer {
             Ok(params) => params,
             Err(e) => {
                 error!("Failed to parse A2A task get parameters: {}", e);
-                return A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(A2AErrorResponse {
-                        code: -32602,
-                        message: format!("Invalid parameters: {e}"),
-                        data: None,
-                    }),
-                    id: request.id,
-                };
+                return Self::a2a_error(-32602, "Invalid parameters", request.id);
             }
         };
 
@@ -628,26 +556,11 @@ impl A2AServer {
                     id: request.id,
                 }
             }
-            Ok(None) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32601,
-                    message: "Task not found".into(),
-                    data: None,
-                }),
-                id: request.id,
-            },
-            Err(e) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32000,
-                    message: format!("Database error: {e}"),
-                    data: None,
-                }),
-                id: request.id,
-            },
+            Ok(None) => Self::a2a_error(-32601, "Task not found", request.id),
+            Err(e) => {
+                error!("A2A task get database error: {e}");
+                Self::a2a_error(-32000, "Database error", request.id)
+            }
         }
     }
 
@@ -660,16 +573,8 @@ impl A2AServer {
         let owned_client_ids = match Self::get_owned_client_ids(&user_id, resources).await {
             Ok(ids) => ids,
             Err(e) => {
-                return A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(A2AErrorResponse {
-                        code: -32000,
-                        message: format!("Failed to resolve client ownership: {e}"),
-                        data: None,
-                    }),
-                    id: request.id,
-                };
+                error!("Failed to resolve client ownership: {e}");
+                return Self::a2a_error(-32000, "Failed to resolve client ownership", request.id);
             }
         };
 
@@ -727,16 +632,10 @@ impl A2AServer {
                     id: request.id,
                 }
             }
-            Err(e) => A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32000,
-                    message: format!("Database error: {e}"),
-                    data: None,
-                }),
-                id: request.id,
-            },
+            Err(e) => {
+                error!("A2A task list database error: {e}");
+                Self::a2a_error(-32000, "Database error", request.id)
+            }
         }
     }
 
@@ -809,28 +708,15 @@ impl A2AServer {
             {
                 Ok(Some(ctx)) => ctx,
                 Ok(None) => {
-                    return A2AResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(A2AErrorResponse {
-                            code: -32001,
-                            message: "User does not belong to any tenant".into(),
-                            data: None,
-                        }),
-                        id: request.id,
-                    };
+                    return Self::a2a_error(
+                        -32001,
+                        "User does not belong to any tenant",
+                        request.id,
+                    );
                 }
                 Err(e) => {
-                    return A2AResponse {
-                        jsonrpc: "2.0".into(),
-                        result: None,
-                        error: Some(A2AErrorResponse {
-                            code: -32603,
-                            message: format!("Failed to resolve tenant context: {e}"),
-                            data: None,
-                        }),
-                        id: request.id,
-                    };
+                    error!("Failed to resolve tenant context: {e}");
+                    return Self::a2a_error(-32603, "Failed to resolve tenant context", request.id);
                 }
             };
 
@@ -861,28 +747,13 @@ impl A2AServer {
                     error: None,
                     id: request.id,
                 },
-                Err(e) => A2AResponse {
-                    jsonrpc: "2.0".into(),
-                    result: None,
-                    error: Some(A2AErrorResponse {
-                        code: -32000,
-                        message: format!("Tool execution failed: {e}"),
-                        data: None,
-                    }),
-                    id: request.id,
-                },
+                Err(e) => {
+                    error!("A2A tool execution failed: {e}");
+                    Self::a2a_error(-32000, "Tool execution failed", request.id)
+                }
             }
         } else {
-            A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32601,
-                    message: format!("Unknown tool: {tool_name}"),
-                    data: None,
-                }),
-                id: request.id,
-            }
+            Self::a2a_error(-32601, format!("Unknown tool: {tool_name}"), request.id)
         }
     }
 
@@ -908,16 +779,7 @@ impl A2AServer {
                 id: request.id,
             }
         } else {
-            A2AResponse {
-                jsonrpc: "2.0".into(),
-                result: None,
-                error: Some(A2AErrorResponse {
-                    code: -32602,
-                    message: "Missing required parameter: task_id".into(),
-                    data: None,
-                }),
-                id: request.id,
-            }
+            Self::a2a_error(-32602, "Missing required parameter: task_id", request.id)
         }
     }
 
@@ -965,18 +827,11 @@ impl A2AServer {
     }
 
     fn handle_unknown_method(request: A2ARequest) -> A2AResponse {
-        let error = A2AErrorResponse {
-            code: -32601,
-            message: format!("Method not found: {}", request.method),
-            data: None,
-        };
-
-        A2AResponse {
-            jsonrpc: "2.0".into(),
-            result: None,
-            error: Some(error),
-            id: request.id,
-        }
+        Self::a2a_error(
+            -32601,
+            format!("Method not found: {}", request.method),
+            request.id,
+        )
     }
 }
 

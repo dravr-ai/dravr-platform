@@ -1159,7 +1159,7 @@ impl OAuth2Routes {
             .ok_or_else(|| AppError::not_found("User not found"))?;
 
         // Verify password hash
-        if !Self::verify_password(password, &user.password_hash).await {
+        if !Self::verify_password(password, &user.password_hash).await? {
             return Err(AppError::auth_invalid("Invalid password"));
         }
 
@@ -1183,13 +1183,22 @@ impl OAuth2Routes {
     ///
     /// Uses `tokio::task::spawn_blocking` to avoid blocking the async executor
     /// with CPU-intensive bcrypt operations.
-    async fn verify_password(password: &str, hash: &str) -> bool {
+    async fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
         let password = password.to_owned();
         let hash = hash.to_owned();
 
-        spawn_blocking(move || bcrypt::verify(&password, &hash).unwrap_or(false))
+        let result = spawn_blocking(move || bcrypt::verify(&password, &hash))
             .await
-            .unwrap_or(false)
+            .map_err(|e| {
+                error!("Password verification task panicked: {e}");
+                AppError::internal("Password verification failed")
+            })?
+            .map_err(|e| {
+                error!("bcrypt verification error: {e}");
+                AppError::internal("Password verification failed")
+            })?;
+
+        Ok(result)
     }
 
     /// Extract session token from cookie header
