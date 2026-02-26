@@ -334,6 +334,7 @@ const FALLBACK_MODELS: &[&str] = &[
     "hermes2pro:latest",
 ];
 
+/// LLM provider for OpenAI-compatible APIs (Ollama, vLLM, LM Studio, etc.)
 pub struct OpenAiCompatibleProvider {
     client: Client,
     config: OpenAiCompatibleConfig,
