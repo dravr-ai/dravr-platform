@@ -227,6 +227,15 @@ impl ChatProvider {
         self.capabilities().supports_function_calling()
     }
 
+    /// Get the inner `CliLlmProvider` if this is an embache-based provider
+    #[must_use]
+    pub fn as_cli_provider(&self) -> Option<&CliLlmProvider> {
+        match self {
+            Self::Cli(p) => Some(p),
+            _ => None,
+        }
+    }
+
     /// Perform a chat completion with tool/function calling support
     ///
     /// Gemini, Groq, and Local providers all support native function/tool calling
