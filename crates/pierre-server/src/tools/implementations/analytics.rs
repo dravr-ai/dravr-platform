@@ -10,6 +10,7 @@
 //! - `AnalyzeTrainingLoadTool` - Calculate CTL/ATL/TSB training metrics
 //! - `DetectPatternsTool` - Detect training patterns and overtraining signs
 //! - `CalculateFitnessScoreTool` - Calculate overall fitness score
+//! - `AnalyzeWeatherImpactTool` - Analyze weather impact on activity performance
 //!
 //! These tools use the intelligence module directly for efficient analysis.
 
@@ -22,6 +23,7 @@ use tracing::info;
 
 use crate::config::environment::default_provider;
 use crate::errors::AppResult;
+use crate::intelligence::weather::WeatherService;
 use crate::intelligence::{PatternDetector, RiskLevel, TrainingLoadCalculator, TrainingStatus};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::Activity;
@@ -542,6 +544,181 @@ impl McpTool for CalculateFitnessScoreTool {
 }
 
 // ============================================================================
+// AnalyzeWeatherImpactTool - Analyze weather conditions for an activity
+// ============================================================================
+
+/// Conversion factor from Celsius to Fahrenheit: F = C * 1.8 + 32
+const CELSIUS_TO_FAHRENHEIT_FACTOR: f64 = 1.8;
+/// Offset added after scaling for Celsius to Fahrenheit conversion
+const FAHRENHEIT_OFFSET: f64 = 32.0;
+/// Conversion factor from km/h to mph
+const KMH_TO_MPH_FACTOR: f32 = 0.621_371;
+
+/// Tool for analyzing how weather conditions affected activity performance.
+pub struct AnalyzeWeatherImpactTool;
+
+#[async_trait]
+impl McpTool for AnalyzeWeatherImpactTool {
+    fn name(&self) -> &'static str {
+        "analyze_weather_impact"
+    }
+
+    fn description(&self) -> &'static str {
+        "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("ID of the activity to analyze".to_owned()),
+            },
+        );
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Fitness provider to query (e.g., 'strava'). Defaults to configured provider."
+                        .to_owned(),
+                ),
+            },
+        );
+        properties.insert(
+            "units".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Temperature and distance units: 'metric' (default) or 'imperial'.".to_owned(),
+                ),
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["activity_id".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "activity_id is required"
+            })));
+        };
+
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let units = args
+            .get("units")
+            .and_then(Value::as_str)
+            .unwrap_or("metric");
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        let activity = match provider.get_activity(activity_id).await {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        // GPS location is needed for weather lookup
+        if activity.start_latitude().is_none() || activity.start_longitude().is_none() {
+            return Ok(ToolResult::ok(json!({
+                "activity_id": activity_id,
+                "activity_name": activity.name(),
+                "weather": null,
+                "impact": null,
+                "note": "Activity has no GPS location data — weather analysis requires start coordinates",
+                "units": units
+            })));
+        }
+
+        let mut weather_service = WeatherService::with_default_config();
+
+        let weather = match weather_service
+            .get_weather_for_activity(
+                activity.start_latitude(),
+                activity.start_longitude(),
+                activity.start_date(),
+            )
+            .await
+        {
+            Ok(Some(w)) => w,
+            Ok(None) => {
+                return Ok(ToolResult::ok(json!({
+                    "activity_id": activity_id,
+                    "activity_name": activity.name(),
+                    "weather": null,
+                    "impact": null,
+                    "note": "Weather data unavailable — the weather API may be disabled or unconfigured",
+                    "units": units
+                })));
+            }
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Weather lookup failed: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        let impact = weather_service.analyze_weather_impact(&weather);
+
+        let weather_json = if units == "imperial" {
+            json!({
+                "temperature_fahrenheit": f64::from(weather.temperature_celsius).mul_add(CELSIUS_TO_FAHRENHEIT_FACTOR, FAHRENHEIT_OFFSET).round(),
+                "humidity_percentage": weather.humidity_percentage,
+                "wind_speed_mph": weather.wind_speed_kmh.map(|w| (w * KMH_TO_MPH_FACTOR * 10.0).round() / 10.0),
+                "conditions": weather.conditions
+            })
+        } else {
+            json!({
+                "temperature_celsius": weather.temperature_celsius,
+                "humidity_percentage": weather.humidity_percentage,
+                "wind_speed_kmh": weather.wind_speed_kmh,
+                "conditions": weather.conditions
+            })
+        };
+
+        info!(
+            "Weather impact analysis for activity {}: {:?}",
+            activity_id, impact.difficulty_level
+        );
+
+        Ok(ToolResult::ok(json!({
+            "activity_id": activity_id,
+            "activity_name": activity.name(),
+            "weather": weather_json,
+            "impact": {
+                "difficulty_level": impact.difficulty_level,
+                "impact_factors": impact.impact_factors,
+                "performance_adjustment": impact.performance_adjustment
+            },
+            "units": units
+        })))
+    }
+}
+
+// ============================================================================
 // Module exports
 // ============================================================================
 
@@ -552,5 +729,6 @@ pub fn create_analytics_tools() -> Vec<Box<dyn McpTool>> {
         Box::new(AnalyzeTrainingLoadTool),
         Box::new(DetectPatternsTool),
         Box::new(CalculateFitnessScoreTool),
+        Box::new(AnalyzeWeatherImpactTool),
     ]
 }

@@ -8,7 +8,7 @@
 // - Plugin info cloning for registry operations
 // - Arc plugin clones for concurrent access
 
-use super::community::{BasicAnalysisPlugin, WeatherIntegrationPlugin};
+use super::community::BasicAnalysisPlugin;
 use super::core::{PluginInfo, PluginTool, PluginToolStatic};
 use super::PluginEnvironment;
 use crate::protocols::universal::UniversalRequest;
@@ -43,8 +43,6 @@ impl PluginRegistry {
         // Manually register all built-in plugins
         // Note: When adding new plugins, add them to this list
         self.register_plugin(Box::new(BasicAnalysisPlugin::new()))
-            .ok();
-        self.register_plugin(Box::new(WeatherIntegrationPlugin::new()))
             .ok();
 
         info!("Registered {} plugins", self.plugins.len());

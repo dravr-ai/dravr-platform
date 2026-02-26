@@ -6,12 +6,8 @@
 
 /// Basic activity analysis plugin
 pub mod basic_analysis;
-/// Weather integration plugin
-pub mod weather_integration;
 
 // Re-export community plugins
 
 /// Basic analysis plugin for activity insights
 pub use basic_analysis::BasicAnalysisPlugin;
-/// Weather integration plugin for weather data
-pub use weather_integration::WeatherIntegrationPlugin;

@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use crate::constants::{
     json_fields::{ACTIVITY_ID, FORMAT, PROVIDER},
     tools::{
-        ANALYZE_ACTIVITY, DELETE_FITNESS_CONFIG, GET_FITNESS_CONFIG, LIST_FITNESS_CONFIGS,
-        SET_FITNESS_CONFIG,
+        ANALYZE_ACTIVITY, ANALYZE_WEATHER_IMPACT, DELETE_FITNESS_CONFIG, GET_FITNESS_CONFIG,
+        LIST_FITNESS_CONFIGS, SET_FITNESS_CONFIG,
     },
 };
 
@@ -33,6 +33,7 @@ pub(super) fn create_intelligence_tools() -> Vec<ToolSchema> {
         create_calculate_fitness_score_tool(),
         create_predict_performance_tool(),
         create_analyze_training_load_tool(),
+        create_analyze_weather_impact_tool(),
         // Configuration Management Tools
         create_get_configuration_catalog_tool(),
         create_get_configuration_profiles_tool(),
@@ -612,6 +613,53 @@ fn create_analyze_training_load_tool() -> ToolSchema {
             schema_type: "object".into(),
             properties: Some(properties),
             required: Some(vec!["provider".into()]),
+        },
+        annotations: None,
+    }
+}
+
+/// Create the `analyze_weather_impact` tool schema
+fn create_analyze_weather_impact_tool() -> ToolSchema {
+    let mut properties = HashMap::new();
+
+    properties.insert(
+        ACTIVITY_ID.to_owned(),
+        PropertySchema {
+            property_type: "string".into(),
+            description: Some("ID of the activity to analyze".into()),
+        },
+    );
+
+    properties.insert(
+        PROVIDER.to_owned(),
+        PropertySchema {
+            property_type: "string".into(),
+            description: Some(
+                "Fitness provider name (e.g., 'strava', 'garmin'). Defaults to configured provider."
+                    .into(),
+            ),
+        },
+    );
+
+    properties.insert(
+        "units".to_owned(),
+        PropertySchema {
+            property_type: "string".into(),
+            description: Some(
+                "Temperature and distance units: 'metric' (default) or 'imperial'.".into(),
+            ),
+        },
+    );
+
+    properties.insert(FORMAT.to_owned(), format_property());
+
+    ToolSchema {
+        name: ANALYZE_WEATHER_IMPACT.to_owned(),
+        description: "Analyze how weather conditions affected activity performance, including temperature, humidity, wind, and precipitation impact".into(),
+        input_schema: JsonSchema {
+            schema_type: "object".into(),
+            properties: Some(properties),
+            required: Some(vec![ACTIVITY_ID.to_owned()]),
         },
         annotations: None,
     }
