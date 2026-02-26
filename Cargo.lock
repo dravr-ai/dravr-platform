@@ -1098,7 +1098,7 @@ dependencies = [
 [[package]]
 name = "embache"
 version = "0.2.0"
-source = "git+https://github.com/dravr-ai/dravr-embache.git?branch=main#b63a5fdd597bed01e161174dc0174d4ddccb6f28"
+source = "git+https://github.com/dravr-ai/dravr-embache.git?branch=main#5033468e2af2caa02ca1392faa6a882bd8a3d3f6"
 dependencies = [
  "async-trait",
  "bitflags",

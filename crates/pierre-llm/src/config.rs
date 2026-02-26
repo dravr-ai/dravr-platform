@@ -78,12 +78,22 @@ impl LlmProviderType {
     /// Default wait time before attempting fallback (10 seconds, matches Gemini retry)
     pub const DEFAULT_FALLBACK_WAIT_SECS: u64 = 10;
 
-    /// Get model from environment
+    /// Get model from environment, respecting the active provider
     ///
-    /// Reads `PIERRE_LLM_MODEL` - returns None if not set.
-    /// Logs an error when not configured but allows server to continue.
+    /// For API-based providers (Gemini, Groq, Local), reads `PIERRE_LLM_MODEL`.
+    /// For embache-based providers, reads the runner-specific env var
+    /// (e.g. `COPILOT_SDK_MODEL`) or uses the runner's built-in default.
+    /// Returns None only if no model can be determined.
     #[must_use]
     pub fn model_from_env() -> Option<String> {
+        let provider = Self::from_env();
+
+        // Embache-based providers have their own model configuration
+        if let Some(model) = provider.embache_model_from_env() {
+            return Some(model);
+        }
+
+        // API-based providers use PIERRE_LLM_MODEL
         match env::var(Self::MODEL_ENV_VAR) {
             Ok(model) if !model.is_empty() => Some(model),
             _ => {
@@ -93,6 +103,24 @@ impl LlmProviderType {
                 );
                 None
             }
+        }
+    }
+
+    /// Get model name for embache-based providers from their own env vars
+    ///
+    /// Each embache runner has its own default model. Some support env var overrides.
+    /// Returns None for non-embache providers.
+    #[must_use]
+    fn embache_model_from_env(self) -> Option<String> {
+        match self {
+            Self::CopilotSdk => Some(
+                env::var("COPILOT_SDK_MODEL").unwrap_or_else(|_| "claude-sonnet-4.6".to_owned()),
+            ),
+            Self::ClaudeCode => Some("sonnet".to_owned()),
+            Self::Copilot => Some("claude-sonnet-4.6".to_owned()),
+            Self::CursorAgent => Some("sonnet-4".to_owned()),
+            Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
+            Self::Gemini | Self::Groq | Self::Local => None,
         }
     }
 

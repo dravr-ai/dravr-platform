@@ -142,6 +142,17 @@ impl CliLlmProvider {
         }
     }
 
+    /// Downcast the inner runner to a `CopilotSdkRunner` reference.
+    ///
+    /// Returns `Some` only when the underlying runner is the Copilot SDK provider.
+    /// Used by the SDK tool loop to access `execute_with_tools()`.
+    #[must_use]
+    pub fn as_copilot_sdk_runner(&self) -> Option<&embache::CopilotSdkRunner> {
+        self.runner
+            .as_any()
+            .downcast_ref::<embache::CopilotSdkRunner>()
+    }
+
     /// Check whether the CLI runner is authenticated and available
     ///
     /// Performs a non-cached check. Updates the internal readiness state.

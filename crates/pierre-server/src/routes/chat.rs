@@ -1017,8 +1017,8 @@ impl ChatRoutes {
         // Get LLM provider
         let provider = Self::get_llm_provider().await?;
 
-        // Create MCP executor for tool calls
-        let executor = UniversalExecutor::new(resources.clone()); // Arc clone for executor creation
+        // Create MCP executor for tool calls (Arc for sharing with SDK tool handler closures)
+        let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 
         // Resolve max tool iterations: coach setting > admin config > default
         let max_iterations =
@@ -1031,7 +1031,7 @@ impl ChatRoutes {
         // Run multi-turn tool execution loop
         let tool_params = ToolLoopParams {
             provider: &provider,
-            executor: &executor,
+            executor: Arc::clone(&executor),
             tools: &tools,
             model: &conv.model,
             user_id: &user_id_str,
@@ -1039,6 +1039,15 @@ impl ChatRoutes {
             max_iterations,
         };
         let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
+
+        info!(
+            content_len = result.content.len(),
+            content_preview = %result.content.chars().take(300).collect::<String>(),
+            tool_calls = result.tool_calls_count,
+            finish_reason = ?result.finish_reason,
+            has_usage = result.usage.is_some(),
+            "Tool loop completed"
+        );
 
         // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
         #[allow(clippy::cast_possible_truncation)]

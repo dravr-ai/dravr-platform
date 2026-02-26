@@ -1,30 +1,35 @@
 // ABOUTME: Strategy pattern for LLM tool execution loops in chat conversations
-// ABOUTME: Supports API-based (Gemini/Groq) and CLI-based (Claude Code) tool calling modes
+// ABOUTME: Supports API-based, SDK-based (Copilot SDK), and CLI-based tool calling modes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Tool loop strategies for chat conversations
 //!
-//! Two strategies exist for executing tool calls during LLM conversations:
-//! - [`ApiToolLoop`]: Native function calling via `complete_with_tools()` (Gemini, Groq)
-//! - [`CliToolLoop`]: Text-based tool calling via `<tool_call>` blocks (CLI providers)
+//! Three strategies exist for executing tool calls during LLM conversations:
+//! - [`run_api_tool_loop`]: Native function calling via `complete_with_tools()` (Gemini, Groq)
+//! - [`run_sdk_tool_loop`]: SDK-managed tool calling via `ToolHandler` callback (Copilot SDK)
+//! - [`run_cli_tool_loop`]: Text-based tool calling via `<tool_call>` blocks (CLI providers)
 //!
-//! Both strategies share the same MCP executor infrastructure and produce
+//! All strategies share the same MCP executor infrastructure and produce
 //! identical [`ToolLoopResult`] output.
 
 use crate::models::TenantId;
 use crate::{
     errors::AppError,
     llm::{
-        ChatMessage, ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration,
-        FunctionResponse, TokenUsage, Tool,
+        convert_function_declarations, extract_declarations_from_tool_value, ChatMessage,
+        ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, TokenUsage,
+        Tool, ToolHandler, ToolResultObject,
     },
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
 };
 use pierre_core::llm::MessageRole;
 use serde_json::Value;
 use std::fmt::Write;
+use std::sync::{Arc, Mutex};
+use tokio::runtime::Handle;
+use tokio::task::block_in_place;
 use tracing::{debug, info, warn};
 
 // ============================================================================
@@ -35,8 +40,8 @@ use tracing::{debug, info, warn};
 pub struct ToolLoopParams<'a> {
     /// LLM provider to use for completions
     pub provider: &'a ChatProvider,
-    /// MCP executor for running tool calls
-    pub executor: &'a UniversalExecutor,
+    /// MCP executor for running tool calls (Arc for sharing with SDK tool handler closures)
+    pub executor: Arc<UniversalExecutor>,
     /// Tool definitions available for function calling
     pub tools: &'a Tool,
     /// Model identifier for the LLM request
@@ -110,7 +115,7 @@ pub async fn run_api_tool_loop(
                 );
 
                 let function_responses = execute_function_calls(
-                    params.executor,
+                    &params.executor,
                     function_calls,
                     params.user_id,
                     params.tenant_id,
@@ -196,6 +201,11 @@ pub async fn run_cli_tool_loop(
     let tool_catalog = generate_tool_catalog(&params.tools.function_declarations);
     inject_tool_catalog_into_system_prompt(llm_messages, &tool_catalog);
 
+    debug!(
+        message_count = llm_messages.len(),
+        "CLI tool loop: starting with injected tool catalog"
+    );
+
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
@@ -227,7 +237,7 @@ pub async fn run_cli_tool_loop(
 
         // Execute the parsed tool calls via MCP
         let function_responses = execute_function_calls(
-            params.executor,
+            &params.executor,
             &parsed_tool_calls,
             params.user_id,
             params.tenant_id,
@@ -478,7 +488,11 @@ pub async fn execute_function_calls(
 
     let mut responses = Vec::with_capacity(function_calls.len());
     for function_call in function_calls {
-        info!("Executing tool: {}", function_call.name);
+        info!(
+            tool_name = %function_call.name,
+            args = %function_call.args,
+            "Executing tool"
+        );
         let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
         let func_response = build_function_response(function_call, &tool_response);
 
@@ -592,8 +606,10 @@ pub fn add_function_responses_to_messages(
 
 /// Select and run the appropriate tool loop strategy based on provider capabilities.
 ///
+/// Three-way dispatch:
 /// - Providers with `FUNCTION_CALLING` capability use [`run_api_tool_loop`]
-/// - Providers without it use [`run_cli_tool_loop`] (text-based tool calling)
+/// - Providers with `SDK_TOOL_CALLING` capability use [`run_sdk_tool_loop`]
+/// - Providers with neither use [`run_cli_tool_loop`] (text-based tool calling)
 ///
 /// # Errors
 ///
@@ -602,11 +618,155 @@ pub async fn run_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    if params.provider.capabilities().supports_function_calling() {
-        debug!("Using API tool loop (native function calling)");
+    let capabilities = params.provider.capabilities();
+    if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
+    } else if capabilities.supports_sdk_tool_calling() {
+        run_sdk_tool_loop(params, llm_messages).await
     } else {
-        debug!("Using CLI tool loop (text-based tool calling)");
         run_cli_tool_loop(params, llm_messages).await
     }
+}
+
+// ============================================================================
+// SDK Tool Loop (Copilot SDK native tool calling via ToolHandler)
+// ============================================================================
+
+/// Executes the tool loop using Copilot SDK native tool calling.
+///
+/// The SDK manages the tool call → execute → response cycle internally via the
+/// `ToolHandler` callback. The caller provides a bridge function that routes
+/// tool calls through the MCP executor.
+///
+/// # Errors
+///
+/// Returns error if the SDK runner cannot be extracted, or the SDK call fails.
+async fn run_sdk_tool_loop(
+    params: &ToolLoopParams<'_>,
+    llm_messages: &[ChatMessage],
+) -> Result<ToolLoopResult, AppError> {
+    // Extract the CopilotSdkRunner from the ChatProvider
+    let sdk_runner = params
+        .provider
+        .as_cli_provider()
+        .and_then(|cli| cli.as_copilot_sdk_runner())
+        .ok_or_else(|| {
+            AppError::internal(
+                "SDK tool loop requires CopilotSdkRunner but provider is not Copilot SDK",
+            )
+        })?;
+
+    // Convert Pierre tool declarations to copilot-sdk Tool definitions
+    let tool_value = serde_json::to_value(params.tools).unwrap_or_default();
+    let declarations = extract_declarations_from_tool_value(&tool_value);
+    let sdk_tools = convert_function_declarations(&declarations);
+
+    info!(
+        tool_count = sdk_tools.len(),
+        "SDK tool loop: registering tools with Copilot SDK"
+    );
+
+    // Build the ChatRequest from the accumulated messages
+    let request = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
+
+    // Shared state for capturing activity list from get_activities tool calls
+    let captured_activity_list: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+    // Build the ToolHandler closure that bridges sync SDK callbacks to async MCP execution
+    let executor = Arc::clone(&params.executor);
+    let user_id = params.user_id.to_owned();
+    let tenant_id = params.tenant_id;
+    let activity_list_capture = Arc::clone(&captured_activity_list);
+
+    let handler: ToolHandler = Arc::new(move |name: &str, args: &Value| {
+        let executor = Arc::clone(&executor);
+        let name = name.to_owned();
+        let args = args.clone();
+        let user_id = user_id.clone();
+        let activity_list_capture = Arc::clone(&activity_list_capture);
+
+        // Bridge sync ToolHandler to async MCP executor using block_in_place
+        block_in_place(|| {
+            Handle::current().block_on(async {
+                info!(tool_name = %name, "SDK tool handler: executing MCP tool");
+
+                let mcp_request = UniversalRequest {
+                    tool_name: name.clone(),
+                    parameters: args,
+                    user_id,
+                    protocol: "chat".to_owned(),
+                    tenant_id: Some(tenant_id.to_string()),
+                    progress_token: None,
+                    cancellation_token: None,
+                    progress_reporter: None,
+                };
+
+                match executor.execute_tool(mcp_request).await {
+                    Ok(response) => {
+                        let result_value = response.result.unwrap_or_else(|| {
+                            serde_json::json!({"status": "success"})
+                        });
+
+                        // Capture activity list from get_activities responses
+                        if name == "get_activities" {
+                            if let Some(list) = result_value
+                                .get("activity_list")
+                                .and_then(|v| v.as_str())
+                                .filter(|s| !s.is_empty())
+                            {
+                                info!(
+                                    list_len = list.len(),
+                                    "SDK tool handler: captured activity list"
+                                );
+                                if let Ok(mut guard) = activity_list_capture.lock() {
+                                    *guard = Some(list.to_owned());
+                                }
+                            }
+                        }
+
+                        let result_json = serde_json::to_string(&result_value)
+                            .unwrap_or_else(|_| "{}".to_owned());
+                        info!(
+                            tool_name = %name,
+                            result_len = result_json.len(),
+                            "SDK tool handler: tool executed successfully"
+                        );
+                        ToolResultObject::text(result_json)
+                    }
+                    Err(e) => {
+                        warn!(tool_name = %name, error = %e, "SDK tool handler: tool execution failed");
+                        ToolResultObject::error(e.to_string())
+                    }
+                }
+            })
+        })
+    });
+
+    // Execute the full conversation turn with tool calling
+    let sdk_response = sdk_runner
+        .execute_with_tools(&request, sdk_tools, handler)
+        .await
+        .map_err(AppError::from)?;
+
+    // Extract captured activity list
+    let activity_list = captured_activity_list
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone());
+
+    info!(
+        content_len = sdk_response.content.len(),
+        model = %sdk_response.model,
+        tool_calls = sdk_response.tool_calls_count,
+        has_activity_list = activity_list.is_some(),
+        "SDK tool loop completed"
+    );
+
+    Ok(ToolLoopResult {
+        content: sdk_response.content,
+        usage: sdk_response.usage,
+        finish_reason: sdk_response.finish_reason,
+        activity_list,
+        tool_calls_count: sdk_response.tool_calls_count,
+    })
 }

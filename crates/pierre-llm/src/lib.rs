@@ -50,6 +50,10 @@ pub mod sse_parser;
 
 pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
 pub use embache::{
+    convert_function_declarations, extract_declarations_from_tool_value, ToolHandler,
+    ToolResultObject,
+};
+pub use embache::{
     ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner,
 };
 pub use gemini::{
