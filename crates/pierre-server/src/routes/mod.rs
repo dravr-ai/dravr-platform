@@ -248,26 +248,14 @@ pub type OAuthRoutes = OAuthService;
 use crate::errors::AppError as ServerAppError;
 use pierre_llm::ChatProvider;
 
-/// Create a `ChatProvider` from environment, with Copilot SDK support
+/// Create a `ChatProvider` from environment configuration
 ///
-/// Uses `from_env_with_dynamic` to handle `CopilotSdk` provider type
-/// via the `pierre-copilot-sdk` leaf crate, keeping that dependency
-/// out of `pierre-llm`.
+/// All provider types (Gemini, Groq, Local, CLI runners, Copilot SDK)
+/// are handled directly by `pierre-llm` via the embache library.
 ///
 /// # Errors
 ///
 /// Returns an error if the configured provider cannot be initialized.
 pub async fn create_chat_provider() -> Result<ChatProvider, ServerAppError> {
-    use pierre_copilot_sdk::CopilotSdkProvider;
-    use pierre_llm::config::LlmProviderType;
-
-    ChatProvider::from_env_with_dynamic(|provider_type| {
-        if provider_type == LlmProviderType::CopilotSdk {
-            let sdk_provider = CopilotSdkProvider::from_env();
-            Some(Ok(ChatProvider::dynamic(Box::new(sdk_provider))))
-        } else {
-            None
-        }
-    })
-    .await
+    ChatProvider::from_env().await
 }

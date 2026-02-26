@@ -23,7 +23,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 bytes = "1.11"
 futures-util = "0.3"
 bitflags = { version = "2.6", features = ["serde"] }
-cli-llm-runners = { version = "0.1.0", path = "../cli-llm-runners" }
+embache = { git = "https://github.com/dravr-ai/dravr-embache.git", branch = "main", features = ["copilot-sdk"] }
 
 [lints]
 workspace = true

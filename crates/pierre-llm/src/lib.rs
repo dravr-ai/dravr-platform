@@ -29,7 +29,7 @@ pub use pierre_core::llm::{
     LlmProviderRegistry, MessageRole, StreamChunk, TokenUsage,
 };
 
-/// CLI-based LLM provider facade wrapping subprocess runners
+/// Embache-based LLM provider facade wrapping CLI subprocess and SDK runners
 mod cli_llm_provider;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
@@ -48,10 +48,9 @@ mod provider;
 /// Shared SSE parser for streaming responses
 pub mod sse_parser;
 
-pub use cli_llm_provider::CliLlmProvider;
-pub use cli_llm_runners::{
+pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
+pub use embache::{
     ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner,
-    ProviderReadiness,
 };
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,
