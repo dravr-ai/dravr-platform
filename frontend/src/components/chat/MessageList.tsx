@@ -6,6 +6,7 @@
 
 import { useRef, useEffect } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { isInsightPrompt, detectInsightMessages, splitActivityContent } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
@@ -154,6 +155,7 @@ export default function MessageList({
             </div>
             <div className="text-zinc-300 text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
               <Markdown
+                remarkPlugins={[remarkGfm]}
                 components={{
                   a: ({ href, children }) => (
                     <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">

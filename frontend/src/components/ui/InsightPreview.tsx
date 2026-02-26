@@ -5,6 +5,7 @@
 // ABOUTME: Provides consistent styling for content preview across modals and cards
 
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface InsightPreviewProps {
   /** The markdown content to render */
@@ -34,6 +35,7 @@ export function InsightPreview({
         className={`bg-white/5 rounded-lg p-4 text-zinc-100 text-sm ${maxHeight} overflow-y-auto prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5 prose-p:my-2`}
       >
         <Markdown
+          remarkPlugins={[remarkGfm]}
           components={{
             a: ({ href, children }) => (
               <a
