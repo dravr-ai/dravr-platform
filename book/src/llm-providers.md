@@ -7,38 +7,33 @@ This document describes Pierre's LLM (Large Language Model) provider abstraction
 
 ## Overview
 
-The LLM module provides a trait-based abstraction that allows Pierre to integrate with multiple AI providers through a unified interface. The design mirrors the fitness provider SPI pattern for consistency.
+The LLM module provides a trait-based abstraction that allows Pierre to integrate with multiple AI providers through a unified interface. Eight providers are organized into three categories, each with a dedicated tool loop strategy.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                             ChatProvider                                     │
-│                  Runtime provider selector (from env)                        │
-│           PIERRE_LLM_PROVIDER=groq|gemini|local|ollama|vllm                 │
-└──────────────────────────────────┬──────────────────────────────────────────┘
-                                   │
-           ┌───────────────────────┼───────────────────────┐
-           │                       │                       │
-           ▼                       ▼                       ▼
-    ┌─────────────┐         ┌─────────────┐         ┌─────────────────┐
-    │   Gemini    │         │    Groq     │         │ OpenAI-         │
-    │  Provider   │         │  Provider   │         │ Compatible      │
-    │  (vision,   │         │  (fast LPU  │         │ (Ollama, vLLM,  │
-    │   tools)    │         │  inference) │         │  LocalAI)       │
-    └──────┬──────┘         └──────┬──────┘         └────────┬────────┘
-           │                       │                         │
-           │                       │              ┌──────────┴──────────┐
-           │                       │              │                     │
-           │                       │         ┌────┴────┐          ┌────┴────┐
-           │                       │         │ Ollama  │          │  vLLM   │
-           │                       │         │localhost│          │localhost│
-           │                       │         │ :11434  │          │ :8000   │
-           └───────────────────────┴─────────┴────┬────┴──────────┴────┬────┘
-                                                  │                    │
-                                                  ▼                    ▼
-                                         ┌───────────────────────────────────┐
-                                         │      LlmProvider Trait            │
-                                         │      (shared interface)           │
-                                         └───────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                               ChatProvider                                       │
+│                    Runtime provider selector (from env)                          │
+│  PIERRE_LLM_PROVIDER=gemini|groq|local|claude_code|copilot|copilot_sdk|...      │
+└───────────────────────────────────┬─────────────────────────────────────────────┘
+                                    │
+         ┌──────────────────────────┼──────────────────────────┐
+         │                          │                          │
+         ▼                          ▼                          ▼
+┌────────────────┐        ┌─────────────────┐        ┌─────────────────────┐
+│  API-based     │        │  SDK-based      │        │  CLI-based          │
+│  (native func  │        │  (native tool   │        │  (text <tool_call>  │
+│   calling)     │        │   calling via   │        │   blocks)           │
+│                │        │   ToolHandler)  │        │                     │
+│ - Gemini       │        │ - Copilot SDK   │        │ - Claude Code       │
+│ - Groq         │        └────────┬────────┘        │ - Copilot CLI       │
+│ - Local/Ollama │                 │                  │ - Cursor Agent      │
+└───────┬────────┘                 │                  │ - OpenCode          │
+        │                          │                  └─────────┬───────────┘
+        │                          │                            │
+        ▼                          ▼                            ▼
+  run_api_tool_loop       run_sdk_tool_loop           run_cli_tool_loop
+  complete_with_tools()   ToolHandler callback        complete() + parse
+  (FUNCTION_CALLING cap)  (SDK_TOOL_CALLING cap)      <tool_call> blocks
 ```
 
 ## Quick Start
@@ -46,13 +41,14 @@ The LLM module provides a trait-based abstraction that allows Pierre to integrat
 ### Option 1: Cloud Providers (No Setup Required)
 
 ```bash
-# Groq (default, cost-effective, fast)
-export GROQ_API_KEY="your-groq-api-key"
-export PIERRE_LLM_PROVIDER=groq
-
-# Gemini (full-featured with vision)
+# Gemini (default, full-featured with vision)
 export GEMINI_API_KEY="your-gemini-api-key"
 export PIERRE_LLM_PROVIDER=gemini
+export PIERRE_LLM_MODEL=gemini-2.5-flash
+
+# Groq (cost-effective, fast LPU inference)
+export GROQ_API_KEY="your-groq-api-key"
+export PIERRE_LLM_PROVIDER=groq
 ```
 
 ### Option 2: Local LLM (Privacy-First, No API Costs)
@@ -64,6 +60,30 @@ export LOCAL_LLM_MODEL=qwen2.5:14b-instruct
 
 # Start Pierre
 ./bin/start-server.sh
+```
+
+### Option 3: CLI and SDK Providers (No API Key Required)
+
+```bash
+# Claude Code (requires claude CLI installed and authenticated)
+export PIERRE_LLM_PROVIDER=claude_code
+
+# GitHub Copilot SDK (recommended for reliable tool calling)
+export PIERRE_LLM_PROVIDER=copilot_sdk
+# Optional: override model (default: claude-opus-4.6)
+export COPILOT_SDK_MODEL=claude-sonnet-4.6
+
+# GitHub Copilot CLI
+export PIERRE_LLM_PROVIDER=copilot
+
+# Cursor Agent
+export PIERRE_LLM_PROVIDER=cursor_agent
+
+# OpenCode
+export PIERRE_LLM_PROVIDER=opencode
+
+# Auto-detect best available CLI tool
+export PIERRE_LLM_PROVIDER=cli
 ```
 
 ---
@@ -82,9 +102,9 @@ Running a local LLM gives you complete privacy, no API costs, and works offline.
 | 70B (Q4) | 40GB+ | 40-48GB | Mac Studio, High-end workstation |
 
 **Example: Apple Silicon with 24GB unified memory:**
-- ✅ Qwen 2.5 7B (~30 tokens/sec)
-- ✅ Qwen 2.5 14B (~15-20 tokens/sec) **← Recommended**
-- ⚠️ Qwen 2.5 32B (~5-8 tokens/sec, tight fit)
+- Qwen 2.5 7B (~30 tokens/sec)
+- Qwen 2.5 14B (~15-20 tokens/sec) — Recommended
+- Qwen 2.5 32B (~5-8 tokens/sec, tight fit)
 
 ### Step 1: Install Ollama
 
@@ -199,30 +219,173 @@ ollama show qwen2.5:14b-instruct
 
 ---
 
+## CLI and SDK Providers
+
+CLI and SDK providers are powered by the `embache` library, which manages subprocess execution and SDK communication. They require no API keys — they use authentication from the already-installed CLI tool.
+
+### How CLI Providers Work
+
+CLI providers (Claude Code, Copilot CLI, Cursor Agent, OpenCode) run as subprocesses. Pierre injects the tool catalog into the system prompt and parses `<tool_call>` XML blocks from the text response:
+
+```
+┌──────────────┐   system prompt + tool catalog   ┌──────────────────┐
+│    Pierre    │ ─────────────────────────────────▶│  CLI subprocess  │
+│              │                                   │  (claude, etc.)  │
+│              │ ◀─────────────────────────────────│                  │
+│              │   text response with              └──────────────────┘
+│              │   <tool_call>{"name":...}</tool_call> blocks
+│              │
+│              │   parse blocks → execute via MCP → inject <tool_result>
+│              │ ─────────────────────────────────▶│  (next turn)     │
+└──────────────┘                                   └──────────────────┘
+```
+
+### How the Copilot SDK Provider Works
+
+The Copilot SDK provider (`copilot_sdk`) uses a persistent JSON-RPC connection via `copilot --headless`. Tool calls are handled natively through a `ToolHandler` callback, giving it the same reliability as API-based providers without requiring a separate API key:
+
+```
+┌──────────────┐   JSON-RPC (copilot --headless)   ┌──────────────────┐
+│    Pierre    │ ─────────────────────────────────▶│  Copilot SDK     │
+│  ToolHandler │ ◀─────────────────────────────────│  (persistent     │
+│   callback   │   native tool calls + responses   │   connection)    │
+└──────────────┘                                   └──────────────────┘
+```
+
+### Auto-Detection Mode
+
+Setting `PIERRE_LLM_PROVIDER=cli` triggers automatic discovery of the best available CLI tool installed on the system. The `embache` library scans for known binaries and selects the first one found. This is useful for environments where the available CLI tool may vary.
+
+### Provider Readiness Checks
+
+When a CLI provider is created, Pierre spawns a background readiness check to verify the CLI tool is installed and authenticated. Readiness status is surfaced through the `ProviderReadiness` type. SDK runners (Copilot SDK) are always considered ready because they manage authentication internally.
+
+### Default Models per Provider
+
+Each provider ships with a built-in default model. These defaults are used as the conversation label in the database when no environment override is set.
+
+| Provider | Default Model | Override Variable |
+|----------|---------------|-------------------|
+| Gemini | reads `PIERRE_LLM_MODEL` | `PIERRE_LLM_MODEL` |
+| Groq | reads `PIERRE_LLM_MODEL` | `PIERRE_LLM_MODEL` |
+| Local | `qwen2.5:14b-instruct` | `LOCAL_LLM_MODEL` |
+| Copilot SDK | `claude-opus-4.6` | `COPILOT_SDK_MODEL` |
+| Claude Code | `opus` | `CLI_LLM_MODEL` |
+| Copilot CLI | `claude-opus-4.6` | `CLI_LLM_MODEL` |
+| Cursor Agent | `sonnet-4` | `CLI_LLM_MODEL` |
+| OpenCode | `anthropic/claude-sonnet-4` | `CLI_LLM_MODEL` |
+
+---
+
+## Three-Way Tool Loop Dispatch
+
+Pierre selects a tool loop strategy based on the active provider's capability flags. The dispatch happens in `run_tool_loop()` in `crates/pierre-server/src/routes/chat_tool_loop.rs`.
+
+| Provider Category | Capability Flag | Tool Loop | How Tool Calls Work |
+|---|---|---|---|
+| API-based | `FUNCTION_CALLING` | `run_api_tool_loop` | `complete_with_tools()` returns structured `function_calls` fields |
+| SDK-based | `SDK_TOOL_CALLING` | `run_sdk_tool_loop` | `ToolHandler` callback bridges sync SDK events to async MCP executor |
+| CLI-based | (neither flag) | `run_cli_tool_loop` | `complete()` output is parsed for `<tool_call>...</tool_call>` XML blocks |
+
+All three strategies share the same MCP executor infrastructure and produce an identical `ToolLoopResult` — the calling code in the chat route cannot observe which strategy ran.
+
+### API Tool Loop (Gemini, Groq, Local)
+
+The API tool loop calls `complete_with_tools()`, inspects the `function_calls` field of the response, executes them via MCP, and appends the results as user messages before calling the LLM again. This continues until the LLM returns a text response with no function calls, or the maximum iteration count is reached.
+
+### SDK Tool Loop (Copilot SDK)
+
+The SDK tool loop extracts the `CopilotSdkRunner` from the provider and calls `execute_with_tools()` with a `ToolHandler` closure. The closure uses `block_in_place` to bridge the synchronous SDK callback interface to the asynchronous MCP executor. The SDK manages the full conversation turn internally.
+
+### CLI Tool Loop (Claude Code, Copilot CLI, Cursor Agent, OpenCode)
+
+The CLI tool loop injects the tool catalog into the system prompt, then calls `complete()` and parses `<tool_call>` JSON blocks from the plain-text response. Parsed calls are executed via MCP, and results are injected back as `<tool_result>` blocks in the next user message. The loop is capped at 5 iterations (conservative limit, since subprocess invocations are slower than API calls).
+
+---
+
+## Fallback System
+
+Pierre supports automatic fallback to a secondary provider when the primary provider fails or is rate-limited.
+
+```bash
+# Enable fallback
+export PIERRE_LLM_FALLBACK_ENABLED=true
+
+# Configure the fallback provider
+export PIERRE_LLM_FALLBACK_PROVIDER=gemini
+
+# Configure the fallback model
+export PIERRE_LLM_FALLBACK_MODEL=gemini-2.5-pro
+
+# Wait time before attempting fallback (default: 10 seconds)
+export PIERRE_LLM_FALLBACK_WAIT_SECS=10
+```
+
+Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK_WAIT_SECS` before switching to the fallback provider. Both the primary and fallback providers must be fully configured (API keys set, etc.).
+
+---
+
 ## Configuration Reference
 
 ### Environment Variables
 
+#### Provider Selection
+
+| Variable | Description | Default | Valid Values |
+|----------|-------------|---------|--------------|
+| `PIERRE_LLM_PROVIDER` | Active LLM provider | `gemini` | `gemini`, `groq`, `local`, `ollama`, `vllm`, `localai`, `claude_code`, `claude-code`, `copilot`, `github_copilot`, `copilot_sdk`, `cursor_agent`, `opencode`, `cli` |
+
+#### API-Based Provider Configuration
+
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `PIERRE_LLM_PROVIDER` | Provider: `groq`, `gemini`, `local`, `ollama`, `vllm`, `localai` | `groq` | No |
-| `GROQ_API_KEY` | Groq API key | - | Yes (for Groq) |
+| `PIERRE_LLM_MODEL` | Model for Gemini and Groq | - | Yes (for Gemini/Groq) |
+| `PIERRE_LLM_DEFAULT_MODEL` | Primary model (used by `LlmModelConfig`) | - | Yes (for Gemini/Groq) |
 | `GEMINI_API_KEY` | Google Gemini API key | - | Yes (for Gemini) |
+| `GROQ_API_KEY` | Groq API key | - | Yes (for Groq) |
 | `LOCAL_LLM_BASE_URL` | Local LLM API endpoint | `http://localhost:11434/v1` | No |
-| `LOCAL_LLM_MODEL` | Model name for local provider | `qwen2.5:14b-instruct` | No |
-| `LOCAL_LLM_API_KEY` | API key for local provider | (empty) | No |
+| `LOCAL_LLM_MODEL` | Model for local provider | `qwen2.5:14b-instruct` | No |
+| `LOCAL_LLM_API_KEY` | API key for local provider (if required) | (empty) | No |
+
+#### Gemini Retry Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GEMINI_MAX_RETRIES` | Maximum retry attempts on rate limit | `5` |
+| `GEMINI_INITIAL_RETRY_DELAY_MS` | Initial retry delay in milliseconds | `2000` |
+| `GEMINI_MAX_RETRY_DELAY_MS` | Maximum retry delay in milliseconds | `30000` |
+
+#### CLI and SDK Provider Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `COPILOT_SDK_MODEL` | Model override for Copilot SDK | `claude-opus-4.6` |
+| `CLI_LLM_MODEL` | Model override for all CLI runners | Runner-specific default |
+| `CLI_LLM_BINARY` | Override binary path (skip `which` detection) | Auto-detected |
+| `CLI_LLM_TIMEOUT_SECS` | Timeout per LLM subprocess call in seconds | `120` |
+| `CLI_LLM_EXTRA_ARGS` | Comma-separated extra CLI arguments | (empty) |
+| `CLI_LLM_WORKING_DIR` | Working directory for subprocess execution | Current directory |
+
+#### Fallback Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PIERRE_LLM_FALLBACK_ENABLED` | Enable automatic fallback on failure | `false` |
+| `PIERRE_LLM_FALLBACK_PROVIDER` | Fallback provider type | - |
+| `PIERRE_LLM_FALLBACK_MODEL` | Model for the fallback provider | - |
+| `PIERRE_LLM_FALLBACK_WAIT_SECS` | Seconds to wait before activating fallback | `10` |
 
 ### Provider Capabilities
 
-| Capability | Groq | Gemini | Local (Ollama) |
-|------------|------|--------|----------------|
-| Streaming | ✅ | ✅ | ✅ |
-| Function/Tool Calling | ✅ | ✅ | ✅ |
-| Vision/Image Input | ❌ | ✅ | ❌ |
-| JSON Mode | ✅ | ✅ | ❌ |
-| System Messages | ✅ | ✅ | ✅ |
-| Offline Operation | ❌ | ❌ | ✅ |
-| Privacy (No Data Sent) | ❌ | ❌ | ✅ |
+| Capability | Groq | Gemini | Local | Copilot SDK | Claude Code | Copilot CLI | Cursor Agent | OpenCode |
+|------------|------|--------|-------|-------------|-------------|-------------|--------------|----------|
+| Streaming | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Tool Calling | Native | Native | Native | SDK | Text | Text | Text | Text |
+| System Messages | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| No API Key Required | No | No | Yes | Yes | Yes | Yes | Yes | Yes |
+| Offline Operation | No | No | Yes | No | No | No | No | No |
+
+"Native" tool calling means the provider uses structured function calling in its API protocol. "SDK" means the Copilot SDK manages the tool call cycle natively via JSON-RPC. "Text" means Pierre injects the tool catalog into the prompt and parses `<tool_call>` blocks from the plain-text response.
 
 ### Supported Models by Provider
 
@@ -230,7 +393,7 @@ ollama show qwen2.5:14b-instruct
 
 | Model | Description | Default |
 |-------|-------------|---------|
-| `llama-3.3-70b-versatile` | High-quality general purpose | ✓ |
+| `llama-3.3-70b-versatile` | High-quality general purpose | |
 | `llama-3.1-8b-instant` | Fast responses for simple tasks | |
 | `llama-3.1-70b-versatile` | Versatile 70B model | |
 | `mixtral-8x7b-32768` | Long context window (32K tokens) | |
@@ -242,11 +405,10 @@ ollama show qwen2.5:14b-instruct
 
 | Model | Description | Default |
 |-------|-------------|---------|
-| `gemini-3-flash-preview` | Latest Gemini 3 preview with enhanced reasoning | |
 | `gemini-2.5-pro` | Most capable Gemini model with advanced reasoning | |
-| `gemini-2.5-flash` | Fast model with improved capabilities | |
+| `gemini-2.5-flash` | Fast model with improved capabilities | Yes |
 | `gemini-1.5-pro` | Advanced reasoning capabilities | |
-| `gemini-1.5-flash` | Balanced performance and cost | ✓ |
+| `gemini-1.5-flash` | Balanced performance and cost | |
 
 #### Local (Ollama/vLLM)
 
@@ -429,7 +591,7 @@ while let Some(chunk) = stream.next().await {
 
 ### Tool/Function Calling
 
-All three providers (Gemini, Groq, Local) support tool calling:
+API-based providers (Gemini, Groq, Local) support structured tool calling:
 
 ```rust
 use pierre_mcp_server::llm::{Tool, FunctionDeclaration};
@@ -456,6 +618,8 @@ if response.has_function_calls() {
     }
 }
 ```
+
+CLI providers receive tool definitions via the system prompt and return `<tool_call>` blocks in their text responses. The `run_tool_loop()` function handles both cases transparently.
 
 ---
 
@@ -531,7 +695,8 @@ Bitflags indicating provider features:
 | Flag | Description |
 |------|-------------|
 | `STREAMING` | Supports streaming responses |
-| `FUNCTION_CALLING` | Supports function/tool calling |
+| `FUNCTION_CALLING` | Supports native function/tool calling (API-based providers) |
+| `SDK_TOOL_CALLING` | Supports SDK-managed tool calling (Copilot SDK) |
 | `VISION` | Supports image input |
 | `JSON_MODE` | Supports structured JSON output |
 | `SYSTEM_MESSAGES` | Supports system role messages |
@@ -541,6 +706,12 @@ Bitflags indicating provider features:
 let caps = provider.capabilities();
 if caps.supports_streaming() {
     // Use streaming API
+}
+if caps.supports_function_calling() {
+    // Use complete_with_tools()
+}
+if caps.supports_sdk_tool_calling() {
+    // SDK manages the tool loop internally
 }
 ```
 
@@ -561,10 +732,10 @@ Request configuration with builder pattern:
 
 ```rust
 let request = ChatRequest::new(messages)
-    .with_model("gemini-1.5-pro")    // Override default model
-    .with_temperature(0.7)            // 0.0 to 1.0
-    .with_max_tokens(2000)            // Max output tokens
-    .with_streaming();                // Enable streaming
+    .with_model("gemini-2.5-flash")   // Override default model
+    .with_temperature(0.7)             // 0.0 to 1.0
+    .with_max_tokens(2000)             // Max output tokens
+    .with_streaming();                 // Enable streaming
 ```
 
 ### ChatResponse
@@ -596,16 +767,17 @@ LLM provider code lives in the `pierre-llm` workspace crate, with re-exports in 
 
 ```
 crates/pierre-llm/src/
-├── lib.rs              # Trait definitions, types, registry, exports
-├── config.rs           # LLM configuration and provider selection
-├── provider.rs         # ChatProvider enum (runtime selector)
-├── pricing.rs          # Token cost calculation
-├── gemini.rs           # Google Gemini implementation
-├── groq.rs             # Groq LPU implementation
-├── openai_compatible.rs # Generic OpenAI-compatible provider (Ollama, vLLM, LocalAI)
-├── sse_parser.rs       # SSE stream parser for streaming responses
+├── lib.rs                # Trait definitions, types, registry, exports
+├── config.rs             # LLM configuration and provider selection
+├── provider.rs           # ChatProvider enum (runtime selector)
+├── cli_llm_provider.rs   # Embache-based CLI/SDK provider facade
+├── pricing.rs            # Token cost calculation
+├── gemini.rs             # Google Gemini implementation
+├── groq.rs               # Groq LPU implementation
+├── openai_compatible.rs  # Generic OpenAI-compatible provider (Ollama, vLLM, LocalAI)
+├── sse_parser.rs         # SSE stream parser for streaming responses
 └── prompts/
-    ├── mod.rs          # System prompts (pierre_system.md)
+    ├── mod.rs            # System prompts (pierre_system.md)
     ├── coach_generation.md
     ├── insight_generation.md
     ├── insight_validation.md
@@ -613,8 +785,11 @@ crates/pierre-llm/src/
     ├── prompt_categories.json
     └── welcome_prompt.md
 
+crates/pierre-server/src/routes/
+└── chat_tool_loop.rs     # Three-way tool loop dispatch and shared infrastructure
+
 src/llm/
-└── mod.rs              # Re-exports from pierre-llm crate
+└── mod.rs                # Re-exports from pierre-llm crate
 ```
 
 ---
@@ -680,6 +855,7 @@ pub enum ChatProvider {
     Gemini(GeminiProvider),
     Groq(GroqProvider),
     Local(OpenAiCompatibleProvider),
+    Cli(CliLlmProvider),
     MyProvider(MyProvider),  // Add variant
 }
 ```
@@ -715,6 +891,14 @@ match provider.complete(&request).await {
 | "Model not found" | Model not pulled | Run `ollama pull MODEL_NAME` |
 | "Connection refused" | Wrong port/URL | Check `LOCAL_LLM_BASE_URL` |
 | "Timeout" | Model loading or slow inference | Wait, or use smaller model |
+
+### Common CLI Provider Errors
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Binary not found" | CLI tool not installed | Install the CLI tool and authenticate |
+| "Runner is not ready" | CLI tool not authenticated | Run the CLI tool's auth command |
+| "Config error: not an embache runner type" | Invalid `PIERRE_LLM_PROVIDER` value | Use one of the valid provider names |
 
 ---
 
@@ -761,6 +945,13 @@ ollama pull qwen2.5:7b-instruct
 - Verify the model is the instruct/chat variant, not base
 - Check tool definitions are valid JSON Schema
 
+### CLI Provider Not Authenticating
+
+- Run the CLI tool directly in your terminal to verify it is installed and authenticated
+- For Claude Code: run `claude --version` and ensure you are logged in
+- For Copilot: run `gh copilot --version` and ensure `gh auth status` shows authenticated
+- Check `CLI_LLM_BINARY` points to the correct binary if using a non-standard install path
+
 ---
 
 ## See Also
@@ -768,3 +959,4 @@ ollama pull qwen2.5:7b-instruct
 - [Tools Reference - Recipe Management](tools-reference.md#recipe-management)
 - [Configuration Guide](configuration.md)
 - [Architecture Documentation](architecture.md)
+- [Environment Configuration](environment.md)
