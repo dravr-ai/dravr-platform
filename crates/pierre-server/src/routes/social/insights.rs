@@ -31,8 +31,8 @@ use crate::{
         },
     },
     llm::{
-        get_insight_generation_prompt, get_insight_validation_prompt, ChatMessage, ChatProvider,
-        ChatRequest, LlmProvider,
+        get_insight_generation_prompt, get_insight_validation_prompt, ChatMessage, ChatRequest,
+        LlmProvider,
     },
     mcp::resources::ServerResources,
     models::{
@@ -475,13 +475,13 @@ impl SocialRoutes {
     /// Get LLM provider from resources or create from environment
     ///
     /// Uses injected provider if available (for testing), otherwise falls back to
-    /// `ChatProvider::from_env()` which reads API keys from environment variables.
+    /// `create_chat_provider()` which reads API keys from environment variables.
     pub(crate) async fn get_llm_provider(
         resources: &Arc<ServerResources>,
     ) -> Result<Arc<dyn LlmProvider>, AppError> {
         match &resources.llm_provider {
             Some(provider) => Ok(provider.clone()),
-            None => Ok(Arc::new(ChatProvider::from_env().await?)),
+            None => Ok(Arc::new(super::super::create_chat_provider().await?)),
         }
     }
 

@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use crate::{
     coaches::{parse_coach_content, to_markdown},
     errors::AppError,
-    llm::{get_coach_generation_prompt, ChatMessage, ChatProvider, ChatRequest},
+    llm::{get_coach_generation_prompt, ChatMessage, ChatRequest},
     mcp::resources::ServerResources,
     services::{coaches as coaches_service, recipes as recipes_service},
 };
@@ -365,7 +365,7 @@ pub(super) async fn handle_generate(
     ];
 
     // Get LLM provider and generate
-    let provider = ChatProvider::from_env().await?;
+    let provider = super::super::create_chat_provider().await?;
     let request = ChatRequest::new(llm_messages);
     let response = provider.complete(&request).await?;
 

@@ -51,3 +51,7 @@ pub mod admin;
 
 /// UUID parsing, formatting, and generation utilities
 pub mod uuid_utils;
+
+/// LLM provider trait and shared types for pluggable AI model integration
+#[cfg(feature = "llm")]
+pub mod llm;

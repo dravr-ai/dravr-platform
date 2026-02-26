@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Copyright (c) 2026 dravr.ai -->
+
 # Documentation
 
 Documentation has moved to [`book/`](../book/src/).
