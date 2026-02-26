@@ -70,11 +70,12 @@ export PIERRE_LLM_PROVIDER=claude_code
 
 # GitHub Copilot SDK (recommended for reliable tool calling)
 export PIERRE_LLM_PROVIDER=copilot_sdk
-# Optional: override model (default: claude-opus-4.6)
-export COPILOT_SDK_MODEL=claude-sonnet-4.6
 
 # GitHub Copilot CLI
 export PIERRE_LLM_PROVIDER=copilot
+
+# Override model for any CLI/SDK provider via the unified env var
+export PIERRE_LLM_MODEL=claude-opus-4.6
 
 # Cursor Agent
 export PIERRE_LLM_PROVIDER=cursor_agent
@@ -262,18 +263,18 @@ When a CLI provider is created, Pierre spawns a background readiness check to ve
 
 ### Default Models per Provider
 
-Each provider ships with a built-in default model. These defaults are used as the conversation label in the database when no environment override is set.
+`PIERRE_LLM_MODEL` is the **unified model override** for ALL providers. When set, it takes priority over any provider-specific env var. Each provider also has a built-in default used when no override is configured.
 
-| Provider | Default Model | Override Variable |
-|----------|---------------|-------------------|
-| Gemini | reads `PIERRE_LLM_MODEL` | `PIERRE_LLM_MODEL` |
-| Groq | reads `PIERRE_LLM_MODEL` | `PIERRE_LLM_MODEL` |
-| Local | `qwen2.5:14b-instruct` | `LOCAL_LLM_MODEL` |
-| Copilot SDK | `claude-opus-4.6` | `COPILOT_SDK_MODEL` |
-| Claude Code | `opus` | `CLI_LLM_MODEL` |
-| Copilot CLI | `claude-opus-4.6` | `CLI_LLM_MODEL` |
-| Cursor Agent | `sonnet-4` | `CLI_LLM_MODEL` |
-| OpenCode | `anthropic/claude-sonnet-4` | `CLI_LLM_MODEL` |
+| Provider | Built-in Default | Priority Chain |
+|----------|-----------------|----------------|
+| Gemini | (none — requires env var) | `PIERRE_LLM_MODEL` |
+| Groq | (none — requires env var) | `PIERRE_LLM_MODEL` |
+| Local | `qwen2.5:14b-instruct` | `PIERRE_LLM_MODEL` > `LOCAL_LLM_MODEL` |
+| Copilot SDK | `claude-opus-4.6` | `PIERRE_LLM_MODEL` > `COPILOT_SDK_MODEL` |
+| Claude Code | `opus` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
+| Copilot CLI | `claude-opus-4.6` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
+| Cursor Agent | `sonnet-4` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
+| OpenCode | `anthropic/claude-sonnet-4` | `PIERRE_LLM_MODEL` > `CLI_LLM_MODEL` |
 
 ---
 
@@ -335,12 +336,17 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 |----------|-------------|---------|--------------|
 | `PIERRE_LLM_PROVIDER` | Active LLM provider | `gemini` | `gemini`, `groq`, `local`, `ollama`, `vllm`, `localai`, `claude_code`, `claude-code`, `copilot`, `github_copilot`, `copilot_sdk`, `cursor_agent`, `opencode`, `cli` |
 
-#### API-Based Provider Configuration
+#### Model Configuration
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `PIERRE_LLM_MODEL` | Model for Gemini and Groq | - | Yes (for Gemini/Groq) |
+| `PIERRE_LLM_MODEL` | **Unified model override for ALL providers** (highest priority) | - | Yes (for Gemini/Groq) |
 | `PIERRE_LLM_DEFAULT_MODEL` | Primary model (used by `LlmModelConfig`) | - | Yes (for Gemini/Groq) |
+
+#### API Provider Keys
+
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
 | `GEMINI_API_KEY` | Google Gemini API key | - | Yes (for Gemini) |
 | `GROQ_API_KEY` | Groq API key | - | Yes (for Groq) |
 | `LOCAL_LLM_BASE_URL` | Local LLM API endpoint | `http://localhost:11434/v1` | No |
@@ -359,8 +365,8 @@ Fallback is disabled by default. When enabled, Pierre waits `PIERRE_LLM_FALLBACK
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `COPILOT_SDK_MODEL` | Model override for Copilot SDK | `claude-opus-4.6` |
-| `CLI_LLM_MODEL` | Model override for all CLI runners | Runner-specific default |
+| `COPILOT_SDK_MODEL` | Copilot SDK model fallback (lower priority than `PIERRE_LLM_MODEL`) | `claude-opus-4.6` |
+| `CLI_LLM_MODEL` | CLI runner model fallback (lower priority than `PIERRE_LLM_MODEL`) | Runner-specific default |
 | `CLI_LLM_BINARY` | Override binary path (skip `which` detection) | Auto-detected |
 | `CLI_LLM_TIMEOUT_SECS` | Timeout per LLM subprocess call in seconds | `120` |
 | `CLI_LLM_EXTRA_ARGS` | Comma-separated extra CLI arguments | (empty) |

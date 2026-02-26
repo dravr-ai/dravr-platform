@@ -200,14 +200,16 @@ export FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE="60"
 export PIERRE_LLM_PROVIDER=gemini
 ```
 
-### API-Based Provider Models
+### Model Selection
+
+`PIERRE_LLM_MODEL` is the **unified model override** for ALL providers — API-based (Gemini, Groq, Local) and CLI/SDK-based (Claude Code, Copilot, Copilot SDK, Cursor Agent, OpenCode). When set, it takes priority over provider-specific env vars like `COPILOT_SDK_MODEL` or `CLI_LLM_MODEL`.
 
 ```bash
-# Model for Gemini and Groq (required when using those providers)
-export PIERRE_LLM_MODEL=gemini-2.5-flash
+# Unified model for ALL providers (highest priority)
+export PIERRE_LLM_MODEL=claude-opus-4.6
 
 # Primary model used by LlmModelConfig (same value as PIERRE_LLM_MODEL in most setups)
-export PIERRE_LLM_DEFAULT_MODEL=gemini-2.5-flash
+export PIERRE_LLM_DEFAULT_MODEL=claude-opus-4.6
 
 # Gemini API key
 export GEMINI_API_KEY=your-gemini-api-key
@@ -247,15 +249,9 @@ export PIERRE_LLM_FALLBACK_WAIT_SECS=10
 
 ### CLI and SDK Provider Configuration
 
-These providers require no API key — they use authentication from the installed CLI tool.
+These providers require no API key — they use authentication from the installed CLI tool. Model is controlled by `PIERRE_LLM_MODEL` (see above). Provider-specific env vars (`CLI_LLM_MODEL`, `COPILOT_SDK_MODEL`) are lower-priority fallbacks.
 
 ```bash
-# Model override for Copilot SDK (default: claude-opus-4.6)
-export COPILOT_SDK_MODEL=claude-opus-4.6
-
-# Model override for CLI runners (Claude Code, Copilot CLI, Cursor Agent, OpenCode)
-export CLI_LLM_MODEL=claude-opus-4.6
-
 # Override binary path (skip automatic which-discovery)
 export CLI_LLM_BINARY=/usr/local/bin/claude
 

@@ -119,11 +119,22 @@ impl CliLlmProvider {
     }
 
     /// Build a Copilot SDK runner (persistent JSON-RPC, no binary path needed)
+    ///
+    /// `PIERRE_LLM_MODEL` overrides the SDK-specific `COPILOT_SDK_MODEL` env var.
     fn build_sdk() -> Self {
-        info!("Creating Copilot SDK runner (copilot --headless)");
+        let mut config = embache::CopilotSdkConfig::from_env();
+
+        // PIERRE_LLM_MODEL is the unified model override (highest priority)
+        if let Ok(model) = env::var("PIERRE_LLM_MODEL") {
+            if !model.is_empty() {
+                config.model = model;
+            }
+        }
+
+        info!(model = %config.model, "Creating Copilot SDK runner (copilot --headless)");
 
         Self {
-            runner: Box::new(embache::CopilotSdkRunner::from_env()),
+            runner: Box::new(embache::CopilotSdkRunner::with_config(config)),
             binary_path: None,
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
         }
@@ -279,12 +290,17 @@ fn merge_env_overrides(config: RunnerConfig) -> RunnerConfig {
     apply_env_overrides(config)
 }
 
-/// Apply `CLI_LLM_*` environment variable overrides to a `RunnerConfig`
+/// Apply environment variable overrides to a `RunnerConfig`
+///
+/// `PIERRE_LLM_MODEL` is the unified model override (highest priority).
+/// `CLI_LLM_MODEL` is the runner-specific fallback.
 fn apply_env_overrides(mut config: RunnerConfig) -> RunnerConfig {
-    if let Ok(model) = env::var("CLI_LLM_MODEL") {
-        if !model.is_empty() {
-            config = config.with_model(model);
-        }
+    let model_override = env::var("PIERRE_LLM_MODEL")
+        .or_else(|_| env::var("CLI_LLM_MODEL"))
+        .ok()
+        .filter(|m| !m.is_empty());
+    if let Some(model) = model_override {
+        config = config.with_model(model);
     }
 
     if let Ok(timeout_str) = env::var("CLI_LLM_TIMEOUT_SECS") {
