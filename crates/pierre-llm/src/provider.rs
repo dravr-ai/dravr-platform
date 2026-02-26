@@ -260,10 +260,15 @@ impl ChatProvider {
                 cli_llm_runners::CliRunnerType::OpenCode => LlmProviderType::OpenCode,
             },
             Self::Dynamic(p) => {
-                // Detect SDK provider type from its name
-                match p.name() {
-                    "copilot_sdk" => LlmProviderType::CopilotSdk,
-                    _ => LlmProviderType::Gemini, // fallback
+                let name = p.name();
+                if name == "copilot_sdk" {
+                    LlmProviderType::CopilotSdk
+                } else {
+                    tracing::warn!(
+                        provider_name = name,
+                        "Unknown dynamic provider name, defaulting to Gemini provider type"
+                    );
+                    LlmProviderType::Gemini
                 }
             }
         }
@@ -321,66 +326,38 @@ impl ChatProvider {
     }
 }
 
-// Delegate LlmProvider trait methods to the underlying provider
+// Delegate LlmProvider trait methods to the underlying provider.
+// The canonical match-arm delegation lives in the LlmProvider trait impl below.
+// These inherent methods delegate to it so callers don't need to import the trait.
 impl ChatProvider {
     /// Get provider name
     #[must_use]
     pub fn name(&self) -> &'static str {
-        match self {
-            Self::Gemini(p) => p.name(),
-            Self::Groq(p) => p.name(),
-            Self::Local(p) => p.name(),
-            Self::Cli(p) => p.name(),
-            Self::Dynamic(p) => p.name(),
-        }
+        LlmProvider::name(self)
     }
 
     /// Get provider display name
     #[must_use]
     pub fn display_name(&self) -> &'static str {
-        match self {
-            Self::Gemini(p) => p.display_name(),
-            Self::Groq(p) => p.display_name(),
-            Self::Local(p) => p.display_name(),
-            Self::Cli(p) => p.display_name(),
-            Self::Dynamic(p) => p.display_name(),
-        }
+        LlmProvider::display_name(self)
     }
 
     /// Get provider capabilities
     #[must_use]
     pub fn capabilities(&self) -> LlmCapabilities {
-        match self {
-            Self::Gemini(p) => p.capabilities(),
-            Self::Groq(p) => p.capabilities(),
-            Self::Local(p) => p.capabilities(),
-            Self::Cli(p) => p.capabilities(),
-            Self::Dynamic(p) => p.capabilities(),
-        }
+        LlmProvider::capabilities(self)
     }
 
     /// Get default model
     #[must_use]
     pub fn default_model(&self) -> &str {
-        match self {
-            Self::Gemini(p) => p.default_model(),
-            Self::Groq(p) => p.default_model(),
-            Self::Local(p) => p.default_model(),
-            Self::Cli(p) => p.default_model(),
-            Self::Dynamic(p) => p.default_model(),
-        }
+        LlmProvider::default_model(self)
     }
 
     /// Get available models
     #[must_use]
     pub fn available_models(&self) -> &'static [&'static str] {
-        match self {
-            Self::Gemini(p) => p.available_models(),
-            Self::Groq(p) => p.available_models(),
-            Self::Local(p) => p.available_models(),
-            Self::Cli(p) => p.available_models(),
-            Self::Dynamic(p) => p.available_models(),
-        }
+        LlmProvider::available_models(self)
     }
 
     /// Perform a chat completion
@@ -389,13 +366,7 @@ impl ChatProvider {
     ///
     /// Returns an error if the API call fails.
     pub async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        match self {
-            Self::Gemini(p) => p.complete(request).await,
-            Self::Groq(p) => p.complete(request).await,
-            Self::Local(p) => p.complete(request).await,
-            Self::Cli(p) => p.complete(request).await,
-            Self::Dynamic(p) => p.complete(request).await,
-        }
+        LlmProvider::complete(self, request).await
     }
 
     /// Perform a streaming chat completion
@@ -404,13 +375,7 @@ impl ChatProvider {
     ///
     /// Returns an error if the API call fails.
     pub async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
-        match self {
-            Self::Gemini(p) => p.complete_stream(request).await,
-            Self::Groq(p) => p.complete_stream(request).await,
-            Self::Local(p) => p.complete_stream(request).await,
-            Self::Cli(p) => p.complete_stream(request).await,
-            Self::Dynamic(p) => p.complete_stream(request).await,
-        }
+        LlmProvider::complete_stream(self, request).await
     }
 
     /// Check provider health
@@ -419,13 +384,7 @@ impl ChatProvider {
     ///
     /// Returns an error if the health check fails.
     pub async fn health_check(&self) -> Result<bool, AppError> {
-        match self {
-            Self::Gemini(p) => p.health_check().await,
-            Self::Groq(p) => p.health_check().await,
-            Self::Local(p) => p.health_check().await,
-            Self::Cli(p) => p.health_check().await,
-            Self::Dynamic(p) => p.health_check().await,
-        }
+        LlmProvider::health_check(self).await
     }
 }
 
