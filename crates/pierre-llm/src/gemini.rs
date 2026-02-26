@@ -265,6 +265,7 @@ pub struct GeminiProvider {
     default_model: String,
     /// Fallback model when default fails (rate limits, errors)
     fallback_model: String,
+    available_models: Vec<String>,
     /// Maximum number of retries for transient failures
     max_retries: u32,
     /// Initial delay for exponential backoff (in milliseconds)
@@ -294,6 +295,7 @@ impl GeminiProvider {
             client: Client::new(),
             default_model: model_config.default_model.clone(),
             fallback_model: model_config.fallback_model.clone(),
+            available_models: AVAILABLE_MODELS.iter().map(|s| (*s).to_owned()).collect(),
             max_retries: DEFAULT_MAX_RETRIES,
             initial_retry_delay_ms: DEFAULT_INITIAL_RETRY_DELAY_MS,
             max_retry_delay_ms: DEFAULT_MAX_RETRY_DELAY_MS,
@@ -826,8 +828,8 @@ impl LlmProvider for GeminiProvider {
         &self.default_model
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
-        AVAILABLE_MODELS
+    fn available_models(&self) -> &[String] {
+        &self.available_models
     }
 
     #[instrument(skip(self, request), fields(model = %request.model.as_deref().unwrap_or("default")))]

@@ -312,7 +312,7 @@ impl ChatProvider {
 
     /// Get available models
     #[must_use]
-    pub fn available_models(&self) -> &'static [&'static str] {
+    pub fn available_models(&self) -> &[String] {
         LlmProvider::available_models(self)
     }
 
@@ -394,7 +394,7 @@ impl LlmProvider for ChatProvider {
         }
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
+    fn available_models(&self) -> &[String] {
         match self {
             Self::Gemini(p) => p.available_models(),
             Self::Groq(p) => p.available_models(),

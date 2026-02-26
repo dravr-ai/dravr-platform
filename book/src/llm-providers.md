@@ -655,8 +655,8 @@ impl LlmProvider for MyProvider {
         "my-model-v1"
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
-        &["my-model-v1", "my-model-v2"]
+    fn available_models(&self) -> &[String] {
+        &self.available_models  // Vec<String> populated at construction time
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
