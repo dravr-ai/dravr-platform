@@ -206,7 +206,7 @@ impl LlmProvider for CliLlmProvider {
         self.runner.default_model()
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
+    fn available_models(&self) -> &[String] {
         self.runner.available_models()
     }
 

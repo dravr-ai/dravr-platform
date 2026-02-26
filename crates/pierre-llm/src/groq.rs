@@ -252,6 +252,7 @@ pub struct GroqProvider {
     api_key: String,
     default_model: String,
     fallback_model: String,
+    available_models: Vec<String>,
     /// Retry configuration for transient failures (429, 503, network errors)
     retry_config: RetryConfig,
 }
@@ -287,6 +288,7 @@ impl GroqProvider {
             api_key,
             default_model,
             fallback_model,
+            available_models: AVAILABLE_MODELS.iter().map(|s| (*s).to_owned()).collect(),
             retry_config: RetryConfig {
                 max_retries,
                 initial_delay_ms,
@@ -592,8 +594,8 @@ impl LlmProvider for GroqProvider {
         &self.default_model
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
-        AVAILABLE_MODELS
+    fn available_models(&self) -> &[String] {
+        &self.available_models
     }
 
     #[instrument(skip(self, request), fields(model = %request.model.as_deref().unwrap_or(&self.default_model)))]

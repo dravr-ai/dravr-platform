@@ -322,9 +322,22 @@ impl Default for OpenAiCompatibleConfig {
 ///
 /// Works with any endpoint that implements the `OpenAI` chat completions API,
 /// including Ollama, vLLM, `LocalAI`, and cloud services.
+/// Fallback model list for `OpenAI`-compatible providers (Ollama, vLLM, etc.)
+const FALLBACK_MODELS: &[&str] = &[
+    "qwen2.5:14b-instruct",
+    "qwen2.5:7b-instruct",
+    "qwen2.5:32b-instruct",
+    "llama3.1:8b-instruct",
+    "llama3.1:70b-instruct",
+    "llama3.3:70b-instruct",
+    "mistral:7b-instruct",
+    "hermes2pro:latest",
+];
+
 pub struct OpenAiCompatibleProvider {
     client: Client,
     config: OpenAiCompatibleConfig,
+    available_models: Vec<String>,
 }
 
 impl OpenAiCompatibleProvider {
@@ -340,7 +353,12 @@ impl OpenAiCompatibleProvider {
             .build()
             .map_err(|e| AppError::internal(format!("Failed to create HTTP client: {e}")))?;
 
-        Ok(Self { client, config })
+        let available_models = FALLBACK_MODELS.iter().map(|s| (*s).to_owned()).collect();
+        Ok(Self {
+            client,
+            config,
+            available_models,
+        })
     }
 
     /// Create a provider from environment variables
@@ -728,18 +746,8 @@ impl LlmProvider for OpenAiCompatibleProvider {
         &self.config.default_model
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
-        // Common models available via Ollama
-        &[
-            "qwen2.5:14b-instruct",
-            "qwen2.5:7b-instruct",
-            "qwen2.5:32b-instruct",
-            "llama3.1:8b-instruct",
-            "llama3.1:70b-instruct",
-            "llama3.3:70b-instruct",
-            "mistral:7b-instruct",
-            "hermes2pro:latest",
-        ]
+    fn available_models(&self) -> &[String] {
+        &self.available_models
     }
 
     #[instrument(skip(self, request), fields(model = %request.model.as_deref().unwrap_or(&self.config.default_model)))]

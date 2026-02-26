@@ -1168,6 +1168,7 @@ pub struct TestLlmProvider {
     response: String,
     /// Model name to return (stored to satisfy lifetime requirements)
     model_name: String,
+    available_models: Vec<String>,
 }
 
 impl TestLlmProvider {
@@ -1178,6 +1179,7 @@ impl TestLlmProvider {
             response: r#"{"verdict": "valid", "reason": "Content meets quality standards"}"#
                 .to_owned(),
             model_name: "test-model-v1".to_owned(),
+            available_models: vec!["test-model-v1".to_owned()],
         }
     }
 
@@ -1187,6 +1189,7 @@ impl TestLlmProvider {
         Self {
             response: format!(r#"{{"verdict": "rejected", "reason": "{reason}"}}"#),
             model_name: "test-model-v1".to_owned(),
+            available_models: vec!["test-model-v1".to_owned()],
         }
     }
 
@@ -1198,6 +1201,7 @@ impl TestLlmProvider {
                 r#"{{"verdict": "improved", "reason": "{reason}", "improved_content": "{improved_content}"}}"#
             ),
             model_name: "test-model-v1".to_owned(),
+            available_models: vec!["test-model-v1".to_owned()],
         }
     }
 
@@ -1207,6 +1211,7 @@ impl TestLlmProvider {
         Self {
             response,
             model_name: "test-model-v1".to_owned(),
+            available_models: vec!["test-model-v1".to_owned()],
         }
     }
 }
@@ -1229,8 +1234,8 @@ impl LlmProvider for TestLlmProvider {
         &self.model_name
     }
 
-    fn available_models(&self) -> &'static [&'static str] {
-        &["test-model-v1"]
+    fn available_models(&self) -> &[String] {
+        &self.available_models
     }
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {

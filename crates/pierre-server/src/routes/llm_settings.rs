@@ -388,11 +388,7 @@ impl LlmSettingsRoutes {
                 // Run health check
                 match chat_provider.health_check().await {
                     Ok(true) => {
-                        let models: Vec<String> = chat_provider
-                            .available_models()
-                            .iter()
-                            .map(|s| (*s).to_owned())
-                            .collect();
+                        let models: Vec<String> = chat_provider.available_models().to_vec();
                         Ok(Json(ValidationResponse {
                             valid: true,
                             provider: Some(request.provider),
