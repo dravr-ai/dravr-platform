@@ -107,15 +107,29 @@ impl LlmProviderType {
         }
     }
 
-    /// Get model name for embache-based providers from their own env vars
+    /// Get model name for embache-based providers
     ///
-    /// Each embache runner has its own default model. Some support env var overrides.
+    /// `PIERRE_LLM_MODEL` is the unified override for ALL providers (API and embache).
+    /// When set, it takes priority over provider-specific env vars (e.g. `COPILOT_SDK_MODEL`,
+    /// `CLI_LLM_MODEL`). When not set, falls back to each runner's own default.
     /// Returns None for non-embache providers.
     #[must_use]
     fn embache_model_from_env(self) -> Option<String> {
         match self {
-            // CopilotSdkConfig is the single source of truth — reads COPILOT_SDK_MODEL
-            // with its own built-in default (currently claude-opus-4.6)
+            Self::Gemini | Self::Groq | Self::Local => return None,
+            _ => {}
+        }
+
+        // PIERRE_LLM_MODEL is the unified model override for all providers
+        if let Ok(model) = env::var(Self::MODEL_ENV_VAR) {
+            if !model.is_empty() {
+                return Some(model);
+            }
+        }
+
+        // Provider-specific defaults when PIERRE_LLM_MODEL is not set
+        match self {
+            // CopilotSdkConfig reads COPILOT_SDK_MODEL with its built-in default
             Self::CopilotSdk => Some(CopilotSdkConfig::from_env().model),
             // CLI runners pick their default model internally in new().
             // These fallbacks are only used for the conversation DB label when
@@ -124,7 +138,7 @@ impl LlmProviderType {
             Self::Copilot => Some("claude-opus-4.6".to_owned()),
             Self::CursorAgent => Some("sonnet-4".to_owned()),
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
-            Self::Gemini | Self::Groq | Self::Local => None,
+            Self::Gemini | Self::Groq | Self::Local => unreachable!(),
         }
     }
 
