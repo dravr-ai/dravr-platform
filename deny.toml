@@ -33,21 +33,6 @@ ignore = [
     # Next Review: 2026-01-15 or when rsa 0.10.0 stable released
     "RUSTSEC-2023-0071",
 
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2024-0384: instant crate unmaintained
-    # -------------------------------------------------------------------------
-    # Severity: Informational
-    # Reason: Transitive dependency via reqwest-retry (no safe upgrade path)
-    # Status: Monitor for reqwest-retry update
-    "RUSTSEC-2024-0384",
-
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2024-0387: opentelemetry_api merged into opentelemetry
-    # -------------------------------------------------------------------------
-    # Severity: Informational
-    # Reason: Crate merged into parent (used by opentelemetry-stdout)
-    # Status: Upgrade opentelemetry-stdout when compatible version available
-    "RUSTSEC-2024-0387",
 ]
 
 # Warn on yanked crates
@@ -90,6 +75,9 @@ highlight = "all"
 workspace-default-features = "allow"
 # External default features
 external-default-features = "allow"
+# Allow wildcard versions for git/path dependencies in private crates
+# (embache and copilot-sdk are internal git deps without crates.io versions)
+allow-wildcard-paths = true
 # Allow build dependencies
 allow = []
 # Deny specific crates (if needed)
