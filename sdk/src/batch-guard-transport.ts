@@ -192,7 +192,7 @@ export function createBatchGuardMessageHandler(
           id: message.id,
           error: {
             code: -32603,
-            message: `Internal error: ${error.message}`,
+            message: "Internal error",
           },
         };
         transport.send(errorResponse);

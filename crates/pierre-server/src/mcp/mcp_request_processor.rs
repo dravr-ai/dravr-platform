@@ -83,7 +83,21 @@ impl McpRequestProcessor {
             result: None,
             error: Some(McpError {
                 code: ERROR_INTERNAL_ERROR,
-                message: format!("Internal server error: {e}"),
+                message: "Internal server error".to_owned(),
+                data: None,
+            }),
+        }
+    }
+
+    /// Build an MCP error response for the given request
+    fn mcp_error(request: &McpRequest, code: i32, message: &str) -> McpResponse {
+        McpResponse {
+            jsonrpc: JSONRPC_VERSION.to_owned(),
+            id: request.id.clone(),
+            result: None,
+            error: Some(McpError {
+                code,
+                message: message.to_owned(),
                 data: None,
             }),
         }
@@ -431,93 +445,68 @@ impl McpRequestProcessor {
 
     /// Handle sampling requests (server-initiated LLM calls)
     async fn handle_sampling(&self, request: &McpRequest) -> Result<McpResponse, AppError> {
-        debug!("Handling sampling request: {}", request.method);
-
         match request.method.as_str() {
-            "sampling/createMessage" => {
-                // Check if sampling peer is available (only for stdio transport)
-                let Some(sampling_peer) = &self.resources.sampling_peer else {
-                    return Ok(McpResponse {
-                        jsonrpc: JSONRPC_VERSION.to_owned(),
-                        id: request.id.clone(),
-                        result: None,
-                        error: Some(McpError {
-                            code: ERROR_METHOD_NOT_FOUND,
-                            message: "Sampling not available (stdio transport only)".to_owned(),
-                            data: None,
-                        }),
-                    });
-                };
-
-                // Parse request parameters
-                let create_message_request = match &request.params {
-                    Some(params) => {
-                        match serde_json::from_value::<CreateMessageRequest>(params.clone()) {
-                            Ok(req) => req,
-                            Err(e) => {
-                                return Ok(McpResponse {
-                                    jsonrpc: JSONRPC_VERSION.to_owned(),
-                                    id: request.id.clone(),
-                                    result: None,
-                                    error: Some(McpError {
-                                        code: -32602, // Invalid params
-                                        message: format!("Invalid sampling parameters: {e}"),
-                                        data: None,
-                                    }),
-                                });
-                            }
-                        }
-                    }
-                    None => {
-                        return Ok(McpResponse {
-                            jsonrpc: JSONRPC_VERSION.to_owned(),
-                            id: request.id.clone(),
-                            result: None,
-                            error: Some(McpError {
-                                code: -32602,
-                                message: "Missing sampling parameters".to_owned(),
-                                data: None,
-                            }),
-                        });
-                    }
-                };
-
-                // Send sampling request to client and await response
-                match sampling_peer.create_message(create_message_request).await {
-                    Ok(result) => match serde_json::to_value(&result) {
-                        Ok(result_value) => Ok(McpResponse {
-                            jsonrpc: JSONRPC_VERSION.to_owned(),
-                            id: request.id.clone(),
-                            result: Some(result_value),
-                            error: None,
-                        }),
-                        Err(e) => Ok(McpResponse {
-                            jsonrpc: JSONRPC_VERSION.to_owned(),
-                            id: request.id.clone(),
-                            result: None,
-                            error: Some(McpError {
-                                code: ERROR_INTERNAL_ERROR,
-                                message: format!("Failed to serialize sampling result: {e}"),
-                                data: None,
-                            }),
-                        }),
-                    },
-                    Err(e) => {
-                        warn!("Sampling request failed: {e}");
-                        Ok(McpResponse {
-                            jsonrpc: JSONRPC_VERSION.to_owned(),
-                            id: request.id.clone(),
-                            result: None,
-                            error: Some(McpError {
-                                code: ERROR_INTERNAL_ERROR,
-                                message: format!("Sampling failed: {e}"),
-                                data: None,
-                            }),
-                        })
-                    }
-                }
-            }
+            "sampling/createMessage" => self.handle_create_message(request).await,
             _ => Ok(Self::handle_unknown_method(request)),
+        }
+    }
+
+    /// Handle the sampling/createMessage MCP method
+    async fn handle_create_message(&self, request: &McpRequest) -> Result<McpResponse, AppError> {
+        let Some(sampling_peer) = &self.resources.sampling_peer else {
+            return Ok(Self::mcp_error(
+                request,
+                ERROR_METHOD_NOT_FOUND,
+                "Sampling not available (stdio transport only)",
+            ));
+        };
+
+        let Some(params) = &request.params else {
+            return Ok(Self::mcp_error(
+                request,
+                -32602,
+                "Missing sampling parameters",
+            ));
+        };
+
+        let create_message_request =
+            match serde_json::from_value::<CreateMessageRequest>(params.clone()) {
+                Ok(req) => req,
+                Err(e) => {
+                    error!("Failed to parse sampling parameters: {e}");
+                    return Ok(Self::mcp_error(
+                        request,
+                        -32602,
+                        "Invalid sampling parameters",
+                    ));
+                }
+            };
+
+        match sampling_peer.create_message(create_message_request).await {
+            Ok(result) => match serde_json::to_value(&result) {
+                Ok(result_value) => Ok(McpResponse {
+                    jsonrpc: JSONRPC_VERSION.to_owned(),
+                    id: request.id.clone(),
+                    result: Some(result_value),
+                    error: None,
+                }),
+                Err(e) => {
+                    error!("Failed to serialize sampling result: {e}");
+                    Ok(Self::mcp_error(
+                        request,
+                        ERROR_INTERNAL_ERROR,
+                        "Failed to serialize sampling result",
+                    ))
+                }
+            },
+            Err(e) => {
+                error!("Sampling request failed: {e}");
+                Ok(Self::mcp_error(
+                    request,
+                    ERROR_INTERNAL_ERROR,
+                    "Sampling request failed",
+                ))
+            }
         }
     }
 

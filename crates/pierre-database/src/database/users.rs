@@ -9,10 +9,12 @@ use crate::plugins::shared;
 use crate::repositories::{ProfileRepository, UserRepository};
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::intelligence::{
+    FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
+};
 use pierre_core::models::{TenantId, User, UserStatus};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
-use pierre_intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
 use serde_json::Value;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;

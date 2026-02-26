@@ -93,7 +93,10 @@ where
             .try_get("is_active")
             .map_err(|e| AppError::database(format!("Failed to get column 'is_active': {e}")))?,
         user_status,
-        is_admin: row.try_get("is_admin").unwrap_or(false),
+        is_admin: row.try_get("is_admin").unwrap_or_else(|e| {
+            tracing::warn!("is_admin column missing or invalid, defaulting to false: {e}");
+            false
+        }),
         role,
         approved_by: row
             .try_get("approved_by")

@@ -71,7 +71,7 @@ export const ResponseMetadataSchema = z.object({
   analysis_source: z.enum(["mcp_sampling", "static", "database", "calculated"]).optional(),
   format: z.enum(["json", "toon"]).optional(),
   returned_count: z.number().int().optional(),
-}).passthrough();
+});
 
 /**
  * Pagination info for list responses
@@ -93,7 +93,7 @@ export const ScoreBasedResponseSchema = z.object({
   confidence_level: ConfidenceLevelSchema.optional(),
   insights: InsightsArraySchema.optional(),
   recommendations: RecommendationsArraySchema.optional(),
-}).passthrough();
+});
 
 /**
  * Validation response pattern
@@ -103,7 +103,7 @@ export const ValidationResponseSchema = z.object({
   errors: z.array(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
   suggestions: z.array(z.string()).optional(),
-}).passthrough();
+});
 
 // ============================================================================
 // MCP TOOL RESPONSE WRAPPER
@@ -139,7 +139,7 @@ export const ConnectProviderResponseSchema = z.object({
   message: z.string(),
   authorization_url: z.string().url().optional(),
   requires_browser: z.boolean().optional(),
-}).passthrough();
+});
 
 export const GetConnectionStatusResponseSchema = z.union([
   // Single provider response
@@ -149,7 +149,7 @@ export const GetConnectionStatusResponseSchema = z.union([
     connected: z.boolean(),
     expires_at: TimestampSchema.optional(),
     scopes: z.array(z.string()).optional(),
-  }).passthrough(),
+  }),
   // Multi-provider response
   z.object({
     providers: z.record(z.string(), z.object({
@@ -157,7 +157,7 @@ export const GetConnectionStatusResponseSchema = z.union([
       status: ConnectionStatusSchema,
       expires_at: TimestampSchema.optional(),
     })),
-  }).passthrough(),
+  }),
 ]);
 
 export const DisconnectProviderResponseSchema = z.object({
@@ -165,7 +165,7 @@ export const DisconnectProviderResponseSchema = z.object({
   message: z.string(),
   disconnected_at: TimestampSchema.optional(),
   success: z.boolean().optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Fitness Data Tools
@@ -178,7 +178,7 @@ export const ActivityMapSchema = z.object({
   id: z.string().optional(),
   summary_polyline: z.string().optional(),
   polyline: z.string().optional(),
-}).passthrough();
+});
 
 /**
  * Activity structure
@@ -206,7 +206,7 @@ export const ActivitySchema = z.object({
   has_heartrate: z.boolean().optional(),
   calories: z.number().optional(),
   map: ActivityMapSchema.optional(),
-}).passthrough();
+});
 
 export const GetActivitiesResponseSchema = z.object({
   activities: z.array(ActivitySchema).optional(),
@@ -220,7 +220,7 @@ export const GetActivitiesResponseSchema = z.object({
   limit: z.number().int().optional(),
   has_more: z.boolean().optional(),
   returned_count: z.number().int().optional(),
-}).passthrough();
+});
 
 /**
  * Athlete structure
@@ -242,14 +242,14 @@ export const AthleteSchema = z.object({
   updated_at: z.string().optional(),
   weight: z.number().optional(),
   ftp: z.number().optional(),
-}).passthrough();
+});
 
 export const GetAthleteResponseSchema = z.object({
   athlete: AthleteSchema.optional(),
   athlete_toon: z.string().optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
-}).passthrough();
+});
 
 /**
  * Activity totals for statistics
@@ -261,7 +261,7 @@ export const ActivityTotalsSchema = z.object({
   elapsed_time: z.number().optional(),
   elevation_gain: z.number().optional(),
   achievement_count: z.number().optional(),
-}).passthrough();
+});
 
 export const GetStatsResponseSchema = z.object({
   stats: z.object({
@@ -276,11 +276,11 @@ export const GetStatsResponseSchema = z.object({
     all_ride_totals: ActivityTotalsSchema.optional(),
     all_run_totals: ActivityTotalsSchema.optional(),
     all_swim_totals: ActivityTotalsSchema.optional(),
-  }).passthrough().optional(),
+  }).optional(),
   stats_toon: z.string().optional(),
   format: z.enum(["json", "toon"]).optional(),
   format_fallback: z.boolean().optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Intelligence Analysis Tools
@@ -295,9 +295,9 @@ export const GetActivityIntelligenceResponseSchema = z.object({
     insights: InsightsArraySchema.optional(),
     recommendations: RecommendationsArraySchema.optional(),
     performance_metrics: z.record(z.string(), z.unknown()).optional(),
-  }).passthrough().optional(),
+  }).optional(),
   analysis_source: z.enum(["mcp_sampling", "static"]).optional(),
-}).passthrough();
+});
 
 export const AnalyzeActivityResponseSchema = GetActivityIntelligenceResponseSchema;
 
@@ -312,10 +312,10 @@ export const CalculateMetricsResponseSchema = z.object({
   training_effect: z.object({
     aerobic: z.number().optional(),
     anaerobic: z.number().optional(),
-  }).passthrough().optional(),
+  }).optional(),
   trimp: z.number().optional(),
   tss: z.number().optional(),
-}).passthrough();
+});
 
 export const AnalyzePerformanceTrendsResponseSchema = z.object({
   trend_direction: z.enum(["improving", "stable", "declining"]).optional(),
@@ -327,7 +327,7 @@ export const AnalyzePerformanceTrendsResponseSchema = z.object({
   data_points: z.number().int().optional(),
   timeframe: z.string().optional(),
   metric: z.string().optional(),
-}).passthrough();
+});
 
 export const CompareActivitiesResponseSchema = z.object({
   comparison: z.record(z.string(), z.unknown()).optional(),
@@ -336,7 +336,7 @@ export const CompareActivitiesResponseSchema = z.object({
   recommendations: RecommendationsArraySchema.optional(),
   primary_activity: z.record(z.string(), z.unknown()).optional(),
   comparison_activity: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 
 export const DetectPatternsResponseSchema = z.object({
   patterns_detected: z.array(z.string()).optional(),
@@ -344,7 +344,7 @@ export const DetectPatternsResponseSchema = z.object({
   confidence_scores: z.record(z.string(), z.number()).optional(),
   recommended_actions: RecommendationsArraySchema.optional(),
   pattern_type: z.string().optional(),
-}).passthrough();
+});
 
 export const GenerateRecommendationsResponseSchema = z.object({
   recommendations: z.array(z.object({
@@ -353,11 +353,11 @@ export const GenerateRecommendationsResponseSchema = z.object({
     description: z.string(),
     priority: z.enum(["high", "medium", "low"]).optional(),
     reasoning: z.string().optional(),
-  }).passthrough()).optional(),
+  })).optional(),
   reasoning: z.record(z.string(), z.unknown()).optional(),
   confidence_scores: z.record(z.string(), z.number()).optional(),
   personalized_context: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 
 export const CalculateFitnessScoreResponseSchema = z.object({
   fitness_score: ScoreSchema,
@@ -367,7 +367,7 @@ export const CalculateFitnessScoreResponseSchema = z.object({
   status: QualityRatingSchema.optional(),
   insights: InsightsArraySchema.optional(),
   recommendations: RecommendationsArraySchema.optional(),
-}).passthrough();
+});
 
 export const PredictPerformanceResponseSchema = z.object({
   predicted_time: z.number().optional(),
@@ -377,7 +377,7 @@ export const PredictPerformanceResponseSchema = z.object({
   assumptions: z.array(z.string()).optional(),
   target_sport: z.string().optional(),
   target_distance: z.number().optional(),
-}).passthrough();
+});
 
 export const AnalyzeTrainingLoadResponseSchema = z.object({
   ctl: z.number().optional(), // Chronic Training Load
@@ -388,7 +388,7 @@ export const AnalyzeTrainingLoadResponseSchema = z.object({
   recommendations: RecommendationsArraySchema.optional(),
   recovery_context: z.record(z.string(), z.unknown()).optional(),
   load_trend: z.enum(["increasing", "stable", "decreasing"]).optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Goals Tools
@@ -403,7 +403,7 @@ export const SetGoalResponseSchema = z.object({
   created_at: TimestampSchema.optional(),
   status: z.string().optional(),
   message: z.string().optional(),
-}).passthrough();
+});
 
 export const TrackProgressResponseSchema = z.object({
   goal_id: z.string(),
@@ -415,7 +415,7 @@ export const TrackProgressResponseSchema = z.object({
   recommendations: RecommendationsArraySchema.optional(),
   pace_assessment: z.string().optional(),
   on_track: z.boolean().optional(),
-}).passthrough();
+});
 
 export const SuggestGoalsResponseSchema = z.object({
   suggestions: z.array(z.object({
@@ -424,9 +424,9 @@ export const SuggestGoalsResponseSchema = z.object({
     timeframe: z.union([z.number(), z.string()]).optional(),
     confidence_level: ConfidenceLevelSchema.optional(),
     reasoning: z.string().optional(),
-  }).passthrough()).optional(),
+  })).optional(),
   analysis: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 
 export const AnalyzeGoalFeasibilityResponseSchema = z.object({
   feasible: z.boolean(),
@@ -442,9 +442,9 @@ export const AnalyzeGoalFeasibilityResponseSchema = z.object({
     improvement_required_percent: z.number().optional(),
     safe_improvement_capacity_percent: z.number().optional(),
     timeframe_months: z.number().optional(),
-  }).passthrough().optional(),
+  }).optional(),
   historical_context: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Configuration Tools
@@ -454,16 +454,16 @@ export const GetConfigurationCatalogResponseSchema = z.object({
   catalog: z.record(z.string(), z.unknown()),
   total_parameters: z.number().int().optional(),
   categories: z.array(z.string()).optional(),
-}).passthrough();
+});
 
 export const GetConfigurationProfilesResponseSchema = z.object({
   profiles: z.array(z.object({
     name: z.string(),
     profile: z.record(z.string(), z.unknown()).optional(),
     description: z.string().optional(),
-  }).passthrough()),
+  })),
   total_count: z.number().int().optional(),
-}).passthrough();
+});
 
 export const GetUserConfigurationResponseSchema = z.object({
   user_id: z.string().optional(),
@@ -472,9 +472,9 @@ export const GetUserConfigurationResponseSchema = z.object({
     profile: z.record(z.string(), z.unknown()).optional(),
     session_overrides: z.record(z.string(), z.unknown()).optional(),
     last_modified: TimestampSchema.optional(),
-  }).passthrough().optional(),
+  }).optional(),
   available_parameters: z.number().int().optional(),
-}).passthrough();
+});
 
 export const UpdateUserConfigurationResponseSchema = z.object({
   user_id: z.string().optional(),
@@ -482,7 +482,7 @@ export const UpdateUserConfigurationResponseSchema = z.object({
   message: z.string(),
   updated_at: TimestampSchema.optional(),
   updated: z.boolean().optional(),
-}).passthrough();
+});
 
 export const CalculatePersonalizedZonesResponseSchema = z.object({
   zones: z.object({
@@ -507,10 +507,10 @@ export const CalculatePersonalizedZonesResponseSchema = z.object({
       max: z.string(),
       description: z.string().optional(),
     })).optional(),
-  }).passthrough().optional(),
+  }).optional(),
   vo2_max: z.number().optional(),
   lactate_threshold: z.number().optional(),
-}).passthrough();
+});
 
 export const ValidateConfigurationResponseSchema = ValidationResponseSchema;
 
@@ -518,26 +518,26 @@ export const GetFitnessConfigResponseSchema = z.object({
   configuration_name: z.string().optional(),
   configuration: z.record(z.string(), z.unknown()).optional(),
   exists: z.boolean().optional(),
-}).passthrough();
+});
 
 export const SetFitnessConfigResponseSchema = z.object({
   configuration_name: z.string(),
   message: z.string(),
   saved_at: TimestampSchema.optional(),
   success: z.boolean().optional(),
-}).passthrough();
+});
 
 export const ListFitnessConfigsResponseSchema = z.object({
   configurations: z.array(z.string()),
   count: z.number().int().optional(),
-}).passthrough();
+});
 
 export const DeleteFitnessConfigResponseSchema = z.object({
   configuration_name: z.string(),
   message: z.string(),
   deleted_at: TimestampSchema.optional(),
   success: z.boolean().optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Nutrition Tools
@@ -552,25 +552,25 @@ export const CalculateDailyNutritionResponseSchema = z.object({
   tdee: z.number().optional(),
   micronutrients: z.record(z.string(), z.number()).optional(),
   meal_timing_suggestions: z.array(z.string()).optional(),
-}).passthrough();
+});
 
 export const GetNutrientTimingResponseSchema = z.object({
   pre_workout: z.object({
     timing_minutes: z.number().optional(),
     nutrients: z.record(z.string(), z.unknown()).optional(),
     recommendations: z.array(z.string()).optional(),
-  }).passthrough().optional(),
+  }).optional(),
   during_workout: z.object({
     nutrients: z.record(z.string(), z.unknown()).optional(),
     recommendations: z.array(z.string()).optional(),
-  }).passthrough().optional(),
+  }).optional(),
   post_workout: z.object({
     timing_minutes: z.number().optional(),
     nutrients: z.record(z.string(), z.unknown()).optional(),
     recommendations: z.array(z.string()).optional(),
-  }).passthrough().optional(),
+  }).optional(),
   recommendations: RecommendationsArraySchema.optional(),
-}).passthrough();
+});
 
 export const SearchFoodResponseSchema = z.object({
   results: z.array(z.object({
@@ -579,10 +579,10 @@ export const SearchFoodResponseSchema = z.object({
     calories: z.number().optional(),
     brand: z.string().optional(),
     category: z.string().optional(),
-  }).passthrough()),
+  })),
   total_results: z.number().int().optional(),
   search_query: z.string().optional(),
-}).passthrough();
+});
 
 export const GetFoodDetailsResponseSchema = z.object({
   fdc_id: z.number().int(),
@@ -596,8 +596,8 @@ export const GetFoodDetailsResponseSchema = z.object({
   serving_info: z.object({
     serving_size: z.number().optional(),
     serving_unit: z.string().optional(),
-  }).passthrough().optional(),
-}).passthrough();
+  }).optional(),
+});
 
 export const AnalyzeMealNutritionResponseSchema = z.object({
   meal_name: z.string().optional(),
@@ -607,11 +607,11 @@ export const AnalyzeMealNutritionResponseSchema = z.object({
     carbs_g: z.number(),
     fat_g: z.number(),
     fiber_g: z.number().optional(),
-  }).passthrough(),
+  }),
   micronutrients: z.record(z.string(), z.number()).optional(),
   analysis: InsightsArraySchema.optional(),
   timing_suitability: z.record(z.string(), z.unknown()).optional(),
-}).passthrough();
+});
 
 // --------------------------------------------------------------------------
 // Sleep & Recovery Tools
@@ -625,11 +625,11 @@ export const AnalyzeSleepQualityResponseSchema = z.object({
     rem_sleep_hours: z.number().optional(),
     light_sleep_hours: z.number().optional(),
     awake_hours: z.number().optional(),
-  }).passthrough().optional(),
+  }).optional(),
   sleep_efficiency: z.number().min(0).max(100).optional(),
   insights: InsightsArraySchema.optional(),
   recommendations: RecommendationsArraySchema.optional(),
-}).passthrough();
+});
 
 export const CalculateRecoveryScoreResponseSchema = z.object({
   recovery_score: ScoreSchema,
@@ -642,8 +642,8 @@ export const CalculateRecoveryScoreResponseSchema = z.object({
     sleep: z.number().optional(),
     hrv: z.number().optional(),
     training_load: z.number().optional(),
-  }).passthrough().optional(),
-}).passthrough();
+  }).optional(),
+});
 
 export const SuggestRestDayResponseSchema = z.object({
   suggested_rest_day: z.boolean(),
@@ -652,7 +652,7 @@ export const SuggestRestDayResponseSchema = z.object({
   recovery_needs: z.record(z.string(), z.unknown()).optional(),
   recommendations: RecommendationsArraySchema.optional(),
   urgency: z.enum(["high", "medium", "low"]).optional(),
-}).passthrough();
+});
 
 export const TrackSleepTrendsResponseSchema = z.object({
   trend_direction: z.enum(["improving", "stable", "declining"]).optional(),
@@ -661,7 +661,7 @@ export const TrackSleepTrendsResponseSchema = z.object({
   insights: InsightsArraySchema.optional(),
   recommendations: RecommendationsArraySchema.optional(),
   data_points: z.number().int().optional(),
-}).passthrough();
+});
 
 export const OptimizeSleepScheduleResponseSchema = z.object({
   optimal_bedtime: z.string().optional(),
@@ -670,7 +670,7 @@ export const OptimizeSleepScheduleResponseSchema = z.object({
   sleep_cycles: z.number().int().optional(),
   factors_considered: z.array(z.string()).optional(),
   recommendations: RecommendationsArraySchema.optional(),
-}).passthrough();
+});
 
 // ============================================================================
 // TOOL RESPONSE SCHEMA MAP

@@ -526,7 +526,7 @@ export function MessageList({
         ref={flatListRef}
         data={messages ?? []}
         renderItem={renderMessage}
-        keyExtractor={(item) => item?.id ?? `fallback-${Math.random()}`}
+        keyExtractor={(item, index) => item?.id ?? `fallback-${index}`}
 
         contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: 64 }}
         showsVerticalScrollIndicator={false}

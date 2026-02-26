@@ -2505,7 +2505,6 @@ dependencies = [
  "chrono",
  "hex",
  "pierre-core",
- "pierre-intelligence",
  "rand 0.8.5",
  "ring",
  "serde",

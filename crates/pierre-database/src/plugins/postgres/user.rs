@@ -439,7 +439,10 @@ impl UserRepository for PostgresDatabase {
                 fitbit_token: None,
                 is_active: row.get("is_active"),
                 user_status,
-                is_admin: row.try_get("is_admin").unwrap_or(false), // Default to false for existing users
+                is_admin: row.try_get("is_admin").unwrap_or_else(|e| {
+                    tracing::warn!("is_admin column missing or invalid, defaulting to false: {e}");
+                    false
+                }),
                 role: {
                     let role_str: Option<String> = row.try_get("role").ok().flatten();
                     role_str.map_or(UserRole::User, |s| shared::enums::str_to_user_role(&s))
