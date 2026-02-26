@@ -188,6 +188,89 @@ export FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS="10"
 export FITNESS_WEATHER_RATE_LIMIT_PER_MINUTE="60"
 ```
 
+## LLM Configuration
+
+### Provider Selection
+
+```bash
+# Active LLM provider
+# Valid values: gemini, groq, local, ollama, vllm, localai,
+#               claude_code, claude-code, copilot, github_copilot,
+#               copilot_sdk, cursor_agent, opencode, cli
+export PIERRE_LLM_PROVIDER=gemini
+```
+
+### API-Based Provider Models
+
+```bash
+# Model for Gemini and Groq (required when using those providers)
+export PIERRE_LLM_MODEL=gemini-2.5-flash
+
+# Primary model used by LlmModelConfig (same value as PIERRE_LLM_MODEL in most setups)
+export PIERRE_LLM_DEFAULT_MODEL=gemini-2.5-flash
+
+# Gemini API key
+export GEMINI_API_KEY=your-gemini-api-key
+
+# Groq API key
+export GROQ_API_KEY=your-groq-api-key
+
+# Local LLM (Ollama, vLLM, LocalAI)
+export LOCAL_LLM_BASE_URL=http://localhost:11434/v1
+export LOCAL_LLM_MODEL=qwen2.5:14b-instruct
+export LOCAL_LLM_API_KEY=  # leave empty for Ollama
+```
+
+### Gemini Retry Configuration
+
+```bash
+export GEMINI_MAX_RETRIES=5
+export GEMINI_INITIAL_RETRY_DELAY_MS=2000
+export GEMINI_MAX_RETRY_DELAY_MS=30000
+```
+
+### Fallback Configuration
+
+When the primary provider fails or is rate-limited, Pierre can automatically switch to a fallback provider.
+
+```bash
+# Enable automatic fallback (disabled by default)
+export PIERRE_LLM_FALLBACK_ENABLED=true
+
+# Fallback provider and model
+export PIERRE_LLM_FALLBACK_PROVIDER=gemini
+export PIERRE_LLM_FALLBACK_MODEL=gemini-2.5-pro
+
+# Seconds to wait before activating fallback (default: 10)
+export PIERRE_LLM_FALLBACK_WAIT_SECS=10
+```
+
+### CLI and SDK Provider Configuration
+
+These providers require no API key — they use authentication from the installed CLI tool.
+
+```bash
+# Model override for Copilot SDK (default: claude-opus-4.6)
+export COPILOT_SDK_MODEL=claude-opus-4.6
+
+# Model override for CLI runners (Claude Code, Copilot CLI, Cursor Agent, OpenCode)
+export CLI_LLM_MODEL=claude-opus-4.6
+
+# Override binary path (skip automatic which-discovery)
+export CLI_LLM_BINARY=/usr/local/bin/claude
+
+# Timeout per LLM subprocess call in seconds (default: 120)
+export CLI_LLM_TIMEOUT_SECS=120
+
+# Comma-separated extra arguments passed to the CLI binary
+export CLI_LLM_EXTRA_ARGS=
+
+# Working directory for subprocess execution (default: current directory)
+export CLI_LLM_WORKING_DIR=
+```
+
+See [LLM Provider Integration](llm-providers.md) for full provider documentation including the three-way tool loop dispatch and all supported models.
+
 ## Rate Limiting
 
 ```bash
