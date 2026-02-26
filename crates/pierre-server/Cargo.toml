@@ -200,6 +200,7 @@ pierre-database = { version = "0.1.0", path = "../pierre-database" }
 pierre-auth = { version = "0.1.0", path = "../pierre-auth" }
 pierre-intelligence = { version = "0.1.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
+pierre-copilot-sdk = { version = "0.1.0", path = "../pierre-copilot-sdk" }
 pierre-cache = { version = "0.1.0", path = "../pierre-cache", features = ["redis"] }
 pierre-a2a = { version = "0.1.0", path = "../pierre-a2a", optional = true }
 pierre-providers = { version = "0.1.0", path = "../pierre-providers" }
@@ -281,6 +282,7 @@ utoipa-swagger-ui = { version = "8.1", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 
 [dev-dependencies]
+cli-llm-runners = { version = "0.1.0", path = "../cli-llm-runners" }
 tempfile = "3.20"
 serial_test = "3.1"
 tokio-tungstenite = "0.24"

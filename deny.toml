@@ -108,6 +108,8 @@ unknown-git = "deny"
 # Deny unknown registries (only allow crates.io)
 unknown-registry = "deny"
 # Allow these specific Git repositories (if needed for specific deps)
-allow-git = []
+allow-git = [
+    "https://github.com/copilot-community-sdk/copilot-sdk-rust.git",
+]
 # Allow these specific registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

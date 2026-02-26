@@ -1,5 +1,5 @@
 // ABOUTME: Unified LLM provider selector for runtime provider switching
-// ABOUTME: Abstracts over Gemini and Groq providers based on environment configuration
+// ABOUTME: Abstracts over Gemini, Groq, Local, and CLI providers based on environment configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,10 @@
 //! ## Configuration
 //!
 //! Set `PIERRE_LLM_PROVIDER` environment variable:
-//! - `groq` (default): Use Groq for cost-effective open-source models
-//! - `gemini`: Use Google Gemini for full-featured capabilities
+//! - `gemini` (default): Use Google Gemini for full-featured capabilities
+//! - `groq`: Use Groq for cost-effective open-source models
+//! - `local`/`ollama`/`vllm`/`localai`: Use a local `OpenAI`-compatible endpoint
+//! - `claude_code`/`cursor_agent`/`opencode`/`cli`: Use a CLI-based LLM runner
 
 use std::fmt;
 use std::time::Duration;
@@ -21,13 +23,14 @@ use tokio::time::sleep;
 use tracing::{debug, info};
 
 use super::{
-    ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, FunctionResponse,
-    GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider, OpenAiCompatibleProvider, Tool,
+    ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
+    FunctionResponse, GeminiProvider, GroqProvider, LlmCapabilities, LlmProvider,
+    OpenAiCompatibleProvider, Tool,
 };
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 
-/// Unified chat provider that wraps Gemini, Groq, or local LLM
+/// Unified chat provider that wraps Gemini, Groq, Local, or CLI-based LLM
 ///
 /// This enum provides a consistent interface regardless of which
 /// underlying provider is configured.
@@ -38,6 +41,10 @@ pub enum ChatProvider {
     Groq(GroqProvider),
     /// Local LLM provider via `OpenAI`-compatible API (Ollama, vLLM, `LocalAI`)
     Local(OpenAiCompatibleProvider),
+    /// CLI-based LLM provider (Claude Code, Cursor Agent, `OpenCode`)
+    Cli(CliLlmProvider),
+    /// SDK-based or external provider loaded at runtime (e.g. Copilot SDK)
+    Dynamic(Box<dyn LlmProvider + Send + Sync>),
 }
 
 impl ChatProvider {
@@ -51,12 +58,32 @@ impl ChatProvider {
     /// When `PIERRE_LLM_FALLBACK_ENABLED=true`, if the primary provider fails,
     /// attempts to use the fallback provider specified by `PIERRE_LLM_PROVIDER_FALLBACK`.
     ///
+    /// For `copilot_sdk` provider, use [`from_env_with_dynamic`] instead to supply
+    /// the concrete provider from the server crate.
+    ///
     /// # Errors
     ///
     /// Returns an error if the required API key environment variable is missing
     /// (for cloud providers) or if the local server cannot be reached, and
     /// fallback is disabled or also fails.
     pub async fn from_env() -> Result<Self, AppError> {
+        Self::from_env_with_dynamic(|_| None).await
+    }
+
+    /// Create a provider from environment configuration with a dynamic factory
+    ///
+    /// Same as [`from_env`] but accepts a factory closure for provider types that
+    /// require external crate dependencies (e.g. `CopilotSdk`). The factory receives
+    /// the `LlmProviderType` and returns `Some(Result)` to handle it, or `None`
+    /// to fall through to the built-in logic.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the provider cannot be initialized.
+    pub async fn from_env_with_dynamic<F>(dynamic_factory: F) -> Result<Self, AppError>
+    where
+        F: Fn(LlmProviderType) -> Option<Result<Self, AppError>>,
+    {
         let provider_type = LlmProviderType::from_env();
 
         info!(
@@ -65,7 +92,19 @@ impl ChatProvider {
             LlmProviderType::ENV_VAR
         );
 
-        match Self::create_provider(provider_type) {
+        // Try the dynamic factory first, then built-in providers
+        let result =
+            dynamic_factory(provider_type).unwrap_or_else(|| Self::create_provider(provider_type));
+
+        Self::finalize_or_fallback(result, provider_type).await
+    }
+
+    /// Finalize provider initialization or attempt fallback on failure
+    async fn finalize_or_fallback(
+        result: Result<Self, AppError>,
+        provider_type: LlmProviderType,
+    ) -> Result<Self, AppError> {
+        match result {
             Ok(provider) => {
                 debug!(
                     "Provider {} initialized with model: {}",
@@ -124,6 +163,13 @@ impl ChatProvider {
             LlmProviderType::Groq => Self::groq(),
             LlmProviderType::Gemini => Self::gemini(),
             LlmProviderType::Local => Self::local(),
+            LlmProviderType::ClaudeCode
+            | LlmProviderType::Copilot
+            | LlmProviderType::CursorAgent
+            | LlmProviderType::OpenCode => Self::cli(),
+            LlmProviderType::CopilotSdk => Err(AppError::config(
+                "CopilotSdk provider must be constructed at the server level via ChatProvider::dynamic()",
+            )),
         }
     }
 
@@ -159,6 +205,28 @@ impl ChatProvider {
         Ok(Self::Local(OpenAiCompatibleProvider::from_env()?))
     }
 
+    /// Create a CLI-based LLM provider explicitly
+    ///
+    /// Auto-detects or reads `PIERRE_LLM_PROVIDER` to select the CLI runner
+    /// (Claude Code, Cursor Agent, or `OpenCode`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no CLI runner can be detected.
+    pub fn cli() -> Result<Self, AppError> {
+        Ok(Self::Cli(CliLlmProvider::from_env()?))
+    }
+
+    /// Wrap an externally-constructed provider (e.g. Copilot SDK) as a `ChatProvider`
+    ///
+    /// Use this when the concrete provider type lives in a leaf crate that
+    /// `pierre-llm` does not depend on. The server crate constructs the
+    /// provider and wraps it here.
+    #[must_use]
+    pub fn dynamic(provider: Box<dyn LlmProvider + Send + Sync>) -> Self {
+        Self::Dynamic(provider)
+    }
+
     /// Create a Gemini provider with a specific API key
     ///
     /// Use this when you have already resolved the API key from tenant/user credentials.
@@ -180,11 +248,24 @@ impl ChatProvider {
 
     /// Get the provider type
     #[must_use]
-    pub const fn provider_type(&self) -> LlmProviderType {
+    pub fn provider_type(&self) -> LlmProviderType {
         match self {
             Self::Gemini(_) => LlmProviderType::Gemini,
             Self::Groq(_) => LlmProviderType::Groq,
             Self::Local(_) => LlmProviderType::Local,
+            Self::Cli(p) => match p.runner_type() {
+                cli_llm_runners::CliRunnerType::ClaudeCode => LlmProviderType::ClaudeCode,
+                cli_llm_runners::CliRunnerType::Copilot => LlmProviderType::Copilot,
+                cli_llm_runners::CliRunnerType::CursorAgent => LlmProviderType::CursorAgent,
+                cli_llm_runners::CliRunnerType::OpenCode => LlmProviderType::OpenCode,
+            },
+            Self::Dynamic(p) => {
+                // Detect SDK provider type from its name
+                match p.name() {
+                    "copilot_sdk" => LlmProviderType::CopilotSdk,
+                    _ => LlmProviderType::Gemini, // fallback
+                }
+            }
         }
     }
 
@@ -215,6 +296,9 @@ impl ChatProvider {
             Self::Gemini(provider) => provider.complete_with_tools(request, tools).await,
             Self::Groq(provider) => provider.complete_with_tools(request, tools).await,
             Self::Local(provider) => provider.complete_with_tools(request, tools).await,
+            Self::Cli(_) | Self::Dynamic(_) => Err(AppError::invalid_input(
+                "CLI/SDK-based providers do not support structured tool calling via this path",
+            )),
         }
     }
 
@@ -246,6 +330,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.name(),
             Self::Groq(p) => p.name(),
             Self::Local(p) => p.name(),
+            Self::Cli(p) => p.name(),
+            Self::Dynamic(p) => p.name(),
         }
     }
 
@@ -256,6 +342,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.display_name(),
             Self::Groq(p) => p.display_name(),
             Self::Local(p) => p.display_name(),
+            Self::Cli(p) => p.display_name(),
+            Self::Dynamic(p) => p.display_name(),
         }
     }
 
@@ -266,6 +354,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.capabilities(),
             Self::Groq(p) => p.capabilities(),
             Self::Local(p) => p.capabilities(),
+            Self::Cli(p) => p.capabilities(),
+            Self::Dynamic(p) => p.capabilities(),
         }
     }
 
@@ -276,6 +366,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.default_model(),
             Self::Groq(p) => p.default_model(),
             Self::Local(p) => p.default_model(),
+            Self::Cli(p) => p.default_model(),
+            Self::Dynamic(p) => p.default_model(),
         }
     }
 
@@ -286,6 +378,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.available_models(),
             Self::Groq(p) => p.available_models(),
             Self::Local(p) => p.available_models(),
+            Self::Cli(p) => p.available_models(),
+            Self::Dynamic(p) => p.available_models(),
         }
     }
 
@@ -299,6 +393,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.complete(request).await,
             Self::Groq(p) => p.complete(request).await,
             Self::Local(p) => p.complete(request).await,
+            Self::Cli(p) => p.complete(request).await,
+            Self::Dynamic(p) => p.complete(request).await,
         }
     }
 
@@ -312,6 +408,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.complete_stream(request).await,
             Self::Groq(p) => p.complete_stream(request).await,
             Self::Local(p) => p.complete_stream(request).await,
+            Self::Cli(p) => p.complete_stream(request).await,
+            Self::Dynamic(p) => p.complete_stream(request).await,
         }
     }
 
@@ -325,6 +423,8 @@ impl ChatProvider {
             Self::Gemini(p) => p.health_check().await,
             Self::Groq(p) => p.health_check().await,
             Self::Local(p) => p.health_check().await,
+            Self::Cli(p) => p.health_check().await,
+            Self::Dynamic(p) => p.health_check().await,
         }
     }
 }
@@ -335,6 +435,8 @@ impl fmt::Debug for ChatProvider {
             Self::Gemini(_) => f.debug_tuple("ChatProvider::Gemini").finish(),
             Self::Groq(_) => f.debug_tuple("ChatProvider::Groq").finish(),
             Self::Local(_) => f.debug_tuple("ChatProvider::Local").finish(),
+            Self::Cli(_) => f.debug_tuple("ChatProvider::Cli").finish(),
+            Self::Dynamic(_) => f.debug_tuple("ChatProvider::Dynamic").finish(),
         }
     }
 }
@@ -347,6 +449,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.name(),
             Self::Groq(p) => p.name(),
             Self::Local(p) => p.name(),
+            Self::Cli(p) => p.name(),
+            Self::Dynamic(p) => p.name(),
         }
     }
 
@@ -355,6 +459,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.display_name(),
             Self::Groq(p) => p.display_name(),
             Self::Local(p) => p.display_name(),
+            Self::Cli(p) => p.display_name(),
+            Self::Dynamic(p) => p.display_name(),
         }
     }
 
@@ -363,6 +469,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.capabilities(),
             Self::Groq(p) => p.capabilities(),
             Self::Local(p) => p.capabilities(),
+            Self::Cli(p) => p.capabilities(),
+            Self::Dynamic(p) => p.capabilities(),
         }
     }
 
@@ -371,6 +479,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.default_model(),
             Self::Groq(p) => p.default_model(),
             Self::Local(p) => p.default_model(),
+            Self::Cli(p) => p.default_model(),
+            Self::Dynamic(p) => p.default_model(),
         }
     }
 
@@ -379,6 +489,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.available_models(),
             Self::Groq(p) => p.available_models(),
             Self::Local(p) => p.available_models(),
+            Self::Cli(p) => p.available_models(),
+            Self::Dynamic(p) => p.available_models(),
         }
     }
 
@@ -387,6 +499,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.complete(request).await,
             Self::Groq(p) => p.complete(request).await,
             Self::Local(p) => p.complete(request).await,
+            Self::Cli(p) => p.complete(request).await,
+            Self::Dynamic(p) => p.complete(request).await,
         }
     }
 
@@ -395,6 +509,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.complete_stream(request).await,
             Self::Groq(p) => p.complete_stream(request).await,
             Self::Local(p) => p.complete_stream(request).await,
+            Self::Cli(p) => p.complete_stream(request).await,
+            Self::Dynamic(p) => p.complete_stream(request).await,
         }
     }
 
@@ -403,6 +519,8 @@ impl LlmProvider for ChatProvider {
             Self::Gemini(p) => p.health_check().await,
             Self::Groq(p) => p.health_check().await,
             Self::Local(p) => p.health_check().await,
+            Self::Cli(p) => p.health_check().await,
+            Self::Dynamic(p) => p.health_check().await,
         }
     }
 }

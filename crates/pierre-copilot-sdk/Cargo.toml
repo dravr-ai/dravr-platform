@@ -1,0 +1,24 @@
+# ABOUTME: GitHub Copilot SDK provider for the Pierre platform
+# ABOUTME: Wraps copilot-sdk crate to communicate with copilot --headless via JSON-RPC
+
+[package]
+name = "pierre-copilot-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "GitHub Copilot SDK-based LLM provider for Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["llm"] }
+copilot-sdk = { version = "0.1.17", git = "https://github.com/copilot-community-sdk/copilot-sdk-rust.git", rev = "109f234b" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+tokio = { version = "1.45", features = ["sync", "time", "rt"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tracing = "0.1"
+
+[lints]
+workspace = true

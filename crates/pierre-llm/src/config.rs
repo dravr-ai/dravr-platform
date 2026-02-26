@@ -19,6 +19,16 @@ pub enum LlmProviderType {
     Gemini,
     /// Local LLM provider - `OpenAI`-compatible endpoint (Ollama, vLLM, `LocalAI`)
     Local,
+    /// Claude Code CLI provider - subprocess-based Anthropic Claude
+    ClaudeCode,
+    /// Cursor Agent CLI provider - subprocess-based Cursor AI
+    CursorAgent,
+    /// `OpenCode` CLI provider - subprocess-based open-source coding agent
+    OpenCode,
+    /// GitHub Copilot CLI provider - subprocess-based GitHub Copilot
+    Copilot,
+    /// GitHub Copilot SDK provider - native JSON-RPC via `copilot --headless`
+    CopilotSdk,
 }
 
 impl LlmProviderType {
@@ -31,6 +41,11 @@ impl LlmProviderType {
         match s.to_lowercase().as_str() {
             "groq" => Self::Groq,
             "local" | "ollama" | "vllm" | "localai" => Self::Local,
+            "claude_code" | "claude-code" => Self::ClaudeCode,
+            "cursor_agent" | "cursor-agent" => Self::CursorAgent,
+            "opencode" | "open_code" => Self::OpenCode,
+            "copilot" | "github_copilot" | "github-copilot" => Self::Copilot,
+            "copilot_sdk" | "copilot-sdk" => Self::CopilotSdk,
             _ => Self::Gemini, // Default fallback (including "gemini", "google")
         }
     }
@@ -133,6 +148,11 @@ impl Display for LlmProviderType {
             Self::Groq => write!(f, "groq"),
             Self::Gemini => write!(f, "gemini"),
             Self::Local => write!(f, "local"),
+            Self::ClaudeCode => write!(f, "claude_code"),
+            Self::CursorAgent => write!(f, "cursor_agent"),
+            Self::OpenCode => write!(f, "opencode"),
+            Self::Copilot => write!(f, "copilot"),
+            Self::CopilotSdk => write!(f, "copilot_sdk"),
         }
     }
 }

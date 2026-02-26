@@ -283,6 +283,14 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             required: false,
             description: "Local LLM base URL (defaults to http://localhost:11434/v1 for Ollama)",
         }],
+        LlmProviderType::ClaudeCode
+        | LlmProviderType::Copilot
+        | LlmProviderType::CursorAgent
+        | LlmProviderType::OpenCode
+        | LlmProviderType::CopilotSdk => {
+            // CLI/SDK providers handle their own auth; no env vars required at startup
+            vec![]
+        }
     }
 }
 

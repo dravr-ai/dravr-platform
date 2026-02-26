@@ -9,17 +9,18 @@
 //! This module handles chat conversation management including creating conversations,
 //! sending messages, and streaming AI responses. All handlers require JWT authentication.
 
+use super::chat_tool_loop::{self, ToolLoopParams};
 use crate::models::ConnectionType;
 use crate::models::TenantId;
 use crate::{
     errors::AppError,
     llm::{
         get_insight_generation_prompt, get_pierre_system_prompt, ChatMessage, ChatProvider,
-        ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, TokenUsage, Tool,
+        FunctionDeclaration, Tool,
     },
     mcp::resources::ServerResources,
     middleware::extract_auth_from_headers,
-    protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
+    protocols::universal::UniversalExecutor,
     services::{
         chat_orchestration,
         usage_counter::{LimitCheckResult, UsageCounterService},
@@ -55,17 +56,6 @@ const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
 /// Must match the `INSIGHT_PROMPT_PREFIX` constant in `@pierre/chat-utils`.
 const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from this analysis";
 
-/// Parameters for the multi-turn tool execution loop
-struct ToolLoopParams<'a> {
-    provider: &'a ChatProvider,
-    executor: &'a UniversalExecutor,
-    tools: &'a Tool,
-    model: &'a str,
-    user_id: &'a str,
-    tenant_id: TenantId,
-    max_iterations: usize,
-}
-
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -76,7 +66,7 @@ struct ToolLoopParams<'a> {
 /// AND as text content using syntax like `<function(name)>{...}</function>` or
 /// `<function/name>{...}</function>`.
 /// This helper removes that synthetic syntax to avoid displaying it to users.
-fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
+pub(super) fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::OnceLock;
 
@@ -146,20 +136,6 @@ fn parse_insight_json_response(raw_content: &str) -> String {
 // ============================================================================
 // Internal Types
 // ============================================================================
-
-/// Result of running the multi-turn tool execution loop
-struct ToolLoopResult {
-    /// Final text content from LLM
-    content: String,
-    /// Token usage statistics if available
-    usage: Option<TokenUsage>,
-    /// Finish reason if available
-    finish_reason: Option<String>,
-    /// Activity list from `get_activities` tool (to prepend to response)
-    activity_list: Option<String>,
-    /// Total tool calls executed across all iterations
-    tool_calls_count: u32,
-}
 
 /// Parameters for recording LLM usage after a chat completion
 struct RecordLlmUsageParams<'a> {
@@ -486,7 +462,7 @@ impl ChatRoutes {
 
     /// Get LLM provider based on `PIERRE_LLM_PROVIDER` environment variable
     async fn get_llm_provider() -> Result<ChatProvider, AppError> {
-        ChatProvider::from_env().await
+        super::create_chat_provider().await
     }
 
     /// Build LLM messages from conversation history and optional system prompt
@@ -703,238 +679,6 @@ impl ChatRoutes {
         declarations.extend(Self::build_recovery_tools());
         Tool {
             function_declarations: declarations,
-        }
-    }
-
-    /// Run the multi-turn tool execution loop with the LLM provider
-    ///
-    /// # Errors
-    ///
-    /// Returns error if LLM call fails or tool execution fails.
-    async fn run_tool_loop(
-        params: &ToolLoopParams<'_>,
-        llm_messages: &mut Vec<ChatMessage>,
-    ) -> Result<ToolLoopResult, AppError> {
-        // Track activity list across iterations (to prepend to final response)
-        let mut captured_activity_list: Option<String> = None;
-        let mut tool_calls_count: u32 = 0;
-        // Accumulate token usage across ALL iterations, not just the final one.
-        // Each iteration makes a separate LLM call, and intermediate iterations
-        // (with tool calls) consume real tokens that must be counted for quota
-        // enforcement and cost analytics.
-        let mut cumulative_usage = TokenUsage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-        };
-
-        for iteration in 0..params.max_iterations {
-            let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
-            let response = params
-                .provider
-                .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
-                .await?;
-
-            // Accumulate token usage from every LLM call
-            if let Some(ref usage) = response.usage {
-                cumulative_usage.prompt_tokens += usage.prompt_tokens;
-                cumulative_usage.completion_tokens += usage.completion_tokens;
-                cumulative_usage.total_tokens += usage.total_tokens;
-            }
-
-            // Check for function calls
-            if let Some(ref function_calls) = response.function_calls {
-                if !function_calls.is_empty() {
-                    info!(
-                        "Iteration {}: Executing {} tool calls",
-                        iteration,
-                        function_calls.len()
-                    );
-
-                    let function_responses = Self::execute_function_calls(
-                        params.executor,
-                        function_calls,
-                        params.user_id,
-                        params.tenant_id,
-                    )
-                    .await?;
-
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        tool_calls_count += function_calls.len() as u32;
-                    }
-
-                    // Add assistant's text to messages if present (strip synthetic function syntax)
-                    if let Some(ref text) = response.content {
-                        let cleaned = strip_synthetic_function_calls(text);
-                        if !cleaned.is_empty() {
-                            llm_messages.push(ChatMessage::assistant(&*cleaned));
-                        }
-                    }
-
-                    // Add function responses as user messages, capturing activity list if present
-                    if let Some(list) =
-                        Self::add_function_responses_to_messages(llm_messages, &function_responses)
-                    {
-                        captured_activity_list = Some(list);
-                    }
-                    continue;
-                }
-            }
-
-            // No function calls - we have a text response (strip any synthetic function syntax)
-            let content = response
-                .content
-                .map(|c| strip_synthetic_function_calls(&c).into_owned())
-                .unwrap_or_default();
-            return Ok(ToolLoopResult {
-                content,
-                usage: Some(cumulative_usage),
-                finish_reason: response.finish_reason,
-                activity_list: captured_activity_list,
-                tool_calls_count,
-            });
-        }
-
-        // Max iterations reached - return accumulated usage from all iterations
-        let usage = if cumulative_usage.total_tokens > 0 {
-            Some(cumulative_usage)
-        } else {
-            None
-        };
-        Ok(ToolLoopResult {
-            content: String::new(),
-            usage,
-            finish_reason: Some("max_iterations".to_owned()),
-            activity_list: captured_activity_list,
-            tool_calls_count,
-        })
-    }
-
-    /// Execute a batch of function calls and return responses
-    async fn execute_function_calls(
-        executor: &UniversalExecutor,
-        function_calls: &[FunctionCall],
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> Result<Vec<FunctionResponse>, AppError> {
-        use crate::formatters::TokenEfficiencyMetrics;
-
-        let mut responses = Vec::with_capacity(function_calls.len());
-        for function_call in function_calls {
-            info!("Executing tool: {}", function_call.name);
-            let tool_response =
-                Self::execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
-            let func_response = Self::build_function_response(function_call, &tool_response);
-
-            // Measure serialized response size and estimate token cost
-            let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
-            let byte_size = serialized.len();
-            let estimated_tokens = TokenEfficiencyMetrics::estimate_tokens(&serialized);
-            let name = &func_response.name;
-            info!(
-                event_type = "tool_response_size",
-                tool_name = %name,
-                response_bytes = byte_size,
-                estimated_tokens = estimated_tokens,
-                "Tool response measurement"
-            );
-
-            responses.push(func_response);
-        }
-        Ok(responses)
-    }
-
-    /// Add function responses as user messages for next LLM iteration
-    /// Returns the activity list if found (to prepend to final response)
-    fn add_function_responses_to_messages(
-        llm_messages: &mut Vec<ChatMessage>,
-        function_responses: &[FunctionResponse],
-    ) -> Option<String> {
-        // Track activity list to return for prepending to final response
-        let mut activity_list_content: Option<String> = None;
-
-        for func_response in function_responses {
-            let response_text =
-                serde_json::to_string(&func_response.response).unwrap_or_else(|_| "{}".to_owned());
-
-            // For get_activities, extract the activity_list to prepend to final response
-            if func_response.name == "get_activities" {
-                if let Some(activity_list) = func_response
-                    .response
-                    .get("activity_list")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                {
-                    let list_len = activity_list.len();
-                    activity_list_content = Some(activity_list.to_owned());
-                    info!("Extracted activity list ({list_len} chars) to prepend to response");
-                }
-            }
-
-            // All tool results use the same format
-            let name = &func_response.name;
-            let message = format!("[Tool Result for {name}]: {response_text}");
-            llm_messages.push(ChatMessage::user(message));
-        }
-
-        // Return activity list for prepending to final response (guarantees user sees data)
-        activity_list_content
-    }
-
-    /// Execute an MCP tool call and return the result
-    /// Tool execution errors are converted to failed responses so the LLM can handle them gracefully
-    async fn execute_mcp_tool(
-        executor: &UniversalExecutor,
-        function_call: &FunctionCall,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> UniversalResponse {
-        let request = UniversalRequest {
-            tool_name: function_call.name.clone(), // Ownership transfer for tool execution
-            parameters: function_call.args.clone(), // Ownership transfer for parameters
-            user_id: user_id.to_owned(),
-            protocol: "chat".to_owned(),
-            tenant_id: Some(tenant_id.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
-        };
-
-        match executor.execute_tool(request).await {
-            Ok(response) => response,
-            Err(e) => {
-                // Convert tool execution errors to failed responses
-                // This allows the LLM to provide a helpful alternative response
-                UniversalResponse {
-                    success: false,
-                    result: None,
-                    error: Some(format!("Tool execution failed: {e}")),
-                    metadata: None,
-                }
-            }
-        }
-    }
-
-    /// Build function response for Gemini from MCP tool response
-    fn build_function_response(
-        function_call: &FunctionCall,
-        response: &UniversalResponse,
-    ) -> FunctionResponse {
-        let result_value = if response.success {
-            response
-                .result
-                .clone() // Clone needed: returning owned data from reference
-                .unwrap_or_else(|| serde_json::json!({"status": "success"}))
-        } else {
-            serde_json::json!({
-                "error": response.error.as_deref().unwrap_or("Unknown error")
-            })
-        };
-
-        FunctionResponse {
-            name: function_call.name.clone(), // Clone needed: creating new struct from reference
-            response: result_value,
         }
     }
 
@@ -1294,7 +1038,7 @@ impl ChatRoutes {
             tenant_id,
             max_iterations,
         };
-        let result = Self::run_tool_loop(&tool_params, &mut llm_messages).await?;
+        let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
 
         // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
         #[allow(clippy::cast_possible_truncation)]

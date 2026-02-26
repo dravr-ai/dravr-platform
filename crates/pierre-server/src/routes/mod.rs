@@ -72,6 +72,10 @@ pub mod fitness;
 #[cfg(feature = "client-chat")]
 pub mod chat;
 
+/// Tool loop strategies for chat conversations (API and CLI modes)
+#[cfg(feature = "client-chat")]
+pub mod chat_tool_loop;
+
 /// Usage quota status routes
 #[cfg(feature = "client-chat")]
 pub mod usage;
@@ -240,3 +244,30 @@ pub use openapi::OpenApiRoutes;
 #[cfg(feature = "protocol-rest")]
 /// OAuth routes (alias for `OAuthService`)
 pub type OAuthRoutes = OAuthService;
+
+use crate::errors::AppError as ServerAppError;
+use pierre_llm::ChatProvider;
+
+/// Create a `ChatProvider` from environment, with Copilot SDK support
+///
+/// Uses `from_env_with_dynamic` to handle `CopilotSdk` provider type
+/// via the `pierre-copilot-sdk` leaf crate, keeping that dependency
+/// out of `pierre-llm`.
+///
+/// # Errors
+///
+/// Returns an error if the configured provider cannot be initialized.
+pub async fn create_chat_provider() -> Result<ChatProvider, ServerAppError> {
+    use pierre_copilot_sdk::CopilotSdkProvider;
+    use pierre_llm::config::LlmProviderType;
+
+    ChatProvider::from_env_with_dynamic(|provider_type| {
+        if provider_type == LlmProviderType::CopilotSdk {
+            let sdk_provider = CopilotSdkProvider::from_env();
+            Some(Ok(ChatProvider::dynamic(Box::new(sdk_provider))))
+        } else {
+            None
+        }
+    })
+    .await
+}
