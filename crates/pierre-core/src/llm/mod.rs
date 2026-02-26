@@ -1,13 +1,15 @@
 // ABOUTME: LLM provider trait and shared types for pluggable AI model integration
-// ABOUTME: Defines the contract (LlmProvider) and data types (ChatRequest, ChatResponse, etc.)
+// ABOUTME: Re-exports data types from embache; defines platform LlmProvider trait with AppError
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! # LLM Provider Types
 //!
-//! Shared types and trait for LLM provider integration. These live in `pierre-core`
-//! so that crates can implement `LlmProvider` without depending on HTTP libraries.
+//! Shared types and trait for LLM provider integration. Data types (messages,
+//! requests, responses, capabilities) come from the [`embache`] standalone
+//! library. The platform-specific [`LlmProvider`] trait and [`ChatStream`] use
+//! [`AppError`](crate::errors::AppError) for error handling.
 //!
 //! ## Key Types
 //!
@@ -21,247 +23,45 @@
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+use embache::types::{ErrorKind, RunnerError};
 use tokio_stream::Stream;
 
 use crate::errors::AppError;
 
 // ============================================================================
-// Capability Flags
+// Re-exported Data Types from embache
 // ============================================================================
+// These types are the single source of truth defined in the embache crate.
+// Re-exporting here preserves the `pierre_core::llm::*` import paths.
 
-bitflags::bitflags! {
-    /// LLM provider capability flags using bitflags for efficient storage
-    ///
-    /// Indicates which features a provider supports. Used by the system to
-    /// select appropriate providers and configure request handling.
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct LlmCapabilities: u8 {
-        /// Provider supports streaming responses
-        const STREAMING = 0b0000_0001;
-        /// Provider supports function/tool calling
-        const FUNCTION_CALLING = 0b0000_0010;
-        /// Provider supports vision/image input
-        const VISION = 0b0000_0100;
-        /// Provider supports JSON mode output
-        const JSON_MODE = 0b0000_1000;
-        /// Provider supports system messages
-        const SYSTEM_MESSAGES = 0b0001_0000;
-    }
-}
-
-impl LlmCapabilities {
-    /// Create capabilities for a basic text-only provider
-    #[must_use]
-    pub const fn text_only() -> Self {
-        Self::STREAMING.union(Self::SYSTEM_MESSAGES)
-    }
-
-    /// Create capabilities for a full-featured provider (like Gemini Pro)
-    #[must_use]
-    pub const fn full_featured() -> Self {
-        Self::STREAMING
-            .union(Self::FUNCTION_CALLING)
-            .union(Self::VISION)
-            .union(Self::JSON_MODE)
-            .union(Self::SYSTEM_MESSAGES)
-    }
-
-    /// Check if streaming is supported
-    #[must_use]
-    pub const fn supports_streaming(&self) -> bool {
-        self.contains(Self::STREAMING)
-    }
-
-    /// Check if function calling is supported
-    #[must_use]
-    pub const fn supports_function_calling(&self) -> bool {
-        self.contains(Self::FUNCTION_CALLING)
-    }
-
-    /// Check if vision is supported
-    #[must_use]
-    pub const fn supports_vision(&self) -> bool {
-        self.contains(Self::VISION)
-    }
-
-    /// Check if JSON mode is supported
-    #[must_use]
-    pub const fn supports_json_mode(&self) -> bool {
-        self.contains(Self::JSON_MODE)
-    }
-
-    /// Check if system messages are supported
-    #[must_use]
-    pub const fn supports_system_messages(&self) -> bool {
-        self.contains(Self::SYSTEM_MESSAGES)
-    }
-}
+pub use embache::types::{
+    ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
+};
 
 // ============================================================================
-// Message Types
+// Platform-Specific Stream Type
 // ============================================================================
-
-/// Role of a message in the conversation
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MessageRole {
-    /// System instruction message
-    System,
-    /// User input message
-    User,
-    /// Assistant response message
-    Assistant,
-}
-
-impl MessageRole {
-    /// Convert to string representation for API calls
-    #[must_use]
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::User => "user",
-            Self::Assistant => "assistant",
-        }
-    }
-}
-
-/// A single message in a chat conversation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatMessage {
-    /// Role of the message sender
-    pub role: MessageRole,
-    /// Content of the message
-    pub content: String,
-}
-
-impl ChatMessage {
-    /// Create a new chat message
-    #[must_use]
-    pub fn new(role: MessageRole, content: impl Into<String>) -> Self {
-        Self {
-            role,
-            content: content.into(),
-        }
-    }
-
-    /// Create a system message
-    #[must_use]
-    pub fn system(content: impl Into<String>) -> Self {
-        Self::new(MessageRole::System, content)
-    }
-
-    /// Create a user message
-    #[must_use]
-    pub fn user(content: impl Into<String>) -> Self {
-        Self::new(MessageRole::User, content)
-    }
-
-    /// Create an assistant message
-    #[must_use]
-    pub fn assistant(content: impl Into<String>) -> Self {
-        Self::new(MessageRole::Assistant, content)
-    }
-}
-
-// ============================================================================
-// Request/Response Types
-// ============================================================================
-
-/// Configuration for a chat completion request
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatRequest {
-    /// Conversation messages
-    pub messages: Vec<ChatMessage>,
-    /// Model identifier (provider-specific)
-    pub model: Option<String>,
-    /// Temperature for response randomness (0.0 - 2.0)
-    pub temperature: Option<f32>,
-    /// Maximum tokens to generate
-    pub max_tokens: Option<u32>,
-    /// Whether to stream the response
-    pub stream: bool,
-}
-
-impl ChatRequest {
-    /// Create a new chat request with messages
-    #[must_use]
-    pub const fn new(messages: Vec<ChatMessage>) -> Self {
-        Self {
-            messages,
-            model: None,
-            temperature: None,
-            max_tokens: None,
-            stream: false,
-        }
-    }
-
-    /// Set the model to use
-    #[must_use]
-    pub fn with_model(mut self, model: impl Into<String>) -> Self {
-        self.model = Some(model.into());
-        self
-    }
-
-    /// Set the temperature
-    #[must_use]
-    pub const fn with_temperature(mut self, temperature: f32) -> Self {
-        self.temperature = Some(temperature);
-        self
-    }
-
-    /// Set the maximum tokens
-    #[must_use]
-    pub const fn with_max_tokens(mut self, max_tokens: u32) -> Self {
-        self.max_tokens = Some(max_tokens);
-        self
-    }
-
-    /// Enable streaming
-    #[must_use]
-    pub const fn with_streaming(mut self) -> Self {
-        self.stream = true;
-        self
-    }
-}
-
-/// Response from a chat completion
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatResponse {
-    /// Generated message content
-    pub content: String,
-    /// Model used for generation
-    pub model: String,
-    /// Token usage statistics
-    pub usage: Option<TokenUsage>,
-    /// Finish reason (stop, length, etc.)
-    pub finish_reason: Option<String>,
-}
-
-/// Token usage statistics
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenUsage {
-    /// Number of tokens in the prompt
-    pub prompt_tokens: u32,
-    /// Number of tokens in the completion
-    pub completion_tokens: u32,
-    /// Total tokens used
-    pub total_tokens: u32,
-}
-
-/// A chunk of a streaming response
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamChunk {
-    /// Content delta for this chunk
-    pub delta: String,
-    /// Whether this is the final chunk
-    pub is_final: bool,
-    /// Finish reason if final
-    pub finish_reason: Option<String>,
-}
 
 /// Stream type for chat completion responses
+///
+/// Uses [`AppError`] for error handling (platform-specific).
+/// Embache defines its own stream type with [`RunnerError`] for standalone use.
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, AppError>> + Send>>;
+
+// ============================================================================
+// Error Conversion: embache → AppError
+// ============================================================================
+
+impl From<RunnerError> for AppError {
+    fn from(err: RunnerError) -> Self {
+        match err.kind {
+            ErrorKind::Internal | ErrorKind::BinaryNotFound => Self::internal(err.message),
+            ErrorKind::ExternalService => Self::external_service("CLI runner", err.message),
+            ErrorKind::AuthFailure => Self::auth_invalid(err.message),
+            ErrorKind::Config => Self::config(err.message),
+        }
+    }
+}
 
 // ============================================================================
 // Provider Trait
