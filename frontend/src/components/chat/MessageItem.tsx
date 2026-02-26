@@ -6,6 +6,7 @@
 
 import { memo } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb } from 'lucide-react';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
@@ -75,12 +76,13 @@ const MessageItem = memo(function MessageItem({
               Your Activities ({countActivities(activityList)})
             </summary>
             <div className="mt-2 ml-4 text-zinc-300 text-sm prose prose-sm prose-invert max-w-none">
-              <Markdown>{activityList}</Markdown>
+              <Markdown remarkPlugins={[remarkGfm]}>{activityList}</Markdown>
             </div>
           </details>
         )}
         <div className={`text-zinc-300 text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
           <Markdown
+            remarkPlugins={[remarkGfm]}
             components={{
               a: ({ href, children }) => (
                 <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">

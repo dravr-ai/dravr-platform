@@ -9,6 +9,7 @@ import { useModal } from '@pierre/ui-logic';
 import { clsx } from 'clsx';
 import { TrendingUp, Users, Plus } from 'lucide-react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { socialApi } from '../../services/api';
 import { Card, Button, TabHeader } from '../ui';
 import ShareInsightModal from './ShareInsightModal';
@@ -393,6 +394,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 )}
                 <div className="text-zinc-300 mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
                   <Markdown
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       a: ({ href, children }) => (
                         <a href={href} target="_blank" rel="noopener noreferrer" className="break-all">

@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button, Modal, Card } from '../ui';
 import ShareInsightModal from './ShareInsightModal';
 
@@ -93,6 +94,7 @@ export default function ActivityDetailModal({
                   <p className="text-xs font-medium text-pierre-violet mb-1">AI Insight</p>
                   <div className="text-sm text-zinc-300 leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:text-base prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5">
                     <Markdown
+                      remarkPlugins={[remarkGfm]}
                       components={{
                         a: ({ href, children }) => (
                           <a href={href} target="_blank" rel="noopener noreferrer" className="text-pierre-violet underline hover:text-pierre-violet/80 break-all">
