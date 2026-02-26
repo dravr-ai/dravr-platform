@@ -160,6 +160,7 @@ fn get_all_tool_names() -> Vec<&'static str> {
         "calculate_fitness_score",
         "predict_performance",
         "analyze_training_load",
+        "analyze_weather_impact",
         // Configuration tools
         "get_configuration_catalog",
         "get_configuration_profiles",

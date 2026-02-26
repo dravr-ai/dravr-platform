@@ -68,6 +68,8 @@ pub enum ToolId {
     PredictPerformance,
     /// Analyze training load and recovery metrics
     AnalyzeTrainingLoad,
+    /// Analyze weather impact on activity performance
+    AnalyzeWeatherImpact,
 
     // Configuration management tools
     /// Get the complete configuration catalog with all available parameters
@@ -221,6 +223,7 @@ impl ToolId {
             "calculate_fitness_score" => Some(Self::CalculateFitnessScore),
             "predict_performance" => Some(Self::PredictPerformance),
             "analyze_training_load" => Some(Self::AnalyzeTrainingLoad),
+            "analyze_weather_impact" => Some(Self::AnalyzeWeatherImpact),
             "get_configuration_catalog" => Some(Self::GetConfigurationCatalog),
             "get_configuration_profiles" => Some(Self::GetConfigurationProfiles),
             "get_user_configuration" => Some(Self::GetUserConfiguration),
@@ -307,6 +310,7 @@ impl ToolId {
             Self::CalculateFitnessScore => "calculate_fitness_score",
             Self::PredictPerformance => "predict_performance",
             Self::AnalyzeTrainingLoad => "analyze_training_load",
+            Self::AnalyzeWeatherImpact => "analyze_weather_impact",
             Self::GetConfigurationCatalog => "get_configuration_catalog",
             Self::GetConfigurationProfiles => "get_configuration_profiles",
             Self::GetUserConfiguration => "get_user_configuration",
@@ -392,6 +396,7 @@ impl ToolId {
             Self::CalculateFitnessScore => "Calculate overall fitness score",
             Self::PredictPerformance => "Predict future performance based on training",
             Self::AnalyzeTrainingLoad => "Analyze training load and recovery metrics",
+            Self::AnalyzeWeatherImpact => "Analyze weather impact on activity performance",
             Self::GetConfigurationCatalog => "Get configuration catalog with parameters",
             Self::GetConfigurationProfiles => "Get available configuration profiles",
             Self::GetUserConfiguration => "Get current user's configuration settings",

@@ -47,8 +47,8 @@ fn test_configuration_tools_in_mcp_schema() {
     // Verify total tool count includes our configuration tools
     let total_tools = tools.len();
     assert!(
-        total_tools >= 29, // 23 fitness tools + 6 configuration tools
-        "Expected at least 29 tools (23 fitness + 6 configuration), but found {total_tools}"
+        total_tools >= 30, // 24 fitness tools + 6 configuration tools
+        "Expected at least 30 tools (24 fitness + 6 configuration), but found {total_tools}"
     );
 
     println!("Total of {total_tools} tools available in MCP schema");
@@ -225,6 +225,6 @@ async fn test_configuration_tools_count_in_total() {
     );
     // Note: OAuth notification tools removed (4) + connect_to_pierre removed (1) = 5 fewer non-config tools
     // Coaches feature added 21 tools: 9 admin + 12 user coach management tools
-    assert_eq!(fitness_tools, 62, "Expected exactly 62 fitness tools"); // Includes nutrition (5) + sleep/recovery (5) + recipes (7) + coaches (21) tools
-    assert_eq!(tools.len(), 68, "Expected total of 68 tools"); // 62 fitness + 6 configuration
+    assert_eq!(fitness_tools, 63, "Expected exactly 63 fitness tools"); // Includes nutrition (5) + sleep/recovery (5) + recipes (7) + coaches (21) + weather (1) tools
+    assert_eq!(tools.len(), 69, "Expected total of 69 tools"); // 63 fitness + 6 configuration
 }
