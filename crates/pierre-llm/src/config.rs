@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use embache::CopilotSdkConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -113,11 +114,14 @@ impl LlmProviderType {
     #[must_use]
     fn embache_model_from_env(self) -> Option<String> {
         match self {
-            Self::CopilotSdk => Some(
-                env::var("COPILOT_SDK_MODEL").unwrap_or_else(|_| "claude-sonnet-4.6".to_owned()),
-            ),
-            Self::ClaudeCode => Some("sonnet".to_owned()),
-            Self::Copilot => Some("claude-sonnet-4.6".to_owned()),
+            // CopilotSdkConfig is the single source of truth — reads COPILOT_SDK_MODEL
+            // with its own built-in default (currently claude-opus-4.6)
+            Self::CopilotSdk => Some(CopilotSdkConfig::from_env().model),
+            // CLI runners pick their default model internally in new().
+            // These fallbacks are only used for the conversation DB label when
+            // RunnerConfig.model is None (no env override).
+            Self::ClaudeCode => Some("opus".to_owned()),
+            Self::Copilot => Some("claude-opus-4.6".to_owned()),
             Self::CursorAgent => Some("sonnet-4".to_owned()),
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
             Self::Gemini | Self::Groq | Self::Local => None,
