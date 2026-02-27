@@ -19,6 +19,7 @@ LogBox.ignoreLogs([
   'AxiosError',
 ]);
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { QueryProvider } from './src/providers/QueryProvider';
 import { WebSocketProvider } from './src/contexts/WebSocketContext';
@@ -27,17 +28,19 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <AuthProvider>
-          <QueryProvider>
-            <WebSocketProvider>
-              <StatusBar style="light" />
-              <RootNavigator />
-              <Toast config={toastConfig} />
-            </WebSocketProvider>
-          </QueryProvider>
-        </AuthProvider>
-      </SafeAreaProvider>
+      <ErrorBoundary>
+        <SafeAreaProvider>
+          <AuthProvider>
+            <QueryProvider>
+              <WebSocketProvider>
+                <StatusBar style="light" />
+                <RootNavigator />
+                <Toast config={toastConfig} />
+              </WebSocketProvider>
+            </QueryProvider>
+          </AuthProvider>
+        </SafeAreaProvider>
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }
