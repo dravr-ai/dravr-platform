@@ -111,7 +111,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=server
 
       - name: Scan server image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.34.1
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -197,7 +197,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       - name: Scan frontend image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.34.1
+        uses: aquasecurity/trivy-action@0.34.1
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
           format: 'sarif'
