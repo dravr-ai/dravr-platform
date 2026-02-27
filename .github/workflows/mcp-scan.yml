@@ -1,0 +1,46 @@
+# ABOUTME: CI workflow that scans MCP server config and Claude skills for security issues
+# ABOUTME: Uses Invariant Labs mcp-scan via uvx to detect prompt injection and tool poisoning
+
+name: MCP Security Scan
+
+on:
+  push:
+    branches: [ "main", "feature/*", "claude/*", "copilot/*" ]
+    paths:
+      - '.mcp.json'
+      - '.claude/skills/**'
+      - '.github/workflows/mcp-scan.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.mcp.json'
+      - '.claude/skills/**'
+      - '.github/workflows/mcp-scan.yml'
+  schedule:
+    # Weekly scan (Sundays at 3 AM UTC)
+    - cron: '0 3 * * 0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  mcp-scan:
+    name: Scan MCP Config & Skills
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Scan MCP server configuration
+        run: uvx mcp-scan@latest .mcp.json
+
+      - name: Scan Claude skills
+        run: uvx mcp-scan@latest --skills .claude/skills
