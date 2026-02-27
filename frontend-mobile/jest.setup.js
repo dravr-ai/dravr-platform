@@ -131,13 +131,18 @@ jest.mock('expo-speech-recognition', () => ({
 }));
 
 // Mock react-native-toast-message
+// Toast.show() and Toast.hide() are static methods on the default export component
 jest.mock('react-native-toast-message', () => {
+  const React = require('react');
   const View = require('react-native').View;
+  const ToastComponent = React.forwardRef((props, ref) =>
+    React.createElement(View, { ...props, ref })
+  );
+  ToastComponent.show = jest.fn();
+  ToastComponent.hide = jest.fn();
   return {
     __esModule: true,
-    default: View,
-    show: jest.fn(),
-    hide: jest.fn(),
+    default: ToastComponent,
   };
 });
 

@@ -41,6 +41,7 @@ const rnGlobals = {
   alert: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',
+  __DEV__: 'readonly',
 };
 
 // Jest globals for test files

@@ -2,13 +2,16 @@
 // ABOUTME: Implements stale-while-revalidate pattern with 7-day activity cache
 
 import React, { useMemo } from 'react';
-import { QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import Toast from 'react-native-toast-message';
+import axios from 'axios';
 import {
   mmkvPersister,
   CACHE_TIMES,
   clearQueryCache,
 } from '../utils/mmkvStorage';
+import { extractErrorMessage } from '../utils/errorMessages';
 import { useAuth } from '../contexts/AuthContext';
 
 interface QueryProviderProps {
@@ -25,6 +28,23 @@ interface QueryProviderProps {
  */
 function createQueryClient(): QueryClient {
   return new QueryClient({
+    mutationCache: new MutationCache({
+      onError: (error: Error) => {
+        // 401 is handled by the axios interceptor (auto-logout) — skip
+        if (axios.isAxiosError(error) && error.response?.status === 401) {
+          return;
+        }
+
+        const message = extractErrorMessage(error, 'Something went wrong. Please try again.');
+
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: message,
+          visibilityTime: 4000,
+        });
+      },
+    }),
     defaultOptions: {
       queries: {
         // Retry configuration
