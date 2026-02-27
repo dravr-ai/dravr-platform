@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, glassCard } from '../../constants/theme';
 import { socialApi } from '../../services/api';
@@ -21,13 +21,10 @@ import { useAuth } from '../../contexts/AuthContext';
 import { RequestCard } from '../../components/social/FriendCard';
 import { SwipeableRow, type SwipeAction } from '../../components/ui';
 import type { PendingRequestWithInfo } from '@pierre/shared-types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
 type TabType = 'incoming' | 'outgoing';
 
 export function FriendRequestsScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('incoming');
   const [incomingRequests, setIncomingRequests] = useState<PendingRequestWithInfo[]>([]);
@@ -207,7 +204,7 @@ export function FriendRequestsScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2 mr-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>

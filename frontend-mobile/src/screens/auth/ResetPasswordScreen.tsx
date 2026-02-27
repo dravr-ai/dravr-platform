@@ -16,24 +16,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
 import { colors, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  ForgotPassword: undefined;
-  ResetPassword: { email: string };
-  PendingApproval: undefined;
-};
-
-interface ResetPasswordScreenProps {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'ResetPassword'>;
-  route: RouteProp<AuthStackParamList, 'ResetPassword'>;
-}
-
-export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenProps) {
-  const { email } = route.params;
+export function ResetPasswordScreen() {
+  const router = useRouter();
+  const { email } = useLocalSearchParams<{ email: string }>();
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -78,7 +65,7 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
       Alert.alert(
         'Password Reset',
         'Your password has been reset successfully. Please sign in.',
-        [{ text: 'OK', onPress: () => navigation.navigate('Login') }],
+        [{ text: 'OK', onPress: () => router.replace('/(auth)/login') }],
       );
     } catch (error) {
       let message = 'Reset failed. Please try again.';
@@ -96,7 +83,7 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
   };
 
   const handleResendCode = () => {
-    navigation.navigate('ForgotPassword');
+    router.push('/(auth)/forgot-password');
   };
 
   const cardStyle: ViewStyle = {
@@ -197,7 +184,7 @@ export function ResetPasswordScreen({ navigation, route }: ResetPasswordScreenPr
                 <TouchableOpacity onPress={handleResendCode}>
                   <Text className="text-sm text-text-tertiary">Resend code</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
                   <Text className="text-sm font-semibold text-primary-500">Back to sign in</Text>
                 </TouchableOpacity>
               </View>

@@ -13,7 +13,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, borderRadius } from '../../constants/theme';
@@ -22,13 +23,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userApi, oauthApi } from '../../services/api';
 import { useUsageStatus, type LimitCheckResult } from '../chat/useUsageStatus';
 import type { McpToken, ExtendedProviderStatus } from '../../types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { SettingsStackParamList } from '../../navigation/MainTabs';
-
-interface SettingsScreenProps {
-  navigation: NativeStackNavigationProp<SettingsStackParamList>;
-}
-
 // Glassmorphism card style
 const glassCardStyle: ViewStyle = {
   backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -79,7 +73,8 @@ function formatResetTime(isoString: string): string {
   }
 }
 
-export function SettingsScreen({ navigation }: SettingsScreenProps) {
+export function SettingsScreen() {
+  const router = useRouter();
   const { user, logout, isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
   const [tokens, setTokens] = useState<McpToken[]>([]);
@@ -308,7 +303,7 @@ export function SettingsScreen({ navigation }: SettingsScreenProps) {
           <View style={glassCardStyle}>
             <TouchableOpacity
               style={settingsRowStyle}
-              onPress={() => navigation.navigate('Connections')}
+              onPress={() => router.push('/(app)/(tabs)/(settings)/connections')}
               testID="settings-data-providers-button"
             >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>

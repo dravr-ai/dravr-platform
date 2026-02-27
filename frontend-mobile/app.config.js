@@ -11,7 +11,6 @@ module.exports = {
   orientation: 'portrait',
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
-  newArchEnabled: true,
   scheme: 'pierre',
   splash: {
     image: './assets/splash-icon.png',
@@ -48,6 +47,7 @@ module.exports = {
     },
   },
   plugins: [
+    'expo-router',
     [
       'expo-build-properties',
       {

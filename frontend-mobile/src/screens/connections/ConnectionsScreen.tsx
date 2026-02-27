@@ -21,15 +21,11 @@ import { Card, DragIndicator } from '../../components/ui';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
-import type { SettingsStackParamList } from '../../navigation/MainTabs';
 
-interface ConnectionsScreenProps {
-  navigation: NativeStackNavigationProp<SettingsStackParamList>;
-}
-
-export function ConnectionsScreen({ navigation }: ConnectionsScreenProps) {
+export function ConnectionsScreen() {
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -225,7 +221,7 @@ export function ConnectionsScreen({ navigation }: ConnectionsScreenProps) {
       <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="back-button"
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />

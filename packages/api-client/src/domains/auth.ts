@@ -38,7 +38,7 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
       formData.append('username', credentials.email);
       formData.append('password', credentials.password);
 
-      const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData, {
+      const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 
@@ -115,7 +115,7 @@ export function createAuthApi(axios: AxiosInstance, authStorage: AuthStorage) {
       formData.append('grant_type', 'refresh_token');
       formData.append('refresh_token', refreshToken);
 
-      const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData, {
+      const response = await axios.post<LoginResponse>(ENDPOINTS.AUTH.TOKEN, formData.toString(), {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
 

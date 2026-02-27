@@ -17,8 +17,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRoute, type RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,11 +26,6 @@ import { coachesApi } from '../../services/api';
 import { CollapsibleSection } from '../../components/ui';
 import { CoachVersionHistory } from '../../components/coaches/CoachVersionHistory';
 import type { CreateCoachRequest, UpdateCoachRequest } from '../../types';
-import type { CoachesStackParamList } from '../../navigation/MainTabs';
-
-interface CoachEditorScreenProps {
-  navigation: NativeStackNavigationProp<CoachesStackParamList>;
-}
 
 // Category options with colors matching Stitch UX spec
 const CATEGORY_OPTIONS: Array<{ key: string; label: string; color: string }> = [
@@ -49,9 +43,9 @@ const MAX_DESCRIPTION_LENGTH = 500;
 const MAX_SYSTEM_PROMPT_LENGTH = 8000;
 const CONTEXT_WINDOW_SIZE = 128000;
 
-export function CoachEditorScreen({ navigation }: CoachEditorScreenProps) {
-  const route = useRoute<RouteProp<CoachesStackParamList, 'CoachEditor'>>();
-  const coachId = route.params?.coachId;
+export function CoachEditorScreen() {
+  const router = useRouter();
+  const { coachId } = useLocalSearchParams<{ coachId?: string }>();
   const isEditMode = Boolean(coachId);
 
   // Form state
@@ -92,7 +86,7 @@ export function CoachEditorScreen({ navigation }: CoachEditorScreenProps) {
     } catch (error) {
       console.error('Failed to load coach:', error);
       Alert.alert('Error', 'Failed to load coach data');
-      navigation.goBack();
+      router.back();
     } finally {
       setIsLoading(false);
     }
@@ -201,7 +195,7 @@ export function CoachEditorScreen({ navigation }: CoachEditorScreenProps) {
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      navigation.goBack();
+      router.back();
     } catch (error) {
       console.error('Failed to save coach:', error);
       Alert.alert('Error', `Failed to ${isEditMode ? 'update' : 'create'} coach`);
@@ -234,7 +228,7 @@ export function CoachEditorScreen({ navigation }: CoachEditorScreenProps) {
         <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
           <TouchableOpacity
             className="w-10 h-10 items-center justify-center"
-            onPress={() => navigation.goBack()}
+            onPress={() => router.back()}
             testID="back-button"
           >
             <Text className="text-2xl text-text-primary">{'\u2190'}</Text>

@@ -10,31 +10,13 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather, Ionicons } from '@expo/vector-icons';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { colors, spacing, aiGlow } from '../constants/theme';
-import type { SocialStackParamList } from '../navigation/MainTabs';
-
-type SocialNavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
-interface ActivityDetailScreenProps {
-  navigation: NativeStackNavigationProp<SocialStackParamList, 'ActivityDetail'>;
-  route: {
-    params: {
-      activityId: string;
-      activityTitle?: string;
-      activityType?: string;
-      activityDate?: string;
-      insightContent?: string;
-    };
-  };
-}
-
 // Activity type icons
 const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   run: 'walk-outline',
@@ -58,9 +40,16 @@ const aiCardStyle: ViewStyle = {
   ...aiGlow.ambient,
 };
 
-export function ActivityDetailScreen({ navigation, route }: ActivityDetailScreenProps) {
+export function ActivityDetailScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const socialNavigation = useNavigation<SocialNavigationProp>();
+  const params = useLocalSearchParams<{
+    activityId: string;
+    activityTitle?: string;
+    activityType?: string;
+    activityDate?: string;
+    insightContent?: string;
+  }>();
 
   const {
     activityId,
@@ -68,23 +57,23 @@ export function ActivityDetailScreen({ navigation, route }: ActivityDetailScreen
     activityType = 'run',
     activityDate,
     insightContent,
-  } = route.params;
+  } = params;
 
   const iconName = ACTIVITY_ICONS[activityType.toLowerCase()] || ACTIVITY_ICONS.default;
 
   const handleAskPierre = () => {
-    navigation.navigate('ChatTab' as never);
+    router.push('/(app)/(tabs)/(chat)');
   };
 
   const handleShareWithFriends = () => {
-    socialNavigation.navigate('ShareInsight', { activityId });
+    router.push({ pathname: '/(app)/(tabs)/(social)/share-insight', params: { activityId } });
   };
 
   // Swipe right to go back to feed
   const goBack = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    navigation.goBack();
-  }, [navigation]);
+    router.back();
+  }, [router]);
 
   const swipeGesture = Gesture.Pan()
     .activeOffsetX([20, 200])
@@ -112,7 +101,7 @@ export function ActivityDetailScreen({ navigation, route }: ActivityDetailScreen
         >
           <TouchableOpacity
             className="w-10 h-10 items-center justify-center"
-            onPress={() => navigation.goBack()}
+            onPress={() => router.back()}
             testID="back-button"
           >
             <Ionicons name="arrow-back" size={24} color={colors.text.primary} />

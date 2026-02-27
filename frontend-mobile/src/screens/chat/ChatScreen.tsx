@@ -9,17 +9,13 @@ import { View, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-na
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import Toast from 'react-native-toast-message';
-import { useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog } from '../../components/ui';
 import { SharePreviewModal } from '../../components/social';
 import { socialApi } from '../../services/api';
 import type { ShareVisibility, Coach } from '../../types';
-import type { ChatStackParamList, MainTabsParamList } from '../../navigation/MainTabs';
 
 import { ChatHeader } from './ChatHeader';
 import { ChatInputBar } from './ChatInputBar';
@@ -33,15 +29,11 @@ import { useChatVoiceInput } from './useChatVoiceInput';
 import { useUsageStatus } from './useUsageStatus';
 import { UsageWarningBanner } from './UsageWarningBanner';
 
-interface ChatScreenProps {
-  navigation: NativeStackNavigationProp<ChatStackParamList>;
-}
-
-export function ChatScreen({ navigation }: ChatScreenProps) {
+export function ChatScreen() {
   const { isAuthenticated } = useAuth();
   const insets = useSafeAreaInsets();
-  const route = useRoute<RouteProp<ChatStackParamList, 'ChatMain'>>();
-  const tabNavigation = useNavigation<BottomTabNavigationProp<MainTabsParamList>>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ conversationId?: string }>();
   const inputRef = useRef<TextInput>(null);
 
   // UI State
@@ -105,19 +97,19 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
   }, [conversations.currentConversation]);
 
   // Handle navigation params for conversation selection
-  // Depends on route.params (object ref) so tab re-tap with same conversationId still triggers
+  // Depends on params (object ref) so tab re-tap with same conversationId still triggers
   useEffect(() => {
-    const conversationId = route.params?.conversationId;
+    const conversationId = params?.conversationId;
     if (conversationId === undefined && conversations.currentConversation !== null) {
       conversations.setCurrentConversation(null);
       messagesHook.clearMessages();
     }
     // Only depend on route params - this should only run when user navigates
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.params]);
+  }, [params]);
 
   useEffect(() => {
-    const conversationId = route.params?.conversationId;
+    const conversationId = params?.conversationId;
     if (conversationId && conversations.conversations.length > 0) {
       const conversation = conversations.conversations.find(c => c.id === conversationId);
       const shouldUpdate = conversation && (
@@ -130,7 +122,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
     }
     // currentConversation intentionally omitted - including it would cause infinite loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route.params?.conversationId, conversations.conversations]);
+  }, [params?.conversationId, conversations.conversations]);
 
   // URL handling
   const handleOpenUrl = useCallback(async (url: string) => {
@@ -301,7 +293,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
       });
       setShareToFeedContent(null);
       setShareToFeedVisibility('friends_only');
-      tabNavigation.navigate('SocialTab', { screen: 'SocialMain' } as never);
+      router.push('/(app)/(tabs)/(social)');
     } catch (error) {
       console.error('Failed to share to feed:', error);
       Toast.show({
@@ -312,7 +304,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
     } finally {
       setIsSharing(false);
     }
-  }, [shareToFeedContent, shareToFeedVisibility, tabNavigation]);
+  }, [shareToFeedContent, shareToFeedVisibility, router]);
 
   const handleEditShare = useCallback(() => {
     if (!shareToFeedContent) return;
@@ -320,15 +312,15 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
     const visibilityToEdit = shareToFeedVisibility;
     setShareToFeedContent(null);
     setShareToFeedVisibility('friends_only');
-    tabNavigation.navigate('SocialTab', {
-      screen: 'ShareInsight',
+    router.push({
+      pathname: '/(app)/(tabs)/(social)/share-insight',
       params: {
         content: contentToEdit,
         insightType: 'coaching_insight',
         visibility: visibilityToEdit,
       },
-    } as never);
-  }, [shareToFeedContent, shareToFeedVisibility, tabNavigation]);
+    });
+  }, [shareToFeedContent, shareToFeedVisibility, router]);
 
   const handleCloseShareModal = useCallback(() => {
     setShareToFeedContent(null);
@@ -401,7 +393,7 @@ export function ChatScreen({ navigation }: ChatScreenProps) {
           currentConversation={conversations.currentConversation}
           actionMenuVisible={actionMenuVisible}
           insetTop={insets.top}
-          onHistoryPress={() => navigation.navigate('Conversations')}
+          onHistoryPress={() => router.push('/(app)/(tabs)/(chat)/conversations')}
           onTitlePress={showTitleActionMenu}
           onNewChatPress={handleNewChat}
           onMenuClose={() => setActionMenuVisible(false)}

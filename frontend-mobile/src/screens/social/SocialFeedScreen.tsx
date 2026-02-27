@@ -12,8 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
@@ -22,12 +22,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { InsightCard } from '../../components/social/InsightCard';
 import { SwipeableRow, type SwipeAction } from '../../components/ui';
 import type { FeedItem, ReactionType, InsightSuggestion } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
 export function SocialFeedScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [feedItems, setFeedItems] = useState<FeedItem[]>([]);
   const [suggestions, setSuggestions] = useState<InsightSuggestion[]>([]);
@@ -179,7 +175,7 @@ export function SocialFeedScreen() {
       );
 
       // Navigate to adapted insight view
-      navigation.navigate('AdaptedInsight', { adaptedInsight: response.adapted });
+      router.push({ pathname: '/(app)/(tabs)/(social)/adapted-insight', params: { adaptedInsight: JSON.stringify(response.adapted) } });
     } catch (error) {
       console.error('Failed to adapt insight:', error);
     } finally {
@@ -254,7 +250,7 @@ export function SocialFeedScreen() {
           backgroundColor: colors.pierre.violet,
           ...buttonGlow,
         }}
-        onPress={() => navigation.navigate('Friends')}
+        onPress={() => router.push('/(app)/(tabs)/(social)/friends')}
       >
         <Feather name="user-plus" size={18} color="#FFFFFF" />
         <Text className="text-white text-base font-semibold">Find Friends</Text>
@@ -316,7 +312,7 @@ export function SocialFeedScreen() {
               backgroundColor: colors.pierre.violet,
               ...buttonGlow,
             }}
-            onPress={() => navigation.navigate('ShareInsight')}
+            onPress={() => router.push('/(app)/(tabs)/(social)/share-insight')}
             testID="share-suggestion-button"
           >
             <Feather name="share-2" size={16} color="#FFFFFF" />
@@ -348,7 +344,7 @@ export function SocialFeedScreen() {
         <Text className="flex-1 text-xl font-bold text-text-primary text-center">Feed</Text>
         <TouchableOpacity
           className="p-2"
-          onPress={() => navigation.navigate('ShareInsight')}
+          onPress={() => router.push('/(app)/(tabs)/(social)/share-insight')}
           testID="share-insight-button"
         >
           <Feather name="plus-circle" size={24} color={colors.pierre.violet} />

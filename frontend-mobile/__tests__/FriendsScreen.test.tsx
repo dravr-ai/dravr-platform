@@ -4,24 +4,14 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-};
-
-// Mock useFocusEffect - needs to be before imports that use it
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => (() => void) | void) => {
-      actualReact.useEffect(() => {
-        return callback();
-      }, [callback]);
-    },
-    useNavigation: () => mockNavigation,
-  };
-});
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({}),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -63,6 +53,10 @@ const createMockFriend = (overrides: Partial<FriendWithInfo> = {}): FriendWithIn
 describe('FriendsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     mockListFriends.mockResolvedValue({ friends: [], total: 0 });
     mockGetPendingRequests.mockResolvedValue({ received: [], sent: [] });
     mockRemoveFriend.mockResolvedValue(undefined);
@@ -186,7 +180,7 @@ describe('FriendsScreen', () => {
       });
 
       fireEvent.press(getByText('Find Friends'));
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('SearchFriends');
+      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(social)/search-friends');
     });
   });
 

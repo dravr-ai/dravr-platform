@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Feather } from '@expo/vector-icons';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
+
 import { colors, spacing, glassCard } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
 
@@ -31,12 +31,6 @@ const coachCardShadow: ViewStyle = {
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoach, CoachCategory } from '../../types';
-import type { DiscoverStackParamList } from '../../navigation/MainTabs';
-
-interface StoreScreenProps {
-  navigation: NativeStackNavigationProp<DiscoverStackParamList>;
-}
-
 // Category filter options
 const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; label: string }> = [
   { key: 'all', label: 'All' },
@@ -66,10 +60,9 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
   custom: '#7C3AED',
 };
 
-export function StoreScreen({ navigation }: StoreScreenProps) {
+export function StoreScreen() {
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
-  const stackNavigation = useNavigation();
-  const canGoBack = stackNavigation.canGoBack();
   const [coaches, setCoaches] = useState<StoreCoach[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<CoachCategory | 'all'>('all');
   const [selectedSort, setSelectedSort] = useState<SortOption>('popular');
@@ -194,7 +187,7 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
   };
 
   const navigateToCoachDetail = (coach: StoreCoach) => {
-    navigation.navigate('StoreCoachDetail', { coachId: coach.id });
+    router.push({ pathname: '/(app)/(tabs)/(discover)/[coachId]', params: { coachId: coach.id } });
   };
 
   const renderCategoryChip = ({ key, label }: { key: CoachCategory | 'all'; label: string }) => (
@@ -333,17 +326,7 @@ export function StoreScreen({ navigation }: StoreScreenProps) {
     <SafeAreaView className="flex-1 bg-background-primary" testID="store-screen">
       {/* Header */}
       <View className="flex-row items-center px-3 py-2 border-b border-border-default">
-        {canGoBack ? (
-          <TouchableOpacity
-            className="p-2"
-            onPress={() => stackNavigation.goBack()}
-            testID="back-button"
-          >
-            <Feather name="arrow-left" size={24} color={colors.text.primary} />
-          </TouchableOpacity>
-        ) : (
-          <View className="w-10" />
-        )}
+        <View className="w-10" />
         <Text className="flex-1 text-xl font-semibold text-text-primary text-center">Discover</Text>
         <View className="w-10" />
       </View>

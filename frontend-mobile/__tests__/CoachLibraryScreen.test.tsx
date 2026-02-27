@@ -5,20 +5,14 @@ import React, { useEffect } from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-};
-
-// Mock useFocusEffect - needs to be before imports that use it
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => void) => {
-      actualReact.useEffect(callback, []);
-    },
-  };
-});
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({}),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -76,6 +70,10 @@ const createMockCoach = (overrides: Partial<Coach> = {}): Coach => ({
 describe('CoachLibraryScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     mockListCoaches.mockResolvedValue({ coaches: [] });
     mockGetHiddenCoaches.mockResolvedValue({ coaches: [] });
   });
@@ -83,7 +81,7 @@ describe('CoachLibraryScreen', () => {
   describe('rendering', () => {
     it('should render header with title', async () => {
       const { getAllByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
       await waitFor(() => {
         // "My Coaches" appears in header title AND source filter chip
@@ -94,7 +92,7 @@ describe('CoachLibraryScreen', () => {
 
     it('should render category filters', async () => {
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
       await waitFor(() => {
         expect(getByText('All')).toBeTruthy();
@@ -110,7 +108,7 @@ describe('CoachLibraryScreen', () => {
     it('should render empty state when no coaches', async () => {
       mockListCoaches.mockResolvedValue({ coaches: [] });
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
       await waitFor(() => {
         expect(getByText('No coaches yet')).toBeTruthy();
@@ -127,7 +125,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -143,7 +141,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -159,7 +157,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getAllByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -179,7 +177,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText, getByTestId, queryByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -205,7 +203,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText, getByTestId, queryByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -229,7 +227,7 @@ describe('CoachLibraryScreen', () => {
     it('should always load all coaches including hidden', async () => {
       mockListCoaches.mockResolvedValue({ coaches: [] });
 
-      render(<CoachLibraryScreen navigation={mockNavigation as never} />);
+      render(<CoachLibraryScreen />);
 
       await waitFor(() => {
         expect(mockListCoaches).toHaveBeenCalledWith({
@@ -246,7 +244,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByTestId, queryByTestId } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -265,7 +263,7 @@ describe('CoachLibraryScreen', () => {
       mockHideCoach.mockResolvedValue({ success: true, is_hidden: true });
 
       const { getByTestId } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -287,7 +285,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText, queryByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -321,7 +319,7 @@ describe('CoachLibraryScreen', () => {
       mockGetHiddenCoaches.mockResolvedValue({ coaches: hiddenCoaches });
 
       const { getByTestId, getByText, queryByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       // Initially hidden coach should not be visible (showHidden is false by default)
@@ -353,7 +351,7 @@ describe('CoachLibraryScreen', () => {
       mockShowCoach.mockResolvedValue({ success: true, is_hidden: false });
 
       const { getByTestId, getByText, queryByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       // Enable show hidden toggle to see hidden coach
@@ -395,7 +393,7 @@ describe('CoachLibraryScreen', () => {
       mockShowCoach.mockResolvedValue({ success: true, is_hidden: false });
 
       const { getByTestId } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       // Enable show hidden toggle
@@ -422,7 +420,7 @@ describe('CoachLibraryScreen', () => {
       mockListCoaches.mockResolvedValue({ coaches });
 
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -431,14 +429,12 @@ describe('CoachLibraryScreen', () => {
 
       fireEvent.press(getByText('Test Coach'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('CoachDetail', {
-        coachId: 'coach-1',
-      });
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(coaches)/[coachId]', params: { coachId: 'coach-1' } });
     });
 
     it('should navigate to CoachEditor for new coach when FAB pressed', async () => {
       const { getByText } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {
@@ -447,9 +443,7 @@ describe('CoachLibraryScreen', () => {
 
       fireEvent.press(getByText('+'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('CoachEditor', {
-        coachId: undefined,
-      });
+      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(coaches)/editor');
     });
   });
 
@@ -460,7 +454,7 @@ describe('CoachLibraryScreen', () => {
       mockToggleCoachFavorite.mockResolvedValue({ is_favorite: true });
 
       const { getByTestId } = render(
-        <CoachLibraryScreen navigation={mockNavigation as never} />
+        <CoachLibraryScreen />
       );
 
       await waitFor(() => {

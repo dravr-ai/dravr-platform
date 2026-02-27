@@ -4,25 +4,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-};
-
-// Mock useFocusEffect - needs to be before imports that use it
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => (() => void) | void) => {
-      actualReact.useEffect(() => {
-        return callback();
-      }, [callback]);
-    },
-    useNavigation: () => mockNavigation,
-  };
-});
-
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
   useAuth: () => ({
