@@ -1,4 +1,4 @@
-# ABOUTME: Defines all configurable variables for Pierre MCP Server infrastructure
+# ABOUTME: Defines all configurable variables for Dravr MCP Server infrastructure
 # ABOUTME: Includes project settings, database config, and GitHub integration
 
 # -----------------------------------------------------------------------------
@@ -22,13 +22,13 @@ variable "region" {
 }
 
 variable "environment" {
-  description = "Environment name (e.g., production, staging)"
+  description = "Environment name (e.g., production, development)"
   type        = string
-  default     = "production"
+  default     = "development"
 
   validation {
-    condition     = contains(["production", "staging", "development"], var.environment)
-    error_message = "Environment must be production, staging, or development."
+    condition     = contains(["development", "production"], var.environment)
+    error_message = "Environment must be development or production."
   }
 }
 
@@ -39,7 +39,7 @@ variable "environment" {
 variable "service_name" {
   description = "Name of the Cloud Run service"
   type        = string
-  default     = "pierre-mcp-server"
+  default     = "dravr-mcp-server"
 }
 
 # -----------------------------------------------------------------------------
@@ -67,13 +67,13 @@ variable "database_version" {
 variable "database_name" {
   description = "Name of the PostgreSQL database"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_user" {
   description = "Name of the PostgreSQL user"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_deletion_protection" {
@@ -116,6 +116,17 @@ variable "redis_memory_size_gb" {
   default     = 1
 }
 
+variable "redis_version" {
+  description = "Redis version for Memorystore (e.g., REDIS_7_0, REDIS_7_2)"
+  type        = string
+  default     = "REDIS_7_0"
+
+  validation {
+    condition     = can(regex("^REDIS_[0-9]+_[0-9]+$", var.redis_version))
+    error_message = "Redis version must match REDIS_X_Y (e.g., REDIS_7_0)."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Networking Configuration
 # -----------------------------------------------------------------------------
@@ -123,7 +134,7 @@ variable "redis_memory_size_gb" {
 variable "vpc_name" {
   description = "Name of the VPC network"
   type        = string
-  default     = "pierre-vpc"
+  default     = "dravr-vpc"
 }
 
 variable "subnet_cidr" {
@@ -155,13 +166,17 @@ variable "github_repo" {
 }
 
 # -----------------------------------------------------------------------------
-# Artifact Registry
+# Artifact Registry (centralized in dravr-artifacts project)
 # -----------------------------------------------------------------------------
 
-variable "registry_name" {
-  description = "Name of the Artifact Registry Docker repository"
+variable "artifacts_project_id" {
+  description = "GCP project ID of the centralized dravr-artifacts project (used for cross-project image pull IAM)"
   type        = string
-  default     = "pierre-images"
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{4,28}[a-z0-9]$", var.artifacts_project_id))
+    error_message = "Artifacts project ID must be 6-30 lowercase letters, digits, or hyphens."
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -233,7 +248,7 @@ variable "labels" {
   description = "Common labels to apply to all resources"
   type        = map(string)
   default = {
-    app        = "pierre"
+    app        = "dravr"
     managed_by = "terraform"
   }
 }

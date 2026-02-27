@@ -1,5 +1,5 @@
-# Pierre MCP Server - Production Dockerfile
-# Multi-stage build for optimized production container
+# ABOUTME: Multi-stage production Dockerfile for Pierre MCP Server (Rust binary)
+# ABOUTME: Builder stage compiles the release binary; runtime stage uses debian-slim with non-root user
 
 # Build stage - use x86_64 for better Apple Silicon compatibility
 FROM --platform=linux/amd64 rust:1.83-slim as builder
@@ -32,7 +32,6 @@ RUN rm src/main.rs src/lib.rs src/bin/pierre-mcp-server.rs
 
 # Copy source code
 COPY src ./src
-COPY tests ./tests
 
 # Build the actual application
 RUN cargo build --release --bin pierre-mcp-server
@@ -49,9 +48,6 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     curl \
     bash \
-    strace \
-    file \
-    libc-bin \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -68,11 +64,7 @@ COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/pierre-mcp-server \
     && chmod +x /app/docker-entrypoint.sh \
     && chown appuser:appuser /app/pierre-mcp-server \
-    && chown appuser:appuser /app/docker-entrypoint.sh \
-    && echo "Binary file type:" \
-    && file /app/pierre-mcp-server \
-    && echo "Binary dependencies:" \
-    && ldd /app/pierre-mcp-server || echo "ldd failed, static binary or missing libs"
+    && chown appuser:appuser /app/docker-entrypoint.sh
 
 # Switch to non-root user
 USER appuser
@@ -94,9 +86,6 @@ EXPOSE 8080 8081
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8081/health || exit 1
-
-# Copy .envrc for environment configuration
-COPY .envrc /app/.envrc
 
 # Use entrypoint script for environment loading
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

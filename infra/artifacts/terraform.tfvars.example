@@ -1,0 +1,45 @@
+# ABOUTME: Example variables for the centralized dravr-artifacts Terraform configuration
+# ABOUTME: Copy to terraform.tfvars and populate env_app_sa_emails after applying environment Terraform
+
+# -----------------------------------------------------------------------------
+# Required
+# -----------------------------------------------------------------------------
+
+# The GCP project ID for the centralized artifacts project (create manually in GCP Console)
+project_id = "dravr-artifacts"
+
+# -----------------------------------------------------------------------------
+# Optional (defaults shown)
+# -----------------------------------------------------------------------------
+
+# GCP region for the Artifact Registry
+# region = "northamerica-northeast1"
+
+# Docker repository name within the registry
+# registry_name = "dravr-images"
+
+# GitHub organization that owns the repository
+# github_org = "dravr-ai"
+
+# GitHub repository name
+# github_repo = "dravr-platform"
+
+# -----------------------------------------------------------------------------
+# Cross-environment reader access
+# Populate after applying each environment's infra/ Terraform and capturing
+# the app_service_account_email output from each environment.
+# -----------------------------------------------------------------------------
+
+env_app_sa_emails = [
+  # "pierre-mcp-server-app@dravr-dev.iam.gserviceaccount.com",
+  # "pierre-mcp-server-app@dravr-prod.iam.gserviceaccount.com",
+]
+
+# -----------------------------------------------------------------------------
+# Labels
+# -----------------------------------------------------------------------------
+
+# labels = {
+#   app        = "dravr"
+#   managed_by = "terraform"
+# }

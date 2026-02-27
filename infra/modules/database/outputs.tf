@@ -28,6 +28,6 @@ output "database_user" {
 
 output "database_url" {
   description = "Database connection URL (without password)"
-  value       = "postgresql://${google_sql_user.user.name}@/pierre?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
+  value       = "postgresql://${google_sql_user.user.name}@/dravr?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
   sensitive   = true
 }

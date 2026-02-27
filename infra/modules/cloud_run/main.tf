@@ -10,7 +10,8 @@ resource "google_cloud_run_v2_service" "service" {
   labels = var.labels
 
   template {
-    service_account = var.service_account_email
+    service_account      = var.service_account_email
+    execution_environment = var.execution_environment
 
     scaling {
       min_instance_count = var.min_instances

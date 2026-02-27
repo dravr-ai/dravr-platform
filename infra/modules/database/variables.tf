@@ -17,7 +17,7 @@ variable "service_name" {
 }
 
 variable "environment" {
-  description = "Environment (production, staging, development)"
+  description = "Environment (production or development)"
   type        = string
 }
 
@@ -46,13 +46,13 @@ variable "database_tier" {
 variable "database_name" {
   description = "Name of the database"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_user" {
   description = "Name of the database user"
   type        = string
-  default     = "pierre"
+  default     = "dravr"
 }
 
 variable "database_password" {

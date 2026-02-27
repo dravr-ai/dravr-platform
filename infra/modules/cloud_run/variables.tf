@@ -137,6 +137,16 @@ variable "startup_probe_initial_delay" {
 }
 
 # -----------------------------------------------------------------------------
+# Execution Environment
+# -----------------------------------------------------------------------------
+
+variable "execution_environment" {
+  description = "Cloud Run execution environment (EXECUTION_ENVIRONMENT_GEN1 or EXECUTION_ENVIRONMENT_GEN2). Gen2 provides better memory management and is recommended for stateful workloads."
+  type        = string
+  default     = "EXECUTION_ENVIRONMENT_GEN2"
+}
+
+# -----------------------------------------------------------------------------
 # Labels
 # -----------------------------------------------------------------------------
 

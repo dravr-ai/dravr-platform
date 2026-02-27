@@ -20,3 +20,13 @@ output "deployer_service_account_name" {
   description = "Full resource name of the deployer service account"
   value       = google_service_account.deployer.name
 }
+
+output "terraform_runner_service_account_email" {
+  description = "Email of the terraform runner service account"
+  value       = google_service_account.terraform_runner.email
+}
+
+output "terraform_runner_service_account_name" {
+  description = "Full resource name of the terraform runner service account"
+  value       = google_service_account.terraform_runner.name
+}
