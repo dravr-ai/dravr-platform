@@ -2591,6 +2591,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-messaging"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.7.9",
+ "chrono",
+ "hex",
+ "hmac",
+ "pierre-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-providers"
 version = "0.1.0"
 dependencies = [

@@ -23,6 +23,10 @@ use pierre_core::models::mobility::{
 };
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::messaging::{
+    ChannelBindingRecord, CreateChannelBindingParams, CreateMessagingConnectionParams,
+    MessagingConnectionRecord,
+};
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, ConnectionType,
     ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest, FriendConnection,
@@ -1231,6 +1235,77 @@ pub trait SocialRepository: Send + Sync {
     ) -> AppResult<Vec<(Uuid, String, Option<String>)>>;
     /// Get total friend count for a user
     async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64>;
+}
+
+// ================================
+// Messaging integration repository
+// ================================
+
+/// Messaging provider connection and channel binding repository (tenant-scoped)
+#[async_trait]
+pub trait MessagingRepository: Send + Sync {
+    /// Create a new messaging connection record
+    async fn create_messaging_connection(
+        &self,
+        params: &CreateMessagingConnectionParams<'_>,
+    ) -> AppResult<MessagingConnectionRecord>;
+
+    /// Get a messaging connection by ID (tenant-scoped)
+    async fn get_messaging_connection(
+        &self,
+        id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<MessagingConnectionRecord>>;
+
+    /// Find a messaging connection by provider and team ID
+    ///
+    /// Used by webhook handlers to resolve which tenant/connection a webhook belongs to.
+    async fn get_messaging_connection_by_team(
+        &self,
+        provider: &str,
+        team_id: &str,
+    ) -> AppResult<Option<MessagingConnectionRecord>>;
+
+    /// List all messaging connections for a tenant
+    async fn list_messaging_connections(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<MessagingConnectionRecord>>;
+
+    /// Delete a messaging connection (tenant-scoped)
+    async fn delete_messaging_connection(
+        &self,
+        id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Create a new channel binding
+    async fn create_channel_binding(
+        &self,
+        params: &CreateChannelBindingParams<'_>,
+    ) -> AppResult<ChannelBindingRecord>;
+
+    /// Find a channel binding by connection ID and channel ID
+    ///
+    /// Used by webhook handlers to resolve which conversation an incoming message maps to.
+    async fn get_channel_binding_by_channel(
+        &self,
+        connection_id: &str,
+        channel_id: &str,
+    ) -> AppResult<Option<ChannelBindingRecord>>;
+
+    /// List all channel bindings for a tenant
+    async fn list_channel_bindings(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<ChannelBindingRecord>>;
+
+    /// Delete a channel binding (tenant-scoped)
+    async fn delete_channel_binding(
+        &self,
+        id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
 }
 
 // ================================

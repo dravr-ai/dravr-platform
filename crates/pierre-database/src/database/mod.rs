@@ -26,6 +26,8 @@ pub mod fitness_configurations;
 pub mod impersonation;
 /// LLM credential management and admin config overrides
 pub mod llm_credentials;
+/// Messaging provider connections and channel bindings
+pub mod messaging;
 /// LLM usage tracking for cost analysis and quota enforcement
 pub mod llm_usage;
 /// Mobility features (stretching exercises and yoga poses)

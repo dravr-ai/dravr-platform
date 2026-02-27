@@ -155,3 +155,10 @@ pub use recipes::{
     DietaryRestriction, IngredientUnit, MacroTargets, MealTiming, Recipe, RecipeConstraints,
     RecipeIngredient, SkillLevel, ValidatedNutrition,
 };
+
+/// Messaging provider connection and channel binding types
+pub mod messaging;
+pub use messaging::{
+    ChannelBindingRecord, CreateChannelBindingParams, CreateMessagingConnectionParams,
+    MessagingConnectionRecord,
+};
