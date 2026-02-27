@@ -12,21 +12,13 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, glassCard, buttonGlow } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoachDetail } from '../../types';
-import type { DiscoverStackParamList } from '../../navigation/MainTabs';
-
-interface StoreCoachDetailScreenProps {
-  navigation: NativeStackNavigationProp<DiscoverStackParamList>;
-  route: RouteProp<DiscoverStackParamList, 'StoreCoachDetail'>;
-}
-
 // Coach category colors
 const COACH_CATEGORY_COLORS: Record<string, string> = {
   training: '#10B981',
@@ -37,8 +29,9 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
   custom: '#7C3AED',
 };
 
-export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailScreenProps) {
-  const { coachId } = route.params;
+export function StoreCoachDetailScreen() {
+  const router = useRouter();
+  const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
   const [coach, setCoach] = useState<StoreCoachDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,11 +78,8 @@ export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailSc
           {
             text: 'View My Coaches',
             onPress: () => {
-              // Navigate to Coaches tab using the parent tab navigator
-              const parent = navigation.getParent();
-              if (parent) {
-                parent.navigate('CoachesTab');
-              }
+              // Navigate to Coaches tab
+              router.push('/(app)/(tabs)/(coaches)');
             },
           },
           { text: 'Stay Here', style: 'cancel' },
@@ -150,7 +140,7 @@ export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailSc
           <Text className="text-lg text-text-secondary mb-3">Coach not found</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-lg"
-            onPress={() => navigation.navigate('Store')}
+            onPress={() => router.push('/(app)/(tabs)/(discover)')}
           >
             <Text className="text-text-primary text-base font-medium">Go Back</Text>
           </TouchableOpacity>
@@ -168,7 +158,7 @@ export function StoreCoachDetailScreen({ navigation, route }: StoreCoachDetailSc
         <TouchableOpacity
           testID="back-button"
           className="w-10 h-10 items-center justify-center"
-          onPress={() => navigation.navigate('Store')}
+          onPress={() => router.push('/(app)/(tabs)/(discover)')}
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>

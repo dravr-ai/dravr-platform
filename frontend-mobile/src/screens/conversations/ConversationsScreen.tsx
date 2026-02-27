@@ -14,8 +14,8 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
@@ -23,11 +23,6 @@ import { chatApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog, SwipeableRow, type SwipeAction } from '../../components/ui';
 import type { Conversation } from '../../types';
-import type { ChatStackParamList } from '../../navigation/MainTabs';
-
-interface ConversationsScreenProps {
-  navigation: NativeStackNavigationProp<ChatStackParamList>;
-}
 
 // Glassmorphic search bar style
 const searchBarStyle: ViewStyle = {
@@ -49,7 +44,8 @@ const menuStyle: ViewStyle = {
   borderColor: 'rgba(139, 92, 246, 0.2)',
 };
 
-export function ConversationsScreen({ navigation }: ConversationsScreenProps) {
+export function ConversationsScreen() {
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
@@ -131,7 +127,7 @@ export function ConversationsScreen({ navigation }: ConversationsScreenProps) {
   };
 
   const handleConversationPress = (conversationId: string) => {
-    navigation.navigate('ChatMain', { conversationId });
+    router.push({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId } });
   };
 
   const handleConversationLongPress = (conversation: Conversation) => {
@@ -140,7 +136,7 @@ export function ConversationsScreen({ navigation }: ConversationsScreenProps) {
   };
 
   const handleNewChat = () => {
-    navigation.navigate('ChatMain', { conversationId: undefined });
+    router.push('/(app)/(tabs)/(chat)');
   };
 
   const handleRename = () => {
@@ -283,7 +279,7 @@ export function ConversationsScreen({ navigation }: ConversationsScreenProps) {
       <View className="flex-row items-center px-3 py-2 border-b border-border-subtle">
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="back-button"
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />

@@ -15,8 +15,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors } from '../../constants/theme';
 import { socialApi } from '../../services/api';
@@ -24,24 +23,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import { SuggestionCard } from '../../components/social';
 import { DragIndicator } from '../../components/ui';
 import type { InsightSuggestion, ShareVisibility, InsightType } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-type ShareInsightRouteProp = RouteProp<SocialStackParamList, 'ShareInsight'>;
-
 // States for the sharing flow
 type ShareFlowState = 'loading' | 'suggestions' | 'editing' | 'submitting' | 'error';
 
 export function ShareInsightScreen() {
-  const navigation = useNavigation<NavigationProp>();
-  const route = useRoute<ShareInsightRouteProp>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{
+    activityId?: string;
+    content?: string;
+    insightType?: string;
+    visibility?: string;
+  }>();
   const { isAuthenticated } = useAuth();
 
   // Get optional params from route
-  const activityId = route.params?.activityId;
-  const prePopulatedContent = route.params?.content;
-  const prePopulatedInsightType = route.params?.insightType;
-  const prePopulatedVisibility = route.params?.visibility;
+  const activityId = params.activityId;
+  const prePopulatedContent = params.content;
+  const prePopulatedInsightType = params.insightType;
+  const prePopulatedVisibility = params.visibility;
 
   // Flow state - start in editing mode if content is pre-populated
   const [flowState, setFlowState] = useState<ShareFlowState>(
@@ -57,7 +56,7 @@ export function ShareInsightScreen() {
   const [selectedSuggestion, setSelectedSuggestion] = useState<InsightSuggestion | null>(null);
   const [editedContent, setEditedContent] = useState(prePopulatedContent || '');
   const [visibility, setVisibility] = useState<ShareVisibility>(
-    prePopulatedVisibility || 'friends_only'
+    (prePopulatedVisibility as ShareVisibility | undefined) || 'friends_only'
   );
   // Track insight type for pre-populated content (without suggestion)
   // Note: setter not used since insight type is fixed from route params
@@ -136,7 +135,7 @@ export function ShareInsightScreen() {
       });
 
       // Navigate back to feed on success
-      navigation.navigate('SocialMain');
+      router.push('/(app)/(tabs)/(social)');
     } catch (err) {
       console.error('Failed to share insight:', err);
       setError('Failed to share. Please try again.');
@@ -153,12 +152,12 @@ export function ShareInsightScreen() {
   const handleBack = useCallback(() => {
     if (prePopulatedContent) {
       // If we came from chat with pre-populated content, just go back
-      navigation.goBack();
+      router.back();
     } else {
       // If we selected from suggestions, go back to suggestions list
       handleBackToSuggestions();
     }
-  }, [prePopulatedContent, navigation, handleBackToSuggestions]);
+  }, [prePopulatedContent, router, handleBackToSuggestions]);
 
   // Loading state
   if (flowState === 'loading') {
@@ -180,7 +179,7 @@ export function ShareInsightScreen() {
         <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
           <TouchableOpacity
             className="p-2"
-            onPress={() => navigation.goBack()}
+            onPress={() => router.back()}
             testID="close-button"
           >
             <Feather name="x" size={24} color={colors.text.primary} />
@@ -380,7 +379,7 @@ export function ShareInsightScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="close-button"
         >
           <Feather name="x" size={24} color={colors.text.primary} />

@@ -25,21 +25,10 @@ import {
   signInWithGoogleResponse,
 } from '../../firebase';
 import { AntDesign } from '@expo/vector-icons';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  ForgotPassword: undefined;
-  ResetPassword: { email: string };
-  PendingApproval: undefined;
-};
-
-interface LoginScreenProps {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
-}
-
-export function LoginScreen({ navigation }: LoginScreenProps) {
+export function LoginScreen() {
+  const router = useRouter();
   const { login, loginWithFirebase } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -108,8 +97,8 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
     setIsLoading(true);
     try {
       await login(email.trim(), password);
-      // Navigation is handled by auth state change in RootNavigator/AuthStack
-      // If user is pending, AuthStack will show PendingApproval screen
+      // Navigation is handled by auth state change in root layout auth gating
+      // If user is pending, the auth guard redirects to PendingApproval screen
     } catch (error) {
       let message = 'Login failed. Please try again.';
       if (error instanceof Error) {
@@ -226,7 +215,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
                 />
 
                 <TouchableOpacity
-                  onPress={() => navigation.navigate('ForgotPassword')}
+                  onPress={() => router.push('/(auth)/forgot-password')}
                   className="self-end mb-2"
                   testID="forgot-password-link"
                 >
@@ -274,7 +263,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
               {/* Register Link */}
               <View className="flex-row justify-center items-center gap-1 pt-2">
                 <Text className="text-sm text-text-secondary">Don't have an account?</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+                <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
                   <Text className="text-sm font-semibold text-primary-500">Create one</Text>
                 </TouchableOpacity>
               </View>

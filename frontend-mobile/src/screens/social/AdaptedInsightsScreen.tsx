@@ -13,17 +13,13 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, glassCard } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { AdaptedInsight } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
 // Glass card style with shadow (React Native shadows cannot use className)
 const cardStyle: ViewStyle = {
   marginHorizontal: spacing.md,
@@ -81,7 +77,7 @@ function AdaptedInsightCard({ insight, onPress }: AdaptedInsightCardProps) {
 }
 
 export function AdaptedInsightsScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [insights, setInsights] = useState<AdaptedInsight[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -144,7 +140,7 @@ export function AdaptedInsightsScreen() {
   );
 
   const handleInsightPress = (insight: AdaptedInsight) => {
-    navigation.navigate('AdaptedInsight', { adaptedInsight: insight });
+    router.push({ pathname: '/(app)/(tabs)/(social)/adapted-insight', params: { adaptedInsight: JSON.stringify(insight) } });
   };
 
   const renderInsight = ({ item }: { item: AdaptedInsight }) => (
@@ -165,7 +161,7 @@ export function AdaptedInsightsScreen() {
       <TouchableOpacity
         className="flex-row items-center px-5 py-4 rounded-lg gap-2"
         style={{ backgroundColor: colors.pierre.violet }}
-        onPress={() => navigation.navigate('SocialMain')}
+        onPress={() => router.push('/(app)/(tabs)/(social)')}
       >
         <Feather name="activity" size={18} color={colors.text.primary} />
         <Text className="text-text-primary text-base font-semibold">Browse Feed</Text>
@@ -199,7 +195,7 @@ export function AdaptedInsightsScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>

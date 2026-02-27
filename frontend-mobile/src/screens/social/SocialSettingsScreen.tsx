@@ -13,8 +13,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 import { colors, spacing, glassCard } from '../../constants/theme';
@@ -23,10 +23,6 @@ type FeatherIconName = ComponentProps<typeof Feather>['name'];
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { UserSocialSettings } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
 // Glass card style with shadow (React Native shadows cannot use className)
 const sectionCardStyle: ViewStyle = {
   borderRadius: 12,
@@ -70,7 +66,7 @@ function SettingRow({ icon, title, description, value, onValueChange, disabled, 
 }
 
 export function SocialSettingsScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [settings, setSettings] = useState<UserSocialSettings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -160,7 +156,7 @@ export function SocialSettingsScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="back-button"
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />

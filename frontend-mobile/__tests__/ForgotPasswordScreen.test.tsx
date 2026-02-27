@@ -8,12 +8,14 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-// Mock navigation
-const mockNavigate = jest.fn();
-const mockNavigation = {
-  navigate: mockNavigate,
-  goBack: jest.fn(),
-};
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({}),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
 // Mock API service
 const mockForgotPassword = jest.fn();
@@ -38,12 +40,16 @@ import { ForgotPasswordScreen } from '../src/screens/auth/ForgotPasswordScreen';
 describe('ForgotPasswordScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   });
 
   function renderComponent() {
     return render(
-      <ForgotPasswordScreen navigation={mockNavigation as never} />,
+      <ForgotPasswordScreen />,
     );
   }
 
@@ -112,9 +118,7 @@ describe('ForgotPasswordScreen', () => {
       fireEvent.press(getByTestId('send-code-button'));
 
       await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith('ResetPassword', {
-          email: 'test@example.com',
-        });
+        expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(auth)/reset-password', params: { email: 'test@example.com' } });
       });
     });
 
@@ -137,7 +141,7 @@ describe('ForgotPasswordScreen', () => {
 
       fireEvent.press(getByText('Back to sign in'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('Login');
+      expect(mockRouter.replace).toHaveBeenCalledWith('/(auth)/login');
     });
   });
 });

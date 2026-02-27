@@ -242,3 +242,35 @@ jest.mock('@shopify/flash-list', () => {
   };
 });
 
+// Mock expo-router - provides all routing hooks used by screen components
+jest.mock('expo-router', () => {
+  const React = require('react');
+  const View = require('react-native').View;
+  return {
+    useRouter: () => ({
+      push: jest.fn(),
+      replace: jest.fn(),
+      back: jest.fn(),
+      navigate: jest.fn(),
+      canGoBack: () => true,
+    }),
+    useLocalSearchParams: () => ({}),
+    useSegments: () => [],
+    usePathname: () => '/',
+    useFocusEffect: (cb) => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      React.useEffect(() => { return cb(); }, [cb]);
+    },
+    Link: ({ children }) => children,
+    Slot: ({ children }) => React.createElement(View, null, children),
+    Stack: Object.assign(
+      ({ children }) => React.createElement(View, null, children),
+      { Screen: () => null }
+    ),
+    Tabs: Object.assign(
+      ({ children }) => React.createElement(View, null, children),
+      { Screen: () => null }
+    ),
+  };
+});
+

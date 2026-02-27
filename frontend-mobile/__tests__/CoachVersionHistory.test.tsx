@@ -5,16 +5,6 @@ import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-// Mock navigation
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => void) => {
-      actualReact.useEffect(callback, []);
-    },
-  };
-});
-
 // Mock SafeAreaInsets
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 44, bottom: 34, left: 0, right: 0 }),

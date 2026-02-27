@@ -8,7 +8,7 @@
       "@pierre/shared-types": ["../packages/shared-types/src"],
       "@pierre/shared-constants": ["../packages/shared-constants/src"]
     },
-    "types": ["jest", "node", "react-native"]
+    "types": ["jest", "node", "react-native", "expo-router/types"]
   },
   "include": [
     "**/*.ts",

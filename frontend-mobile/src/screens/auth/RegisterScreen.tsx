@@ -17,19 +17,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
 import { spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  PendingApproval: undefined;
-};
-
-interface RegisterScreenProps {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Register'>;
-}
-
-export function RegisterScreen({ navigation }: RegisterScreenProps) {
+export function RegisterScreen() {
+  const router = useRouter();
   const { register } = useAuth();
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -75,7 +66,7 @@ export function RegisterScreen({ navigation }: RegisterScreenProps) {
   const registerAction = useAsyncAction({
     action: () => register(email.trim(), password, displayName.trim()),
     onSuccess: () => {
-      navigation.replace('PendingApproval');
+      router.replace('/(auth)/pending-approval');
     },
     onError: (error: unknown) => {
       const message = error instanceof Error ? error.message : 'Registration failed';
@@ -191,7 +182,7 @@ export function RegisterScreen({ navigation }: RegisterScreenProps) {
               {/* Login Link */}
               <View className="flex-row justify-center items-center gap-1 pt-2">
                 <Text className="text-sm text-text-secondary">Already have an account?</Text>
-                <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
                   <Text className="text-sm font-semibold text-primary-500">Sign in</Text>
                 </TouchableOpacity>
               </View>

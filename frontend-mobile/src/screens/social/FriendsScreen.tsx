@@ -13,20 +13,16 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing, glassCard, buttonGlow } from '../../constants/theme';
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { FriendCard } from '../../components/social/FriendCard';
 import type { FriendWithInfo } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
 export function FriendsScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [friends, setFriends] = useState<FriendWithInfo[]>([]);
   const [filteredFriends, setFilteredFriends] = useState<FriendWithInfo[]>([]);
@@ -138,7 +134,7 @@ export function FriendsScreen() {
           backgroundColor: colors.pierre.violet,
           ...buttonGlow,
         }}
-        onPress={() => navigation.navigate('SearchFriends')}
+        onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
         <Feather name="search" size={18} color="#FFFFFF" />
         <Text className="text-white text-base font-semibold">Find Friends</Text>
@@ -166,7 +162,7 @@ export function FriendsScreen() {
         <View className="flex-row gap-2">
           <TouchableOpacity
             className="p-2 relative"
-            onPress={() => navigation.navigate('FriendRequests')}
+            onPress={() => router.push('/(app)/(tabs)/(social)/friend-requests')}
             testID="friend-requests-button"
           >
             <Feather name="inbox" size={22} color={colors.text.primary} />
@@ -183,7 +179,7 @@ export function FriendsScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             className="p-2"
-            onPress={() => navigation.navigate('SearchFriends')}
+            onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
             testID="search-friends-button"
           >
             <Feather name="user-plus" size={22} color={colors.text.primary} />

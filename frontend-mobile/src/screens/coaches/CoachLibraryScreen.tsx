@@ -17,8 +17,7 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients } from '../../constants/theme';
@@ -26,11 +25,6 @@ import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { FloatingSearchBar, PromptDialog, ScrollFadeContainer, SwipeableRow, type SwipeAction } from '../../components/ui';
 import type { Coach, CoachCategory } from '../../types';
-import type { CoachesStackParamList } from '../../navigation/MainTabs';
-
-interface CoachLibraryScreenProps {
-  navigation: NativeStackNavigationProp<CoachesStackParamList>;
-}
 
 // Category filter options
 const CATEGORY_FILTERS: Array<{ key: CoachCategory | 'all'; label: string }> = [
@@ -77,7 +71,8 @@ const actionMenuStyle: ViewStyle = {
   overflow: 'hidden',
 };
 
-export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
+export function CoachLibraryScreen() {
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<CoachCategory | 'all'>('all');
@@ -186,7 +181,7 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
   };
 
   const handleCoachPress = (coach: Coach) => {
-    navigation.navigate('CoachDetail', { coachId: coach.id });
+    router.push({ pathname: '/(app)/(tabs)/(coaches)/[coachId]', params: { coachId: coach.id } });
   };
 
   const handleCoachLongPress = (coach: Coach) => {
@@ -195,7 +190,7 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
   };
 
   const handleCreateCoach = () => {
-    navigation.navigate('CoachEditor', { coachId: undefined });
+    router.push('/(app)/(tabs)/(coaches)/editor');
   };
 
   const handleToggleFavorite = async (coach?: Coach) => {
@@ -333,7 +328,7 @@ export function CoachLibraryScreen({ navigation }: CoachLibraryScreenProps) {
               // Add the new forked coach to the list
               setCoaches((prev) => [result.coach, ...prev]);
               // Navigate to wizard to customize
-              navigation.navigate('CoachEditor', { coachId: result.coach.id });
+              router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: result.coach.id } });
             } catch (error) {
               console.error('Failed to fork coach:', error);
               Alert.alert('Error', 'Failed to fork coach. Please try again.');

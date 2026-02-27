@@ -8,18 +8,14 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-// Mock navigation and route
-const mockNavigate = jest.fn();
-const mockNavigation = {
-  navigate: mockNavigate,
-  goBack: jest.fn(),
-};
-
-const mockRoute = {
-  params: { email: 'test@example.com' },
-  key: 'ResetPassword',
-  name: 'ResetPassword' as const,
-};
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({ email: 'test@example.com' }),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
 // Mock API service
 const mockResetPassword = jest.fn();
@@ -44,15 +40,16 @@ import { ResetPasswordScreen } from '../src/screens/auth/ResetPasswordScreen';
 describe('ResetPasswordScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   });
 
   function renderComponent() {
     return render(
-      <ResetPasswordScreen
-        navigation={mockNavigation as never}
-        route={mockRoute as never}
-      />,
+      <ResetPasswordScreen />,
     );
   }
 
@@ -206,7 +203,7 @@ describe('ResetPasswordScreen', () => {
 
       fireEvent.press(getByText('Resend code'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('ForgotPassword');
+      expect(mockRouter.push).toHaveBeenCalledWith('/(auth)/forgot-password');
     });
 
     it('should navigate to Login when back link is pressed', () => {
@@ -214,7 +211,7 @@ describe('ResetPasswordScreen', () => {
 
       fireEvent.press(getByText('Back to sign in'));
 
-      expect(mockNavigate).toHaveBeenCalledWith('Login');
+      expect(mockRouter.replace).toHaveBeenCalledWith('/(auth)/login');
     });
   });
 });

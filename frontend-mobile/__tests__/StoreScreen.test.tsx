@@ -4,28 +4,14 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-  canGoBack: jest.fn().mockReturnValue(true),
-};
-
-// Mock useFocusEffect - needs to be before imports that use it
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => (() => void) | void) => {
-      actualReact.useEffect(() => {
-        return callback();
-      }, [callback]);
-    },
-    useNavigation: () => ({
-      goBack: jest.fn(),
-      canGoBack: jest.fn().mockReturnValue(true),
-    }),
-  };
-});
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({}),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(() => { return cb(); }, [cb]); },
+}));
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -68,6 +54,10 @@ const createMockStoreCoach = (overrides: Partial<StoreCoach> = {}): StoreCoach =
 describe('StoreScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
     mockGetStoreCategories.mockResolvedValue({
       categories: [
@@ -81,7 +71,7 @@ describe('StoreScreen', () => {
   describe('rendering', () => {
     it('should render header with Discover title', async () => {
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
       await waitFor(() => {
         expect(getByText('Discover')).toBeTruthy();
@@ -90,7 +80,7 @@ describe('StoreScreen', () => {
 
     it('should render category filters', async () => {
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
       await waitFor(() => {
         expect(getByText('All')).toBeTruthy();
@@ -102,7 +92,7 @@ describe('StoreScreen', () => {
 
     it('should render sort options', async () => {
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
       await waitFor(() => {
         expect(getByText('Popular')).toBeTruthy();
@@ -113,7 +103,7 @@ describe('StoreScreen', () => {
 
     it('should render search input', async () => {
       const { getByPlaceholderText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
       await waitFor(() => {
         expect(getByPlaceholderText('Search coaches...')).toBeTruthy();
@@ -123,7 +113,7 @@ describe('StoreScreen', () => {
     it('should render empty state when no coaches', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
       await waitFor(() => {
         expect(getByText('No coaches available')).toBeTruthy();
@@ -140,7 +130,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 2 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -156,7 +146,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -171,7 +161,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -186,7 +176,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -204,7 +194,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -226,7 +216,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       // Wait for initial load
@@ -258,7 +248,7 @@ describe('StoreScreen', () => {
     it('should sort by popular by default', async () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
-      render(<StoreScreen navigation={mockNavigation as never} />);
+      render(<StoreScreen />);
 
       await waitFor(() => {
         expect(mockBrowseStoreCoaches).toHaveBeenCalledWith(
@@ -271,7 +261,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -295,7 +285,7 @@ describe('StoreScreen', () => {
       mockSearchStoreCoaches.mockResolvedValue({ coaches: [], total: 0 });
 
       const { getByPlaceholderText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -323,7 +313,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByText } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {
@@ -332,9 +322,7 @@ describe('StoreScreen', () => {
 
       fireEvent.press(getByText('Clickable Coach'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('StoreCoachDetail', {
-        coachId: 'coach-123',
-      });
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(discover)/[coachId]', params: { coachId: 'coach-123' } });
     });
 
   });
@@ -349,7 +337,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockReturnValue(pendingPromise);
 
       const { getByTestId } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       // Should show loading state
@@ -372,7 +360,7 @@ describe('StoreScreen', () => {
       mockBrowseStoreCoaches.mockResolvedValue({ coaches, total: 1 });
 
       const { getByTestId } = render(
-        <StoreScreen navigation={mockNavigation as never} />
+        <StoreScreen />
       );
 
       await waitFor(() => {

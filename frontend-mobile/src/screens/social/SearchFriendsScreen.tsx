@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
 import { FloatingSearchBar } from '../../components/ui';
@@ -20,12 +19,8 @@ import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { SearchUserCard } from '../../components/social/FriendCard';
 import type { DiscoverableUser } from '../../types';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-
 export function SearchFriendsScreen() {
-  const navigation = useNavigation<NavigationProp>();
+  const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [query, setQuery] = useState('');
   const [users, setUsers] = useState<DiscoverableUser[]>([]);
@@ -162,7 +157,7 @@ export function SearchFriendsScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2 mr-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="back-button"
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />

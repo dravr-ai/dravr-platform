@@ -16,17 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button } from '../../components/ui';
 import { spacing, glassCard, gradients } from '../../constants/theme';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  PendingApproval: undefined;
-};
-
-interface PendingApprovalScreenProps {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'PendingApproval'>;
-}
+import { useRouter } from 'expo-router';
 
 // Logo style (pixel-specific dimensions)
 const logoStyle: ImageStyle = { width: 100, height: 100, marginBottom: spacing.md };
@@ -48,7 +38,8 @@ const stepBadgeStyle: ViewStyle = {
   marginRight: spacing.sm,
 };
 
-export function PendingApprovalScreen({ navigation }: PendingApprovalScreenProps) {
+export function PendingApprovalScreen() {
+  const router = useRouter();
   return (
     <SafeAreaView className="flex-1 bg-background-primary">
       <ScrollView
@@ -130,7 +121,7 @@ export function PendingApprovalScreen({ navigation }: PendingApprovalScreenProps
             {/* Back to Login */}
             <Button
               title="Back to Sign In"
-              onPress={() => navigation.navigate('Login')}
+              onPress={() => router.replace('/(auth)/login')}
               variant="secondary"
               fullWidth
               style={{ marginBottom: spacing.md }}

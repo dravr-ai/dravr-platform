@@ -5,21 +5,14 @@ import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
-// Mock parent navigation (tab navigator)
-const mockParentNavigation = {
-  navigate: jest.fn(),
-};
-
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-  getParent: jest.fn(() => mockParentNavigation),
-};
-
-const mockRoute = {
-  params: { coachId: 'test-coach-id' },
-};
+// Per-file expo-router mock override with spyable router methods
+const mockRouter = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), navigate: jest.fn(), canGoBack: () => true };
+jest.mock('expo-router', () => ({
+  ...jest.requireActual('expo-router'),
+  useRouter: () => mockRouter,
+  useLocalSearchParams: () => ({ coachId: 'test-coach-id' }),
+  useFocusEffect: (cb: () => void) => { require('react').useEffect(cb, []); },
+}));
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -74,6 +67,10 @@ const createMockStoreCoachDetail = (overrides: Partial<StoreCoachDetail> = {}): 
 describe('StoreCoachDetailScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouter.push.mockClear();
+    mockRouter.replace.mockClear();
+    mockRouter.back.mockClear();
+    mockRouter.navigate.mockClear();
     mockGetStoreCoach.mockResolvedValue(createMockStoreCoachDetail());
     mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
   });
@@ -89,10 +86,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       expect(getByText('Loading coach details...')).toBeTruthy();
@@ -104,10 +98,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render coach title', async () => {
       const { getAllByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -118,10 +109,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render coach description', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -131,10 +119,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render category badge', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -144,10 +129,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render install count', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -157,10 +139,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render tags', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -172,10 +151,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render sample prompts', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -186,10 +162,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render system prompt section', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -199,10 +172,7 @@ describe('StoreCoachDetailScreen', () => {
 
     it('should render token count in details', async () => {
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -215,10 +185,7 @@ describe('StoreCoachDetailScreen', () => {
       mockGetStoreCoach.mockResolvedValue(null);
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -232,10 +199,7 @@ describe('StoreCoachDetailScreen', () => {
       mockGetInstalledCoaches.mockResolvedValue({ coaches: [] });
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -251,10 +215,7 @@ describe('StoreCoachDetailScreen', () => {
       });
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -276,10 +237,7 @@ describe('StoreCoachDetailScreen', () => {
       });
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -302,10 +260,7 @@ describe('StoreCoachDetailScreen', () => {
       mockInstallStoreCoach.mockRejectedValue(new Error('Installation failed'));
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -330,10 +285,7 @@ describe('StoreCoachDetailScreen', () => {
       });
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -347,10 +299,7 @@ describe('StoreCoachDetailScreen', () => {
       });
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -388,10 +337,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -410,10 +356,7 @@ describe('StoreCoachDetailScreen', () => {
   describe('navigation', () => {
     it('should go back when back button is pressed', async () => {
       const { getAllByText, getByTestId } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -424,7 +367,7 @@ describe('StoreCoachDetailScreen', () => {
       // Find and press back button via testID
       fireEvent.press(getByTestId('back-button'));
 
-      expect(mockNavigation.navigate).toHaveBeenCalledWith('Store');
+      expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(discover)');
     });
 
     it('should navigate to CoachLibrary after successful install', async () => {
@@ -447,10 +390,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -460,8 +400,8 @@ describe('StoreCoachDetailScreen', () => {
       fireEvent.press(getByText('Install Coach'));
 
       await waitFor(() => {
-        // After install, navigation uses parent tab navigator to go to Coaches tab
-        expect(mockParentNavigation.navigate).toHaveBeenCalledWith('CoachesTab');
+        // After install, navigation goes to Coaches tab
+        expect(mockRouter.push).toHaveBeenCalledWith('/(app)/(tabs)/(coaches)');
       });
     });
   });
@@ -473,10 +413,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { queryByText, getAllByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -493,10 +430,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { getAllByText, queryByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -512,10 +446,7 @@ describe('StoreCoachDetailScreen', () => {
       );
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {
@@ -527,10 +458,7 @@ describe('StoreCoachDetailScreen', () => {
       mockGetStoreCoach.mockRejectedValue(new Error('Network error'));
 
       const { getByText } = render(
-        <StoreCoachDetailScreen
-          navigation={mockNavigation as never}
-          route={mockRoute as never}
-        />
+        <StoreCoachDetailScreen />
       );
 
       await waitFor(() => {

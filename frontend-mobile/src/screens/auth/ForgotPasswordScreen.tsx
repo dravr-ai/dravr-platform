@@ -16,21 +16,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { authApi } from '../../services/api';
 import { Button, Input } from '../../components/ui';
 import { colors, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter } from 'expo-router';
 
-type AuthStackParamList = {
-  Login: undefined;
-  Register: undefined;
-  ForgotPassword: undefined;
-  ResetPassword: { email: string };
-  PendingApproval: undefined;
-};
-
-interface ForgotPasswordScreenProps {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'ForgotPassword'>;
-}
-
-export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) {
+export function ForgotPasswordScreen() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string }>({});
@@ -54,7 +43,7 @@ export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) 
     setIsLoading(true);
     try {
       await authApi.forgotPassword(email.trim());
-      navigation.navigate('ResetPassword', { email: email.trim() });
+      router.push({ pathname: '/(auth)/reset-password', params: { email: email.trim() } });
     } catch (error) {
       let message = 'Something went wrong. Please try again.';
       if (error instanceof Error) {
@@ -139,7 +128,7 @@ export function ForgotPasswordScreen({ navigation }: ForgotPasswordScreenProps) 
 
               {/* Back to Login */}
               <View className="flex-row justify-center items-center gap-1 pt-2">
-                <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+                <TouchableOpacity onPress={() => router.replace('/(auth)/login')}>
                   <Text className="text-sm font-semibold text-primary-500">Back to sign in</Text>
                 </TouchableOpacity>
               </View>

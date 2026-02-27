@@ -12,20 +12,13 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RouteProp } from '@react-navigation/native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Coach } from '../../types';
-import type { CoachesStackParamList } from '../../navigation/MainTabs';
-
-interface CoachDetailScreenProps {
-  navigation: NativeStackNavigationProp<CoachesStackParamList>;
-  route: RouteProp<CoachesStackParamList, 'CoachDetail'>;
-}
 
 // Coach category colors matching Stitch UX spec
 const COACH_CATEGORY_COLORS: Record<string, string> = {
@@ -37,8 +30,9 @@ const COACH_CATEGORY_COLORS: Record<string, string> = {
   custom: '#8B5CF6',    // Violet per Stitch spec
 };
 
-export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps) {
-  const { coachId } = route.params;
+export function CoachDetailScreen() {
+  const router = useRouter();
+  const { coachId } = useLocalSearchParams<{ coachId: string }>();
   const { isAuthenticated } = useAuth();
   const [coach, setCoach] = useState<Coach | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,7 +70,7 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
 
   const handleEdit = () => {
     if (!coach) return;
-    navigation.navigate('CoachEditor', { coachId: coach.id });
+    router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: coach.id } });
   };
 
   const handleDelete = () => {
@@ -95,7 +89,7 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
               setIsDeleting(true);
               await coachesApi.deleteCoach(coach.id);
               Alert.alert('Deleted', 'Coach has been deleted.');
-              navigation.goBack();
+              router.back();
             } catch (error) {
               console.error('Failed to delete coach:', error);
               Alert.alert('Error', 'Failed to delete coach. Please try again.');
@@ -110,11 +104,7 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
 
   const handleUseInChat = () => {
     if (!coach) return;
-    // Navigate to chat tab using parent tab navigator
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.navigate('ChatTab');
-    }
+    router.push('/(app)/(tabs)/(chat)');
   };
 
   const handleToggleHidden = async () => {
@@ -155,7 +145,7 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
           <Text className="text-lg text-text-secondary mb-3">Coach not found</Text>
           <TouchableOpacity
             className="px-5 py-2 bg-primary-500 rounded-md"
-            onPress={() => navigation.goBack()}
+            onPress={() => router.back()}
           >
             <Text className="text-text-primary text-base font-medium">Go Back</Text>
           </TouchableOpacity>
@@ -173,7 +163,7 @@ export function CoachDetailScreen({ navigation, route }: CoachDetailScreenProps)
         <TouchableOpacity
           testID="back-button"
           className="p-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
         >
           <Text className="text-2xl text-text-primary">←</Text>
         </TouchableOpacity>

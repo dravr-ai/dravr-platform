@@ -4,25 +4,6 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
-// Mock navigation
-const mockNavigation = {
-  navigate: jest.fn(),
-  goBack: jest.fn(),
-};
-
-// Mock useFocusEffect
-jest.mock('@react-navigation/native', () => {
-  const actualReact = jest.requireActual('react');
-  return {
-    useFocusEffect: (callback: () => (() => void) | void) => {
-      actualReact.useEffect(() => {
-        return callback();
-      }, [callback]);
-    },
-    useNavigation: () => mockNavigation,
-  };
-});
-
 // Mock safe area
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -103,10 +84,6 @@ jest.mock('../src/screens/chat/useUsageStatus', () => ({
 
 // Must import AFTER mocks
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { SettingsStackParamList } from '../src/navigation/MainTabs';
-
-type Nav = NativeStackNavigationProp<SettingsStackParamList>;
 
 describe('SettingsScreen - Usage Card', () => {
   beforeEach(() => {
@@ -115,7 +92,7 @@ describe('SettingsScreen - Usage Card', () => {
 
   it('should render usage section with quota meter labels', async () => {
     const { getByText } = render(
-      <SettingsScreen navigation={mockNavigation as unknown as Nav} />
+      <SettingsScreen />
     );
 
     await waitFor(() => {
@@ -128,7 +105,7 @@ describe('SettingsScreen - Usage Card', () => {
 
   it('should display token counts in compact format', async () => {
     const { getByText } = render(
-      <SettingsScreen navigation={mockNavigation as unknown as Nav} />
+      <SettingsScreen />
     );
 
     await waitFor(() => {
@@ -139,7 +116,7 @@ describe('SettingsScreen - Usage Card', () => {
 
   it('should display resource counts for coaches and conversations', async () => {
     const { getByText } = render(
-      <SettingsScreen navigation={mockNavigation as unknown as Nav} />
+      <SettingsScreen />
     );
 
     await waitFor(() => {

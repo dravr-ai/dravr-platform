@@ -11,15 +11,11 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { colors, glassCard } from '../../constants/theme';
 import { DragIndicator } from '../../components/ui';
-import type { SocialStackParamList } from '../../navigation/MainTabs';
-
-type NavigationProp = NativeStackNavigationProp<SocialStackParamList>;
-type RouteProps = RouteProp<SocialStackParamList, 'AdaptedInsight'>;
+import type { AdaptedInsight } from '../../types';
 
 // Glass card style with shadow (React Native shadows cannot use className)
 const contentCardStyle: ViewStyle = {
@@ -70,9 +66,9 @@ const formatAdaptationContext = (contextJson: string): string => {
 };
 
 export function AdaptedInsightScreen() {
-  const navigation = useNavigation<NavigationProp>();
-  const route = useRoute<RouteProps>();
-  const { adaptedInsight } = route.params;
+  const router = useRouter();
+  const { adaptedInsight: adaptedInsightParam } = useLocalSearchParams<{ adaptedInsight: string }>();
+  const adaptedInsight: AdaptedInsight = JSON.parse(adaptedInsightParam);
 
   return (
     <SafeAreaView className="flex-1 bg-background-primary" testID="adapt-insight-screen">
@@ -81,7 +77,7 @@ export function AdaptedInsightScreen() {
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
         <TouchableOpacity
           className="p-2"
-          onPress={() => navigation.goBack()}
+          onPress={() => router.back()}
           testID="back-button"
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
@@ -179,14 +175,14 @@ export function AdaptedInsightScreen() {
           <TouchableOpacity
             className="flex-row items-center justify-center py-4 rounded-lg gap-2"
             style={{ backgroundColor: colors.pierre.violet }}
-            onPress={() => navigation.navigate('SocialMain')}
+            onPress={() => router.push('/(app)/(tabs)/(social)')}
           >
             <Feather name="home" size={18} color={colors.text.primary} />
             <Text className="text-text-primary text-base font-semibold">Back to Feed</Text>
           </TouchableOpacity>
           <TouchableOpacity
             className="flex-row items-center justify-center py-4 rounded-lg bg-background-secondary gap-2"
-            onPress={() => navigation.navigate('AdaptedInsights')}
+            onPress={() => router.push('/(app)/(tabs)/(social)/adapted-insights')}
           >
             <Feather name="list" size={18} color={colors.pierre.violet} />
             <Text className="text-base font-medium" style={{ color: colors.pierre.violet }}>
