@@ -984,6 +984,8 @@ impl MultiTenantMcpServer {
         use crate::routes::llm_settings::LlmSettingsRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
+        #[cfg(feature = "messaging-slack")]
+        use crate::routes::messaging::messaging_routes;
         #[cfg(feature = "oauth")]
         use crate::routes::oauth2::OAuth2Routes;
         #[cfg(feature = "openapi")]
@@ -1164,6 +1166,13 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "client-mcp-tokens")]
         let app = app.merge(UserMcpTokenRoutes::routes(Arc::clone(resources)));
+
+        // ═══════════════════════════════════════════════════════════════
+        // MESSAGING INTEGRATION ROUTES
+        // ═══════════════════════════════════════════════════════════════
+
+        #[cfg(feature = "messaging-slack")]
+        let app = app.nest("/api/messaging", messaging_routes(Arc::clone(resources)));
 
         // ═══════════════════════════════════════════════════════════════
         // OPENAPI DOCUMENTATION ROUTES

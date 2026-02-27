@@ -2677,6 +2677,7 @@ dependencies = [
  "pierre-database",
  "pierre-intelligence",
  "pierre-llm",
+ "pierre-messaging",
  "pierre-providers",
  "rand 0.8.5",
  "rand_chacha 0.3.1",

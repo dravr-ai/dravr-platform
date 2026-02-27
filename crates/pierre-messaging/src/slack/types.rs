@@ -26,16 +26,20 @@ pub enum SlackEventPayload {
 
     /// Event callback containing an actual Slack event
     #[serde(rename = "event_callback")]
-    EventCallback {
-        /// Workspace/team identifier
-        team_id: String,
-        /// The inner event payload
-        event: SlackEvent,
-        /// Unique event identifier for deduplication
-        event_id: String,
-        /// Unix timestamp of the event
-        event_time: u64,
-    },
+    EventCallback(Box<SlackEventCallback>),
+}
+
+/// Data payload for an event callback from the Slack Events API
+#[derive(Debug, Clone, Deserialize)]
+pub struct SlackEventCallback {
+    /// Workspace/team identifier
+    pub team_id: String,
+    /// The inner event payload
+    pub event: SlackEvent,
+    /// Unique event identifier for deduplication
+    pub event_id: String,
+    /// Unix timestamp of the event
+    pub event_time: u64,
 }
 
 /// Inner Slack event types
@@ -56,7 +60,7 @@ pub enum SlackEvent {
 /// Slack message event data
 ///
 /// Contains the message content, sender, channel, and threading information.
-/// Bot messages are identified by the presence of `bot_id` or `subtype` = "bot_message".
+/// Bot messages are identified by the presence of `bot_id` or `subtype` = `bot_message`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SlackMessageEvent {
     /// User ID who sent the message (absent for bot messages)
@@ -72,7 +76,7 @@ pub struct SlackMessageEvent {
     pub thread_ts: Option<String>,
     /// Bot ID if the message was sent by a bot
     pub bot_id: Option<String>,
-    /// Message subtype (e.g., "bot_message", "channel_join")
+    /// Message subtype (e.g., `bot_message`, `channel_join`)
     pub subtype: Option<String>,
     /// Channel type: "channel", "group", "im", "mpim"
     pub channel_type: Option<String>,
@@ -81,7 +85,7 @@ pub struct SlackMessageEvent {
 impl SlackMessageEvent {
     /// Check if this message was sent by a bot
     ///
-    /// Returns true if the message has a bot_id or subtype indicating bot origin.
+    /// Returns true if the message has a `bot_id` or subtype indicating bot origin.
     /// Used to prevent infinite loops where the bot responds to its own messages.
     #[must_use]
     pub fn is_bot_message(&self) -> bool {

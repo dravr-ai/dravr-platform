@@ -8,6 +8,8 @@ use axum::http::HeaderMap;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
+use std::str;
+
 use crate::errors::AppError;
 
 /// Header name for the Slack request signature
@@ -68,7 +70,7 @@ pub fn verify_slack_signature(
     }
 
     // Construct the base string: "v0:timestamp:body"
-    let body_str = std::str::from_utf8(body)
+    let body_str = str::from_utf8(body)
         .map_err(|_| AppError::invalid_input("Request body is not valid UTF-8"))?;
     let base_string = format!("{SLACK_SIGNING_VERSION}:{timestamp_str}:{body_str}");
 
@@ -82,9 +84,5 @@ pub fn verify_slack_signature(
     let computed_signature = format!("{SLACK_SIGNING_VERSION}={}", hex::encode(computed));
 
     // Constant-time comparison to prevent timing attacks
-    Ok(subtle::ConstantTimeEq::ct_eq(
-        computed_signature.as_bytes(),
-        signature.as_bytes(),
-    )
-    .into())
+    Ok(subtle::ConstantTimeEq::ct_eq(computed_signature.as_bytes(), signature.as_bytes()).into())
 }

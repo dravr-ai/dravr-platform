@@ -33,3 +33,7 @@ pub mod usage_counter;
 
 /// Background task for periodic pruning of old usage counter records
 pub mod usage_pruning;
+
+/// Messaging bridge: routes incoming external messages through LLM and back to providers
+#[cfg(feature = "messaging-slack")]
+pub mod messaging_bridge;

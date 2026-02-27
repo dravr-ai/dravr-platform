@@ -181,9 +181,14 @@ client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens"
 oauth = []
 
 # ═══════════════════════════════════════════════════════════════
+# MESSAGING INTEGRATIONS
+# ═══════════════════════════════════════════════════════════════
+messaging-slack = ["dep:pierre-messaging", "pierre-messaging/slack"]
+
+# ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all", "toon"]
+server-full = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all", "toon", "messaging-slack"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
@@ -202,6 +207,7 @@ pierre-intelligence = { version = "0.1.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
 pierre-cache = { version = "0.1.0", path = "../pierre-cache", features = ["redis"] }
 pierre-a2a = { version = "0.1.0", path = "../pierre-a2a", optional = true }
+pierre-messaging = { version = "0.1.0", path = "../pierre-messaging", optional = true }
 pierre-providers = { version = "0.1.0", path = "../pierre-providers" }
 
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }

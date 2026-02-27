@@ -163,11 +163,7 @@ impl MessagingRepository for Database {
             .collect())
     }
 
-    async fn delete_messaging_connection(
-        &self,
-        id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
+    async fn delete_messaging_connection(&self, id: &str, tenant_id: TenantId) -> AppResult<bool> {
         let result = sqlx::query(
             r"
             DELETE FROM messaging_connections
@@ -292,11 +288,7 @@ impl MessagingRepository for Database {
             .collect())
     }
 
-    async fn delete_channel_binding(
-        &self,
-        id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
+    async fn delete_channel_binding(&self, id: &str, tenant_id: TenantId) -> AppResult<bool> {
         let result = sqlx::query(
             r"
             DELETE FROM channel_bindings

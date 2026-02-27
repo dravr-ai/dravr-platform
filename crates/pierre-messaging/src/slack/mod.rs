@@ -10,7 +10,7 @@
 //! using the Slack Bot Token API. Supports sending messages via `chat.postMessage`
 //! and verifying incoming Events API webhooks via HMAC-SHA256 signatures.
 
-/// Slack API client implementing the MessagingProvider trait
+/// Slack API client implementing the `MessagingProvider` trait
 pub mod client;
 
 /// Slack webhook request signature verification

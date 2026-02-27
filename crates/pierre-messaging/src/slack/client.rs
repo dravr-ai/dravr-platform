@@ -93,15 +93,14 @@ impl MessagingProvider for SlackProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AppError::external_service("Slack", format!("HTTP request failed: {e}")))?;
+            .map_err(|e| {
+                AppError::external_service("Slack", format!("HTTP request failed: {e}"))
+            })?;
 
         let status = response.status();
-        let response_body: SlackPostMessageResponse = response
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("Slack", format!("Failed to parse response: {e}"))
-            })?;
+        let response_body: SlackPostMessageResponse = response.json().await.map_err(|e| {
+            AppError::external_service("Slack", format!("Failed to parse response: {e}"))
+        })?;
 
         if !response_body.ok {
             let error = response_body.error.unwrap_or_default();
@@ -137,14 +136,13 @@ impl MessagingProvider for SlackProvider {
             ])
             .send()
             .await
-            .map_err(|e| AppError::external_service("Slack", format!("HTTP request failed: {e}")))?;
-
-        let response_body: SlackConversationsListResponse = response
-            .json()
-            .await
             .map_err(|e| {
-                AppError::external_service("Slack", format!("Failed to parse response: {e}"))
+                AppError::external_service("Slack", format!("HTTP request failed: {e}"))
             })?;
+
+        let response_body: SlackConversationsListResponse = response.json().await.map_err(|e| {
+            AppError::external_service("Slack", format!("Failed to parse response: {e}"))
+        })?;
 
         if !response_body.ok {
             let error = response_body.error.unwrap_or_default();

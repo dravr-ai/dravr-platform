@@ -7,19 +7,24 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use pierre_core::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult};
+use crate::llm::{get_pierre_system_prompt, ChatMessage, FunctionDeclaration, Tool};
+use crate::mcp::resources::ServerResources;
+use crate::models::TenantId;
+use crate::protocols::universal::UniversalExecutor;
+use crate::routes::chat_tool_loop::{self, ToolLoopParams};
+use crate::routes::create_chat_provider;
+use crate::services::chat_orchestration;
 use pierre_core::models::AddMessageParams;
-use pierre_database::database::repositories::MessagingRepository;
-use pierre_messaging::types::IncomingMessage;
+use pierre_database::database::MessageRecord;
+use pierre_database::plugins::MessagingRepository;
+use pierre_messaging::types::{IncomingMessage, OutgoingMessage};
 use pierre_messaging::MessagingProvider;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::llm::{get_pierre_system_prompt, ChatMessage, ChatProvider, FunctionDeclaration, Tool};
-use crate::mcp::resources::ServerResources;
-use crate::protocols::universal::UniversalExecutor;
-use crate::routes::chat_tool_loop::{self, ToolLoopParams};
-use crate::services::chat_orchestration;
+/// Maximum number of tool-calling iterations for bridged conversations
+const BRIDGE_MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Process an incoming message from an external messaging provider
 ///
@@ -65,7 +70,7 @@ pub async fn process_incoming_message(
     let conversation_id = &binding.conversation_id;
     let tenant_id_uuid = Uuid::parse_str(&binding.tenant_id)
         .map_err(|e| AppError::internal(format!("Invalid tenant_id in binding: {e}")))?;
-    let tenant_id = pierre_core::models::TenantId::from(tenant_id_uuid);
+    let tenant_id = TenantId::from(tenant_id_uuid);
 
     info!(
         channel = %message.channel_id,
@@ -74,6 +79,33 @@ pub async fn process_incoming_message(
         "Bridging message from external provider to Dravr conversation"
     );
 
+    // Run the LLM pipeline and get the response content
+    let result = run_llm_pipeline(resources, message, conversation_id, user_id, tenant_id).await?;
+
+    // Safe cast: execution time will never exceed u64::MAX milliseconds
+    #[allow(clippy::cast_possible_truncation)]
+    let execution_time_ms = start_time.elapsed().as_millis() as u64;
+
+    info!(
+        content_len = result.len(),
+        execution_ms = execution_time_ms,
+        "Bridge LLM processing completed"
+    );
+
+    // Send the AI response back to the external channel
+    deliver_response(provider, message, &result, execution_time_ms).await
+}
+
+/// Run the LLM pipeline: persist user message, run tool loop, persist response
+///
+/// Returns the assistant's response content text.
+async fn run_llm_pipeline(
+    resources: &Arc<ServerResources>,
+    message: &IncomingMessage,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<String> {
     // Persist the incoming message in the conversation
     let msg_result = chat_orchestration::persist_user_message(
         resources.database.as_ref(),
@@ -87,9 +119,12 @@ pub async fn process_incoming_message(
     let conv = msg_result.conversation;
 
     // Get conversation history for LLM context
-    let history =
-        chat_orchestration::get_conversation_history(resources.database.as_ref(), conversation_id, user_id)
-            .await?;
+    let history = chat_orchestration::get_conversation_history(
+        resources.database.as_ref(),
+        conversation_id,
+        user_id,
+    )
+    .await?;
 
     // Build system prompt and LLM messages
     let system_prompt = conv
@@ -100,7 +135,7 @@ pub async fn process_incoming_message(
 
     // Build tool definitions and get LLM provider
     let tools = build_bridge_tools();
-    let llm_provider = crate::routes::create_chat_provider().await?;
+    let llm_provider = create_chat_provider().await?;
 
     // Create MCP executor for tool calls
     let executor = Arc::new(UniversalExecutor::new(resources.clone()));
@@ -113,20 +148,9 @@ pub async fn process_incoming_message(
         model: &conv.model,
         user_id,
         tenant_id,
-        max_iterations: 5,
+        max_iterations: BRIDGE_MAX_TOOL_ITERATIONS,
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
-
-    // Safe cast: execution time will never exceed u64::MAX milliseconds
-    #[allow(clippy::cast_possible_truncation)]
-    let execution_time_ms = start_time.elapsed().as_millis() as u64;
-
-    info!(
-        content_len = result.content.len(),
-        tool_calls = result.tool_calls_count,
-        execution_ms = execution_time_ms,
-        "Bridge LLM processing completed"
-    );
 
     // Persist assistant response
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -149,11 +173,17 @@ pub async fn process_incoming_message(
     )
     .await?;
 
-    // Send the AI response back to the external channel
-    let outgoing = pierre_messaging::types::OutgoingMessage::text(
-        &message.channel_id,
-        &result.content,
-    );
+    Ok(result.content)
+}
+
+/// Deliver the AI response back to the external messaging provider
+async fn deliver_response(
+    provider: &dyn MessagingProvider,
+    message: &IncomingMessage,
+    content: &str,
+    execution_time_ms: u64,
+) -> AppResult<()> {
+    let outgoing = OutgoingMessage::text(&message.channel_id, content);
 
     if let Err(e) = provider.send_message(&outgoing).await {
         warn!(
@@ -176,10 +206,7 @@ pub async fn process_incoming_message(
 }
 
 /// Build LLM messages from conversation history
-fn build_llm_messages(
-    system_prompt: Option<&str>,
-    history: &[pierre_database::database::MessageRecord],
-) -> Vec<ChatMessage> {
+fn build_llm_messages(system_prompt: Option<&str>, history: &[MessageRecord]) -> Vec<ChatMessage> {
     let mut messages = Vec::with_capacity(history.len() + 1);
 
     if let Some(prompt) = system_prompt {

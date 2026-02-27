@@ -141,6 +141,14 @@ pub mod tool_selection;
 pub mod user_mcp_tokens;
 
 // ═══════════════════════════════════════════════════════════════
+// MESSAGING INTEGRATIONS
+// ═══════════════════════════════════════════════════════════════
+
+/// Messaging integration routes (Slack webhooks, connection management)
+#[cfg(feature = "messaging-slack")]
+pub mod messaging;
+
+// ═══════════════════════════════════════════════════════════════
 // OPENAPI FEATURE
 // ═══════════════════════════════════════════════════════════════
 
@@ -235,6 +243,10 @@ pub use tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
 // Other client re-exports
 #[cfg(feature = "client-mcp-tokens")]
 pub use user_mcp_tokens::UserMcpTokenRoutes;
+
+// Messaging re-exports
+#[cfg(feature = "messaging-slack")]
+pub use messaging::messaging_routes;
 
 // OpenAPI re-exports
 #[cfg(feature = "openapi")]

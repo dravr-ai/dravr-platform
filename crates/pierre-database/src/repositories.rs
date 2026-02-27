@@ -18,15 +18,15 @@ use pierre_core::models::a2a::{
 use pierre_core::models::coaches::{
     Coach, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
+use pierre_core::models::messaging::{
+    ChannelBindingRecord, CreateChannelBindingParams, CreateMessagingConnectionParams,
+    MessagingConnectionRecord,
+};
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_core::models::messaging::{
-    ChannelBindingRecord, CreateChannelBindingParams, CreateMessagingConnectionParams,
-    MessagingConnectionRecord,
-};
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, ConnectionType,
     ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest, FriendConnection,
@@ -1273,11 +1273,7 @@ pub trait MessagingRepository: Send + Sync {
     ) -> AppResult<Vec<MessagingConnectionRecord>>;
 
     /// Delete a messaging connection (tenant-scoped)
-    async fn delete_messaging_connection(
-        &self,
-        id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool>;
+    async fn delete_messaging_connection(&self, id: &str, tenant_id: TenantId) -> AppResult<bool>;
 
     /// Create a new channel binding
     async fn create_channel_binding(
@@ -1301,11 +1297,7 @@ pub trait MessagingRepository: Send + Sync {
     ) -> AppResult<Vec<ChannelBindingRecord>>;
 
     /// Delete a channel binding (tenant-scoped)
-    async fn delete_channel_binding(
-        &self,
-        id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool>;
+    async fn delete_channel_binding(&self, id: &str, tenant_id: TenantId) -> AppResult<bool>;
 }
 
 // ================================
