@@ -97,16 +97,17 @@ export function ChatScreen() {
   }, [conversations.currentConversation]);
 
   // Handle navigation params for conversation selection
-  // Depends on params (object ref) so tab re-tap with same conversationId still triggers
+  // Clear conversation when navigating to chat without a conversationId
   useEffect(() => {
     const conversationId = params?.conversationId;
     if (conversationId === undefined && conversations.currentConversation !== null) {
       conversations.setCurrentConversation(null);
       messagesHook.clearMessages();
     }
-    // Only depend on route params - this should only run when user navigates
+    // Only depend on conversationId value, not the params object reference
+    // (useLocalSearchParams returns a new object each render unlike route.params)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+  }, [params.conversationId]);
 
   useEffect(() => {
     const conversationId = params?.conversationId;
