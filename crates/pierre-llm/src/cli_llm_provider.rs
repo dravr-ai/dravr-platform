@@ -1,4 +1,4 @@
-// ABOUTME: Embache-based LLM provider facade wrapping CLI subprocess and SDK runners
+// ABOUTME: Embacle-based LLM provider facade wrapping CLI subprocess and SDK runners
 // ABOUTME: Handles environment configuration, auto-detection, readiness checking, and RunnerError bridging
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -10,37 +10,37 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use embache::auth::check_readiness;
-use embache::config::parse_timeout;
-use embache::{
+use embacle::auth::check_readiness;
+use embacle::config::parse_timeout;
+use embacle::{
     ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner, RunnerConfig,
 };
 use futures_util::StreamExt;
 use tracing::{debug, info, warn};
 
-use embache::types::LlmProvider as EmbacheLlmProvider;
+use embacle::types::LlmProvider as EmbacleLlmProvider;
 
 use super::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider};
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 
-/// Re-export embache runner readiness status for external use
-pub use embache::auth::ProviderReadiness;
+/// Re-export embacle runner readiness status for external use
+pub use embacle::auth::ProviderReadiness;
 
 const READINESS_UNKNOWN: u8 = 0;
 const READINESS_READY: u8 = 1;
 const READINESS_NOT_READY: u8 = 2;
 
-/// Embache-based LLM provider facade
+/// Embacle-based LLM provider facade
 ///
-/// Wraps any embache runner (CLI subprocess runners or SDK runners) behind the
+/// Wraps any embacle runner (CLI subprocess runners or SDK runners) behind the
 /// platform [`LlmProvider`] trait. Supports environment-based configuration,
 /// auto-detection of installed CLI tools, and non-blocking readiness checks.
 ///
-/// All embache providers — Claude Code, Copilot CLI, Cursor Agent, `OpenCode`,
+/// All embacle providers — Claude Code, Copilot CLI, Cursor Agent, `OpenCode`,
 /// and Copilot SDK — are handled uniformly through this single facade.
 pub struct CliLlmProvider {
-    runner: Box<dyn EmbacheLlmProvider>,
+    runner: Box<dyn EmbacleLlmProvider>,
     /// CLI runner binary path (None for SDK runners)
     binary_path: Option<PathBuf>,
     readiness: Arc<AtomicU8>,
@@ -79,12 +79,12 @@ impl CliLlmProvider {
             "copilot_sdk" | "copilot-sdk" => Ok(Self::build_sdk()),
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
-                let (runner_type, base_config) = embache::discover_runner()?;
+                let (runner_type, base_config) = embacle::discover_runner()?;
                 let config = merge_env_overrides(base_config);
                 Ok(Self::build_cli(runner_type, config))
             }
             _ => Err(AppError::config(format!(
-                "PIERRE_LLM_PROVIDER={provider_env} is not an embache runner type; \
+                "PIERRE_LLM_PROVIDER={provider_env} is not an embacle runner type; \
                  expected one of: claude_code, copilot, cursor_agent, opencode, copilot_sdk, cli"
             ))),
         }
@@ -101,7 +101,7 @@ impl CliLlmProvider {
         let binary_path = config.binary_path.clone();
         info!(runner = %runner_type, path = %binary_path.display(), "Creating CLI LLM runner");
 
-        let runner: Box<dyn EmbacheLlmProvider> = match runner_type {
+        let runner: Box<dyn EmbacleLlmProvider> = match runner_type {
             CliRunnerType::ClaudeCode => Box::new(ClaudeCodeRunner::new(config)),
             CliRunnerType::Copilot => Box::new(CopilotRunner::new(config)),
             CliRunnerType::CursorAgent => Box::new(CursorAgentRunner::new(config)),
@@ -122,7 +122,7 @@ impl CliLlmProvider {
     ///
     /// `PIERRE_LLM_MODEL` overrides the SDK-specific `COPILOT_SDK_MODEL` env var.
     fn build_sdk() -> Self {
-        let mut config = embache::CopilotSdkConfig::from_env();
+        let mut config = embacle::CopilotSdkConfig::from_env();
 
         // PIERRE_LLM_MODEL is the unified model override (highest priority)
         if let Ok(model) = env::var("PIERRE_LLM_MODEL") {
@@ -134,7 +134,7 @@ impl CliLlmProvider {
         info!(model = %config.model, "Creating Copilot SDK runner (copilot --headless)");
 
         Self {
-            runner: Box::new(embache::CopilotSdkRunner::with_config(config)),
+            runner: Box::new(embacle::CopilotSdkRunner::with_config(config)),
             binary_path: None,
             readiness: Arc::new(AtomicU8::new(READINESS_UNKNOWN)),
         }
@@ -158,10 +158,10 @@ impl CliLlmProvider {
     /// Returns `Some` only when the underlying runner is the Copilot SDK provider.
     /// Used by the SDK tool loop to access `execute_with_tools()`.
     #[must_use]
-    pub fn as_copilot_sdk_runner(&self) -> Option<&embache::CopilotSdkRunner> {
+    pub fn as_copilot_sdk_runner(&self) -> Option<&embacle::CopilotSdkRunner> {
         self.runner
             .as_any()
-            .downcast_ref::<embache::CopilotSdkRunner>()
+            .downcast_ref::<embacle::CopilotSdkRunner>()
     }
 
     /// Check whether the CLI runner is authenticated and available
@@ -222,23 +222,23 @@ impl LlmProvider for CliLlmProvider {
     }
 
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
-        EmbacheLlmProvider::complete(&*self.runner, request)
+        EmbacleLlmProvider::complete(&*self.runner, request)
             .await
             .map_err(AppError::from)
     }
 
     async fn complete_stream(&self, request: &ChatRequest) -> Result<ChatStream, AppError> {
-        let embache_stream = EmbacheLlmProvider::complete_stream(&*self.runner, request)
+        let embacle_stream = EmbacleLlmProvider::complete_stream(&*self.runner, request)
             .await
             .map_err(AppError::from)?;
 
         Ok(Box::pin(
-            embache_stream.map(|result| result.map_err(AppError::from)),
+            embacle_stream.map(|result| result.map_err(AppError::from)),
         ))
     }
 
     async fn health_check(&self) -> Result<bool, AppError> {
-        EmbacheLlmProvider::health_check(&*self.runner)
+        EmbacleLlmProvider::health_check(&*self.runner)
             .await
             .map_err(AppError::from)
     }
@@ -278,7 +278,7 @@ fn spawn_readiness_check(
 fn build_runner_config(runner_type: CliRunnerType) -> Result<RunnerConfig, AppError> {
     let binary_override = env::var("CLI_LLM_BINARY").ok();
     let binary_path =
-        embache::resolve_binary(runner_type.binary_name(), binary_override.as_deref())?;
+        embacle::resolve_binary(runner_type.binary_name(), binary_override.as_deref())?;
 
     let mut config = RunnerConfig::new(binary_path);
     config = apply_env_overrides(config);

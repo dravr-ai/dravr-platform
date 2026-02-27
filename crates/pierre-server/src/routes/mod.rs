@@ -251,7 +251,7 @@ use pierre_llm::ChatProvider;
 /// Create a `ChatProvider` from environment configuration
 ///
 /// All provider types (Gemini, Groq, Local, CLI runners, Copilot SDK)
-/// are handled directly by `pierre-llm` via the embache library.
+/// are handled directly by `pierre-llm` via the embacle library.
 ///
 /// # Errors
 ///

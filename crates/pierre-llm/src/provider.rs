@@ -1,5 +1,5 @@
 // ABOUTME: Unified LLM provider selector for runtime provider switching
-// ABOUTME: Abstracts over Gemini, Groq, Local, and embache providers based on environment configuration
+// ABOUTME: Abstracts over Gemini, Groq, Local, and embacle providers based on environment configuration
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,7 +15,7 @@
 //! - `gemini` (default): Use Google Gemini for full-featured capabilities
 //! - `groq`: Use Groq for cost-effective open-source models
 //! - `local`/`ollama`/`vllm`/`localai`: Use a local `OpenAI`-compatible endpoint
-//! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Use an embache runner
+//! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Use an embacle runner
 
 use std::fmt;
 use std::time::Duration;
@@ -30,7 +30,7 @@ use super::{
 use crate::config::LlmProviderType;
 use crate::errors::AppError;
 
-/// Unified chat provider that wraps Gemini, Groq, Local, or embache-based LLM
+/// Unified chat provider that wraps Gemini, Groq, Local, or embacle-based LLM
 ///
 /// This enum provides a consistent interface regardless of which
 /// underlying provider is configured.
@@ -41,7 +41,7 @@ pub enum ChatProvider {
     Groq(GroqProvider),
     /// Local LLM provider via `OpenAI`-compatible API (Ollama, vLLM, `LocalAI`)
     Local(OpenAiCompatibleProvider),
-    /// Embache-based LLM provider (CLI runners and SDK runners)
+    /// Embacle-based LLM provider (CLI runners and SDK runners)
     Cli(CliLlmProvider),
 }
 
@@ -52,7 +52,7 @@ impl ChatProvider {
     /// - `gemini` (default): Creates `GeminiProvider` (requires `GEMINI_API_KEY`)
     /// - `groq`: Creates `GroqProvider` (requires `GROQ_API_KEY`)
     /// - `local`/`ollama`/`vllm`/`localai`: Creates `OpenAiCompatibleProvider`
-    /// - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Embache runners
+    /// - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Embacle runners
     ///
     /// When `PIERRE_LLM_FALLBACK_ENABLED=true`, if the primary provider fails,
     /// attempts to use the fallback provider specified by `PIERRE_LLM_PROVIDER_FALLBACK`.
@@ -179,7 +179,7 @@ impl ChatProvider {
         Ok(Self::Local(OpenAiCompatibleProvider::from_env()?))
     }
 
-    /// Create an embache-based LLM provider explicitly
+    /// Create an embacle-based LLM provider explicitly
     ///
     /// Auto-detects or reads `PIERRE_LLM_PROVIDER` to select the runner
     /// (Claude Code, Copilot CLI, Cursor Agent, `OpenCode`, or Copilot SDK).
@@ -227,7 +227,7 @@ impl ChatProvider {
         self.capabilities().supports_function_calling()
     }
 
-    /// Get the inner `CliLlmProvider` if this is an embache-based provider
+    /// Get the inner `CliLlmProvider` if this is an embacle-based provider
     #[must_use]
     pub fn as_cli_provider(&self) -> Option<&CliLlmProvider> {
         match self {
@@ -258,7 +258,7 @@ impl ChatProvider {
             Self::Groq(provider) => provider.complete_with_tools(request, tools).await,
             Self::Local(provider) => provider.complete_with_tools(request, tools).await,
             Self::Cli(_) => Err(AppError::invalid_input(
-                "Embache-based providers do not support structured tool calling via this path",
+                "Embacle-based providers do not support structured tool calling via this path",
             )),
         }
     }

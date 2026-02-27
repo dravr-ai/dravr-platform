@@ -222,7 +222,7 @@ ollama show qwen2.5:14b-instruct
 
 ## CLI and SDK Providers
 
-CLI and SDK providers are powered by the `embache` library, which manages subprocess execution and SDK communication. They require no API keys — they use authentication from the already-installed CLI tool.
+CLI and SDK providers are powered by the `embacle` library, which manages subprocess execution and SDK communication. They require no API keys — they use authentication from the already-installed CLI tool.
 
 ### How CLI Providers Work
 
@@ -255,7 +255,7 @@ The Copilot SDK provider (`copilot_sdk`) uses a persistent JSON-RPC connection v
 
 ### Auto-Detection Mode
 
-Setting `PIERRE_LLM_PROVIDER=cli` triggers automatic discovery of the best available CLI tool installed on the system. The `embache` library scans for known binaries and selects the first one found. This is useful for environments where the available CLI tool may vary.
+Setting `PIERRE_LLM_PROVIDER=cli` triggers automatic discovery of the best available CLI tool installed on the system. The `embacle` library scans for known binaries and selects the first one found. This is useful for environments where the available CLI tool may vary.
 
 ### Provider Readiness Checks
 
@@ -776,7 +776,7 @@ crates/pierre-llm/src/
 ├── lib.rs                # Trait definitions, types, registry, exports
 ├── config.rs             # LLM configuration and provider selection
 ├── provider.rs           # ChatProvider enum (runtime selector)
-├── cli_llm_provider.rs   # Embache-based CLI/SDK provider facade
+├── cli_llm_provider.rs   # Embacle-based CLI/SDK provider facade
 ├── pricing.rs            # Token cost calculation
 ├── gemini.rs             # Google Gemini implementation
 ├── groq.rs               # Groq LPU implementation
@@ -904,7 +904,7 @@ match provider.complete(&request).await {
 |-------|-------|----------|
 | "Binary not found" | CLI tool not installed | Install the CLI tool and authenticate |
 | "Runner is not ready" | CLI tool not authenticated | Run the CLI tool's auth command |
-| "Config error: not an embache runner type" | Invalid `PIERRE_LLM_PROVIDER` value | Use one of the valid provider names |
+| "Config error: not an embacle runner type" | Invalid `PIERRE_LLM_PROVIDER` value | Use one of the valid provider names |
 
 ---
 

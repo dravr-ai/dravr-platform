@@ -281,7 +281,7 @@ utoipa-swagger-ui = { version = "8.1", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 
 [dev-dependencies]
-embache = { git = "https://github.com/dravr-ai/dravr-embache.git", branch = "main" }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", branch = "main" }
 tempfile = "3.20"
 serial_test = "3.1"
 tokio-tungstenite = "0.24"

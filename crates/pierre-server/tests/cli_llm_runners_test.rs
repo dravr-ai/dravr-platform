@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests for embache CLI-based LLM runners (Claude Code, Cursor, OpenCode)
+// ABOUTME: Integration tests for embacle CLI-based LLM runners (Claude Code, Cursor, OpenCode)
 // ABOUTME: Uses mock shell scripts to test subprocess execution, JSON parsing, and error handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,15 +17,15 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use embache::auth::check_readiness;
-use embache::config::parse_timeout;
-use embache::prompt::{build_user_prompt, extract_system_message};
-use embache::sandbox::SandboxPolicy;
+use embacle::auth::check_readiness;
+use embacle::config::parse_timeout;
+use embacle::prompt::{build_user_prompt, extract_system_message};
+use embacle::sandbox::SandboxPolicy;
 #[cfg(unix)]
-use embache::types::LlmProvider;
+use embacle::types::LlmProvider;
 #[cfg(unix)]
-use embache::{ClaudeCodeRunner, CursorAgentRunner, OpenCodeRunner};
-use embache::{CliRunnerType, ProviderReadiness, RunnerConfig};
+use embacle::{ClaudeCodeRunner, CursorAgentRunner, OpenCodeRunner};
+use embacle::{CliRunnerType, ProviderReadiness, RunnerConfig};
 use pierre_core::llm::ChatMessage;
 #[cfg(unix)]
 use pierre_core::llm::ChatRequest;
@@ -281,7 +281,7 @@ async fn test_discover_runner_finds_claude() {
     // Set the env override so discover_runner finds our mock
     env::set_var("CLAUDE_CODE_BINARY", script.to_str().expect("valid path"));
 
-    let result = embache::discover_runner();
+    let result = embacle::discover_runner();
     assert!(result.is_ok(), "discover_runner should find mock claude");
 
     let (runner_type, config) = result.expect("discover succeeds");
@@ -304,7 +304,7 @@ async fn test_discover_runner_returns_error_when_none_found() {
     let original_path = env::var("PATH").unwrap_or_default();
     env::set_var("PATH", empty_dir.path());
 
-    let result = embache::discover_runner();
+    let result = embacle::discover_runner();
     assert!(
         result.is_err(),
         "discover_runner should fail with empty PATH"

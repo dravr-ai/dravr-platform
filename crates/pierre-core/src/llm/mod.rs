@@ -1,5 +1,5 @@
 // ABOUTME: LLM provider trait and shared types for pluggable AI model integration
-// ABOUTME: Re-exports data types from embache; defines platform LlmProvider trait with AppError
+// ABOUTME: Re-exports data types from embacle; defines platform LlmProvider trait with AppError
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,7 +7,7 @@
 //! # LLM Provider Types
 //!
 //! Shared types and trait for LLM provider integration. Data types (messages,
-//! requests, responses, capabilities) come from the [`embache`] standalone
+//! requests, responses, capabilities) come from the [`embacle`] standalone
 //! library. The platform-specific [`LlmProvider`] trait and [`ChatStream`] use
 //! [`AppError`](crate::errors::AppError) for error handling.
 //!
@@ -23,18 +23,18 @@
 use std::pin::Pin;
 
 use async_trait::async_trait;
-use embache::types::{ErrorKind, RunnerError};
+use embacle::types::{ErrorKind, RunnerError};
 use tokio_stream::Stream;
 
 use crate::errors::AppError;
 
 // ============================================================================
-// Re-exported Data Types from embache
+// Re-exported Data Types from embacle
 // ============================================================================
-// These types are the single source of truth defined in the embache crate.
+// These types are the single source of truth defined in the embacle crate.
 // Re-exporting here preserves the `pierre_core::llm::*` import paths.
 
-pub use embache::types::{
+pub use embacle::types::{
     ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
 };
 
@@ -45,11 +45,11 @@ pub use embache::types::{
 /// Stream type for chat completion responses
 ///
 /// Uses [`AppError`] for error handling (platform-specific).
-/// Embache defines its own stream type with [`RunnerError`] for standalone use.
+/// Embacle defines its own stream type with [`RunnerError`] for standalone use.
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<StreamChunk, AppError>> + Send>>;
 
 // ============================================================================
-// Error Conversion: embache → AppError
+// Error Conversion: embacle → AppError
 // ============================================================================
 
 impl From<RunnerError> for AppError {
