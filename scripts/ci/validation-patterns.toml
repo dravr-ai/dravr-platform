@@ -429,6 +429,10 @@ files = [
 # Format: "workflow_file:step_name" or "workflow_file:line_number"
 # Only add entries after explicit approval with documented justification
 allowed = [
+    # Terraform plan steps: continue-on-error captures plan output for PR comments,
+    # then the subsequent "Fail if plan failed" step checks outcome and exits 1
+    "terraform.yml:72",
+    "terraform.yml:148",
 ]
 
 [js_test_skip_allowlist]

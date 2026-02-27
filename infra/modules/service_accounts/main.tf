@@ -1,4 +1,4 @@
-# ABOUTME: Creates service accounts for Pierre MCP Server
+# ABOUTME: Creates service accounts for Dravr MCP Server
 # ABOUTME: Includes app SA for Cloud Run and deployer SA for GitHub Actions
 
 # -----------------------------------------------------------------------------
@@ -8,8 +8,8 @@
 resource "google_service_account" "app" {
   account_id   = "${var.service_name}-app"
   project      = var.project_id
-  display_name = "Pierre App Service Account"
-  description  = "Service account for Pierre MCP Server Cloud Run service"
+  display_name = "Dravr App Service Account"
+  description  = "Service account for Dravr MCP Server Cloud Run service"
 }
 
 # Cloud SQL Client (connect to database)
@@ -40,6 +40,13 @@ resource "google_project_iam_member" "app_aiplatform_user" {
   member  = "serviceAccount:${google_service_account.app.email}"
 }
 
+# Artifact Registry Reader in dravr-artifacts (cross-project: pull images from central registry)
+resource "google_project_iam_member" "app_artifact_reader" {
+  project = var.artifacts_project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.app.email}"
+}
+
 # -----------------------------------------------------------------------------
 # Deployer Service Account (used by GitHub Actions)
 # -----------------------------------------------------------------------------
@@ -62,13 +69,6 @@ resource "google_project_iam_member" "deployer_run_admin" {
 resource "google_project_iam_member" "deployer_cloudbuild_editor" {
   project = var.project_id
   role    = "roles/cloudbuild.builds.editor"
-  member  = "serviceAccount:${google_service_account.deployer.email}"
-}
-
-# Artifact Registry Writer (push images)
-resource "google_project_iam_member" "deployer_artifact_writer" {
-  project = var.project_id
-  role    = "roles/artifactregistry.writer"
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 
@@ -98,4 +98,64 @@ resource "google_service_account_iam_member" "deployer_can_act_as_app" {
   service_account_id = google_service_account.app.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+# -----------------------------------------------------------------------------
+# Terraform Runner Service Account (used by GitHub Actions Terraform workflow)
+# -----------------------------------------------------------------------------
+
+resource "google_service_account" "terraform_runner" {
+  account_id   = "terraform-runner"
+  project      = var.project_id
+  display_name = "Terraform Runner"
+  description  = "Service account for GitHub Actions Terraform plan/apply operations"
+}
+
+# Least-privilege roles scoped to the resources Terraform manages.
+# Each role maps to a specific module/resource type:
+#   - run.admin: Cloud Run services (cloud_run module)
+#   - cloudsql.admin: Cloud SQL instances, databases, users (database module)
+#   - redis.admin: Memorystore Redis instances (cache module)
+#   - compute.networkAdmin: VPC, subnets, firewall, VPC connectors (networking module)
+#   - vpcaccess.admin: Serverless VPC connectors (networking module)
+#   - servicenetworking.networksAdmin: Private service connections (networking module)
+#   - secretmanager.admin: Secrets and versions (secrets module)
+#   - storage.admin: GCS buckets (storage module)
+#   - artifactregistry.admin: Docker repositories (artifact_registry module)
+#   - iam.serviceAccountAdmin: Service accounts (service_accounts module)
+#   - iam.workloadIdentityPoolAdmin: WIF pools and providers (workload_identity module)
+#   - serviceusage.serviceUsageAdmin: API enablement (project module)
+#   - resourcemanager.projectIamAdmin: IAM bindings across modules
+
+locals {
+  terraform_runner_roles = [
+    "roles/run.admin",
+    "roles/cloudsql.admin",
+    "roles/redis.admin",
+    "roles/compute.networkAdmin",
+    "roles/vpcaccess.admin",
+    "roles/servicenetworking.networksAdmin",
+    "roles/secretmanager.admin",
+    "roles/storage.admin",
+    "roles/artifactregistry.admin",
+    "roles/iam.serviceAccountAdmin",
+    "roles/iam.workloadIdentityPoolAdmin",
+    "roles/serviceusage.serviceUsageAdmin",
+    "roles/resourcemanager.projectIamAdmin",
+  ]
+}
+
+resource "google_project_iam_member" "terraform_runner_roles" {
+  for_each = toset(local.terraform_runner_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.terraform_runner.email}"
+}
+
+# GCS state bucket access (bucket-scoped, not project-wide)
+resource "google_storage_bucket_iam_member" "terraform_runner_state_admin" {
+  bucket = var.tf_state_bucket
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.terraform_runner.email}"
 }

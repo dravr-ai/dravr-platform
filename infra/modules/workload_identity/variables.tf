@@ -20,3 +20,8 @@ variable "deployer_service_account_name" {
   description = "Full resource name of the deployer service account"
   type        = string
 }
+
+variable "terraform_runner_service_account_name" {
+  description = "Full resource name of the terraform runner service account (bound to the WIF pool for plan/apply)"
+  type        = string
+}

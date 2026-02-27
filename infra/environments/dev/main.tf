@@ -1,4 +1,4 @@
-# ABOUTME: Orchestrates all Terraform modules for Pierre MCP Server infrastructure
+# ABOUTME: Orchestrates all Terraform modules for Dravr MCP Server infrastructure
 # ABOUTME: Manages dependencies between modules with explicit depends_on
 
 # -----------------------------------------------------------------------------
@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 
 module "project" {
-  source = "./modules/project"
+  source = "../../modules/project"
 
   project_id = var.project_id
 }
@@ -16,7 +16,7 @@ module "project" {
 # -----------------------------------------------------------------------------
 
 module "networking" {
-  source = "./modules/networking"
+  source = "../../modules/networking"
 
   project_id         = var.project_id
   region             = var.region
@@ -33,7 +33,7 @@ module "networking" {
 # -----------------------------------------------------------------------------
 
 module "secrets" {
-  source = "./modules/secrets"
+  source = "../../modules/secrets"
 
   project_id   = var.project_id
   service_name = var.service_name
@@ -48,7 +48,7 @@ module "secrets" {
 
 module "database" {
   count  = var.enable_database ? 1 : 0
-  source = "./modules/database"
+  source = "../../modules/database"
 
   project_id                = var.project_id
   region                    = var.region
@@ -75,7 +75,7 @@ module "database" {
 
 module "cache" {
   count  = var.enable_cache ? 1 : 0
-  source = "./modules/cache"
+  source = "../../modules/cache"
 
   project_id           = var.project_id
   region               = var.region
@@ -83,24 +83,10 @@ module "cache" {
   vpc_id               = module.networking.vpc_id
   redis_tier           = var.redis_tier
   redis_memory_size_gb = var.redis_memory_size_gb
+  redis_version        = var.redis_version
   labels               = var.labels
 
   depends_on = [module.project, module.networking]
-}
-
-# -----------------------------------------------------------------------------
-# Artifact Registry (depends on APIs)
-# -----------------------------------------------------------------------------
-
-module "artifact_registry" {
-  source = "./modules/artifact_registry"
-
-  project_id    = var.project_id
-  region        = var.region
-  registry_name = var.registry_name
-  labels        = var.labels
-
-  depends_on = [module.project]
 }
 
 # -----------------------------------------------------------------------------
@@ -108,10 +94,12 @@ module "artifact_registry" {
 # -----------------------------------------------------------------------------
 
 module "service_accounts" {
-  source = "./modules/service_accounts"
+  source = "../../modules/service_accounts"
 
-  project_id   = var.project_id
-  service_name = var.service_name
+  project_id           = var.project_id
+  service_name         = var.service_name
+  artifacts_project_id = var.artifacts_project_id
+  tf_state_bucket      = "dravr-terraform-state"
 
   depends_on = [module.project]
 }
@@ -121,12 +109,13 @@ module "service_accounts" {
 # -----------------------------------------------------------------------------
 
 module "workload_identity" {
-  source = "./modules/workload_identity"
+  source = "../../modules/workload_identity"
 
-  project_id                    = var.project_id
-  github_org                    = var.github_org
-  github_repo                   = var.github_repo
-  deployer_service_account_name = module.service_accounts.deployer_service_account_name
+  project_id                            = var.project_id
+  github_org                            = var.github_org
+  github_repo                           = var.github_repo
+  deployer_service_account_name         = module.service_accounts.deployer_service_account_name
+  terraform_runner_service_account_name = module.service_accounts.terraform_runner_service_account_name
 
   depends_on = [module.service_accounts]
 }
@@ -136,7 +125,7 @@ module "workload_identity" {
 # -----------------------------------------------------------------------------
 
 module "backend" {
-  source = "./modules/cloud_run"
+  source = "../../modules/cloud_run"
 
   project_id            = var.project_id
   region                = var.region
@@ -178,6 +167,8 @@ module "backend" {
     DB_PASSWORD          = module.secrets.secret_ids["db_password"]
     ENCRYPTION_KEY       = module.secrets.secret_ids["encryption_key"]
     STRAVA_CLIENT_SECRET = module.secrets.secret_ids["strava_client_secret"]
+    FITBIT_CLIENT_SECRET = module.secrets.secret_ids["fitbit_client_secret"]
+    GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
     OPENWEATHER_API_KEY  = module.secrets.secret_ids["openweather_api_key"]
   }
 
@@ -186,7 +177,7 @@ module "backend" {
 
   labels = merge(var.labels, { component = "backend" })
 
-  depends_on = [module.networking, module.secrets, module.service_accounts, module.artifact_registry]
+  depends_on = [module.networking, module.secrets, module.service_accounts]
 }
 
 # -----------------------------------------------------------------------------
@@ -195,7 +186,7 @@ module "backend" {
 
 module "frontend" {
   count  = var.enable_frontend ? 1 : 0
-  source = "./modules/cloud_run"
+  source = "../../modules/cloud_run"
 
   project_id            = var.project_id
   region                = var.region
@@ -219,7 +210,7 @@ module "frontend" {
 
   labels = merge(var.labels, { component = "frontend" })
 
-  depends_on = [module.service_accounts, module.artifact_registry]
+  depends_on = [module.service_accounts]
 }
 
 # -----------------------------------------------------------------------------
@@ -227,7 +218,7 @@ module "frontend" {
 # -----------------------------------------------------------------------------
 
 module "storage" {
-  source = "./modules/storage"
+  source = "../../modules/storage"
 
   project_id                    = var.project_id
   region                        = var.region

@@ -1,19 +1,19 @@
-# ABOUTME: Enables required GCP APIs for Pierre MCP Server
+# ABOUTME: Enables required GCP APIs for Dravr MCP Server
 # ABOUTME: APIs are enabled with disable_on_destroy = false for safety
 
 resource "google_project_service" "apis" {
   for_each = toset([
-    "compute.googleapis.com",           # VPC, networking
-    "sqladmin.googleapis.com",          # Cloud SQL
-    "secretmanager.googleapis.com",     # Secrets
-    "run.googleapis.com",               # Cloud Run
-    "cloudbuild.googleapis.com",        # Cloud Build
-    "artifactregistry.googleapis.com",  # Artifact Registry
-    "iam.googleapis.com",               # IAM
-    "iamcredentials.googleapis.com",    # Workload Identity
-    "servicenetworking.googleapis.com", # Private Service Connect
-    "vpcaccess.googleapis.com",         # Serverless VPC Access
-    "redis.googleapis.com",             # Memorystore Redis
+    "compute.googleapis.com",              # VPC, networking
+    "sqladmin.googleapis.com",             # Cloud SQL
+    "secretmanager.googleapis.com",        # Secrets
+    "run.googleapis.com",                  # Cloud Run
+    "cloudbuild.googleapis.com",           # Cloud Build
+    "artifactregistry.googleapis.com",     # Artifact Registry
+    "iam.googleapis.com",                  # IAM
+    "iamcredentials.googleapis.com",       # Workload Identity
+    "servicenetworking.googleapis.com",    # Private Service Connect
+    "vpcaccess.googleapis.com",            # Serverless VPC Access
+    "redis.googleapis.com",                # Memorystore Redis
     "cloudresourcemanager.googleapis.com", # Resource Manager
   ])
 

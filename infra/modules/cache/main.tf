@@ -1,4 +1,4 @@
-# ABOUTME: Creates Memorystore Redis instance for Pierre MCP Server caching
+# ABOUTME: Creates Memorystore Redis instance for Dravr MCP Server caching
 # ABOUTME: Connected to VPC for private access from Cloud Run services
 
 resource "google_redis_instance" "cache" {

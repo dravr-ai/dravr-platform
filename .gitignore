@@ -110,3 +110,11 @@ data/
 logs/
 book/build/
 pierre_mcp_server-integration/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+infra/**/*.tfvars
+!infra/**/*.tfvars.example

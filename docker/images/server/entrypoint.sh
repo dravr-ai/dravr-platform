@@ -1,5 +1,6 @@
 #!/bin/bash
-# Docker entrypoint script for Pierre MCP Server
+# ABOUTME: Docker entrypoint for Pierre MCP Server
+# ABOUTME: Optionally sources .envrc for local dev overrides, then executes the server binary
 set -e
 
 # If .envrc exists, source it for environment variables
@@ -31,12 +32,8 @@ echo "🚀 Multi-tenant MCP server starting on ports $MCP_PORT (MCP) and $HTTP_P
 echo "Binary path: $1"
 echo "Binary exists: $(test -f "$1" && echo "YES" || echo "NO")"
 echo "Binary executable: $(test -x "$1" && echo "YES" || echo "NO")"
-echo "Binary file info: $(file "$1" 2>/dev/null || echo "file command failed")"
 echo "Current user: $(whoami)"
 echo "Current directory: $(pwd)"
-echo "Environment variables set:"
-env | grep -E "(RUST_LOG|MCP_PORT|HTTP_PORT|DATABASE_URL|ENCRYPTION_KEY_PATH|JWT_SECRET_PATH|JWT_EXPIRY_HOURS|STRAVA_|OPENWEATHER_)" | sort
-
 echo "Starting Pierre MCP Server binary..."
 
 # Execute the server directly

@@ -1,0 +1,280 @@
+# ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
+# ABOUTME: Triggered only after Backend CI passes on main (prevents broken deploys); v*.*.* tags trigger directly
+
+name: Publish Images
+
+on:
+  # Only publish after CI tests pass on main — prevents deploying broken code
+  workflow_run:
+    workflows: ["Backend CI"]
+    types: [completed]
+    branches: [main]
+  # Version tags trigger directly (CI already passed before tagging)
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write  # For Trivy SARIF upload
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve the commit SHA to use for image tagging
+  # ---------------------------------------------------------------------------
+  resolve-sha:
+    name: Resolve Commit SHA
+    runs-on: ubuntu-latest
+    # Skip if triggered by a failed CI run
+    if: >
+      github.event_name == 'push' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      short_sha: ${{ steps.sha.outputs.short_sha }}
+
+    steps:
+      - name: Resolve SHA
+        id: sha
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            SHA="${{ github.event.workflow_run.head_sha }}"
+          else
+            SHA="${{ github.sha }}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Build and push server image to central Artifact Registry
+  # ---------------------------------------------------------------------------
+  publish-server:
+    name: Publish Server Image
+    runs-on: ubuntu-latest
+    needs: resolve-sha
+
+    outputs:
+      image: ${{ steps.digest.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-sha.outputs.sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Configure Docker credential helper
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          skip_install: true
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
+          gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Compute server image tags
+        id: tags
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
+
+          SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA}"
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            SERVER_TAGS="${SERVER_TAGS},${REGISTRY}/server:${VERSION},${REGISTRY}/server:latest"
+          fi
+
+          echo "server_tags=${SERVER_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push server image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/images/server/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.server_tags }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Scan server image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.34.1
+        with:
+          image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
+          format: 'sarif'
+          output: 'trivy-server.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-server.sarif'
+          category: 'server-image'
+
+      - name: Output server image digest
+        id: digest
+        run: |
+          echo "image=${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Build and push frontend image to central Artifact Registry
+  # ---------------------------------------------------------------------------
+  publish-frontend:
+    name: Publish Frontend Image
+    runs-on: ubuntu-latest
+    needs: resolve-sha
+
+    outputs:
+      image: ${{ steps.digest.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve-sha.outputs.sha }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Configure Docker credential helper
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          skip_install: true
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
+          gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Compute frontend image tags
+        id: tags
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
+
+          FRONTEND_TAGS="${REGISTRY}/frontend:${SHORT_SHA}"
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            FRONTEND_TAGS="${FRONTEND_TAGS},${REGISTRY}/frontend:${VERSION},${REGISTRY}/frontend:latest"
+          fi
+
+          echo "frontend_tags=${FRONTEND_TAGS}" >> "$GITHUB_OUTPUT"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push frontend image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/images/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.frontend_tags }}
+          build-args: |
+            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Scan frontend image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.34.1
+        with:
+          image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
+          format: 'sarif'
+          output: 'trivy-frontend.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-frontend.sarif'
+          category: 'frontend-image'
+
+      - name: Output frontend image digest
+        id: digest
+        run: |
+          echo "image=${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Deploy to development (every successful CI run on main)
+  # ---------------------------------------------------------------------------
+  deploy-dev:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    needs: [publish-server, publish-frontend]
+    if: github.event_name == 'workflow_run'
+    environment: development
+
+    steps:
+      - name: Authenticate to GCP (dev deployer)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Deploy backend to Cloud Run (dev)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ needs.publish-server.outputs.image }}
+
+      - name: Deploy frontend to Cloud Run (dev)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ needs.publish-frontend.outputs.image }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy to production (every v*.*.* tag)
+  # ---------------------------------------------------------------------------
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [publish-server, publish-frontend]
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+
+    steps:
+      - name: Authenticate to GCP (prod deployer)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_DEPLOYER_SA }}
+
+      - name: Deploy backend to Cloud Run (prod)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ vars.GCP_PROD_SERVICE_NAME }}-api
+          region: ${{ vars.GCP_PROD_CLOUD_RUN_REGION }}
+          image: ${{ needs.publish-server.outputs.image }}
+
+      - name: Deploy frontend to Cloud Run (prod)
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ vars.GCP_PROD_SERVICE_NAME }}-frontend
+          region: ${{ vars.GCP_PROD_CLOUD_RUN_REGION }}
+          image: ${{ needs.publish-frontend.outputs.image }}

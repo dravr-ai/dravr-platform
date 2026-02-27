@@ -39,11 +39,11 @@ docker-compose*.yml
 .github/
 .gitlab-ci.yml
 
-# Local development files
+# Local development files — never bake secrets into image layers
 .env
 .env.local
 .env.*.local
-# Note: .envrc is included for Docker builds with direnv support
+.envrc
 
 # Test data
 test_data/

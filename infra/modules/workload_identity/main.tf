@@ -47,3 +47,10 @@ resource "google_service_account_iam_member" "workload_identity_binding" {
   role               = "roles/iam.workloadIdentityUser"
   member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_org}/${var.github_repo}"
 }
+
+# Allow GitHub to impersonate the terraform runner service account (same pool, same provider)
+resource "google_service_account_iam_member" "terraform_runner_workload_identity_binding" {
+  service_account_id = var.terraform_runner_service_account_name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github.name}/attribute.repository/${var.github_org}/${var.github_repo}"
+}

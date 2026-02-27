@@ -1,4 +1,4 @@
-# ABOUTME: Creates GCS buckets for Pierre MCP Server
+# ABOUTME: Creates GCS buckets for Dravr MCP Server
 # ABOUTME: Includes buckets for backups and any application storage needs
 
 # -----------------------------------------------------------------------------
@@ -49,7 +49,7 @@ resource "google_storage_bucket" "app_data" {
 resource "google_storage_bucket" "terraform_state" {
   count = var.create_terraform_state_bucket ? 1 : 0
 
-  name          = "pierre-terraform-state"
+  name          = "dravr-terraform-state"
   project       = var.project_id
   location      = var.region
   storage_class = "STANDARD"

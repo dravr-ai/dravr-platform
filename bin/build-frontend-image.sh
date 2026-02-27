@@ -1,6 +1,6 @@
 #!/bin/bash
-# ABOUTME: Builds the Pierre admin frontend Docker image locally for testing
-# ABOUTME: Uses repo root as build context since Dockerfile needs package.json, bun.lock, packages/, frontend/
+# ABOUTME: Builds the Dravr admin frontend Docker image locally for testing only
+# ABOUTME: For CI publishing, use .github/workflows/publish-images.yml which pushes to the central Artifact Registry
 
 set -e
 

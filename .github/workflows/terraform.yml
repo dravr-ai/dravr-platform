@@ -1,0 +1,263 @@
+# ABOUTME: Automates Terraform plan/apply for infra/environments/dev and infra/environments/prod
+# ABOUTME: Plans post as PR comments; applies run on main push (dev auto, prod gated by environment approval)
+
+name: Terraform
+
+# Activate automated runs by uncommenting the pull_request and push triggers below
+# after completing the one-time manual setup steps documented in the PR comment.
+on:
+  # pull_request:
+  #   paths:
+  #     - 'infra/environments/**'
+  #     - 'infra/modules/**'
+  # push:
+  #   branches: [main]
+  #   paths:
+  #     - 'infra/environments/**'
+  #     - 'infra/modules/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        type: choice
+        options: [dev, prod]
+        required: true
+      action:
+        description: 'Terraform action'
+        type: choice
+        options: [plan, apply]
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Plan dev — runs on PR or workflow_dispatch(env=dev, action=plan)
+  # ---------------------------------------------------------------------------
+  plan-dev:
+    name: Plan Dev
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.environment == 'dev' &&
+       github.event.inputs.action == 'plan')
+
+    defaults:
+      run:
+        working-directory: infra/environments/dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (dev terraform runner)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -backend-config="prefix=dravr-dev"
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('infra/environments/dev/plan-output.txt', 'utf8');
+            const body = `## Terraform Plan — dev\n<details><summary>Show plan</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n</details>`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('## Terraform Plan — dev')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ---------------------------------------------------------------------------
+  # Plan prod — runs on PR or workflow_dispatch(env=prod, action=plan)
+  # ---------------------------------------------------------------------------
+  plan-prod:
+    name: Plan Prod
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.environment == 'prod' &&
+       github.event.inputs.action == 'plan')
+
+    defaults:
+      run:
+        working-directory: infra/environments/prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (prod terraform runner)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -backend-config="prefix=dravr-prod"
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan 2>&1 | tee plan-output.txt
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('infra/environments/prod/plan-output.txt', 'utf8');
+            const body = `## Terraform Plan — prod\n<details><summary>Show plan</summary>\n\n\`\`\`\n${planOutput}\n\`\`\`\n</details>`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('## Terraform Plan — prod')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ---------------------------------------------------------------------------
+  # Apply dev — runs on push to main or workflow_dispatch(env=dev, action=apply)
+  # Auto-applies with no required reviewers (development environment)
+  # ---------------------------------------------------------------------------
+  apply-dev:
+    name: Apply Dev
+    runs-on: ubuntu-latest
+    needs: plan-dev
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.environment == 'dev' &&
+       github.event.inputs.action == 'apply')
+    environment: development
+
+    defaults:
+      run:
+        working-directory: infra/environments/dev
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (dev terraform runner)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -backend-config="prefix=dravr-dev"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+  # ---------------------------------------------------------------------------
+  # Apply prod — runs on push to main or workflow_dispatch(env=prod, action=apply)
+  # Gated by required reviewers configured on the production GitHub Environment
+  # ---------------------------------------------------------------------------
+  apply-prod:
+    name: Apply Prod
+    runs-on: ubuntu-latest
+    needs: plan-prod
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.event.inputs.environment == 'prod' &&
+       github.event.inputs.action == 'apply')
+    environment: production
+
+    defaults:
+      run:
+        working-directory: infra/environments/prod
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (prod terraform runner)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_TF_SA }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init -backend-config="prefix=dravr-prod"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
