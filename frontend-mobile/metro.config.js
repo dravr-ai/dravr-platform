@@ -20,6 +20,9 @@ try {
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, '..');
 
+// Expo Router: set app directory for monorepo where expo-router is hoisted to root node_modules
+process.env.EXPO_ROUTER_APP_ROOT = path.resolve(projectRoot, 'app');
+
 const config = getDefaultConfig(projectRoot);
 
 // Watch all files in the monorepo
