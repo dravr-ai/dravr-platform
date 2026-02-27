@@ -5,7 +5,7 @@
 // ABOUTME: Wraps all routes with Auth, Query, WebSocket providers and handles auth gating
 
 import '../global.css';
-import React, { useCallback } from 'react';
+import React from 'react';
 import { View, ActivityIndicator, LogBox } from 'react-native';
 import { Slot, useSegments, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -35,7 +35,8 @@ function RootLayoutNav() {
   const segments = useSegments();
   const router = useRouter();
 
-  const onLayoutReady = useCallback(() => {
+  // Hide the native splash screen once auth state is resolved
+  React.useEffect(() => {
     if (!isLoading) {
       SplashScreen.hideAsync();
     }
@@ -56,17 +57,14 @@ function RootLayoutNav() {
 
   if (isLoading) {
     return (
-      <View
-        className="flex-1 items-center justify-center bg-background-primary"
-        onLayout={onLayoutReady}
-      >
+      <View className="flex-1 items-center justify-center bg-background-primary">
         <ActivityIndicator size="large" color={colors.primary[500]} />
       </View>
     );
   }
 
   return (
-    <View className="flex-1" onLayout={onLayoutReady}>
+    <View className="flex-1">
       <Slot />
     </View>
   );
