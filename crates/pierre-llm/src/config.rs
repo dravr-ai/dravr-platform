@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use embache::CopilotSdkConfig;
+use embacle::CopilotSdkConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -82,15 +82,15 @@ impl LlmProviderType {
     /// Get model from environment, respecting the active provider
     ///
     /// For API-based providers (Gemini, Groq, Local), reads `PIERRE_LLM_MODEL`.
-    /// For embache-based providers, reads the runner-specific env var
+    /// For embacle-based providers, reads the runner-specific env var
     /// (e.g. `COPILOT_SDK_MODEL`) or uses the runner's built-in default.
     /// Returns None only if no model can be determined.
     #[must_use]
     pub fn model_from_env() -> Option<String> {
         let provider = Self::from_env();
 
-        // Embache-based providers have their own model configuration
-        if let Some(model) = provider.embache_model_from_env() {
+        // Embacle-based providers have their own model configuration
+        if let Some(model) = provider.embacle_model_from_env() {
             return Some(model);
         }
 
@@ -107,14 +107,14 @@ impl LlmProviderType {
         }
     }
 
-    /// Get model name for embache-based providers
+    /// Get model name for embacle-based providers
     ///
-    /// `PIERRE_LLM_MODEL` is the unified override for ALL providers (API and embache).
+    /// `PIERRE_LLM_MODEL` is the unified override for ALL providers (API and embacle).
     /// When set, it takes priority over provider-specific env vars (e.g. `COPILOT_SDK_MODEL`,
     /// `CLI_LLM_MODEL`). When not set, falls back to each runner's own default.
-    /// Returns None for non-embache providers.
+    /// Returns None for non-embacle providers.
     #[must_use]
-    fn embache_model_from_env(self) -> Option<String> {
+    fn embacle_model_from_env(self) -> Option<String> {
         match self {
             Self::Gemini | Self::Groq | Self::Local => return None,
             _ => {}

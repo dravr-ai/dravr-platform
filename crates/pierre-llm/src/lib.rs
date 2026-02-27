@@ -29,7 +29,7 @@ pub use pierre_core::llm::{
     LlmProviderRegistry, MessageRole, StreamChunk, TokenUsage,
 };
 
-/// Embache-based LLM provider facade wrapping CLI subprocess and SDK runners
+/// Embacle-based LLM provider facade wrapping CLI subprocess and SDK runners
 mod cli_llm_provider;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
@@ -49,11 +49,11 @@ mod provider;
 pub mod sse_parser;
 
 pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
-pub use embache::{
+pub use embacle::{
     convert_function_declarations, extract_declarations_from_tool_value, ToolHandler,
     ToolResultObject,
 };
-pub use embache::{
+pub use embacle::{
     ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner,
 };
 pub use gemini::{
