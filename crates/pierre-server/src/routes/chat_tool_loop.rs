@@ -24,13 +24,12 @@ use crate::{
     },
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
 };
-use pierre_core::llm::MessageRole;
+use pierre_core::llm::tool_simulation;
 use serde_json::Value;
-use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Handle;
 use tokio::task::block_in_place;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 // ============================================================================
 // Shared Types
@@ -184,10 +183,14 @@ const CLI_MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Executes the tool loop using text-based tool calling for CLI providers.
 ///
+/// Uses embacle's [`tool_simulation`] module for catalog generation, tool call
+/// parsing, and result formatting. The MCP execution and domain-specific logic
+/// (activity list capture) remain here.
+///
 /// Flow:
-/// 1. Inject tool catalog into system prompt
-/// 2. Call `complete()` → parse `<tool_call>` blocks from response
-/// 3. If tool calls found: execute via MCP, format results, re-call with results
+/// 1. Inject tool catalog into system prompt (via embacle)
+/// 2. Call `complete()` → parse `<tool_call>` blocks (via embacle)
+/// 3. If tool calls found: execute via MCP, format results (via embacle), iterate
 /// 4. Repeat until text response or max iterations
 ///
 /// # Errors
@@ -197,14 +200,10 @@ pub async fn run_cli_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &mut Vec<ChatMessage>,
 ) -> Result<ToolLoopResult, AppError> {
-    // Generate and inject tool catalog into the system prompt
-    let tool_catalog = generate_tool_catalog(&params.tools.function_declarations);
-    inject_tool_catalog_into_system_prompt(llm_messages, &tool_catalog);
-
-    debug!(
-        message_count = llm_messages.len(),
-        "CLI tool loop: starting with injected tool catalog"
-    );
+    // Convert pierre-llm declarations to embacle declarations and generate catalog
+    let embacle_decls = to_embacle_declarations(&params.tools.function_declarations);
+    let tool_catalog = tool_simulation::generate_tool_catalog(&embacle_decls);
+    tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
 
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
@@ -214,12 +213,12 @@ pub async fn run_cli_tool_loop(
         let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
         let response = params.provider.complete(&llm_request).await?;
 
-        // Parse <tool_call> blocks from the response text
-        let parsed_tool_calls = parse_tool_call_blocks(&response.content);
+        // Parse <tool_call> blocks from the response text (via embacle)
+        let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
 
-        if parsed_tool_calls.is_empty() {
+        if embacle_calls.is_empty() {
             // No tool calls — this is the final text response
-            let content = strip_tool_call_blocks(&response.content);
+            let content = tool_simulation::strip_tool_call_blocks(&response.content);
             return Ok(ToolLoopResult {
                 content,
                 usage: response.usage,
@@ -228,6 +227,9 @@ pub async fn run_cli_tool_loop(
                 tool_calls_count,
             });
         }
+
+        // Convert to pierre-llm types for MCP execution
+        let parsed_tool_calls = from_embacle_calls(embacle_calls);
 
         info!(
             "CLI iteration {}: Parsed {} tool call(s) from text",
@@ -249,14 +251,15 @@ pub async fn run_cli_tool_loop(
             tool_calls_count += parsed_tool_calls.len() as u32;
         }
 
-        // Add assistant message (with tool calls stripped)
-        let assistant_text = strip_tool_call_blocks(&response.content);
+        // Add assistant message (with tool calls stripped via embacle)
+        let assistant_text = tool_simulation::strip_tool_call_blocks(&response.content);
         if !assistant_text.is_empty() {
             llm_messages.push(ChatMessage::assistant(&assistant_text));
         }
 
-        // Format tool results as text and inject as user message
-        let tool_results_text = format_tool_results_as_text(&function_responses);
+        // Format tool results as text (via embacle) and inject as user message
+        let embacle_responses = to_embacle_responses(&function_responses);
+        let tool_results_text = tool_simulation::format_tool_results_as_text(&embacle_responses);
 
         // Capture activity list if present in function responses
         if let Some(list) = extract_activity_list(&function_responses) {
@@ -277,177 +280,76 @@ pub async fn run_cli_tool_loop(
 }
 
 // ============================================================================
-// Tool Catalog Generation
+// Type Conversions: pierre-llm ↔ embacle::tool_simulation
 // ============================================================================
 
-/// Generate a text-based tool catalog from function declarations.
+/// Convert pierre-llm function declarations to embacle `tool_simulation` declarations.
+fn to_embacle_declarations(
+    decls: &[FunctionDeclaration],
+) -> Vec<tool_simulation::FunctionDeclaration> {
+    decls
+        .iter()
+        .map(|d| tool_simulation::FunctionDeclaration {
+            name: d.name.clone(),
+            description: d.description.clone(),
+            parameters: d.parameters.clone(),
+        })
+        .collect()
+}
+
+/// Convert embacle `tool_simulation` function calls to pierre-llm function calls.
+fn from_embacle_calls(calls: Vec<tool_simulation::FunctionCall>) -> Vec<FunctionCall> {
+    calls
+        .into_iter()
+        .map(|c| FunctionCall {
+            name: c.name,
+            args: c.args,
+        })
+        .collect()
+}
+
+/// Convert pierre-llm function responses to embacle `tool_simulation` responses.
+fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::FunctionResponse> {
+    resps
+        .iter()
+        .map(|r| tool_simulation::FunctionResponse {
+            name: r.name.clone(),
+            response: r.response.clone(),
+        })
+        .collect()
+}
+
+// Re-export embacle's pure functions for direct use (no type conversion needed)
+pub use tool_simulation::inject_tool_catalog as inject_tool_catalog_into_system_prompt;
+pub use tool_simulation::strip_tool_call_blocks;
+
+/// Generate a text-based tool catalog from pierre-llm function declarations.
 ///
-/// Produces a structured description that CLI-based LLMs can parse to understand
-/// which tools are available and how to invoke them.
+/// Thin wrapper around [`embacle::tool_simulation::generate_tool_catalog`] that
+/// handles type conversion.
 #[must_use]
 pub fn generate_tool_catalog(declarations: &[FunctionDeclaration]) -> String {
-    let mut catalog = String::with_capacity(2048);
-    catalog.push_str("\n\n## Available Tools\n\n");
-    catalog.push_str(
-        "You have access to the following tools to retrieve and analyze user fitness data.\n",
-    );
-    catalog.push_str("When you need data, respond with EXACTLY one tool call block per tool:\n\n");
-    catalog.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
-    catalog.push_str("You may include multiple <tool_call> blocks in a single response.\n");
-    catalog.push_str("After receiving tool results, analyze the data and respond to the user.\n\n");
-
-    for decl in declarations {
-        let _ = writeln!(catalog, "### {}", decl.name);
-        let _ = writeln!(catalog, "{}", decl.description);
-
-        if let Some(ref params) = decl.parameters {
-            if let Some(properties) = params.get("properties") {
-                if let Some(props_obj) = properties.as_object() {
-                    if !props_obj.is_empty() {
-                        let required: Vec<&str> = params
-                            .get("required")
-                            .and_then(|r| r.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-                            .unwrap_or_default();
-
-                        catalog.push_str("Parameters:\n");
-                        for (name, schema) in props_obj {
-                            let type_str =
-                                schema.get("type").and_then(|t| t.as_str()).unwrap_or("any");
-                            let is_required = required.contains(&name.as_str());
-                            let req_label = if is_required { ", required" } else { "" };
-                            let _ = writeln!(catalog, "- `{name}` ({type_str}{req_label})");
-                        }
-                    }
-                }
-            }
-        }
-        catalog.push('\n');
-    }
-
-    catalog
+    let embacle_decls = to_embacle_declarations(declarations);
+    tool_simulation::generate_tool_catalog(&embacle_decls)
 }
 
-/// Inject the tool catalog into the system prompt message.
+/// Parse `<tool_call>` blocks from CLI text output into pierre-llm function calls.
 ///
-/// Appends the catalog to the first system message, or creates one if missing.
-pub fn inject_tool_catalog_into_system_prompt(messages: &mut Vec<ChatMessage>, catalog: &str) {
-    if let Some(system_msg) = messages.first_mut() {
-        if system_msg.role == MessageRole::System {
-            // Append tool catalog to existing system prompt
-            let augmented = format!("{}{catalog}", system_msg.content);
-            *system_msg = ChatMessage::system(&augmented);
-            return;
-        }
-    }
-    // No system message found — insert one at position 0
-    messages.insert(0, ChatMessage::system(catalog));
-}
-
-// ============================================================================
-// Tool Call Parser
-// ============================================================================
-
-/// Parse `<tool_call>` blocks from CLI text output into structured function calls.
-///
-/// Expected format:
-/// ```text
-/// <tool_call>
-/// {"name": "get_activities", "arguments": {"provider": "strava", "limit": 25}}
-/// </tool_call>
-/// ```
-///
-/// Tolerant parser: skips malformed blocks and logs warnings.
-pub fn parse_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
-    let mut calls = Vec::new();
-    let mut search_from = 0;
-
-    while let Some(start) = content[search_from..].find("<tool_call>") {
-        let abs_start = search_from + start + "<tool_call>".len();
-        let Some(end) = content[abs_start..].find("</tool_call>") else {
-            warn!("Found <tool_call> without matching </tool_call>");
-            break;
-        };
-        let abs_end = abs_start + end;
-        let json_str = content[abs_start..abs_end].trim();
-
-        match serde_json::from_str::<ToolCallPayload>(json_str) {
-            Ok(payload) => {
-                info!("Parsed CLI tool call: {}", payload.name);
-                calls.push(FunctionCall {
-                    name: payload.name,
-                    args: payload
-                        .arguments
-                        .unwrap_or(Value::Object(serde_json::Map::new())),
-                });
-            }
-            Err(e) => {
-                warn!(
-                    "Failed to parse <tool_call> JSON ({} bytes): {e}",
-                    json_str.len()
-                );
-            }
-        }
-
-        search_from = abs_end + "</tool_call>".len();
-    }
-
-    calls
-}
-
-/// Internal deserialization target for `<tool_call>` JSON payloads
-#[derive(serde::Deserialize)]
-struct ToolCallPayload {
-    name: String,
-    #[serde(default)]
-    arguments: Option<Value>,
-}
-
-/// Strip `<tool_call>...</tool_call>` blocks from text, returning remaining content.
+/// Thin wrapper around [`embacle::tool_simulation::parse_tool_call_blocks`] that
+/// handles type conversion.
 #[must_use]
-pub fn strip_tool_call_blocks(content: &str) -> String {
-    let mut result = String::with_capacity(content.len());
-    let mut search_from = 0;
-
-    while let Some(start) = content[search_from..].find("<tool_call>") {
-        let abs_start = search_from + start;
-        result.push_str(&content[search_from..abs_start]);
-
-        let close_tag = "</tool_call>";
-        if let Some(end) = content[abs_start..].find(close_tag) {
-            search_from = abs_start + end + close_tag.len();
-        } else {
-            // Unclosed tag — include the rest as-is
-            search_from = content.len();
-        }
-    }
-    result.push_str(&content[search_from..]);
-    result.trim().to_owned()
+pub fn parse_tool_call_blocks(content: &str) -> Vec<FunctionCall> {
+    from_embacle_calls(tool_simulation::parse_tool_call_blocks(content))
 }
 
-// ============================================================================
-// Tool Result Formatting
-// ============================================================================
-
-/// Format function responses as text for injection into CLI follow-up messages.
+/// Format pierre-llm function responses as `<tool_result>` text blocks.
 ///
-/// Uses `<tool_result>` blocks so the CLI LLM can distinguish tool output from
-/// conversational text.
+/// Thin wrapper around [`embacle::tool_simulation::format_tool_results_as_text`] that
+/// handles type conversion.
 #[must_use]
 pub fn format_tool_results_as_text(responses: &[FunctionResponse]) -> String {
-    let mut text = String::with_capacity(4096);
-    text.push_str("Here are the results from the tools you requested:\n\n");
-
-    for resp in responses {
-        let _ = writeln!(text, "<tool_result name=\"{}\">", resp.name);
-        let json_str =
-            serde_json::to_string_pretty(&resp.response).unwrap_or_else(|_| "{}".to_owned());
-        let _ = writeln!(text, "{json_str}");
-        text.push_str("</tool_result>\n\n");
-    }
-
-    text.push_str("Please analyze the data above and respond to the user's question.");
-    text
+    let embacle_responses = to_embacle_responses(responses);
+    tool_simulation::format_tool_results_as_text(&embacle_responses)
 }
 
 /// Extract activity list from function responses (for `get_activities` results).

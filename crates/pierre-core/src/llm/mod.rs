@@ -38,6 +38,9 @@ pub use embacle::types::{
     ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
 };
 
+/// Text-based tool simulation for CLI LLM runners (re-exported from embacle)
+pub use embacle::tool_simulation;
+
 // ============================================================================
 // Platform-Specific Stream Type
 // ============================================================================
