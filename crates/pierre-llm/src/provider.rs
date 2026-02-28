@@ -20,7 +20,7 @@
 use std::fmt;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, CliLlmProvider,
@@ -87,6 +87,7 @@ impl ChatProvider {
                     provider.display_name(),
                     provider.default_model()
                 );
+                validate_model_for_provider(&provider);
                 Ok(provider)
             }
             Err(primary_error) => Self::try_fallback(provider_type, primary_error).await,
@@ -341,6 +342,37 @@ impl ChatProvider {
     /// Returns an error if the health check fails.
     pub async fn health_check(&self) -> Result<bool, AppError> {
         LlmProvider::health_check(self).await
+    }
+}
+
+/// Check if the active model is recognized by the provider and log a warning on mismatch.
+///
+/// This is a soft check — it does NOT block startup. Warnings help operators
+/// detect misconfigurations like sending a Gemini model name to the Claude Code CLI.
+fn validate_model_for_provider(provider: &ChatProvider) {
+    let model = provider.default_model();
+    let available = provider.available_models();
+
+    if available.is_empty() {
+        // Provider doesn't publish a model list — skip validation
+        return;
+    }
+
+    if available.iter().any(|m| m == model) {
+        info!(
+            provider = provider.name(),
+            model,
+            available_count = available.len(),
+            "Model validated against provider's available models"
+        );
+    } else {
+        warn!(
+            provider = provider.name(),
+            model,
+            available = ?available,
+            "Active model is not in this provider's known model list — \
+             this may cause runtime errors. Check PIERRE_LLM_MODEL and PIERRE_LLM_PROVIDER"
+        );
     }
 }
 

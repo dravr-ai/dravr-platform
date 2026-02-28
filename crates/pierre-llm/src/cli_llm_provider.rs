@@ -99,7 +99,6 @@ impl CliLlmProvider {
     /// Build a CLI subprocess runner
     fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
         let binary_path = config.binary_path.clone();
-        info!(runner = %runner_type, path = %binary_path.display(), "Creating CLI LLM runner");
 
         let runner: Box<dyn EmbacleLlmProvider> = match runner_type {
             CliRunnerType::ClaudeCode => Box::new(ClaudeCodeRunner::new(config)),
@@ -107,6 +106,14 @@ impl CliLlmProvider {
             CliRunnerType::CursorAgent => Box::new(CursorAgentRunner::new(config)),
             CliRunnerType::OpenCode => Box::new(OpenCodeRunner::new(config)),
         };
+
+        info!(
+            runner = %runner_type,
+            path = %binary_path.display(),
+            model = runner.default_model(),
+            available_models = ?runner.available_models(),
+            "Creating CLI LLM runner"
+        );
 
         let provider = Self {
             runner,

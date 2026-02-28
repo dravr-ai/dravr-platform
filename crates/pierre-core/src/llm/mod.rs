@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use embacle::types::{ErrorKind, RunnerError};
 use tokio_stream::Stream;
 
-use crate::errors::AppError;
+use crate::errors::{AppError, ErrorCode};
 
 // ============================================================================
 // Re-exported Data Types from embacle
@@ -60,6 +60,10 @@ impl From<RunnerError> for AppError {
         match err.kind {
             ErrorKind::Internal | ErrorKind::BinaryNotFound => Self::internal(err.message),
             ErrorKind::ExternalService => Self::external_service("CLI runner", err.message),
+            ErrorKind::Timeout => Self::new(
+                ErrorCode::ResourceUnavailable,
+                format!("CLI runner timed out: {}", err.message),
+            ),
             ErrorKind::AuthFailure => Self::auth_invalid(err.message),
             ErrorKind::Config => Self::config(err.message),
         }
