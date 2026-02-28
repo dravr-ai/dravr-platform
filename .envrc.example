@@ -234,34 +234,72 @@ export OAUTH_CALLBACK_PORT=35535
 # ============================================================================
 # LLM PROVIDER CONFIGURATION
 # ============================================================================
-# Provider selection: gemini, groq, or local (Ollama)
+# Provider selection (pick ONE):
+#   API providers:  gemini, groq, local
+#   CLI providers:  claude_code, copilot, cursor_agent, opencode, copilot_sdk
 export PIERRE_LLM_PROVIDER=gemini
 
-# Primary model and fallback
+# Cross-provider settings
 export PIERRE_LLM_DEFAULT_MODEL=gemini-3-flash-preview
 export PIERRE_LLM_FALLBACK_MODEL=gemini-2.5-flash
-# export PIERRE_LLM_MODEL=gemini-2.5-flash          # Runtime model override
+# export PIERRE_LLM_MODEL=gemini-2.5-flash          # Runtime model override (all providers)
 # export PIERRE_LLM_FALLBACK_ENABLED="true"          # Enable fallback provider
+# export PIERRE_LLM_PROVIDER_FALLBACK=groq           # Fallback provider name
 
-# Gemini Configuration (when PIERRE_LLM_PROVIDER=gemini)
+# --- Gemini (PIERRE_LLM_PROVIDER=gemini) ---
 export GEMINI_API_KEY="your-gemini-api-key"
 # export GEMINI_MAX_RETRIES="3"                       # Default: 3
 # export GEMINI_INITIAL_RETRY_DELAY_MS="500"          # Default: 500
 # export GEMINI_MAX_RETRY_DELAY_MS="5000"             # Default: 5000
+# Models: gemini-3-flash-preview, gemini-2.5-flash, gemini-2.5-pro
 
-# Groq Configuration (when PIERRE_LLM_PROVIDER=groq)
+# --- Groq (PIERRE_LLM_PROVIDER=groq) ---
 export GROQ_API_KEY="your-groq-api-key"
 # export GROQ_DEFAULT_MODEL=llama-3.3-70b-versatile
 # export GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile
 # export GROQ_MAX_RETRIES="3"                         # Default: 3
 # export GROQ_INITIAL_RETRY_DELAY_MS="500"            # Default: 500
 # export GROQ_MAX_RETRY_DELAY_MS="5000"               # Default: 5000
+# Models: llama-3.3-70b-versatile, mixtral-8x7b-32768
 
-# Local LLM Configuration (when PIERRE_LLM_PROVIDER=local)
+# --- Local LLM (PIERRE_LLM_PROVIDER=local) ---
 # export LOCAL_LLM_BASE_URL="http://localhost:11434/v1"
 # export LOCAL_LLM_MODEL="qwen2.5:14b-instruct"
 # export LOCAL_LLM_FALLBACK_MODEL="qwen2.5:14b-instruct"
 # export LOCAL_LLM_API_KEY=""                          # Optional (empty for local servers)
+# Backends: Ollama, vLLM, LocalAI (any OpenAI-compatible API)
+
+# --- Claude Code CLI (PIERRE_LLM_PROVIDER=claude_code) ---
+# Requires `claude` binary on PATH or CLI_LLM_BINARY override
+# export PIERRE_LLM_MODEL=opus                        # Models: opus, sonnet, haiku
+# export CLI_LLM_TIMEOUT_SECS="120"                   # Default: 120
+# export CLI_LLM_BINARY="/path/to/claude"             # Binary path override
+# export CLI_LLM_EXTRA_ARGS="--no-color"              # Comma-separated extra args
+# export CLI_LLM_WORKING_DIR="/path/to/workdir"       # Working directory for the CLI
+
+# --- GitHub Copilot CLI (PIERRE_LLM_PROVIDER=copilot) ---
+# Requires `copilot` binary + `gh auth` session
+# export PIERRE_LLM_MODEL=claude-opus-4.6             # Models discovered via `gh copilot models`
+# export CLI_LLM_TIMEOUT_SECS="120"
+# export CLI_LLM_BINARY="/path/to/copilot"
+
+# --- Cursor Agent CLI (PIERRE_LLM_PROVIDER=cursor_agent) ---
+# Requires `cursor-agent` binary
+# export PIERRE_LLM_MODEL=sonnet-4                    # Models: sonnet-4, gpt-5, gemini-2.5-pro
+# export CLI_LLM_TIMEOUT_SECS="120"
+# export CLI_LLM_BINARY="/path/to/cursor-agent"
+
+# --- OpenCode CLI (PIERRE_LLM_PROVIDER=opencode) ---
+# Requires `opencode` binary; no streaming support
+# export PIERRE_LLM_MODEL=anthropic/claude-sonnet-4   # Models: anthropic/claude-sonnet-4, openai/gpt-5
+# export CLI_LLM_TIMEOUT_SECS="120"
+# export CLI_LLM_BINARY="/path/to/opencode"
+
+# --- Copilot SDK (PIERRE_LLM_PROVIDER=copilot_sdk) ---
+# Runs `copilot --headless` JSON-RPC server with native tool calling
+# export PIERRE_LLM_MODEL=claude-opus-4.6
+# export COPILOT_SDK_TRANSPORT=stdio                   # Transport: stdio (default)
+# export COPILOT_GITHUB_TOKEN=""                       # Or GH_TOKEN / GITHUB_TOKEN
 
 # ============================================================================
 # API PROVIDER CONFIGURATION
