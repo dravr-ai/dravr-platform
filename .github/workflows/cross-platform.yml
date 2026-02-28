@@ -1,22 +1,10 @@
 name: Cross-Platform Tests
 
 on:
-  push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
-    paths:
-      - 'crates/**'
-      - 'migrations/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/cross-platform.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'crates/**'
-      - 'migrations/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/cross-platform.yml'
+  schedule:
+    # Run nightly at 3:00 AM UTC (macOS/Windows runners are expensive)
+    - cron: '0 3 * * *'
+  workflow_dispatch: # Allow manual trigger when needed
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
