@@ -34,6 +34,7 @@ jobs:
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
       short_sha: ${{ steps.sha.outputs.short_sha }}
+      gcp_configured: ${{ steps.secrets.outputs.gcp_configured }}
 
     steps:
       - name: Resolve SHA
@@ -47,6 +48,20 @@ jobs:
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
 
+      - name: Check GCP secrets availability
+        id: secrets
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$IMAGE_PUBLISHER_SA" ]; then
+            echo "gcp_configured=true" >> "$GITHUB_OUTPUT"
+            echo "GCP Artifact Registry secrets are configured"
+          else
+            echo "gcp_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GCP Artifact Registry secrets not configured — skipping image publish and deploy"
+          fi
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          IMAGE_PUBLISHER_SA: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
   # ---------------------------------------------------------------------------
   # Build and push server image to central Artifact Registry
   # ---------------------------------------------------------------------------
@@ -54,6 +69,7 @@ jobs:
     name: Publish Server Image
     runs-on: ubuntu-latest
     needs: resolve-sha
+    if: needs.resolve-sha.outputs.gcp_configured == 'true'
 
     outputs:
       image: ${{ steps.digest.outputs.image }}
@@ -121,7 +137,7 @@ jobs:
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         with:
           sarif_file: 'trivy-server.sarif'
           category: 'server-image'
@@ -138,6 +154,7 @@ jobs:
     name: Publish Frontend Image
     runs-on: ubuntu-latest
     needs: resolve-sha
+    if: needs.resolve-sha.outputs.gcp_configured == 'true'
 
     outputs:
       image: ${{ steps.digest.outputs.image }}
@@ -207,7 +224,7 @@ jobs:
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && steps.build.outcome == 'success'
         with:
           sarif_file: 'trivy-frontend.sarif'
           category: 'frontend-image'
