@@ -7,6 +7,8 @@
 use super::Database;
 use crate::plugins::MessagingRepository;
 use async_trait::async_trait;
+#[cfg(feature = "postgresql")]
+use pierre_core::errors::AppError;
 use pierre_core::errors::AppResult;
 use pierre_core::models::messaging::{
     ChannelBindingRecord, CreateChannelBindingParams, CreateMessagingConnectionParams,
@@ -23,7 +25,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.create_messaging_connection(params).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -37,7 +39,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.get_messaging_connection(id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -51,7 +53,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.get_messaging_connection_by_team(provider, team_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -64,7 +66,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.list_messaging_connections(tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -74,7 +76,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.delete_messaging_connection(id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -87,7 +89,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.create_channel_binding(params).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -104,7 +106,7 @@ impl MessagingRepository for Database {
                     .await
             }
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -117,7 +119,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.list_channel_bindings(tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
@@ -127,7 +129,7 @@ impl MessagingRepository for Database {
         match self {
             Self::SQLite(db) => db.delete_channel_binding(id, tenant_id).await,
             #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(_db) => Err(pierre_core::errors::AppError::internal(
+            Self::PostgreSQL(_db) => Err(AppError::internal(
                 "Messaging repository not yet implemented for PostgreSQL",
             )),
         }
