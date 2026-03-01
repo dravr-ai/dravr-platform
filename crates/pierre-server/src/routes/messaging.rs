@@ -12,11 +12,11 @@ use axum::response::Json;
 use axum::routing::{delete, get, post};
 use axum::Router;
 use pierre_auth::auth::AuthResult;
-use pierre_core::models::messaging::{CreateChannelBindingParams, CreateMessagingConnectionParams};
-use pierre_database::plugins::{MessagingRepository, TenantRepository};
-use pierre_messaging::slack::types::{
-    SlackEvent, SlackEventPayload, SlackMessageEvent, UrlVerificationResponse,
+use pierre_core::models::messaging::{
+    CreateChannelBindingParams, CreateMessagingConnectionParams, MessagingConnectionRecord,
 };
+use pierre_database::plugins::{MessagingRepository, TenantRepository};
+use pierre_messaging::slack::types::{SlackEvent, SlackMessageEvent, UrlVerificationResponse};
 use pierre_messaging::slack::SlackProvider;
 use pierre_messaging::types::IncomingMessage;
 use pierre_messaging::MessagingProvider;
@@ -26,20 +26,26 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
-use crate::middleware::extract_auth_from_headers;
+use crate::middleware::{extract_auth_from_headers, require_admin};
 use crate::models::TenantId;
 use crate::services::messaging_bridge;
+
+/// Fallback sender ID when a Slack message has no user field
+const UNKNOWN_SENDER: &str = "unknown";
+
+/// Supported messaging providers for connection creation
+const SUPPORTED_PROVIDERS: &[&str] = &["slack"];
 
 /// Build the messaging routes router
 pub fn messaging_routes(resources: Arc<ServerResources>) -> Router {
     Router::new()
         // Slack webhook endpoint (public, verified via signing secret)
         .route("/webhooks/slack", post(slack_webhook_handler))
-        // Connection management (admin-authenticated)
+        // Connection management (admin-authenticated for writes)
         .route("/connections", get(list_connections))
         .route("/connections", post(create_connection))
         .route("/connections/:id", delete(delete_connection))
-        // Channel binding management (admin-authenticated)
+        // Channel binding management (admin-authenticated for writes)
         .route("/bindings", get(list_bindings))
         .route("/bindings", post(create_binding))
         .route("/bindings/:id", delete(delete_binding))
@@ -50,12 +56,23 @@ pub fn messaging_routes(resources: Arc<ServerResources>) -> Router {
 // Auth Helpers
 // ============================================================================
 
-/// Authenticate the request and resolve the tenant ID
+/// Authenticate the request and resolve the tenant ID (any authenticated user)
 async fn authenticate(
     headers: &HeaderMap,
     resources: &Arc<ServerResources>,
 ) -> Result<(Uuid, TenantId), AppError> {
     let auth = extract_auth_from_headers(headers, resources).await?;
+    let tenant_id = resolve_tenant_id(auth.user_id, &auth, resources).await?;
+    Ok((auth.user_id, tenant_id))
+}
+
+/// Authenticate the request, verify admin privileges, and resolve tenant ID
+async fn authenticate_admin(
+    headers: &HeaderMap,
+    resources: &Arc<ServerResources>,
+) -> Result<(Uuid, TenantId), AppError> {
+    let auth = extract_auth_from_headers(headers, resources).await?;
+    require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = resolve_tenant_id(auth.user_id, &auth, resources).await?;
     Ok((auth.user_id, tenant_id))
 }
@@ -81,12 +98,10 @@ async fn resolve_tenant_id(
 
 /// Handle incoming Slack Events API webhooks
 ///
-/// This endpoint handles three types of Slack events:
-/// 1. URL verification challenges (during webhook registration)
-/// 2. Message events (forwarded to the bridge service)
-/// 3. App mention events (forwarded to the bridge service)
-///
-/// All requests are verified using HMAC-SHA256 signature validation.
+/// Security model:
+/// 1. URL verification: no signature check (Slack handshake, lightweight parse only)
+/// 2. Event callbacks: lightweight JSON parse to extract `type` and `team_id`,
+///    then HMAC signature verification BEFORE full deserialization into typed structs
 async fn slack_webhook_handler(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
@@ -94,13 +109,24 @@ async fn slack_webhook_handler(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let body_bytes = body.as_bytes();
 
-    // Parse the event payload to determine the type
-    let payload: SlackEventPayload = serde_json::from_str(&body)
+    // Lightweight parse: extract only the top-level "type" field to route the request
+    let envelope: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| AppError::invalid_input(format!("Invalid Slack event payload: {e}")))?;
 
-    match payload {
-        // URL verification: echo back the challenge token (no signature check needed for setup)
-        SlackEventPayload::UrlVerification { challenge, .. } => {
+    let event_type = envelope["type"]
+        .as_str()
+        .ok_or_else(|| AppError::invalid_input("Slack payload missing 'type' field"))?;
+
+    match event_type {
+        // URL verification: echo back the challenge token (no signature needed per Slack spec)
+        "url_verification" => {
+            let challenge = envelope["challenge"]
+                .as_str()
+                .ok_or_else(|| {
+                    AppError::invalid_input("url_verification missing 'challenge' field")
+                })?
+                .to_owned();
+
             info!("Slack URL verification challenge received");
             let response = UrlVerificationResponse { challenge };
             Ok(Json(serde_json::to_value(response).map_err(|e| {
@@ -108,9 +134,11 @@ async fn slack_webhook_handler(
             })?))
         }
 
-        // Event callback: verify signature, then process the event
-        SlackEventPayload::EventCallback(callback) => {
-            let team_id = &callback.team_id;
+        // Event callback: verify HMAC signature before full deserialization
+        "event_callback" => {
+            let team_id = envelope["team_id"]
+                .as_str()
+                .ok_or_else(|| AppError::invalid_input("event_callback missing 'team_id' field"))?;
 
             // Look up the connection for this team to get credentials
             let connection = resources
@@ -127,30 +155,38 @@ async fn slack_webhook_handler(
                 connection.signing_secret.clone(),
             );
 
-            // Verify the request signature
+            // Verify the request signature BEFORE deserializing into typed structs
             if !provider.verify_request(&headers, body_bytes)? {
                 warn!(team_id = %team_id, "Slack webhook signature verification failed");
                 return Err(AppError::auth_invalid("Invalid Slack request signature"));
             }
 
-            // Process the event
-            match callback.event {
+            // Signature verified — now safe to deserialize the nested event
+            let event: SlackEvent =
+                serde_json::from_value(envelope["event"].clone()).map_err(|e| {
+                    AppError::invalid_input(format!("Invalid Slack event structure: {e}"))
+                })?;
+
+            match event {
                 SlackEvent::Message(msg) | SlackEvent::AppMention(msg) => {
-                    handle_slack_message(resources, &connection.id, team_id, msg).await?;
+                    handle_slack_message(resources, &connection, &msg)?;
                 }
             }
 
             Ok(Json(serde_json::json!({"ok": true})))
         }
+
+        other => Err(AppError::invalid_input(format!(
+            "Unsupported Slack event type: {other}"
+        ))),
     }
 }
 
 /// Process a Slack message event by bridging it to the Dravr chat system
-async fn handle_slack_message(
+fn handle_slack_message(
     resources: Arc<ServerResources>,
-    connection_id: &str,
-    team_id: &str,
-    msg: SlackMessageEvent,
+    connection: &MessagingConnectionRecord,
+    msg: &SlackMessageEvent,
 ) -> AppResult<()> {
     // Ignore bot messages to prevent infinite loops
     if msg.is_bot_message() {
@@ -172,7 +208,7 @@ async fn handle_slack_message(
         .as_deref()
         .ok_or_else(|| AppError::invalid_input("Slack message missing channel field"))?;
 
-    let sender_id = msg.user.as_deref().unwrap_or("unknown");
+    let sender_id = msg.user.as_deref().unwrap_or(UNKNOWN_SENDER);
     let timestamp = msg.timestamp.as_deref().unwrap_or("0");
 
     // Build a normalized incoming message
@@ -183,28 +219,23 @@ async fn handle_slack_message(
         text: text.to_owned(),
         message_id: timestamp.to_owned(),
         thread_id: msg.thread_ts.clone(),
-        team_id: team_id.to_owned(),
+        team_id: connection.team_id.clone(),
         timestamp: chrono::Utc::now(),
     };
 
     // Spawn the bridge processing as a background task so we respond to Slack quickly
     // (Slack requires a 200 response within 3 seconds)
-    let resources_clone = resources.clone();
-    let connection_id_owned = connection_id.to_owned();
-    // Retrieve credentials once for the spawned task
-    let conn = resources
-        .database
-        .get_messaging_connection_by_team("slack", team_id)
-        .await?
-        .ok_or_else(|| AppError::not_found(format!("Slack connection for team {team_id}")))?;
+    let connection_id = connection.id.clone();
+    let bot_token = connection.bot_token.clone();
+    let signing_secret = connection.signing_secret.clone();
 
     tokio::spawn(async move {
-        let bg_provider = SlackProvider::new(conn.bot_token, conn.signing_secret);
+        let bg_provider = SlackProvider::new(bot_token, signing_secret);
         if let Err(e) = messaging_bridge::process_incoming_message(
-            &resources_clone,
+            &resources,
             &bg_provider,
             &incoming,
-            &connection_id_owned,
+            &connection_id,
         )
         .await
         {
@@ -270,22 +301,34 @@ async fn list_connections(
     Ok(Json(response))
 }
 
-/// Create a new messaging connection
+/// Create a new messaging connection (admin only)
 async fn create_connection(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
     Json(request): Json<CreateConnectionRequest>,
 ) -> Result<Json<ConnectionResponse>, AppError> {
-    let (user_id, tenant_id) = authenticate(&headers, &resources).await?;
+    let (user_id, tenant_id) = authenticate_admin(&headers, &resources).await?;
+
+    let tenant_id_str = tenant_id.to_string();
+    let user_id_str = user_id.to_string();
+
+    // Reject unsupported providers
+    if !SUPPORTED_PROVIDERS.contains(&request.provider.as_str()) {
+        return Err(AppError::invalid_input(format!(
+            "Unsupported messaging provider '{}'. Supported: {}",
+            request.provider,
+            SUPPORTED_PROVIDERS.join(", ")
+        )));
+    }
 
     let params = CreateMessagingConnectionParams {
-        tenant_id: &tenant_id.to_string(),
+        tenant_id: &tenant_id_str,
         provider: &request.provider,
         team_id: &request.team_id,
         team_name: request.team_name.as_deref(),
         bot_token: &request.bot_token,
         signing_secret: &request.signing_secret,
-        created_by: &user_id.to_string(),
+        created_by: Some(&user_id_str),
     };
 
     let record = resources
@@ -309,13 +352,13 @@ async fn create_connection(
     }))
 }
 
-/// Delete a messaging connection
+/// Delete a messaging connection (admin only)
 async fn delete_connection(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let (_, tenant_id) = authenticate(&headers, &resources).await?;
+    let (_, tenant_id) = authenticate_admin(&headers, &resources).await?;
 
     let deleted = resources
         .database
@@ -384,13 +427,13 @@ async fn list_bindings(
     Ok(Json(response))
 }
 
-/// Create a new channel binding
+/// Create a new channel binding (admin only)
 async fn create_binding(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
     Json(request): Json<CreateBindingRequest>,
 ) -> Result<Json<BindingResponse>, AppError> {
-    let (user_id, tenant_id) = authenticate(&headers, &resources).await?;
+    let (user_id, tenant_id) = authenticate_admin(&headers, &resources).await?;
 
     // Verify the connection exists and belongs to this tenant
     resources
@@ -433,13 +476,13 @@ async fn create_binding(
     }))
 }
 
-/// Delete a channel binding
+/// Delete a channel binding (admin only)
 async fn delete_binding(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let (_, tenant_id) = authenticate(&headers, &resources).await?;
+    let (_, tenant_id) = authenticate_admin(&headers, &resources).await?;
 
     let deleted = resources
         .database

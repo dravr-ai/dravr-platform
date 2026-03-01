@@ -12,6 +12,7 @@ use pierre_core::models::messaging::{
     MessagingConnectionRecord,
 };
 use pierre_core::models::TenantId;
+use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -26,6 +27,11 @@ impl MessagingRepository for Database {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
+        let aad_context = messaging_aad_context(params.tenant_id, params.provider, params.team_id);
+        let encrypted_bot_token = self.encrypt_data_with_aad(params.bot_token, &aad_context)?;
+        let encrypted_signing_secret =
+            self.encrypt_data_with_aad(params.signing_secret, &aad_context)?;
+
         sqlx::query(
             r"
             INSERT INTO messaging_connections
@@ -38,14 +44,15 @@ impl MessagingRepository for Database {
         .bind(params.provider)
         .bind(params.team_id)
         .bind(params.team_name)
-        .bind(params.bot_token)
-        .bind(params.signing_secret)
+        .bind(&encrypted_bot_token)
+        .bind(&encrypted_signing_secret)
         .bind(params.created_by)
         .bind(&now)
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to create messaging connection: {e}")))?;
 
+        // Return decrypted values so callers work transparently
         Ok(MessagingConnectionRecord {
             id,
             tenant_id: params.tenant_id.to_owned(),
@@ -54,7 +61,7 @@ impl MessagingRepository for Database {
             team_name: params.team_name.map(ToOwned::to_owned),
             bot_token: params.bot_token.to_owned(),
             signing_secret: params.signing_secret.to_owned(),
-            created_by: params.created_by.to_owned(),
+            created_by: params.created_by.map(ToOwned::to_owned),
             created_at: now.clone(),
             updated_at: now,
         })
@@ -79,18 +86,7 @@ impl MessagingRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get messaging connection: {e}")))?;
 
-        Ok(row.map(|r| MessagingConnectionRecord {
-            id: r.get("id"),
-            tenant_id: r.get("tenant_id"),
-            provider: r.get("provider"),
-            team_id: r.get("team_id"),
-            team_name: r.get("team_name"),
-            bot_token: r.get("bot_token"),
-            signing_secret: r.get("signing_secret"),
-            created_by: r.get("created_by"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-        }))
+        row.map(|r| self.decrypt_messaging_row(&r)).transpose()
     }
 
     async fn get_messaging_connection_by_team(
@@ -114,18 +110,7 @@ impl MessagingRepository for Database {
             AppError::database(format!("Failed to get messaging connection by team: {e}"))
         })?;
 
-        Ok(row.map(|r| MessagingConnectionRecord {
-            id: r.get("id"),
-            tenant_id: r.get("tenant_id"),
-            provider: r.get("provider"),
-            team_id: r.get("team_id"),
-            team_name: r.get("team_name"),
-            bot_token: r.get("bot_token"),
-            signing_secret: r.get("signing_secret"),
-            created_by: r.get("created_by"),
-            created_at: r.get("created_at"),
-            updated_at: r.get("updated_at"),
-        }))
+        row.map(|r| self.decrypt_messaging_row(&r)).transpose()
     }
 
     async fn list_messaging_connections(
@@ -146,21 +131,9 @@ impl MessagingRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list messaging connections: {e}")))?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| MessagingConnectionRecord {
-                id: r.get("id"),
-                tenant_id: r.get("tenant_id"),
-                provider: r.get("provider"),
-                team_id: r.get("team_id"),
-                team_name: r.get("team_name"),
-                bot_token: r.get("bot_token"),
-                signing_secret: r.get("signing_secret"),
-                created_by: r.get("created_by"),
-                created_at: r.get("created_at"),
-                updated_at: r.get("updated_at"),
-            })
-            .collect())
+        rows.into_iter()
+            .map(|r| self.decrypt_messaging_row(&r))
+            .collect()
     }
 
     async fn delete_messaging_connection(&self, id: &str, tenant_id: TenantId) -> AppResult<bool> {
@@ -302,5 +275,41 @@ impl MessagingRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to delete channel binding: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+}
+
+/// Build the AAD context string for messaging credential encryption.
+/// Format: `{tenant_id}|{provider}|{team_id}|messaging_connections`
+fn messaging_aad_context(tenant_id: &str, provider: &str, team_id: &str) -> String {
+    format!("{tenant_id}|{provider}|{team_id}|messaging_connections")
+}
+
+impl Database {
+    /// Decrypt `bot_token` and `signing_secret` from a `messaging_connections` row
+    fn decrypt_messaging_row(&self, row: &SqliteRow) -> AppResult<MessagingConnectionRecord> {
+        let tenant_id: String = row.get("tenant_id");
+        let provider: String = row.get("provider");
+        let team_id: String = row.get("team_id");
+
+        let aad_context = messaging_aad_context(&tenant_id, &provider, &team_id);
+
+        let encrypted_bot_token: String = row.get("bot_token");
+        let bot_token = self.decrypt_data_with_aad(&encrypted_bot_token, &aad_context)?;
+
+        let encrypted_signing_secret: String = row.get("signing_secret");
+        let signing_secret = self.decrypt_data_with_aad(&encrypted_signing_secret, &aad_context)?;
+
+        Ok(MessagingConnectionRecord {
+            id: row.get("id"),
+            tenant_id,
+            provider,
+            team_id,
+            team_name: row.get("team_name"),
+            bot_token,
+            signing_secret,
+            created_by: row.get("created_by"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        })
     }
 }

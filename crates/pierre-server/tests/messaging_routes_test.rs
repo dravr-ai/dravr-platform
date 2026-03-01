@@ -28,7 +28,8 @@ use uuid::Uuid;
 // Test Helpers
 // ============================================================================
 
-/// Test environment with router, auth token, and access to server resources
+/// Test environment with router, auth token, and access to server resources.
+/// The default user is an admin so write operations (create/delete) succeed.
 struct TestEnv {
     router: Router,
     auth_token: String,
@@ -37,11 +38,37 @@ struct TestEnv {
 }
 
 /// Create a test router with messaging routes nested under `/api/messaging`
-/// and generate an auth token for a test user.
+/// and generate an auth token for an **admin** test user.
 async fn setup_test_environment() -> TestEnv {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
 
+    // Promote the test user to admin so write endpoints pass the admin guard
+    let pool = resources.database.sqlite_pool().unwrap();
+    sqlx::query("UPDATE users SET role = 'admin', is_admin = 1 WHERE id = $1")
+        .bind(user_id.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let token = generate_test_token(&resources, &user).await;
+
+    let router = Router::new().nest("/api/messaging", messaging_routes(Arc::clone(&resources)));
+
+    TestEnv {
+        router,
+        auth_token: format!("Bearer {token}"),
+        resources,
+        user_id,
+    }
+}
+
+/// Create a test environment with a **non-admin** (regular user) for negative auth tests.
+async fn setup_non_admin_test_environment() -> TestEnv {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, user) = create_test_user(&resources.database).await.unwrap();
+
+    // User::new defaults to UserRole::User, no promotion needed
     let token = generate_test_token(&resources, &user).await;
 
     let router = Router::new().nest("/api/messaging", messaging_routes(Arc::clone(&resources)));
@@ -158,6 +185,25 @@ async fn test_slack_webhook_unknown_team() {
     );
 }
 
+#[tokio::test]
+async fn test_slack_webhook_unsupported_type() {
+    let env = setup_test_environment().await;
+
+    let response = AxumTestRequest::post("/api/messaging/webhooks/slack")
+        .json(&json!({
+            "type": "app_rate_limited",
+            "team_id": "T123"
+        }))
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::BAD_REQUEST,
+        "Unsupported event type should return 400"
+    );
+}
+
 // ============================================================================
 // Connection CRUD Tests
 // ============================================================================
@@ -201,6 +247,28 @@ async fn test_create_connection() {
     assert!(
         body["created_at"].as_str().is_some(),
         "response should include created_at"
+    );
+}
+
+#[tokio::test]
+async fn test_create_connection_unsupported_provider() {
+    let env = setup_test_environment().await;
+
+    let response = AxumTestRequest::post("/api/messaging/connections")
+        .header("authorization", &env.auth_token)
+        .json(&json!({
+            "provider": "irc",
+            "team_id": "T_MY_TEAM",
+            "bot_token": "token",
+            "signing_secret": "secret"
+        }))
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::BAD_REQUEST,
+        "unsupported provider should return 400"
     );
 }
 
@@ -471,5 +539,116 @@ async fn test_bindings_require_auth() {
         response.status_code(),
         StatusCode::UNAUTHORIZED,
         "GET /bindings without auth should return 401"
+    );
+}
+
+// ============================================================================
+// Admin Role Enforcement Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_connection_requires_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::post("/api/messaging/connections")
+        .header("authorization", &env.auth_token)
+        .json(&json!({
+            "provider": "slack",
+            "team_id": "T_MY_TEAM",
+            "bot_token": "xoxb-token",
+            "signing_secret": "secret"
+        }))
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::FORBIDDEN,
+        "non-admin should be rejected with 403 on POST /connections"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_connection_requires_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::delete("/api/messaging/connections/some-connection-id")
+        .header("authorization", &env.auth_token)
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::FORBIDDEN,
+        "non-admin should be rejected with 403 on DELETE /connections/:id"
+    );
+}
+
+#[tokio::test]
+async fn test_create_binding_requires_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::post("/api/messaging/bindings")
+        .header("authorization", &env.auth_token)
+        .json(&json!({
+            "messaging_connection_id": "conn-id",
+            "channel_id": "C_TEST",
+            "conversation_id": "conv-123"
+        }))
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::FORBIDDEN,
+        "non-admin should be rejected with 403 on POST /bindings"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_binding_requires_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::delete("/api/messaging/bindings/some-binding-id")
+        .header("authorization", &env.auth_token)
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::FORBIDDEN,
+        "non-admin should be rejected with 403 on DELETE /bindings/:id"
+    );
+}
+
+#[tokio::test]
+async fn test_list_connections_allowed_for_non_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::get("/api/messaging/connections")
+        .header("authorization", &env.auth_token)
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::OK,
+        "non-admin should be able to list connections"
+    );
+}
+
+#[tokio::test]
+async fn test_list_bindings_allowed_for_non_admin() {
+    let env = setup_non_admin_test_environment().await;
+
+    let response = AxumTestRequest::get("/api/messaging/bindings")
+        .header("authorization", &env.auth_token)
+        .send(env.router)
+        .await;
+
+    assert_eq!(
+        response.status_code(),
+        StatusCode::OK,
+        "non-admin should be able to list bindings"
     );
 }

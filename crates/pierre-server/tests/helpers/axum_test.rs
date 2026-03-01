@@ -85,6 +85,22 @@ impl AxumTestRequest {
         self
     }
 
+    /// Set the request body to an exact string with the given content type
+    ///
+    /// Unlike `.json()` which re-serializes via `serde_json::to_string()` (potentially
+    /// reordering keys), this preserves the body verbatim. Essential for HMAC signature
+    /// verification where the signature is computed over exact body bytes.
+    /// Note: Used by `slack_messaging_e2e_test.rs`, but not all tests use it
+    #[allow(dead_code)]
+    pub fn raw_body(mut self, body: &str, content_type: &str) -> Self {
+        self.body = Some(body.to_owned());
+        self.headers.push((
+            header::CONTENT_TYPE.as_str().to_owned(),
+            content_type.to_owned(),
+        ));
+        self
+    }
+
     /// Add URL-encoded form body to the request (for `OAuth2` ROPC)
     /// Note: Used by `routes_auth_http_test.rs`, but not all tests use it
     #[allow(dead_code)]

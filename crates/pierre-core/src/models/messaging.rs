@@ -26,8 +26,8 @@ pub struct MessagingConnectionRecord {
     pub bot_token: String,
     /// Encrypted webhook signing secret for request verification
     pub signing_secret: String,
-    /// User ID who created this connection
-    pub created_by: String,
+    /// User ID who created this connection (nullable — survives user deletion)
+    pub created_by: Option<String>,
     /// When this connection was created (ISO 8601)
     pub created_at: String,
     /// When this connection was last updated (ISO 8601)
@@ -77,8 +77,8 @@ pub struct CreateMessagingConnectionParams<'a> {
     pub bot_token: &'a str,
     /// Encrypted signing secret
     pub signing_secret: &'a str,
-    /// User ID who is creating this connection
-    pub created_by: &'a str,
+    /// User ID who is creating this connection (optional for system-created connections)
+    pub created_by: Option<&'a str>,
 }
 
 /// Parameters for creating a new channel binding

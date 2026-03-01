@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS messaging_connections (
     team_name TEXT,                     -- human-readable workspace name
     bot_token TEXT NOT NULL,            -- encrypted bot token for API calls
     signing_secret TEXT NOT NULL,       -- encrypted webhook signing secret
-    created_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(tenant_id, provider, team_id)
