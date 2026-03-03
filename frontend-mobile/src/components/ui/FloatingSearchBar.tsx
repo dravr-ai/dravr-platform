@@ -19,6 +19,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
+import { TAB_BAR_BOTTOM_OFFSET } from './ExpandableTabBar';
 
 // Transparent container — only the inner pill is visible
 const containerStyle: ViewStyle = {
@@ -96,7 +97,7 @@ export function FloatingSearchBar({
         containerStyle,
         {
           position: 'absolute',
-          bottom: 0,
+          bottom: TAB_BAR_BOTTOM_OFFSET,
           left: 0,
           right: 0,
           paddingBottom: keyboardHeight > 0 ? spacing.sm : spacing.sm,

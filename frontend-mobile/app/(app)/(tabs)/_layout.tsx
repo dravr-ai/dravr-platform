@@ -2,15 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tab layout with 5 tabs (Chat, Coaches, Discover, Insights, Settings)
-// ABOUTME: Uses Expo Router Tabs with custom styling matching Pierre design system
+// ABOUTME: Uses floating expandable glass tab bar with glassmorphism effect
 
 import React from 'react';
 import { View } from 'react-native';
 import { Tabs } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
-import { colors } from '../../../src/constants/theme';
 import { ServerStatusBanner } from '../../../src/components/ServerStatusBanner';
 import { useServerStatus } from '../../../src/hooks/useServerStatus';
+import { ExpandableTabBar } from '../../../src/components/ui/ExpandableTabBar';
 
 export default function TabsLayout() {
   const { isServerReachable, isChecking, checkNow } = useServerStatus();
@@ -21,69 +20,31 @@ export default function TabsLayout() {
         <ServerStatusBanner onRetry={checkNow} isChecking={isChecking} />
       )}
       <Tabs
+        tabBar={(props) => <ExpandableTabBar {...props} />}
         screenOptions={{
           headerShown: false,
-          tabBarActiveTintColor: colors.pierre.violet,
-          tabBarInactiveTintColor: colors.text.tertiary,
-          tabBarStyle: {
-            backgroundColor: colors.background.secondary,
-            borderTopColor: colors.border.subtle,
-          },
-          tabBarLabelStyle: {
-            fontSize: 10,
-            fontWeight: '500',
-          },
+          tabBarStyle: { display: 'none' },
         }}
       >
         <Tabs.Screen
           name="(chat)"
-          options={{
-            title: 'Chat',
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="message-circle" size={size} color={color} />
-            ),
-
-          }}
+          options={{ title: 'Chat' }}
         />
         <Tabs.Screen
           name="(coaches)"
-          options={{
-            title: 'Coaches',
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="award" size={size} color={color} />
-            ),
-
-          }}
+          options={{ title: 'Coaches' }}
         />
         <Tabs.Screen
           name="(discover)"
-          options={{
-            title: 'Discover',
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="compass" size={size} color={color} />
-            ),
-
-          }}
+          options={{ title: 'Discover' }}
         />
         <Tabs.Screen
           name="(social)"
-          options={{
-            title: 'Insights',
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="zap" size={size} color={color} />
-            ),
-
-          }}
+          options={{ title: 'Insights' }}
         />
         <Tabs.Screen
           name="(settings)"
-          options={{
-            title: 'Settings',
-            tabBarIcon: ({ color, size }) => (
-              <Feather name="settings" size={size} color={color} />
-            ),
-
-          }}
+          options={{ title: 'Settings' }}
         />
       </Tabs>
     </View>

@@ -20,7 +20,7 @@ import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constan
 import { socialApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { InsightCard } from '../../components/social/InsightCard';
-import { SwipeableRow, type SwipeAction } from '../../components/ui';
+import { SwipeableRow, type SwipeAction, FloatingSearchBar } from '../../components/ui';
 import type { FeedItem, ReactionType, InsightSuggestion } from '../../types';
 export function SocialFeedScreen() {
   const router = useRouter();
@@ -35,6 +35,7 @@ export function SocialFeedScreen() {
   const [reactingIds, setReactingIds] = useState<Set<string>>(new Set());
   const [adaptingIds, setAdaptingIds] = useState<Set<string>>(new Set());
   const [showSuggestionsBanner, setShowSuggestionsBanner] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Load suggestions for the banner
   const loadSuggestions = useCallback(async () => {
@@ -186,6 +187,15 @@ export function SocialFeedScreen() {
       });
     }
   };
+
+  const filteredFeedItems = searchQuery.trim()
+    ? feedItems.filter((item) => {
+        const query = searchQuery.toLowerCase();
+        const contentMatch = item.insight.content.toLowerCase().includes(query);
+        const authorMatch = item.author.display_name?.toLowerCase().includes(query) ?? false;
+        return contentMatch || authorMatch;
+      })
+    : feedItems;
 
   const renderFeedItem = ({ item }: { item: FeedItem }) => {
     const leftActions: SwipeAction[] = [
@@ -340,21 +350,13 @@ export function SocialFeedScreen() {
     <SafeAreaView className="flex-1 bg-background-primary" testID="social-feed-screen">
       {/* Header */}
       <View className="flex-row items-center px-4 py-4 border-b border-border-subtle">
-        <View className="w-10" />
         <Text className="flex-1 text-xl font-bold text-text-primary text-center">Feed</Text>
-        <TouchableOpacity
-          className="p-2"
-          onPress={() => router.push('/(app)/(tabs)/(social)/share-insight')}
-          testID="share-insight-button"
-        >
-          <Feather name="plus-circle" size={24} color={colors.pierre.violet} />
-        </TouchableOpacity>
       </View>
 
       {/* Feed List - Using FlashList for improved performance with large feeds */}
       <FlashList
         testID="feed-list"
-        data={feedItems}
+        data={filteredFeedItems}
         keyExtractor={item => item.insight.id}
         renderItem={renderFeedItem}
 
@@ -371,6 +373,13 @@ export function SocialFeedScreen() {
             tintColor={colors.pierre.violet}
           />
         }
+      />
+
+      <FloatingSearchBar
+        value={searchQuery}
+        onChangeText={setSearchQuery}
+        placeholder="Search feed..."
+        testID="feed-search-input"
       />
     </SafeAreaView>
   );

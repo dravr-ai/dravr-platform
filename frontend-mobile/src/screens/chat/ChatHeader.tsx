@@ -29,7 +29,6 @@ interface ChatHeaderProps {
   insetTop: number;
   onHistoryPress: () => void;
   onTitlePress: () => void;
-  onNewChatPress: () => void;
   onMenuClose: () => void;
   onMenuRename: () => void;
   onMenuDelete: () => void;
@@ -41,7 +40,6 @@ export function ChatHeader({
   insetTop,
   onHistoryPress,
   onTitlePress,
-  onNewChatPress,
   onMenuClose,
   onMenuRename,
   onMenuDelete,
@@ -92,13 +90,6 @@ export function ChatHeader({
           {currentConversation && (
             <Text className="text-[10px] ml-1 text-text-tertiary">▼</Text>
           )}
-        </TouchableOpacity>
-        <TouchableOpacity
-          className="w-10 h-10 items-center justify-center bg-background-tertiary rounded-lg"
-          onPress={onNewChatPress}
-          testID="new-chat-button"
-        >
-          <Text className="text-2xl text-text-primary font-light">+</Text>
         </TouchableOpacity>
       </View>
 
