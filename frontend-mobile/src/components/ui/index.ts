@@ -13,3 +13,6 @@ export type { SwipeAction } from './SwipeableRow';
 
 export { DragIndicator } from './DragIndicator';
 export { CollapsibleSection } from './CollapsibleSection';
+export { GlassContainer } from './GlassContainer';
+export { TabMenuItem } from './TabMenuItem';
+export { ExpandableTabBar, TAB_BAR_BOTTOM_OFFSET } from './ExpandableTabBar';

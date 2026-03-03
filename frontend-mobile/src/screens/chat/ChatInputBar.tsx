@@ -8,7 +8,7 @@ import React from 'react';
 import { View, TextInput, TouchableOpacity, ActivityIndicator, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
-import { VoiceButton } from '../../components/ui';
+import { VoiceButton, TAB_BAR_BOTTOM_OFFSET } from '../../components/ui';
 
 interface ChatInputBarProps {
   inputText: string;
@@ -43,7 +43,7 @@ export function ChatInputBar({
     <View
       style={{
         position: 'absolute',
-        bottom: 0,
+        bottom: TAB_BAR_BOTTOM_OFFSET,
         left: 0,
         right: 0,
         paddingHorizontal: spacing.md,

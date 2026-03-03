@@ -376,11 +376,6 @@ export function ChatScreen() {
     setRenameDefaultTitle('');
   }, []);
 
-  const handleNewChat = useCallback(() => {
-    conversations.handleNewChat();
-    messagesHook.clearMessages();
-  }, [conversations, messagesHook]);
-
   const isCoachConversation = Boolean(conversations.currentConversation?.system_prompt);
 
   return (
@@ -396,7 +391,6 @@ export function ChatScreen() {
           insetTop={insets.top}
           onHistoryPress={() => router.push('/(app)/(tabs)/(chat)/conversations')}
           onTitlePress={showTitleActionMenu}
-          onNewChatPress={handleNewChat}
           onMenuClose={() => setActionMenuVisible(false)}
           onMenuRename={handleMenuRename}
           onMenuDelete={handleMenuDelete}
