@@ -14,7 +14,7 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useRouter, useSegments } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import {
   MessageCircle,
@@ -33,6 +33,8 @@ import { TabMenuItem } from './TabMenuItem';
 
 const TAB_ICONS: LucideIcon[] = [MessageCircle, Award, Compass, Zap, Settings];
 const TAB_LABELS = ['Chat', 'Coaches', 'Discover', 'Insights', 'Settings'];
+const TAB_ROUTES = ['(chat)', '(coaches)', '(discover)', '(social)', '(settings)'] as const;
+const TAB_COUNT = TAB_ROUTES.length;
 
 const ICON_SIZE = 22;
 const COLLAPSED_HEIGHT = 56;
@@ -50,8 +52,10 @@ interface QuickAction {
   onPress: () => void;
 }
 
-export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+export function ExpandableTabBar() {
   const insets = useSafeAreaInsets();
+  const segments = useSegments();
+  const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const expandHeight = useSharedValue(COLLAPSED_HEIGHT);
@@ -60,11 +64,17 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
   const tabBarScale = useSharedValue(1);
   const activeIndicatorX = useSharedValue(0);
 
+  // useSegments() returns route segments including group names like '(coaches)'
+  const activeIndex = useMemo(() => {
+    const idx = TAB_ROUTES.findIndex((route) => segments.includes(route));
+    return Math.max(0, idx);
+  }, [segments]);
+
   const tabWidth = useMemo(() => {
     const totalPadding = 32;
     const pillWidth = 300;
-    return (pillWidth - totalPadding) / state.routes.length;
-  }, [state.routes.length]);
+    return (pillWidth - totalPadding) / TAB_COUNT;
+  }, []);
 
   // Compute indicator position from active index
   const updateIndicatorPosition = useCallback(
@@ -77,9 +87,22 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
 
   // Set initial indicator position
   React.useEffect(() => {
-    const targetX = 16 + state.index * tabWidth + tabWidth / 2 - 10;
+    const targetX = 16 + activeIndex * tabWidth + tabWidth / 2 - 10;
     activeIndicatorX.value = targetX;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update indicator when active tab changes
+  React.useEffect(() => {
+    updateIndicatorPosition(activeIndex);
+  }, [activeIndex, updateIndicatorPosition]);
+
+  const collapseIfExpanded = useCallback(() => {
+    if (!isExpanded) return;
+    setIsExpanded(false);
+    expandHeight.value = withTiming(COLLAPSED_HEIGHT, { duration: 150 });
+    expandOpacity.value = withTiming(0, { duration: 100 });
+    plusRotation.value = withTiming(0, { duration: 200 });
+  }, [isExpanded, expandHeight, expandOpacity, plusRotation]);
 
   const toggleExpand = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -104,41 +127,18 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
   }, [isExpanded, expandHeight, expandOpacity, plusRotation, tabBarScale]);
 
   const handleTabPress = useCallback(
-    (routeKey: string, routeName: string, index: number) => {
-      const event = navigation.emit({
-        type: 'tabPress',
-        target: routeKey,
-        canPreventDefault: true,
-      });
-
-      if (!event.defaultPrevented) {
-        const isFocused = state.index === index;
-        if (!isFocused) {
-          navigation.navigate(routeName);
-        } else if (routeName === '(chat)') {
-          // Re-tap ChatTab resets to coach selection
-          navigation.navigate(routeName, { conversationId: undefined });
-        }
+    (index: number) => {
+      if (activeIndex !== index) {
+        router.navigate(`/(app)/(tabs)/${TAB_ROUTES[index]}`);
+      } else if (TAB_ROUTES[index] === '(chat)') {
+        // Re-tap ChatTab resets to coach selection
+        router.navigate({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: undefined } });
       }
 
       updateIndicatorPosition(index);
-
-      if (isExpanded) {
-        setIsExpanded(false);
-        expandHeight.value = withTiming(COLLAPSED_HEIGHT, { duration: 150 });
-        expandOpacity.value = withTiming(0, { duration: 100 });
-        plusRotation.value = withTiming(0, { duration: 200 });
-      }
+      collapseIfExpanded();
     },
-    [
-      state.index,
-      navigation,
-      isExpanded,
-      updateIndicatorPosition,
-      expandHeight,
-      expandOpacity,
-      plusRotation,
-    ],
+    [activeIndex, router, updateIndicatorPosition, collapseIfExpanded],
   );
 
   const quickActions: QuickAction[] = useMemo(
@@ -147,7 +147,7 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
         icon: MessageSquarePlus,
         label: 'New Chat',
         onPress: () => {
-          navigation.navigate('(chat)', { conversationId: undefined });
+          router.navigate({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: undefined } });
           updateIndicatorPosition(0);
         },
       },
@@ -155,23 +155,20 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
         icon: UserPlus,
         label: 'New Coach',
         onPress: () => {
-          navigation.navigate('(coaches)', { screen: 'editor' });
+          router.navigate('/(app)/(tabs)/(coaches)/editor');
           updateIndicatorPosition(1);
         },
       },
     ],
-    [navigation, updateIndicatorPosition],
+    [router, updateIndicatorPosition],
   );
 
   const handleQuickAction = useCallback(
     (action: QuickAction) => {
       action.onPress();
-      setIsExpanded(false);
-      expandHeight.value = withTiming(COLLAPSED_HEIGHT, { duration: 150 });
-      expandOpacity.value = withTiming(0, { duration: 100 });
-      plusRotation.value = withTiming(0, { duration: 200 });
+      collapseIfExpanded();
     },
-    [expandHeight, expandOpacity, plusRotation],
+    [collapseIfExpanded],
   );
 
   // Animated styles
@@ -224,15 +221,15 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
           <View style={{ flex: 1, justifyContent: 'space-between' }}>
             {/* Expanded menu items */}
             <Animated.View style={[{ paddingTop: 12, paddingHorizontal: 8 }, expandedContentStyle]}>
-              {state.routes.map((route, index) => (
+              {TAB_ROUTES.map((route, index) => (
                 <TabMenuItem
-                  key={route.key}
+                  key={route}
                   icon={TAB_ICONS[index]}
                   label={TAB_LABELS[index]}
-                  isActive={state.index === index}
+                  isActive={activeIndex === index}
                   delay={index * 80}
-                  onPress={() => handleTabPress(route.key, route.name, index)}
-                  testID={`tab-menu-item-${route.name}`}
+                  onPress={() => handleTabPress(index)}
+                  testID={`tab-menu-item-${route}`}
                 />
               ))}
 
@@ -254,7 +251,7 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
                   label={action.label}
                   isActive={false}
                   isQuickAction
-                  delay={(state.routes.length + index) * 80}
+                  delay={(TAB_COUNT + index) * 80}
                   onPress={() => handleQuickAction(action)}
                   testID={`quick-action-${action.label.toLowerCase().replace(' ', '-')}`}
                 />
@@ -274,28 +271,25 @@ export function ExpandableTabBar({ state, descriptors, navigation }: BottomTabBa
                 collapsedIconsStyle,
               ]}
             >
-              {state.routes.map((route, index) => {
-                const isFocused = state.index === index;
+              {TAB_ROUTES.map((route, index) => {
+                const isFocused = activeIndex === index;
                 const IconComponent = TAB_ICONS[index];
                 const iconColor = isFocused ? colors.pierre.violet : colors.text.tertiary;
 
                 return (
                   <Pressable
-                    key={route.key}
+                    key={route}
                     accessibilityRole="button"
                     accessibilityState={isFocused ? { selected: true } : {}}
-                    accessibilityLabel={descriptors[route.key].options.title ?? route.name}
-                    onPress={() => handleTabPress(route.key, route.name, index)}
-                    onLongPress={() => {
-                      navigation.emit({ type: 'tabLongPress', target: route.key });
-                    }}
+                    accessibilityLabel={TAB_LABELS[index]}
+                    onPress={() => handleTabPress(index)}
                     style={{
                       flex: 1,
                       alignItems: 'center',
                       justifyContent: 'center',
                       height: COLLAPSED_HEIGHT,
                     }}
-                    testID={`tab-icon-${route.name}`}
+                    testID={`tab-icon-${route}`}
                   >
                     <IconComponent size={ICON_SIZE} color={iconColor} />
                   </Pressable>

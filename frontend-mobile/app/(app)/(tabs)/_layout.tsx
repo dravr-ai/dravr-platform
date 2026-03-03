@@ -20,32 +20,14 @@ export default function TabsLayout() {
         <ServerStatusBanner onRetry={checkNow} isChecking={isChecking} />
       )}
       <Tabs
-        tabBar={(props) => <ExpandableTabBar {...props} />}
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: { display: 'none' },
-        }}
+        tabBar={() => <ExpandableTabBar />}
+        screenOptions={{ headerShown: false, tabBarStyle: { display: 'none' } }}
       >
-        <Tabs.Screen
-          name="(chat)"
-          options={{ title: 'Chat' }}
-        />
-        <Tabs.Screen
-          name="(coaches)"
-          options={{ title: 'Coaches' }}
-        />
-        <Tabs.Screen
-          name="(discover)"
-          options={{ title: 'Discover' }}
-        />
-        <Tabs.Screen
-          name="(social)"
-          options={{ title: 'Insights' }}
-        />
-        <Tabs.Screen
-          name="(settings)"
-          options={{ title: 'Settings' }}
-        />
+        <Tabs.Screen name="(chat)" options={{ title: 'Chat' }} />
+        <Tabs.Screen name="(coaches)" options={{ title: 'Coaches' }} />
+        <Tabs.Screen name="(discover)" options={{ title: 'Discover' }} />
+        <Tabs.Screen name="(social)" options={{ title: 'Insights' }} />
+        <Tabs.Screen name="(settings)" options={{ title: 'Settings' }} />
       </Tabs>
     </View>
   );
