@@ -34,6 +34,7 @@ import { TabMenuItem } from './TabMenuItem';
 const TAB_ICONS: LucideIcon[] = [MessageCircle, Award, Compass, Zap, Settings];
 const TAB_LABELS = ['Chat', 'Coaches', 'Discover', 'Insights', 'Settings'];
 const TAB_ROUTES = ['(chat)', '(coaches)', '(discover)', '(social)', '(settings)'] as const;
+const TAB_TEST_IDS = ['tab-chat', 'tab-coaches', 'tab-discover', 'tab-insights', 'tab-settings'];
 const TAB_COUNT = TAB_ROUTES.length;
 
 const ICON_SIZE = 22;
@@ -289,7 +290,7 @@ export function ExpandableTabBar() {
                       justifyContent: 'center',
                       height: COLLAPSED_HEIGHT,
                     }}
-                    testID={`tab-icon-${route}`}
+                    testID={TAB_TEST_IDS[index]}
                   >
                     <IconComponent size={ICON_SIZE} color={iconColor} />
                   </Pressable>
