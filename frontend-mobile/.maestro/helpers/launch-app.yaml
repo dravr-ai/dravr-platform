@@ -1,40 +1,84 @@
 # ABOUTME: Helper flow to launch the Pierre app fresh for Expo Go E2E testing
 # ABOUTME: Uses clearKeychain (not clearState) to preserve dev menu dismiss flag across tests
 
-appId: com.pierre.fitness
+appId: host.exp.Exponent
 
 ---
-# Stop app process, clear keychain (auth tokens in SecureStore), then open via deep link.
+# Stop app process, clear keychain (auth tokens in SecureStore), then relaunch.
 # clearKeychain preserves UserDefaults (including EXDevMenuIsOnboardingFinished flag),
 # while clearing JWT tokens from SecureStore so the app shows the login screen.
 # clearState would wipe UserDefaults, causing Expo Go's dev menu overlay to reappear.
 - stopApp
 - clearKeychain
+
+# Launch Expo Go first (opens to its home screen), THEN open the deep link.
+# When Expo Go is already running, the URL forwards directly to the app
+# without showing the iOS "Open in Expo Go?" confirmation dialog.
+- launchApp
 - openLink: "exp://127.0.0.1:8082"
 
-# Dismiss Expo Go developer menu overlay if present.
+# Coordinate taps to dismiss Expo Go developer menu overlay if present.
 # The overlay is a native view that blocks the React Native accessibility tree.
-# If we waited for login-screen first, the overlay would block it and we'd timeout.
-# The "Continue" button is at ~92% screen height (confirmed via CI screenshot analysis).
-# Tapping at 50%,10% dismisses the full developer menu if it opens after the overlay.
+# The "Continue" button is at ~92% screen height; tapping at 50%,10% dismisses
+# the full developer menu if it opens after the overlay.
 - tapOn:
     point: "50%,92%"
 - tapOn:
     point: "50%,10%"
 
+# Wait for Expo Go to load the project. The "Pierre" text appears in the
+# project info sheet once the JS bundle is loaded.
+- extendedWaitUntil:
+    visible: "Pierre"
+    timeout: 120000
+
+# Expo Go v55 shows a project info sheet ("Pierre", "Close", "Reload", "Go Home")
+# after loading via deep link. This sheet overlays the RN accessibility tree.
+# The `runFlow: when: visible:` check runs ONCE instantly (no polling/timeout),
+# so we retry with delays to catch sheets that appear late.
+
+# Dismiss attempt 1: immediate check
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+
+# 3-second delay via micro-swipe (Maestro has no native sleep command).
+- swipe:
+    start: "50%,30%"
+    end: "50%,32%"
+    duration: 3000
+
+# Dismiss attempt 2: catches sheet that appeared during the 3s delay
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+
+# 2-second delay
+- swipe:
+    start: "50%,30%"
+    end: "50%,28%"
+    duration: 2000
+
+# Dismiss attempt 3: final safety check
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+
 # Wait for React Native to load and render login screen.
-# Timeout accounts for JS bundle compilation on cold start (can take 60s+ in CI).
+# 120s timeout accounts for JS bundle compilation on cold start in CI.
 - extendedWaitUntil:
     visible:
       id: "login-screen"
     timeout: 120000
 
-# Second overlay dismiss: needed because the overlay can reappear after
-# login-screen loads (race condition with Expo Go startup).
-- tapOn:
-    point: "50%,92%"
-- tapOn:
-    point: "50%,10%"
+# One more dismiss after login-screen loads (race condition with Expo Go startup).
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
 
 # Confirm the login form is interactable (overlay is fully dismissed).
 # 30s timeout to handle slow CI environments.

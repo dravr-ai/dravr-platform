@@ -347,6 +347,13 @@ jobs:
           xcrun simctl boot "$SIMULATOR_UDID" || echo "Simulator may already be booted"
           echo "SIMULATOR_UDID=$SIMULATOR_UDID" >> $GITHUB_ENV
 
+          # Disable password AutoFill prompts. iOS shows a "Save Password?" dialog
+          # after login form submission with secureTextEntry fields. This native dialog
+          # blocks the entire RN accessibility tree, causing Maestro to fail on
+          # any post-login element assertions.
+          xcrun simctl spawn "$SIMULATOR_UDID" defaults write -globalDomain AutoFillPasswords -bool false 2>/dev/null || true
+          xcrun simctl spawn "$SIMULATOR_UDID" defaults write com.apple.WebUI AutoFillPasswords -bool false 2>/dev/null || true
+
           # EXDevMenuIsOnboardingFinished must be set in the app's sandboxed container
           # (not NSGlobalDomain). We use PlistBuddy to write directly to the container's
           # preferences plist after Expo Go is installed. Combined with clearKeychain
@@ -355,12 +362,14 @@ jobs:
       - name: Adapt Maestro tests for Expo Go
         run: |
           # Replace native app ID with Expo Go app ID in all Maestro YAML files.
-          # The checked-in files use com.pierre.fitness (native bundle ID); Expo Go
-          # uses host.exp.Exponent. launch-app.yaml already has the correct flow
-          # (clearKeychain, openLink, dev menu dismiss) — only appId needs replacing.
+          # The checked-in helpers (launch-app, login, dismiss-*) already use
+          # host.exp.Exponent natively; this sed catches remaining test files and
+          # other helpers that still use the native bundle ID com.pierre.fitness.
           find frontend-mobile/.maestro -name "*.yaml" -exec sed -i '' 's/appId: com.pierre.fitness/appId: host.exp.Exponent/g' {} +
-          echo "=== launch-app.yaml (after appId replacement) ==="
+          echo "=== launch-app.yaml ==="
           cat frontend-mobile/.maestro/helpers/launch-app.yaml
+          echo "=== login.yaml ==="
+          cat frontend-mobile/.maestro/helpers/login.yaml
 
       - name: Strip Expo owner for CI
         working-directory: frontend-mobile
@@ -768,26 +777,59 @@ jobs:
 
       - name: Adapt Maestro tests for Expo Go
         run: |
-          # Replace native app ID with Android Expo Go package name (lowercase)
+          # Replace app IDs with Android Expo Go package name (lowercase).
+          # Two patterns: native bundle ID and iOS Expo Go ID (from checked-in helpers).
           find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: com.pierre.fitness/appId: host.exp.exponent/g' {} +
-          # Override launch helper for Expo Go.
-          # Same strategy as iOS: coordinate tap at 90% to dismiss developer menu overlay.
+          find frontend-mobile/.maestro -name "*.yaml" -exec sed -i 's/appId: host.exp.Exponent/appId: host.exp.exponent/g' {} +
+
+          # Override launch helper for Android Expo Go.
+          # Uses clearState (not clearKeychain) — Android has no UserDefaults issue.
+          # Uses 10.0.2.2 (Android emulator alias for host localhost).
           cat > frontend-mobile/.maestro/helpers/launch-app.yaml << 'LAUNCH_EOF'
           appId: host.exp.exponent
           ---
           - stopApp
           - clearState
+          - launchApp
           - openLink: "exp://10.0.2.2:8082"
-          # Dismiss Expo Go developer menu overlay before waiting for login-screen.
-          # Tap "Continue" at ~90% height, then dismiss full menu at 10%.
+          # Dismiss Expo Go developer menu overlay. Coordinate taps at 90% and 10%.
           - tapOn:
               point: "50%,90%"
           - tapOn:
               point: "50%,10%"
+          # Wait for project to load
+          - extendedWaitUntil:
+              visible: "Pierre"
+              timeout: 120000
+          # Multi-attempt dev panel dismiss (same strategy as iOS).
+          - runFlow:
+              when:
+                visible: "Close"
+              file: dismiss-dev-panel.yaml
+          - swipe:
+              start: "50%,30%"
+              end: "50%,32%"
+              duration: 3000
+          - runFlow:
+              when:
+                visible: "Close"
+              file: dismiss-dev-panel.yaml
+          - swipe:
+              start: "50%,30%"
+              end: "50%,28%"
+              duration: 2000
+          - runFlow:
+              when:
+                visible: "Close"
+              file: dismiss-dev-panel.yaml
           - extendedWaitUntil:
               visible:
                 id: "login-screen"
               timeout: 120000
+          - runFlow:
+              when:
+                visible: "Close"
+              file: dismiss-dev-panel.yaml
           - extendedWaitUntil:
               visible:
                 id: "email-input"
@@ -795,6 +837,44 @@ jobs:
           LAUNCH_EOF
           echo "=== Generated launch-app.yaml ==="
           cat frontend-mobile/.maestro/helpers/launch-app.yaml
+
+          # Override login helper to fix keyboard dismissal for Android.
+          # hideKeyboard fails in Expo Go v55; use coordinate tap instead.
+          cat > frontend-mobile/.maestro/helpers/login.yaml << 'LOGIN_EOF'
+          appId: host.exp.exponent
+          ---
+          - runFlow:
+              when:
+                visible: "Close"
+              file: dismiss-dev-panel.yaml
+          - extendedWaitUntil:
+              visible:
+                id: "login-screen"
+              timeout: 10000
+          - tapOn:
+              id: "email-input"
+          - inputText: "mobiletest@pierre.dev"
+          - tapOn:
+              point: "50%,20%"
+          - tapOn:
+              id: "password-input"
+          - inputText: "MobileTest1234"
+          - tapOn:
+              point: "50%,20%"
+          - tapOn:
+              id: "login-button"
+          - extendedWaitUntil:
+              notVisible:
+                id: "login-screen"
+              timeout: 45000
+          - takeScreenshot: "after-login-navigation"
+          - extendedWaitUntil:
+              visible:
+                id: "chat-screen"
+              timeout: 60000
+          LOGIN_EOF
+          echo "=== Generated login.yaml ==="
+          cat frontend-mobile/.maestro/helpers/login.yaml
 
       - name: Create Android E2E test script
         run: |

@@ -15,13 +15,18 @@ appId: com.pierre.fitness
     id: "email-input"
 - inputText: "mobiletest@pierre.dev"
 
+# Dismiss keyboard by tapping header area. hideKeyboard fails in Expo Go v55.
+# Needed on Android where keyboard covers the password field.
+- tapOn:
+    point: "50%,20%"
+
 - tapOn:
     id: "password-input"
 - inputText: "MobileTest1234"
 
-# Dismiss keyboard before tapping the button to ensure it's fully visible.
-# pressKey: Enter was unreliable in CI - directly tapping the button is more robust.
-- hideKeyboard
+# Dismiss keyboard before tapping login button to ensure it's fully visible.
+- tapOn:
+    point: "50%,20%"
 
 # Tap the Sign In button (testID="login-button" on Button component).
 - tapOn:
@@ -37,9 +42,15 @@ appId: com.pierre.fitness
 # Capture screenshot for debugging what appears after login
 - takeScreenshot: "test06-after-login"
 
+# Dismiss iOS "Save Password?" native dialog if present.
+- runFlow:
+    when:
+      visible: "Save Password?"
+    file: ../helpers/dismiss-save-password.yaml
+
 # Verify we're on the chat screen.
-# 30s timeout for React Navigation transition and ChatScreen mount.
+# 60s timeout for Expo Router transition and ChatScreen mount.
 - extendedWaitUntil:
     visible:
       id: "chat-screen"
-    timeout: 30000
+    timeout: 60000

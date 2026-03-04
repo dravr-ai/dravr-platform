@@ -1,9 +1,15 @@
 # ABOUTME: Helper flow to perform login with test credentials
 # ABOUTME: Logs in using mobiletest@pierre.dev / MobileTest1234 and waits for chat screen
 
-appId: com.pierre.fitness
+appId: host.exp.Exponent
 
 ---
+# Dismiss Expo Go project info sheet if it appeared late (after launch-app.yaml).
+- runFlow:
+    when:
+      visible: "Close"
+    file: dismiss-dev-panel.yaml
+
 # Wait for login screen to be visible
 - extendedWaitUntil:
     visible:
@@ -16,13 +22,20 @@ appId: com.pierre.fitness
     id: "email-input"
 - inputText: "mobiletest@pierre.dev"
 
+# Dismiss keyboard by tapping the logo/header area above the form.
+# `hideKeyboard` command fails in Expo Go v55. Tapping a non-interactive
+# area at 50%,20% blurs the text field and dismisses the keyboard.
+# This is needed on Android where the keyboard covers the password field.
+- tapOn:
+    point: "50%,20%"
+
 - tapOn:
     id: "password-input"
 - inputText: "MobileTest1234"
 
-# Dismiss keyboard before tapping the button to ensure it's fully visible.
-# pressKey: Enter was unreliable in CI - directly tapping the button is more robust.
-- hideKeyboard
+# Dismiss keyboard before tapping login button to ensure it's fully visible.
+- tapOn:
+    point: "50%,20%"
 
 # Tap the Sign In button (testID="login-button" on Button component).
 - tapOn:
@@ -38,9 +51,17 @@ appId: com.pierre.fitness
 # Capture screenshot for debugging what appears after login
 - takeScreenshot: "after-login-navigation"
 
+# Dismiss iOS "Save Password?" native dialog if present.
+# iOS shows this dialog after form submission with secureTextEntry fields.
+# The dialog blocks the entire RN accessibility tree until dismissed.
+- runFlow:
+    when:
+      visible: "Save Password?"
+    file: dismiss-save-password.yaml
+
 # Wait for chat screen to appear after navigation transition.
 # 60s timeout provides ample margin for slow CI environments where
-# React Navigation tree swap and ChatScreen mount may take time.
+# Expo Router tree swap and ChatScreen mount may take time.
 - extendedWaitUntil:
     visible:
       id: "chat-screen"
