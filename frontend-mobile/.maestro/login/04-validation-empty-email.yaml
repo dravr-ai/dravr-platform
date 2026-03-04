@@ -17,8 +17,9 @@ appId: com.pierre.fitness
     id: "password-input"
 - eraseText
 
-# Hide keyboard so login button is visible, then tap it
-- hideKeyboard
+# Dismiss keyboard so login button is visible. hideKeyboard fails in Expo Go v55.
+- tapOn:
+    point: "50%,20%"
 - tapOn:
     id: "login-button"
 

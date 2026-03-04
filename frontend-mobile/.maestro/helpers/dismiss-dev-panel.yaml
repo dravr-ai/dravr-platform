@@ -1,0 +1,7 @@
+# ABOUTME: Helper to dismiss Expo Go v55 project info sheet
+# ABOUTME: Taps the Close button that overlays the React Native accessibility tree
+
+appId: host.exp.Exponent
+
+---
+- tapOn: "Close"
