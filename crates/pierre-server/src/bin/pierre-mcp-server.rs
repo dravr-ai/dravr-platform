@@ -287,7 +287,12 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
         | LlmProviderType::Copilot
         | LlmProviderType::CursorAgent
         | LlmProviderType::OpenCode
-        | LlmProviderType::CopilotSdk => {
+        | LlmProviderType::CopilotSdk
+        | LlmProviderType::GeminiCli
+        | LlmProviderType::CodexCli
+        | LlmProviderType::GooseCli
+        | LlmProviderType::ClineCli
+        | LlmProviderType::ContinueCli => {
             // CLI/SDK providers handle their own auth; no env vars required at startup
             vec![]
         }

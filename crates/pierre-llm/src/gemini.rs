@@ -928,6 +928,7 @@ impl LlmProvider for GeminiProvider {
                         model: model.to_owned(),
                         usage,
                         finish_reason,
+                        warnings: None,
                     });
                 }
                 Err(e) => {

@@ -676,20 +676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "copilot-sdk"
-version = "0.1.17"
-source = "git+https://github.com/copilot-community-sdk/copilot-sdk-rust.git?rev=109f234b#109f234b7be6cf59768e3814a01412ade25fb62e"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "which",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1110,17 +1096,31 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.2.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?branch=main#c424a2fddce72b17ef9e934ecd429c402690cc2e"
+version = "0.4.1"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.4.1#678d9571633a18cdc021c24b106a55fc623d24dd"
 dependencies = [
  "async-trait",
  "bitflags",
- "copilot-sdk",
+ "embacle-copilot-sdk",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tracing",
+ "which",
+]
+
+[[package]]
+name = "embacle-copilot-sdk"
+version = "0.4.1"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.4.1#678d9571633a18cdc021c24b106a55fc623d24dd"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "which",
 ]
