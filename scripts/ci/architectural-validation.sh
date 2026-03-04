@@ -272,11 +272,11 @@ if [ "$NULL_UUIDS" -gt 0 ]; then
     exit 1
 fi
 
-# Implementation placeholders
-IMPLEMENTATION_PLACEHOLDERS=$(rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+# Implementation placeholders — scan ALL crates, not just pierre-server
+IMPLEMENTATION_PLACEHOLDERS=$(rg -i "$CRITICAL_PATTERNS" crates/*/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$IMPLEMENTATION_PLACEHOLDERS" -gt 0 ]; then
     echo -e "${RED}❌ Found $IMPLEMENTATION_PLACEHOLDERS placeholder implementations${NC}"
-    rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ -n | head -10
+    rg -i "$CRITICAL_PATTERNS" crates/*/src/ -n | head -10
     fail_validation "Placeholder implementations must be completed"
 fi
 
