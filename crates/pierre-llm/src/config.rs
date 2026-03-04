@@ -30,6 +30,16 @@ pub enum LlmProviderType {
     Copilot,
     /// GitHub Copilot SDK provider - native JSON-RPC via `copilot --headless`
     CopilotSdk,
+    /// Gemini CLI provider - subprocess-based Google Gemini
+    GeminiCli,
+    /// Codex CLI provider - subprocess-based `OpenAI` Codex
+    CodexCli,
+    /// Goose CLI provider - subprocess-based Goose coding agent
+    GooseCli,
+    /// Cline CLI provider - subprocess-based Cline coding agent
+    ClineCli,
+    /// Continue CLI provider - subprocess-based Continue coding agent
+    ContinueCli,
 }
 
 impl LlmProviderType {
@@ -47,6 +57,11 @@ impl LlmProviderType {
             "opencode" | "open_code" => Self::OpenCode,
             "copilot" | "github_copilot" | "github-copilot" => Self::Copilot,
             "copilot_sdk" | "copilot-sdk" => Self::CopilotSdk,
+            "gemini_cli" | "gemini-cli" => Self::GeminiCli,
+            "codex_cli" | "codex-cli" | "codex" => Self::CodexCli,
+            "goose_cli" | "goose-cli" | "goose" => Self::GooseCli,
+            "cline_cli" | "cline-cli" | "cline" => Self::ClineCli,
+            "continue_cli" | "continue-cli" | "continue" => Self::ContinueCli,
             _ => Self::Gemini, // Default fallback (including "gemini", "google")
         }
     }
@@ -138,6 +153,11 @@ impl LlmProviderType {
             Self::Copilot => Some("claude-opus-4.6".to_owned()),
             Self::CursorAgent => Some("sonnet-4".to_owned()),
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
+            Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),
+            Self::CodexCli => Some("codex-mini".to_owned()),
+            Self::GooseCli | Self::ClineCli | Self::ContinueCli => {
+                Some("claude-sonnet-4".to_owned())
+            }
             Self::Gemini | Self::Groq | Self::Local => unreachable!(),
         }
     }
@@ -199,6 +219,11 @@ impl Display for LlmProviderType {
             Self::OpenCode => write!(f, "opencode"),
             Self::Copilot => write!(f, "copilot"),
             Self::CopilotSdk => write!(f, "copilot_sdk"),
+            Self::GeminiCli => write!(f, "gemini_cli"),
+            Self::CodexCli => write!(f, "codex_cli"),
+            Self::GooseCli => write!(f, "goose_cli"),
+            Self::ClineCli => write!(f, "cline_cli"),
+            Self::ContinueCli => write!(f, "continue_cli"),
         }
     }
 }

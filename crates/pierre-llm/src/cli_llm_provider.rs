@@ -13,7 +13,9 @@ use async_trait::async_trait;
 use embacle::auth::check_readiness;
 use embacle::config::parse_timeout;
 use embacle::{
-    ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner, RunnerConfig,
+    ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
+    CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, OpenCodeRunner,
+    RunnerConfig,
 };
 use futures_util::StreamExt;
 use tracing::{debug, info, warn};
@@ -77,6 +79,26 @@ impl CliLlmProvider {
                 Ok(Self::build_cli(CliRunnerType::Copilot, config))
             }
             "copilot_sdk" | "copilot-sdk" => Ok(Self::build_sdk()),
+            "gemini_cli" | "gemini-cli" => {
+                let config = build_runner_config(CliRunnerType::GeminiCli)?;
+                Ok(Self::build_cli(CliRunnerType::GeminiCli, config))
+            }
+            "codex_cli" | "codex-cli" | "codex" => {
+                let config = build_runner_config(CliRunnerType::CodexCli)?;
+                Ok(Self::build_cli(CliRunnerType::CodexCli, config))
+            }
+            "goose_cli" | "goose-cli" | "goose" => {
+                let config = build_runner_config(CliRunnerType::GooseCli)?;
+                Ok(Self::build_cli(CliRunnerType::GooseCli, config))
+            }
+            "cline_cli" | "cline-cli" | "cline" => {
+                let config = build_runner_config(CliRunnerType::ClineCli)?;
+                Ok(Self::build_cli(CliRunnerType::ClineCli, config))
+            }
+            "continue_cli" | "continue-cli" | "continue" => {
+                let config = build_runner_config(CliRunnerType::ContinueCli)?;
+                Ok(Self::build_cli(CliRunnerType::ContinueCli, config))
+            }
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
                 let (runner_type, base_config) = embacle::discover_runner()?;
@@ -85,7 +107,8 @@ impl CliLlmProvider {
             }
             _ => Err(AppError::config(format!(
                 "PIERRE_LLM_PROVIDER={provider_env} is not an embacle runner type; \
-                 expected one of: claude_code, copilot, cursor_agent, opencode, copilot_sdk, cli"
+                 expected one of: claude_code, copilot, cursor_agent, opencode, copilot_sdk, \
+                 gemini_cli, codex_cli, goose_cli, cline_cli, continue_cli, cli"
             ))),
         }
     }
@@ -105,6 +128,11 @@ impl CliLlmProvider {
             CliRunnerType::Copilot => Box::new(CopilotRunner::new(config)),
             CliRunnerType::CursorAgent => Box::new(CursorAgentRunner::new(config)),
             CliRunnerType::OpenCode => Box::new(OpenCodeRunner::new(config)),
+            CliRunnerType::GeminiCli => Box::new(GeminiCliRunner::new(config)),
+            CliRunnerType::CodexCli => Box::new(CodexCliRunner::new(config)),
+            CliRunnerType::GooseCli => Box::new(GooseCliRunner::new(config)),
+            CliRunnerType::ClineCli => Box::new(ClineCliRunner::new(config)),
+            CliRunnerType::ContinueCli => Box::new(ContinueCliRunner::new(config)),
         };
 
         info!(
@@ -155,6 +183,11 @@ impl CliLlmProvider {
             "cursor_agent" => LlmProviderType::CursorAgent,
             "opencode" => LlmProviderType::OpenCode,
             "copilot_sdk" => LlmProviderType::CopilotSdk,
+            "gemini_cli" => LlmProviderType::GeminiCli,
+            "codex_cli" => LlmProviderType::CodexCli,
+            "goose_cli" => LlmProviderType::GooseCli,
+            "cline_cli" => LlmProviderType::ClineCli,
+            "continue_cli" => LlmProviderType::ContinueCli,
             // "claude_code" and any future runners default here
             _ => LlmProviderType::ClaudeCode,
         }
@@ -187,6 +220,11 @@ impl CliLlmProvider {
             "copilot" => CliRunnerType::Copilot,
             "cursor_agent" => CliRunnerType::CursorAgent,
             "opencode" => CliRunnerType::OpenCode,
+            "gemini_cli" => CliRunnerType::GeminiCli,
+            "codex_cli" => CliRunnerType::CodexCli,
+            "goose_cli" => CliRunnerType::GooseCli,
+            "cline_cli" => CliRunnerType::ClineCli,
+            "continue_cli" => CliRunnerType::ContinueCli,
             _ => return ProviderReadiness::Ready,
         };
 

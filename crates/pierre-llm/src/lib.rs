@@ -53,9 +53,12 @@ pub use embacle::{
     convert_function_declarations, extract_declarations_from_tool_value, ToolHandler,
     ToolResultObject,
 };
+pub use embacle::{AgentExecutor, AgentResult, FallbackProvider, MetricsProvider};
 pub use embacle::{
-    ClaudeCodeRunner, CliRunnerType, CopilotRunner, CursorAgentRunner, OpenCodeRunner,
+    ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
+    CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, OpenCodeRunner,
 };
+pub use embacle::{McpToolDefinition, McpToolExecutor, QualityGateProvider};
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,
     Tool,

@@ -838,6 +838,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 total_tokens: u.total,
             }),
             finish_reason: choice.finish_reason,
+            warnings: None,
         })
     }
 

@@ -144,7 +144,12 @@ impl ChatProvider {
             | LlmProviderType::Copilot
             | LlmProviderType::CursorAgent
             | LlmProviderType::OpenCode
-            | LlmProviderType::CopilotSdk => Self::cli(),
+            | LlmProviderType::CopilotSdk
+            | LlmProviderType::GeminiCli
+            | LlmProviderType::CodexCli
+            | LlmProviderType::GooseCli
+            | LlmProviderType::ClineCli
+            | LlmProviderType::ContinueCli => Self::cli(),
         }
     }
 

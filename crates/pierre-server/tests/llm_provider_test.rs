@@ -270,6 +270,7 @@ fn test_chat_response_creation() {
         model: "gemini-pro".to_owned(),
         usage: None,
         finish_reason: Some("stop".to_owned()),
+        warnings: None,
     };
 
     assert_eq!(response.content, "The answer is 4.");
@@ -290,6 +291,7 @@ fn test_chat_response_with_usage() {
         model: "test-model".to_owned(),
         usage: Some(usage),
         finish_reason: None,
+        warnings: None,
     };
 
     let usage = response.usage.unwrap();
@@ -309,6 +311,7 @@ fn test_chat_response_serialization() {
             total_tokens: 15,
         }),
         finish_reason: Some("stop".to_owned()),
+        warnings: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -506,6 +509,7 @@ fn test_chat_response_clone() {
         model: "model".to_owned(),
         usage: None,
         finish_reason: None,
+        warnings: None,
     };
 
     let cloned = response.clone();
