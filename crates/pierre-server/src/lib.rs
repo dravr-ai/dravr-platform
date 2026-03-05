@@ -167,9 +167,9 @@ pub mod websocket;
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 
-// ── Internal modules ────────────────────────────────────────────────────
-// These modules are implementation details not referenced by binaries or tests.
-// All use `pub(crate)` to prevent external access.
-
 /// Domain service layer for protocol-agnostic business logic
 pub(crate) mod services;
+
+// Re-export messaging outbound worker for binary startup
+#[cfg(feature = "client-messaging")]
+pub use services::messaging_outbound::start_outbound_worker;

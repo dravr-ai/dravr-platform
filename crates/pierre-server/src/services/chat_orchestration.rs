@@ -4,9 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::sync::Arc;
+
+use tracing::info;
+
 use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
+use crate::llm::get_pierre_system_prompt;
+use crate::llm::ChatMessage;
+use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
+use crate::protocols::universal::UniversalExecutor;
+use crate::routes::chat::ChatRoutes;
+use crate::routes::chat_tool_loop::{self, ToolLoopParams};
+use crate::routes::create_chat_provider;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -139,4 +150,102 @@ pub async fn persist_assistant_response(
         .ok_or_else(|| AppError::internal("Failed to get updated conversation"))?;
 
     Ok((message, conversation))
+}
+
+/// Default max tool iterations for messaging conversations
+const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
+
+/// Dispatch a user message through the LLM pipeline and return the assistant's text response.
+///
+/// Simplified version of the chat route's `send_message` flow, used by the messaging
+/// gateway to process inbound channel messages. Persists user message, builds LLM
+/// context, runs tool loop, persists assistant response, and returns the text content.
+///
+/// # Errors
+///
+/// Returns errors from message persistence, LLM provider initialization, or tool execution.
+pub async fn dispatch_and_get_response(
+    resources: &Arc<ServerResources>,
+    conversation_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    content: &str,
+) -> AppResult<String> {
+    let database = resources.database.as_ref();
+
+    // Persist user message (crash-safe: saved before LLM dispatch)
+    let msg_result =
+        persist_user_message(database, conversation_id, user_id, tenant_id, content).await?;
+
+    let conv = msg_result.conversation;
+
+    // Get conversation history for LLM context
+    let history = get_conversation_history(database, conversation_id, user_id).await?;
+
+    // Build LLM messages with system prompt and history
+    let system_prompt = get_pierre_system_prompt();
+    let mut llm_messages = build_llm_messages(Some(system_prompt), &history);
+
+    // Build MCP tools and get LLM provider
+    let tools = ChatRoutes::build_mcp_tools();
+    let provider = create_chat_provider().await?;
+    let executor = Arc::new(UniversalExecutor::new(Arc::clone(resources)));
+
+    // Run multi-turn tool execution loop
+    let tool_params = ToolLoopParams {
+        provider: &provider,
+        executor,
+        tools: &tools,
+        model: &conv.model,
+        user_id,
+        tenant_id,
+        max_iterations: MESSAGING_MAX_TOOL_ITERATIONS,
+    };
+    let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
+
+    info!(
+        conversation_id = %conversation_id,
+        content_len = result.content.len(),
+        tool_calls = result.tool_calls_count,
+        "Messaging LLM dispatch completed"
+    );
+
+    // Persist assistant response
+    let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
+    let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
+
+    let assistant_params = AddMessageParams {
+        conversation_id,
+        user_id,
+        role: "assistant",
+        content: &result.content,
+        token_count,
+        finish_reason: result.finish_reason.as_deref(),
+        prompt_tokens,
+        model: Some(&conv.model),
+    };
+    persist_assistant_response(database, &assistant_params, tenant_id).await?;
+
+    Ok(result.content)
+}
+
+/// Build LLM messages from conversation history and optional system prompt
+fn build_llm_messages(system_prompt: Option<&str>, history: &[MessageRecord]) -> Vec<ChatMessage> {
+    let mut messages = Vec::with_capacity(history.len() + 1);
+
+    if let Some(prompt) = system_prompt {
+        messages.push(ChatMessage::system(prompt));
+    }
+
+    for msg in history {
+        let chat_msg = match msg.role.as_str() {
+            "user" => ChatMessage::user(&msg.content),
+            "assistant" => ChatMessage::assistant(&msg.content),
+            "system" => ChatMessage::system(&msg.content),
+            _ => continue,
+        };
+        messages.push(chat_msg);
+    }
+
+    messages
 }

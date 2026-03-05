@@ -28,6 +28,8 @@ pub mod impersonation;
 pub mod llm_credentials;
 /// LLM usage tracking for cost analysis and quota enforcement
 pub mod llm_usage;
+/// Multi-channel messaging gateway (channel configs, sessions, messages, queue)
+pub mod messaging;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
 /// OAuth callback notification handling

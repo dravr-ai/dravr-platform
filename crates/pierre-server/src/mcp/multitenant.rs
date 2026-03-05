@@ -1165,6 +1165,12 @@ impl MultiTenantMcpServer {
         #[cfg(feature = "client-mcp-tokens")]
         let app = app.merge(UserMcpTokenRoutes::routes(Arc::clone(resources)));
 
+        #[cfg(feature = "client-messaging")]
+        let app = {
+            use crate::routes::MessagingRoutes;
+            app.merge(MessagingRoutes::routes(Arc::clone(resources)))
+        };
+
         // ═══════════════════════════════════════════════════════════════
         // OPENAPI DOCUMENTATION ROUTES
         // ═══════════════════════════════════════════════════════════════

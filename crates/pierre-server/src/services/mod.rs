@@ -33,3 +33,7 @@ pub mod usage_counter;
 
 /// Background task for periodic pruning of old usage counter records
 pub mod usage_pruning;
+
+/// Background outbound retry worker for messaging delivery queue
+#[cfg(feature = "client-messaging")]
+pub mod messaging_outbound;
