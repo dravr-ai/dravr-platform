@@ -56,6 +56,10 @@ use pierre_database::database::repositories::{
 use pierre_database::database::store_listings::StoreListingsManager;
 use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::SecurityRepository;
+#[cfg(feature = "client-messaging")]
+use pierre_messaging::router::MessageRouter;
+#[cfg(feature = "client-messaging")]
+use pierre_messaging::ChannelRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -189,6 +193,12 @@ pub struct ServerResources {
     pub pruning_abort_handle: Option<AbortHandle>,
     /// Optional email service for transactional emails (password reset codes, etc.)
     pub email_service: Option<Arc<ResendEmailService>>,
+    /// Multi-channel messaging registry for webhook routing
+    #[cfg(feature = "client-messaging")]
+    pub messaging_registry: Arc<ChannelRegistry>,
+    /// Message router for dispatching inbound messages to chat pipeline
+    #[cfg(feature = "client-messaging")]
+    pub message_router: Arc<MessageRouter>,
 }
 
 impl ServerResources {
@@ -348,6 +358,10 @@ impl ServerResources {
             llm_provider,
             pruning_abort_handle,
             email_service,
+            #[cfg(feature = "client-messaging")]
+            messaging_registry: Arc::new(ChannelRegistry::new()),
+            #[cfg(feature = "client-messaging")]
+            message_router: Arc::new(MessageRouter::new()),
         }
     }
 
@@ -711,6 +725,20 @@ impl ServerResources {
             .sqlite_database()
             .map(|db| db as &dyn SocialRepository)
             .ok_or_else(|| AppError::internal("SQLite database required for social"))
+    }
+
+    /// Get the messaging channel registry
+    #[cfg(feature = "client-messaging")]
+    #[must_use]
+    pub fn messaging_registry(&self) -> &ChannelRegistry {
+        &self.messaging_registry
+    }
+
+    /// Get the message router for inbound message dispatch
+    #[cfg(feature = "client-messaging")]
+    #[must_use]
+    pub fn message_router(&self) -> &MessageRouter {
+        &self.message_router
     }
 }
 

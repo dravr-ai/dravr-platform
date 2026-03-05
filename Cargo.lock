@@ -2624,6 +2624,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-messaging"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "hmac",
+ "http",
+ "pierre-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-providers"
 version = "0.1.0"
 dependencies = [
@@ -2676,6 +2696,7 @@ dependencies = [
  "futures-util",
  "glob",
  "hex",
+ "hmac",
  "html-escape",
  "http",
  "jsonwebtoken",
@@ -2690,6 +2711,7 @@ dependencies = [
  "pierre-database",
  "pierre-intelligence",
  "pierre-llm",
+ "pierre-messaging",
  "pierre-providers",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -4515,6 +4537,7 @@ dependencies = [
  "getrandom 0.4.1",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

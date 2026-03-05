@@ -18,6 +18,8 @@ pub mod api_key;
 pub mod chat;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
+/// Messaging gateway repository implementations
+pub mod messaging;
 /// OAuth token and authorization repository implementations
 pub mod oauth;
 /// Security and notification repository implementations
@@ -359,6 +361,7 @@ impl DatabaseProvider for PostgresDatabase {
         self.create_usage_counters_table().await?;
         self.create_system_settings_table().await?;
         self.create_social_tables().await?;
+        self.create_messaging_tables().await?;
         self.create_indexes().await?;
         Ok(())
     }
@@ -2518,6 +2521,331 @@ impl PostgresDatabase {
             .map_err(|e| {
                 AppError::database(format!("Failed to delete social insights config: {e}"))
             })?;
+        Ok(())
+    }
+
+    /// Create messaging gateway tables for multi-channel chat
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any table or index creation fails
+    async fn create_messaging_tables(&self) -> AppResult<()> {
+        self.create_messaging_core_tables().await?;
+        self.create_messaging_queue_tables().await?;
+        self.create_messaging_linking_tables().await?;
+        Ok(())
+    }
+
+    /// Create core messaging tables: configs, sessions, messages, delivery receipts
+    async fn create_messaging_core_tables(&self) -> AppResult<()> {
+        // Per-tenant channel configuration
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_channel_configs (
+                id              TEXT    NOT NULL PRIMARY KEY,
+                tenant_id       TEXT    NOT NULL,
+                channel_type    TEXT    NOT NULL,
+                api_key         TEXT,
+                api_secret      TEXT,
+                webhook_secret  TEXT,
+                account_id      TEXT,
+                phone_number    TEXT,
+                bot_token       TEXT,
+                is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(tenant_id, channel_type)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create messaging_channel_configs table: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_channel_configs_tenant ON messaging_channel_configs(tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging config tenant index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_channel_configs_active ON messaging_channel_configs(tenant_id, is_active) WHERE is_active = TRUE",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging config active index: {e}")))?;
+
+        // Active messaging sessions
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_sessions (
+                id                          TEXT    NOT NULL PRIMARY KEY,
+                user_id                     TEXT    NOT NULL,
+                tenant_id                   TEXT    NOT NULL,
+                channel_type                TEXT    NOT NULL,
+                channel_user_id             TEXT    NOT NULL,
+                channel_conversation_id     TEXT,
+                pierre_conversation_id      TEXT,
+                last_message_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create messaging_sessions table: {e}"))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_sessions_tenant ON messaging_sessions(tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging sessions tenant index: {e}")))?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messaging_sessions_channel_identity ON messaging_sessions(tenant_id, channel_type, channel_user_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging sessions channel identity index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_sessions_user ON messaging_sessions(user_id, tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging sessions user index: {e}")))?;
+
+        // Message log with idempotency
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_messages (
+                id                  TEXT    NOT NULL PRIMARY KEY,
+                tenant_id           TEXT    NOT NULL,
+                session_id          TEXT    NOT NULL REFERENCES messaging_sessions(id),
+                direction           TEXT    NOT NULL,
+                channel_type        TEXT    NOT NULL,
+                channel_message_id  TEXT    NOT NULL,
+                sender_id           TEXT    NOT NULL,
+                content_type        TEXT    NOT NULL,
+                content_body        TEXT,
+                correlation_id      TEXT    NOT NULL,
+                raw_payload         TEXT,
+                created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create messaging_messages table: {e}"))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_messages_tenant ON messaging_messages(tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging messages tenant index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_messages_session ON messaging_messages(session_id, created_at)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging messages session index: {e}")))?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messaging_messages_idempotency ON messaging_messages(tenant_id, channel_message_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging messages idempotency index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_messages_correlation ON messaging_messages(correlation_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create messaging messages correlation index: {e}")))?;
+
+        // Delivery receipts
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_delivery_receipts (
+                id                  TEXT    NOT NULL PRIMARY KEY,
+                tenant_id           TEXT    NOT NULL,
+                message_id          TEXT    NOT NULL REFERENCES messaging_messages(id),
+                channel_message_id  TEXT,
+                status              TEXT    NOT NULL,
+                created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create messaging_delivery_receipts table: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_delivery_receipts_message ON messaging_delivery_receipts(message_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create delivery receipts message index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_delivery_receipts_tenant ON messaging_delivery_receipts(tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create delivery receipts tenant index: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Create outbound queue table for retry tracking
+    async fn create_messaging_queue_tables(&self) -> AppResult<()> {
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_outbound_queue (
+                id              TEXT    NOT NULL PRIMARY KEY,
+                message_id      TEXT    NOT NULL REFERENCES messaging_messages(id),
+                tenant_id       TEXT    NOT NULL,
+                channel_type    TEXT    NOT NULL,
+                payload         TEXT    NOT NULL,
+                status          TEXT    NOT NULL DEFAULT 'pending',
+                attempt_count   INTEGER NOT NULL DEFAULT 0,
+                next_retry_at   TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create messaging_outbound_queue table: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_outbound_queue_tenant ON messaging_outbound_queue(tenant_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create outbound queue tenant index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_outbound_queue_retry ON messaging_outbound_queue(status, next_retry_at)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create outbound queue retry index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_outbound_queue_message ON messaging_outbound_queue(message_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create outbound queue message index: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Create channel linking tables: link states and permanent channel links
+    async fn create_messaging_linking_tables(&self) -> AppResult<()> {
+        // Ephemeral link states for pending channel linking requests
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_link_states (
+                id              TEXT    NOT NULL PRIMARY KEY,
+                tenant_id       TEXT    NOT NULL,
+                user_id         TEXT    NOT NULL,
+                channel_type    TEXT    NOT NULL,
+                code            TEXT    NOT NULL,
+                method          TEXT    NOT NULL,
+                used            BOOLEAN NOT NULL DEFAULT FALSE,
+                expires_at      TIMESTAMPTZ NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to create messaging_link_states table: {e}"))
+        })?;
+
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messaging_link_states_code ON messaging_link_states(code)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create link states code index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_link_states_expiry ON messaging_link_states(expires_at) WHERE used = FALSE",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create link states expiry index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_link_states_user_channel ON messaging_link_states(tenant_id, user_id, channel_type) WHERE used = FALSE",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create link states user channel index: {e}")))?;
+
+        // Permanent user-to-channel identity mappings
+        sqlx::query(
+            r"
+            CREATE TABLE IF NOT EXISTS messaging_channel_links (
+                id              TEXT    NOT NULL PRIMARY KEY,
+                tenant_id       TEXT    NOT NULL,
+                user_id         TEXT    NOT NULL,
+                channel_type    TEXT    NOT NULL,
+                channel_user_id TEXT    NOT NULL,
+                display_name    TEXT,
+                linked_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE(tenant_id, channel_type, channel_user_id)
+            )
+            ",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to create messaging_channel_links table: {e}"
+            ))
+        })?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_channel_links_user ON messaging_channel_links(tenant_id, user_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create channel links user index: {e}")))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_messaging_channel_links_channel_identity ON messaging_channel_links(tenant_id, channel_type, channel_user_id)",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to create channel links identity index: {e}")))?;
+
         Ok(())
     }
 }

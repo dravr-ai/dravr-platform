@@ -472,7 +472,7 @@ async fn create_server(
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
-    let mut resources_instance = ServerResources::new(
+    let resources_instance = ServerResources::new(
         database,
         auth_manager,
         jwt_secret,
@@ -493,6 +493,13 @@ async fn create_server(
         info!("Synthetic provider database pool initialized");
     }
 
+    let resources = initialize_plugins_and_workers(resources_instance);
+
+    MultiTenantMcpServer::new(resources)
+}
+
+/// Initialize plugin system and background workers, returning the finalized resources
+fn initialize_plugins_and_workers(mut resources_instance: ServerResources) -> Arc<ServerResources> {
     // Wrap in Arc for plugin executor initialization
     let resources_arc = Arc::new(resources_instance.clone());
 
@@ -509,7 +516,16 @@ async fn create_server(
 
     // Use the updated resources instance
     let resources = Arc::new(resources_instance);
-    MultiTenantMcpServer::new(resources)
+
+    // Start messaging outbound retry worker (polls queue every 5 seconds)
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::start_outbound_worker;
+        start_outbound_worker(Arc::clone(&resources));
+        info!("Messaging outbound retry worker started");
+    }
+
+    resources
 }
 
 /// Get RSA key size from environment or use production default

@@ -155,3 +155,6 @@ pub use recipes::{
     DietaryRestriction, IngredientUnit, MacroTargets, MealTiming, Recipe, RecipeConstraints,
     RecipeIngredient, SkillLevel, ValidatedNutrition,
 };
+
+/// Multi-channel messaging gateway types
+pub mod messaging;

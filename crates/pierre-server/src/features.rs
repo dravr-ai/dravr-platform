@@ -237,6 +237,12 @@ impl FeatureConfig {
         cfg!(feature = "client-store")
     }
 
+    /// Check if messaging client is enabled (multi-channel messaging gateway)
+    #[must_use]
+    pub const fn client_messaging() -> bool {
+        cfg!(feature = "client-messaging")
+    }
+
     /// Check if store tools are enabled (Coach Store MCP tools)
     #[must_use]
     pub const fn tools_store() -> bool {
@@ -261,6 +267,7 @@ impl FeatureConfig {
             || Self::client_mobile()
             || Self::client_mcp_tokens()
             || Self::client_store()
+            || Self::client_messaging()
     }
 
     // ==========================================================================
@@ -375,6 +382,7 @@ impl FeatureConfig {
             (Self::client_mobile(), "mobile"),
             (Self::client_mcp_tokens(), "mcp-tokens"),
             (Self::client_store(), "store"),
+            (Self::client_messaging(), "messaging"),
         ]);
         log_feature_category("Clients", &clients, false);
     }

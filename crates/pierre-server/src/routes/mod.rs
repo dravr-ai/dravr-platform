@@ -140,6 +140,10 @@ pub mod tool_selection;
 #[cfg(feature = "client-mcp-tokens")]
 pub mod user_mcp_tokens;
 
+/// Multi-channel messaging gateway routes (webhook ingress and channel config)
+#[cfg(feature = "client-messaging")]
+pub mod messaging;
+
 // ═══════════════════════════════════════════════════════════════
 // OPENAPI FEATURE
 // ═══════════════════════════════════════════════════════════════
@@ -235,6 +239,10 @@ pub use tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
 // Other client re-exports
 #[cfg(feature = "client-mcp-tokens")]
 pub use user_mcp_tokens::UserMcpTokenRoutes;
+
+// Messaging re-exports
+#[cfg(feature = "client-messaging")]
+pub use messaging::MessagingRoutes;
 
 // OpenAPI re-exports
 #[cfg(feature = "openapi")]

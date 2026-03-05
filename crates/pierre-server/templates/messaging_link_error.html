@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Copyright (c) 2026 dravr.ai -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>Link Expired - Pierre</title>
+    <style>
+        :root {
+            --pierre-violet: #7C3AED;
+            --pierre-cyan: #06B6D4;
+            --pierre-red-500: #ef4444;
+            --pierre-gray-50: #f9fafb;
+            --pierre-gray-500: #6b7280;
+            --pierre-gray-700: #374151;
+            --pierre-gray-900: #1f2937;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--pierre-gray-50);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .card {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--pierre-red-500), var(--pierre-violet));
+        }
+        .icon {
+            width: 64px;
+            height: 64px;
+            background: var(--pierre-red-500);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 1.5rem;
+        }
+        .icon svg { width: 32px; height: 32px; }
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--pierre-gray-900);
+            margin-bottom: 0.75rem;
+        }
+        p {
+            font-size: 0.9375rem;
+            color: var(--pierre-gray-500);
+            line-height: 1.5;
+        }
+        @media (max-width: 640px) {
+            body { padding: 0.75rem; }
+            .card { padding: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </div>
+        <h1>Link Expired or Invalid</h1>
+        <p>{{MESSAGE}}</p>
+    </div>
+</body>
+</html>

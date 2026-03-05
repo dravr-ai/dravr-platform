@@ -12,6 +12,7 @@ mod a2a;
 mod admin;
 mod api_key;
 mod chat;
+mod messaging;
 mod oauth;
 mod security;
 mod social;

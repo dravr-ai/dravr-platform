@@ -671,7 +671,7 @@ impl ChatRoutes {
     }
 
     /// Build Gemini tool definitions from MCP tool registry
-    fn build_mcp_tools() -> Tool {
+    pub(crate) fn build_mcp_tools() -> Tool {
         let mut declarations = Vec::with_capacity(14);
         declarations.extend(Self::build_connection_tools());
         declarations.extend(Self::build_activity_tools());

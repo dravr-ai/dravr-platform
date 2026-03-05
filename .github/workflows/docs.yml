@@ -1,0 +1,51 @@
+# ABOUTME: GitHub Actions workflow for validating the Pierre documentation book
+# ABOUTME: Runs mdbook build to catch broken links, bad markdown, and missing pages
+
+name: Documentation
+
+on:
+  push:
+    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    paths:
+      - 'book/**'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'book/**'
+      - '.github/workflows/docs.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-book:
+    name: Build Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install mdbook
+        run: |
+          MDBOOK_VERSION="0.4.40"
+          curl -sSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" | tar -xz
+          sudo mv mdbook /usr/local/bin/
+
+      - name: Build book
+        run: mdbook build book/
+
+      - name: Verify key pages exist
+        run: |
+          for page in messaging-gateway.html llm-providers.html oauth2-server.html architecture.html; do
+            if [ ! -f "book/build/$page" ]; then
+              echo "Missing page: $page"
+              exit 1
+            fi
+          done
+          echo "All key pages present"

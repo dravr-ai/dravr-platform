@@ -12,6 +12,8 @@
 
 /// Database operation errors with structured context
 pub mod database;
+/// Messaging gateway errors for multi-channel chat
+pub mod messaging;
 /// Protocol operation errors for MCP and A2A
 pub mod protocol;
 /// Fitness provider errors with retry and rate limit handling

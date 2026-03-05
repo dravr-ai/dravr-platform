@@ -173,7 +173,9 @@ client-admin = ["client-admin-api", "client-admin-ui", "client-api-keys", "clien
 client-mobile = ["protocol-rest"]        # Mobile-specific routes (subset)
 client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
-client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens"]
+client-messaging = ["protocol-rest", "dep:pierre-messaging", "pierre-messaging/all-channels"]
+
+client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging"]
 
 # ═══════════════════════════════════════════════════════════════
 # OAUTH (shared infrastructure)
@@ -183,11 +185,11 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "oauth", "all-providers", "tools-all", "toon"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
-server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "oauth", "all-providers", "tools-all"]
+server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all"]
 
 # OpenAPI documentation (SwaggerUI) - excluded from production by default
 # Enable with: cargo build --features openapi
@@ -202,6 +204,7 @@ pierre-intelligence = { version = "0.1.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
 pierre-cache = { version = "0.1.0", path = "../pierre-cache", features = ["redis"] }
 pierre-a2a = { version = "0.1.0", path = "../pierre-a2a", optional = true }
+pierre-messaging = { version = "0.1.0", path = "../pierre-messaging", optional = true }
 pierre-providers = { version = "0.1.0", path = "../pierre-providers" }
 
 tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
@@ -230,7 +233,7 @@ bytes = "1.11"
 url = "2.5"
 clap = { version = "4.5", features = ["derive", "std"], default-features = false }
 dirs = "5.0"
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { version = "1.11", features = ["v4", "v5", "serde"] }
 dashmap = "5.5"
 urlencoding = "2.1"
 sha2 = "0.10"
@@ -287,6 +290,12 @@ serial_test = "3.1"
 tokio-tungstenite = "0.24"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
+# Messaging transport test dependencies (crypto verification)
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2.6"
+ed25519-dalek = "2.1"
 
 # ============================================================================
 # Benchmark Configuration
