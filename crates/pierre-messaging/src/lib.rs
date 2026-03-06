@@ -42,6 +42,9 @@ pub mod retry;
 /// Observability helpers for structured tracing spans and metrics
 pub mod observability;
 
+/// Shared Meta Platform (Messenger + `WhatsApp`) HMAC-SHA256 signature verification
+pub mod meta_signature;
+
 /// Per-channel adapter implementations
 pub mod channels;
 

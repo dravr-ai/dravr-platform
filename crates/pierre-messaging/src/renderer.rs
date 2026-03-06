@@ -14,7 +14,7 @@ use serde_json::Value;
 /// - Slack: Block Kit JSON
 /// - Discord: Embeds + components
 /// - Messenger: Graph API templates
-/// - `WhatsApp`: Twilio Messages API
+/// - `WhatsApp`: Meta Cloud API
 /// - Telegram: Bot API with HTML parse mode
 pub trait ResponseRenderer: Send + Sync {
     /// Render an `OutgoingMessage` into the channel's native payload format

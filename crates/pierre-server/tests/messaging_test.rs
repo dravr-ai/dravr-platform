@@ -329,24 +329,24 @@ mod messaging_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // WhatsApp (Twilio) signature verification tests
+    // WhatsApp (Meta Cloud API) signature verification tests
     // ════════════════════════════════════════════════════════════════
 
     fn compute_whatsapp_signature(secret: &str, body: &[u8]) -> String {
         let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
         mac.update(body);
-        hex::encode(mac.finalize().into_bytes())
+        format!("sha256={}", hex::encode(mac.finalize().into_bytes()))
     }
 
     #[test]
     fn test_whatsapp_verify_signature_valid() {
-        let secret = "twilio_test_secret";
+        let secret = "meta_test_app_secret";
         let transport = WhatsAppTransport::new(secret.to_owned());
-        let body = b"Body=Hello&From=whatsapp%3A%2B1234567890";
+        let body = b"{\"entry\":[]}";
         let signature = compute_whatsapp_signature(secret, body);
 
         let mut headers = HeaderMap::new();
-        headers.insert("x-twilio-signature", signature.parse().unwrap());
+        headers.insert("x-hub-signature-256", signature.parse().unwrap());
 
         let result = transport.verify_signature(&headers, body);
         assert!(result.is_ok(), "Valid WhatsApp signature should pass");
@@ -355,11 +355,11 @@ mod messaging_tests {
     #[test]
     fn test_whatsapp_verify_signature_invalid() {
         let transport = WhatsAppTransport::new("correct_secret".to_owned());
-        let body = b"Body=Hello";
+        let body = b"{\"entry\":[]}";
         let signature = compute_whatsapp_signature("wrong_secret", body);
 
         let mut headers = HeaderMap::new();
-        headers.insert("x-twilio-signature", signature.parse().unwrap());
+        headers.insert("x-hub-signature-256", signature.parse().unwrap());
 
         let result = transport.verify_signature(&headers, body);
         assert!(result.is_err(), "Wrong WhatsApp secret should fail");
@@ -369,16 +369,25 @@ mod messaging_tests {
     fn test_whatsapp_verify_signature_missing() {
         let transport = WhatsAppTransport::new("secret".to_owned());
         let result = transport.verify_signature(&HeaderMap::new(), b"body");
-        assert!(result.is_err(), "Missing x-twilio-signature should fail");
+        assert!(result.is_err(), "Missing x-hub-signature-256 should fail");
     }
 
     #[tokio::test]
     async fn test_whatsapp_parse_inbound_text() {
         let transport = WhatsAppTransport::new("secret".to_owned());
         let body = serde_json::json!({
-            "From": "whatsapp:+14155551234",
-            "Body": "What's my heart rate zone?",
-            "MessageSid": "SM1234567890abcdef"
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "14155551234",
+                            "id": "wamid.abc123",
+                            "type": "text",
+                            "text": { "body": "What's my heart rate zone?" }
+                        }]
+                    }
+                }]
+            }]
         });
         let body_bytes = serde_json::to_vec(&body).unwrap();
 
@@ -387,8 +396,8 @@ mod messaging_tests {
             .await
             .unwrap();
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].sender_id, "whatsapp:+14155551234");
-        assert_eq!(messages[0].channel_message_id, "SM1234567890abcdef");
+        assert_eq!(messages[0].sender_id, "14155551234");
+        assert_eq!(messages[0].channel_message_id, "wamid.abc123");
         match &messages[0].content {
             MessageContent::Text { body } => assert_eq!(body, "What's my heart rate zone?"),
             _ => panic!("Expected text content"),
@@ -816,36 +825,41 @@ mod messaging_tests {
         assert!(renderer.supports_cards());
     }
 
-    // ── WhatsApp Renderer ──
+    // ── WhatsApp Renderer (Meta Cloud API) ──
 
     #[test]
     fn test_whatsapp_render_text() {
         let renderer = WhatsAppRenderer;
-        let msg = make_text_message(ChannelType::WhatsApp, "+14155551234", "Hello!");
+        let msg = make_text_message(ChannelType::WhatsApp, "14155551234", "Hello!");
         let payload = renderer.render(&msg).unwrap();
 
-        assert_eq!(payload["To"], "whatsapp:+14155551234");
-        assert_eq!(payload["Body"], "Hello!");
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        assert_eq!(payload["to"], "14155551234");
+        assert_eq!(payload["type"], "text");
+        assert_eq!(payload["text"]["body"], "Hello!");
     }
 
     #[test]
     fn test_whatsapp_render_media() {
         let renderer = WhatsAppRenderer;
-        let msg = make_media_message(ChannelType::WhatsApp, "+14155551234");
+        let msg = make_media_message(ChannelType::WhatsApp, "14155551234");
         let payload = renderer.render(&msg).unwrap();
 
-        assert_eq!(payload["To"], "whatsapp:+14155551234");
-        assert_eq!(payload["MediaUrl"], "https://cdn.pierre.app/chart.png");
-        assert_eq!(payload["Body"], "Your weekly progress");
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        assert_eq!(payload["to"], "14155551234");
+        assert_eq!(payload["type"], "image");
+        assert_eq!(payload["image"]["link"], "https://cdn.pierre.app/chart.png");
+        assert_eq!(payload["image"]["caption"], "Your weekly progress");
     }
 
     #[test]
     fn test_whatsapp_render_card_as_text_fallback() {
         let renderer = WhatsAppRenderer;
-        let msg = make_card_message(ChannelType::WhatsApp, "+14155551234");
+        let msg = make_card_message(ChannelType::WhatsApp, "14155551234");
         let payload = renderer.render(&msg).unwrap();
 
-        let body = payload["Body"].as_str().unwrap();
+        assert_eq!(payload["type"], "text");
+        let body = payload["text"]["body"].as_str().unwrap();
         assert!(
             body.contains("*Training Summary*"),
             "Card title should be bold"

@@ -549,7 +549,7 @@ mod messaging_routes_tests {
             &msg_id,
             tenant_id,
             "whatsapp",
-            r#"{"Body":"retry test message","To":"whatsapp:+15551234567"}"#,
+            r#"{"messaging_product":"whatsapp","to":"15551234567","type":"text","text":{"body":"retry test message"}}"#,
         )
         .await
         .unwrap();

@@ -1,10 +1,10 @@
-// ABOUTME: WhatsApp Business API channel adapter module via Twilio
-// ABOUTME: Combines WhatsAppTransport (HMAC-SHA256) with WhatsAppRenderer (Twilio Messages API)
+// ABOUTME: WhatsApp Business Cloud API channel adapter module via Meta Graph API
+// ABOUTME: Combines WhatsAppTransport (HMAC-SHA256 per Meta spec) with WhatsAppRenderer (Cloud API payloads)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// Twilio Messages API response renderer for `WhatsApp`
+/// Meta Cloud API response renderer for `WhatsApp`
 pub mod renderer;
 /// HMAC-SHA256 signature verification and webhook parsing for `WhatsApp`
 pub mod transport;
@@ -27,9 +27,9 @@ use self::transport::WhatsAppTransport;
 
 /// `WhatsApp` channel adapter combining transport and renderer
 pub struct WhatsAppChannel {
-    /// Wire protocol adapter for Twilio `WhatsApp` API
+    /// Wire protocol adapter for Meta `WhatsApp` Cloud API
     transport: WhatsAppTransport,
-    /// Twilio Messages API renderer
+    /// Meta Cloud API renderer
     renderer: WhatsAppRenderer,
 }
 
@@ -67,7 +67,7 @@ impl ChannelDescriptor for WhatsAppDescriptor {
         4096
     }
     fn signature_header(&self) -> &'static str {
-        "x-twilio-signature"
+        "x-hub-signature-256"
     }
 }
 

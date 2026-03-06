@@ -97,6 +97,12 @@ impl AxumTestRequest {
         self
     }
 
+    /// Set the raw body string (caller must set content-type via `.header()`)
+    pub fn raw_body(mut self, body: String) -> Self {
+        self.body = Some(body);
+        self
+    }
+
     /// Execute the request against an Axum router
     pub async fn send(self, app: Router) -> AxumTestResponse {
         let mut builder = Request::builder().method(self.method).uri(self.uri);

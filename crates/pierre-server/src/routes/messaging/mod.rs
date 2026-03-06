@@ -33,7 +33,7 @@ impl MessagingRoutes {
             // Webhook ingress (per-channel signature verification)
             .route(
                 "/api/messaging/webhook/:channel",
-                post(webhooks::handle_webhook),
+                get(webhooks::verify_webhook).post(webhooks::handle_webhook),
             )
             // Channel configuration CRUD
             .route("/api/messaging/channels", get(config::list_channel_configs))

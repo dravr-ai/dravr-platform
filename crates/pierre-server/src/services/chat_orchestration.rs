@@ -10,8 +10,8 @@ use tracing::info;
 
 use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
-use crate::llm::get_pierre_system_prompt;
 use crate::llm::ChatMessage;
+use crate::llm::{get_messaging_context_prompt, get_pierre_system_prompt};
 use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::protocols::universal::UniversalExecutor;
@@ -182,9 +182,14 @@ pub async fn dispatch_and_get_response(
     // Get conversation history for LLM context
     let history = get_conversation_history(database, conversation_id, user_id).await?;
 
-    // Build LLM messages with system prompt and history
-    let system_prompt = get_pierre_system_prompt();
-    let mut llm_messages = build_llm_messages(Some(system_prompt), &history);
+    // Build LLM messages with system prompt and history.
+    // Append the messaging context prompt to constrain response length and formatting.
+    let system_prompt = format!(
+        "{}\n\n{}",
+        get_pierre_system_prompt(),
+        get_messaging_context_prompt()
+    );
+    let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 
     // Build MCP tools and get LLM provider
     let tools = ChatRoutes::build_mcp_tools();
