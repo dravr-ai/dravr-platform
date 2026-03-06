@@ -14,12 +14,18 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
+# Wait for coach list to load after fresh login
+- swipe:
+    start: "50%,50%"
+    end: "50%,51%"
+    duration: 3000
+
 # Find and delete the test coach
 - scrollUntilVisible:
     element:
       text: "E2E Editor Coach"
     direction: DOWN
-    timeout: 5000
+    timeout: 15000
 
 - longPressOn: "E2E Editor Coach"
 

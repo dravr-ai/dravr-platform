@@ -64,21 +64,16 @@ appId: com.pierre.fitness
       id: "coach-library-screen"
     timeout: 30000
 
-# Pull-to-refresh to ensure the list reloads with the new coach
+# Wait for useFocusEffect to trigger loadCoaches and API to respond.
+# Maestro has no sleep command; a micro-swipe with long duration acts as a delay.
 - swipe:
-    start: "50%,30%"
-    end: "50%,70%"
-    duration: 400
+    start: "50%,50%"
+    end: "50%,51%"
+    duration: 5000
 
-# Wait for the list to reload
-- extendedWaitUntil:
-    visible:
-      id: "coach-library-screen"
-    timeout: 5000
-
-# Verify coach appears in list
+# Verify coach appears in list (new coaches sort to bottom with use_count=0)
 - scrollUntilVisible:
     element:
       text: "E2E Editor Coach"
     direction: DOWN
-    timeout: 15000
+    timeout: 20000
