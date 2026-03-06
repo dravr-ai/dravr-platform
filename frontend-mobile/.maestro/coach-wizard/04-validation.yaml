@@ -1,5 +1,5 @@
-# ABOUTME: Test wizard step validation
-# ABOUTME: Converted from coach-wizard.test.js "step validation" tests
+# ABOUTME: Test coach editor validation errors
+# ABOUTME: Verifies title and system prompt validation on save attempt
 
 appId: com.pierre.fitness
 
@@ -14,43 +14,42 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Test: should show error when title is empty and Next is tapped
+# Test: should show error when title is empty and Save is tapped
 - tapOn:
-    id: "next-button"
+    id: "save-button"
 
-# Should show error
+# Should show title error
 - assertVisible:
     id: "title-error"
 - assertVisible: "Title is required"
 
-# Fix the title and navigate to system prompt step
+# Fix the title
 - tapOn:
     id: "coach-title-input"
 - inputText: "Validation Test"
-- tapOn:
-    id: "next-button"
-- tapOn:
-    id: "next-button"
 
-# Should be on system prompt step
-- extendedWaitUntil:
-    visible:
-      text: "System Prompt"
+# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
+- tapOn:
+    point: "50%,20%"
+
+# Tap save again — system prompt error should appear
+- tapOn:
+    id: "save-button"
+
+# Should show system prompt error
+- scrollUntilVisible:
+    element:
+      id: "prompt-error"
+    direction: DOWN
     timeout: 3000
-
-# Test: should show error when system prompt is empty
-- tapOn:
-    id: "next-button"
-
-# Should show error
 - assertVisible:
     id: "prompt-error"
 - assertVisible: "System prompt is required"

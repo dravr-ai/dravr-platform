@@ -11,27 +11,16 @@ appId: com.pierre.fitness
     file: ../helpers/login.yaml
 
 # Test: chat - tab icon visible and tappable
-- runFlow:
-    when:
-      visible:
-        id: "chat-tab"
-    commands:
-      - tapOn:
-          id: "chat-tab"
-
-# Test: chat - displays conversation list or empty state
-# Either conversations list or we're already in a chat
-- runFlow:
-    when:
-      visible:
-        id: "conversations-list"
-    commands:
-      - assertVisible:
-          id: "conversations-list"
-
-# Test: chat - new chat button visible
 - assertVisible:
-    id: "new-chat-button"
+    id: "tab-chat"
+- tapOn:
+    id: "tab-chat"
+
+# Test: chat - displays chat screen
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 5000
 
 # Test: chat - message input accepts text
 - runFlow:

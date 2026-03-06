@@ -1,5 +1,5 @@
-# ABOUTME: Cleanup - delete the coach created in wizard flow test
-# ABOUTME: Converted from coach-wizard.test.js "cleanup" test
+# ABOUTME: Cleanup - delete the coach created in the editor flow test
+# ABOUTME: Uses long-press action menu to delete the test coach
 
 appId: com.pierre.fitness
 
@@ -15,12 +15,13 @@ appId: com.pierre.fitness
     file: ../helpers/navigate-to-coaches.yaml
 
 # Find and delete the test coach
-- extendedWaitUntil:
-    visible:
-      text: "E2E Wizard Coach"
+- scrollUntilVisible:
+    element:
+      text: "E2E Editor Coach"
+    direction: DOWN
     timeout: 5000
 
-- longPressOn: "E2E Wizard Coach"
+- longPressOn: "E2E Editor Coach"
 
 - extendedWaitUntil:
     visible:
@@ -39,5 +40,5 @@ appId: com.pierre.fitness
 # Verify coach is deleted
 - extendedWaitUntil:
     notVisible:
-      text: "E2E Wizard Coach"
+      text: "E2E Editor Coach"
     timeout: 5000

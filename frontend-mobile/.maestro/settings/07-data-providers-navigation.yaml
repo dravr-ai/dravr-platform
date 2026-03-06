@@ -14,6 +14,13 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
+# Scroll to the Data Providers button (may be below profile header)
+- scrollUntilVisible:
+    element:
+      id: "settings-data-providers-button"
+    direction: DOWN
+    timeout: 5000
+
 # Test: should navigate to Connections screen when Data Providers is tapped
 - tapOn:
     id: "settings-data-providers-button"

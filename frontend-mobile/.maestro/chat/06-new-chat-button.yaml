@@ -1,4 +1,4 @@
-# ABOUTME: Test creating new chat from + button
+# ABOUTME: Test creating new chat from the tab bar quick action
 # ABOUTME: Converted from chat.test.js "should create new chat when + button is pressed"
 
 appId: com.pierre.fitness
@@ -27,9 +27,9 @@ appId: com.pierre.fitness
       id: "thinking-indicator"
     timeout: 30000
 
-# Now create new chat
-- tapOn:
-    id: "new-chat-button"
+# Now create new chat via the floating tab bar
+- runFlow:
+    file: ../helpers/new-chat.yaml
 
 # Should show New Chat title
 - assertVisible:

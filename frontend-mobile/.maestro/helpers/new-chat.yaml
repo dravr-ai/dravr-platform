@@ -1,13 +1,25 @@
 # ABOUTME: Helper flow to start a fresh chat conversation
-# ABOUTME: Taps the new chat button and verifies the chat title resets
+# ABOUTME: Expands the floating tab bar and taps the New Chat quick action
 
-appId: com.pierre.fitness
+appId: host.exp.Exponent
 
 ---
-# Tap the new chat button
+# Expand the floating tab bar menu
 - tapOn:
-    id: "new-chat-button"
+    id: "expandable-tab-bar-plus"
+
+# Wait for the New Chat quick action to appear (animated entrance)
+- extendedWaitUntil:
+    visible:
+      id: "quick-action-new-chat"
+    timeout: 3000
+
+# Tap the New Chat quick action
+- tapOn:
+    id: "quick-action-new-chat"
 
 # Verify we're in a new chat
-- assertVisible:
-    id: "chat-title"
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 5000

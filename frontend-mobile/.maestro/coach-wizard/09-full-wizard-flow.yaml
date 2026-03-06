@@ -1,5 +1,5 @@
-# ABOUTME: Test complete wizard flow to create a coach
-# ABOUTME: Converted from coach-wizard.test.js "full wizard flow" tests
+# ABOUTME: Test complete coach editor flow to create a coach
+# ABOUTME: Fills all fields in the single-page editor and saves
 
 appId: com.pierre.fitness
 
@@ -14,69 +14,91 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Step 1: Basic Info
+# Fill title
 - tapOn:
     id: "coach-title-input"
-- inputText: "E2E Wizard Coach"
+- inputText: "E2E Editor Coach"
+
+# Select category
+- tapOn:
+    id: "category-picker"
+- extendedWaitUntil:
+    visible:
+      text: "Training"
+    timeout: 3000
+- tapOn: "Training"
+
+# Fill description
 - tapOn:
     id: "coach-description-input"
 - inputText: "Created via E2E test"
-- tapOn:
-    id: "next-button"
 
-# Step 2: Category & Tags
+# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
+- tapOn:
+    point: "50%,20%"
+
+# Scroll to system prompt (expanded by default)
+- scrollUntilVisible:
+    element:
+      id: "system-prompt-input"
+    direction: DOWN
+    timeout: 5000
+
+# Fill system prompt
+- tapOn:
+    id: "system-prompt-input"
+- inputText: "You are an E2E test coach created by Maestro."
+
+# Dismiss keyboard
+- tapOn:
+    point: "50%,20%"
+
+# Scroll to tags section and expand it
+- scrollUntilVisible:
+    element:
+      id: "tags-section"
+    direction: DOWN
+    timeout: 5000
+- tapOn:
+    id: "tags-section-toggle"
 - extendedWaitUntil:
     visible:
-      id: "category-picker"
+      id: "tag-input"
     timeout: 3000
-- tapOn:
-    id: "category-picker"
-- tapOn: "Training"
+
+# Add a tag
 - tapOn:
     id: "tag-input"
 - inputText: "e2e"
 - tapOn:
     id: "add-tag-button"
-- tapOn:
-    id: "next-button"
 
-# Step 3: System Prompt
-- extendedWaitUntil:
-    visible:
-      id: "system-prompt-input"
-    timeout: 3000
+# Dismiss keyboard
 - tapOn:
-    id: "system-prompt-input"
-- inputText: "You are an E2E test coach created by Maestro."
-- tapOn:
-    id: "next-button"
+    point: "50%,20%"
 
-# Step 4: Review & Save
-- extendedWaitUntil:
-    visible:
-      id: "step-review"
-    timeout: 3000
+# Save the coach
 - tapOn:
     id: "save-button"
 
-# Should return to library with success message
-- extendedWaitUntil:
-    visible:
-      text: "Coach created successfully"
-    timeout: 5000
-
+# Should return to library
 - extendedWaitUntil:
     visible:
       id: "coach-library-screen"
-    timeout: 5000
+    timeout: 10000
 
 # Verify coach appears in list
-- assertVisible: "E2E Wizard Coach"
+- scrollUntilVisible:
+    element:
+      text: "E2E Editor Coach"
+    direction: DOWN
+    timeout: 5000
+- assertVisible: "E2E Editor Coach"

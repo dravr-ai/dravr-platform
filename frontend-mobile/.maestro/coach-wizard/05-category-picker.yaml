@@ -1,5 +1,5 @@
-# ABOUTME: Test category picker functionality
-# ABOUTME: Converted from coach-wizard.test.js "category picker" tests
+# ABOUTME: Test category picker functionality in coach editor
+# ABOUTME: Verifies selecting a category from the action sheet
 
 appId: com.pierre.fitness
 
@@ -14,25 +14,17 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Go to category step
-- tapOn:
-    id: "coach-title-input"
-- inputText: "Category Test"
-- tapOn:
-    id: "next-button"
-
-- extendedWaitUntil:
-    visible:
-      id: "category-picker"
-    timeout: 3000
+# Category picker should be visible
+- assertVisible:
+    id: "category-picker"
 
 # Tap category picker
 - tapOn:

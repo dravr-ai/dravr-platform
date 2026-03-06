@@ -1,5 +1,5 @@
-# ABOUTME: Test wizard step indicator display
-# ABOUTME: Converted from coach-wizard.test.js "should display step indicator at top"
+# ABOUTME: Test coach editor layout shows form elements
+# ABOUTME: Verifies title input, category picker, and description are visible
 
 appId: com.pierre.fitness
 
@@ -14,28 +14,25 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 
 - extendedWaitUntil:
     visible:
-      id: "step-indicator"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Check that step dots are visible
+# Check that form elements are visible
 - assertVisible:
-    id: "step-dot-0"
+    id: "coach-title-input"
 - assertVisible:
-    id: "step-dot-1"
+    id: "category-picker"
 - assertVisible:
-    id: "step-dot-2"
-- assertVisible:
-    id: "step-dot-3"
+    id: "coach-description-input"
 
-# Check current step label
+# Check save button in header
 - assertVisible:
-    id: "current-step-label"
-- assertVisible: "Basic Info"
+    id: "save-button"
 
 - back
