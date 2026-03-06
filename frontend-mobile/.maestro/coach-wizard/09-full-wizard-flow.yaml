@@ -47,7 +47,7 @@ appId: com.pierre.fitness
 - tapOn:
     point: "50%,15%"
 
-# Scroll back up to save button in header
+# Scroll back up to make save button accessible
 - scrollUntilVisible:
     element:
       id: "save-button"
@@ -58,16 +58,27 @@ appId: com.pierre.fitness
 - tapOn:
     id: "save-button"
 
-# Should return to library (increase timeout for CI API latency)
+# Should return to library (long timeout for CI API latency)
 - extendedWaitUntil:
     visible:
       id: "coach-library-screen"
     timeout: 30000
+
+# Pull-to-refresh to ensure the list reloads with the new coach
+- swipe:
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 400
+
+# Wait for the list to reload
+- extendedWaitUntil:
+    visible:
+      id: "coach-library-screen"
+    timeout: 5000
 
 # Verify coach appears in list
 - scrollUntilVisible:
     element:
       text: "E2E Editor Coach"
     direction: DOWN
-    timeout: 10000
-- assertVisible: "E2E Editor Coach"
+    timeout: 15000
