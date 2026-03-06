@@ -67,17 +67,32 @@ appId: com.pierre.fitness
 # Screenshot after navigating back — diagnose what's on screen
 - takeScreenshot: 09-after-save
 
-# Wait 10s for useFocusEffect to fire and API to respond.
-# The FlashList may be hidden during loading (isLoading → ActivityIndicator).
+# Force a tab focus cycle to ensure useFocusEffect triggers loadCoaches.
+# In Expo Router, popping a stack screen should trigger focus, but cycling tabs
+# guarantees a fresh focus event and data reload.
+- tapOn:
+    id: "tab-chat"
+- extendedWaitUntil:
+    visible:
+      id: "chat-screen"
+    timeout: 5000
+- tapOn:
+    id: "tab-coaches"
+- extendedWaitUntil:
+    visible:
+      id: "coach-library-screen"
+    timeout: 5000
+
+# Wait for API to respond after focus-triggered loadCoaches
 - swipe:
     start: "50%,50%"
     end: "50%,51%"
-    duration: 10000
+    duration: 5000
 
-# Screenshot after wait — should show coach list with data
-- takeScreenshot: 09-after-wait
+# Screenshot after tab cycle — should show coach list with data
+- takeScreenshot: 09-after-tab-cycle
 
-# Verify coach appears in list. Test user has no other coaches so no scrolling needed.
+# Verify coach appears in list
 - extendedWaitUntil:
     visible:
       text: "E2E Editor Coach"
