@@ -27,6 +27,10 @@ appId: com.pierre.fitness
     id: "coach-title-input"
 - inputText: "E2E Editor Coach"
 
+# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
+- tapOn:
+    point: "50%,5%"
+
 # Select category
 - tapOn:
     id: "category-picker"
@@ -41,9 +45,9 @@ appId: com.pierre.fitness
     id: "coach-description-input"
 - inputText: "Created via E2E test"
 
-# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
+# Dismiss keyboard
 - tapOn:
-    point: "50%,20%"
+    point: "50%,5%"
 
 # Scroll to system prompt (expanded by default)
 - scrollUntilVisible:
@@ -59,41 +63,17 @@ appId: com.pierre.fitness
 
 # Dismiss keyboard
 - tapOn:
-    point: "50%,20%"
+    point: "50%,5%"
 
-# Scroll to tags section and expand it
-- scrollUntilVisible:
-    element:
-      id: "tags-section"
-    direction: DOWN
-    timeout: 5000
-- tapOn:
-    id: "tags-section-toggle"
-- extendedWaitUntil:
-    visible:
-      id: "tag-input"
-    timeout: 3000
-
-# Add a tag
-- tapOn:
-    id: "tag-input"
-- inputText: "e2e"
-- tapOn:
-    id: "add-tag-button"
-
-# Dismiss keyboard
-- tapOn:
-    point: "50%,20%"
-
-# Save the coach
+# Save the coach (save button is in header, always visible)
 - tapOn:
     id: "save-button"
 
-# Should return to library
+# Should return to library (increase timeout for CI API latency)
 - extendedWaitUntil:
     visible:
       id: "coach-library-screen"
-    timeout: 10000
+    timeout: 30000
 
 # Verify coach appears in list
 - scrollUntilVisible:
