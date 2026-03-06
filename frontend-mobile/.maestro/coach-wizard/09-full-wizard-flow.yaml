@@ -64,9 +64,21 @@ appId: com.pierre.fitness
       id: "coach-library-screen"
     timeout: 30000
 
-# Wait for coach to appear in list. useFocusEffect triggers loadCoaches on return.
-# The test user has no other coaches, so the new coach renders without scrolling.
+# Screenshot after navigating back — diagnose what's on screen
+- takeScreenshot: 09-after-save
+
+# Wait 10s for useFocusEffect to fire and API to respond.
+# The FlashList may be hidden during loading (isLoading → ActivityIndicator).
+- swipe:
+    start: "50%,50%"
+    end: "50%,51%"
+    duration: 10000
+
+# Screenshot after wait — should show coach list with data
+- takeScreenshot: 09-after-wait
+
+# Verify coach appears in list. Test user has no other coaches so no scrolling needed.
 - extendedWaitUntil:
     visible:
       text: "E2E Editor Coach"
-    timeout: 30000
+    timeout: 20000
