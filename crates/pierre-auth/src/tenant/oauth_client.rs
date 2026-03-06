@@ -327,6 +327,27 @@ impl TenantOAuthClient {
                 "https://api.fitbit.com/oauth2/token".to_owned(),
                 true,
             ),
+            "garmin" => (
+                "https://connect.garmin.com/oauthConfirm".to_owned(),
+                "https://connectapi.garmin.com/oauth-service/oauth/access_token".to_owned(),
+                false, // Garmin uses OAuth 1.0a, no PKCE
+            ),
+            "whoop" => (
+                "https://api.prod.whoop.com/oauth/oauth2/auth".to_owned(),
+                "https://api.prod.whoop.com/oauth/oauth2/token".to_owned(),
+                true,
+            ),
+            "terra" => (
+                "https://widget.tryterra.co/session".to_owned(),
+                "https://api.tryterra.co/v2/auth/token".to_owned(),
+                false, // Terra uses API key auth, not standard OAuth
+            ),
+            // Synthetic/COROS providers don't use OAuth — reject early
+            "synthetic" | "synthetic_sleep" | "coros" => {
+                return Err(AppError::invalid_input(format!(
+                    "Provider {provider} does not use OAuth authentication"
+                )));
+            }
             _ => {
                 warn!("Unknown provider {}, using generic OAuth URLs", provider);
                 return Err(AppError::invalid_input(format!(

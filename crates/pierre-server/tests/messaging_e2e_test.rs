@@ -61,6 +61,11 @@ mod messaging_e2e_tests {
         format!("sha256={}", hmac_sha256_hex(secret, body))
     }
 
+    /// Compute `WhatsApp` HMAC-SHA256 signature (`sha256={hex}`) — same as Messenger
+    fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
+        format!("sha256={}", hmac_sha256_hex(secret, body))
+    }
+
     /// Create a test user with bcrypt-hashed password and `UserStatus::Active`
     async fn create_e2e_user(
         resources: &ServerResources,
@@ -403,7 +408,7 @@ mod messaging_e2e_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // E2E: WhatsApp/Twilio — unlinked webhook → register → linked webhook
+    // E2E: WhatsApp (Meta Cloud API) — unlinked webhook → register → linked webhook
     // ════════════════════════════════════════════════════════════════
 
     #[tokio::test]
@@ -414,47 +419,55 @@ mod messaging_e2e_tests {
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "wa_owner@example.com", "WaOwner123!").await;
 
-        // Step 1: Configure WhatsApp channel
-        let wa_secret = "whatsapp_e2e_auth_token";
+        // Step 1: Configure WhatsApp channel (Meta Cloud API fields)
+        let wa_secret = "whatsapp_e2e_app_secret";
         let config_id = Uuid::new_v4().to_string();
         db.upsert_channel_config(&UpsertChannelConfigParams {
             id: &config_id,
             tenant_id,
             channel_type: "whatsapp",
-            api_key: Some("twilio_account_sid_e2e"),
-            api_secret: Some("twilio_api_secret_e2e"),
+            api_key: Some("whatsapp_access_token_e2e"),
+            api_secret: None,
             webhook_secret: Some(wa_secret),
-            account_id: Some("twilio_account_sid_e2e"),
-            phone_number: Some("+15551234567"),
+            account_id: Some("whatsapp_business_account_id_e2e"),
+            phone_number: Some("123456789012345"),
             bot_token: None,
             is_active: true,
         })
         .await
         .unwrap();
 
-        // Step 2: Send webhook from unlinked WhatsApp user
+        // Step 2: Send webhook from unlinked WhatsApp user (JSON, Meta HMAC-SHA256)
         let wa_body = json!({
-            "SmsMessageSid": "SM_e2e_msg_001",
-            "NumMedia": "0",
-            "ProfileName": "WhatsAppUser",
-            "SmsSid": "SM_e2e_msg_001",
-            "WaId": "15559876543",
-            "SmsStatus": "received",
-            "Body": "Hi Pierre!",
-            "To": "whatsapp:+15551234567",
-            "NumSegments": "1",
-            "MessageSid": "SM_e2e_msg_001",
-            "AccountSid": "twilio_account_sid_e2e",
-            "From": "whatsapp:+15559876543",
-            "ApiVersion": "2010-04-01"
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "id": "whatsapp_business_account_id_e2e",
+                "changes": [{
+                    "value": {
+                        "messaging_product": "whatsapp",
+                        "metadata": {
+                            "display_phone_number": "+15551234567",
+                            "phone_number_id": "123456789012345"
+                        },
+                        "messages": [{
+                            "from": "15559876543",
+                            "id": "wamid.e2e_msg_001",
+                            "timestamp": "1234567890",
+                            "type": "text",
+                            "text": { "body": "Hi Pierre!" }
+                        }]
+                    },
+                    "field": "messages"
+                }]
+            }]
         });
         let wa_body_bytes = serde_json::to_vec(&wa_body).unwrap();
-        let wa_sig = hmac_sha256_hex(wa_secret, &wa_body_bytes);
+        let wa_sig = compute_whatsapp_sig(wa_secret, &wa_body_bytes);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
         let resp = AxumTestRequest::post("/api/messaging/webhook/whatsapp")
             .header("content-type", "application/json")
-            .header("x-twilio-signature", &wa_sig)
+            .header("x-hub-signature-256", &wa_sig)
             .json(&wa_body)
             .send(router)
             .await;
@@ -464,7 +477,7 @@ mod messaging_e2e_tests {
         assert_eq!(body["status"].as_str(), Some("ok"));
 
         // Step 3: Create link state and register a new user
-        let sender_id = "whatsapp:+15559876543";
+        let sender_id = "15559876543";
         let code =
             create_e2e_link_state(db, tenant_id, "whatsapp", sender_id, Some("WhatsAppUser")).await;
 
@@ -712,11 +725,11 @@ mod messaging_e2e_tests {
             id: &config_id,
             tenant_id,
             channel_type: "whatsapp",
-            api_key: Some("twilio_sid"),
-            api_secret: Some("twilio_secret"),
+            api_key: Some("whatsapp_access_token"),
+            api_secret: None,
             webhook_secret: Some("correct_wa_secret"),
-            account_id: Some("twilio_sid"),
-            phone_number: Some("+15551112222"),
+            account_id: Some("wa_business_id"),
+            phone_number: Some("123456789012345"),
             bot_token: None,
             is_active: true,
         })
@@ -724,18 +737,27 @@ mod messaging_e2e_tests {
         .unwrap();
 
         let wa_body = json!({
-            "Body": "hack",
-            "From": "whatsapp:+1999",
-            "To": "whatsapp:+15551112222",
-            "MessageSid": "SM_bad"
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551999999",
+                            "id": "wamid.bad",
+                            "type": "text",
+                            "text": { "body": "hack" }
+                        }]
+                    }
+                }]
+            }]
         });
         let wa_body_bytes = serde_json::to_vec(&wa_body).unwrap();
-        let bad_sig = hmac_sha256_hex("wrong_wa_secret", &wa_body_bytes);
+        let bad_sig = compute_whatsapp_sig("wrong_wa_secret", &wa_body_bytes);
 
         let router = MessagingRoutes::routes(Arc::clone(&resources));
         let resp = AxumTestRequest::post("/api/messaging/webhook/whatsapp")
             .header("content-type", "application/json")
-            .header("x-twilio-signature", &bad_sig)
+            .header("x-hub-signature-256", &bad_sig)
             .json(&wa_body)
             .send(router)
             .await;
@@ -743,7 +765,7 @@ mod messaging_e2e_tests {
         assert_ne!(
             resp.status_code(),
             StatusCode::OK,
-            "Wrong WhatsApp/Twilio signature should be rejected"
+            "Wrong WhatsApp signature should be rejected"
         );
     }
 
@@ -962,6 +984,98 @@ mod messaging_e2e_tests {
     // ════════════════════════════════════════════════════════════════
     // Edge case: Expired link code
     // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_meta_webhook_verification_whatsapp() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, tenant_id) =
+            create_e2e_user(&resources, "wa_verify@example.com", "WaVerify123!").await;
+
+        // Configure WhatsApp channel
+        let wa_secret = "my_verify_token_secret";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_access_token"),
+            api_secret: None,
+            webhook_secret: Some(wa_secret),
+            account_id: None,
+            phone_number: Some("999888777"),
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // Valid verification: should echo challenge
+        let resp = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=my_verify_token_secret&hub.challenge=challenge_string_12345",
+        )
+        .send(router)
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.text(), "challenge_string_12345");
+
+        // Wrong verify token: should be rejected
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=wrong_token&hub.challenge=challenge_abc",
+        )
+        .send(router)
+        .await;
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // Wrong mode: should be rejected
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let resp = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=unsubscribe&hub.verify_token=my_verify_token_secret&hub.challenge=challenge_abc",
+        )
+        .send(router)
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn test_meta_webhook_verification_messenger() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, tenant_id) =
+            create_e2e_user(&resources, "msg_verify@example.com", "MsgVerify123!").await;
+
+        // Configure Messenger channel
+        let msg_secret = "messenger_app_secret_verify";
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            channel_type: "messenger",
+            api_key: Some("page_access_token"),
+            api_secret: None,
+            webhook_secret: Some(msg_secret),
+            account_id: Some("page_id_123"),
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // Valid verification
+        let resp = AxumTestRequest::get(
+            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=messenger_app_secret_verify&hub.challenge=meta_challenge_789",
+        )
+        .send(router)
+        .await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.text(), "meta_challenge_789");
+    }
 
     #[tokio::test]
     async fn test_e2e_expired_link_code_rejected() {

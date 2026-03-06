@@ -204,6 +204,8 @@ impl TenantOAuthManager {
             "garmin" => self.try_garmin_config_credentials(tenant_id),
             "whoop" => self.try_whoop_config_credentials(tenant_id),
             "terra" => self.try_terra_config_credentials(tenant_id),
+            // Synthetic providers generate data locally, COROS OAuth not yet configured
+            "synthetic" | "synthetic_sleep" | "coros" => None,
             _ => {
                 warn!("Unsupported OAuth provider: {}", provider);
                 None

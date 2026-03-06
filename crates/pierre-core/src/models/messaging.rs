@@ -16,7 +16,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelType {
-    /// `WhatsApp` Business API via Twilio
+    /// `WhatsApp` Business Cloud API via Meta Graph API
     #[serde(rename = "whatsapp")]
     WhatsApp,
     /// Meta Messenger Platform

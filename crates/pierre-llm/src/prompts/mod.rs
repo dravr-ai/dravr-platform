@@ -36,6 +36,13 @@ pub const INSIGHT_VALIDATION_PROMPT: &str = include_str!("insight_validation.md"
 /// a shareable social post with hashtags, ready for direct copying.
 pub const INSIGHT_GENERATION_PROMPT: &str = include_str!("insight_generation.md");
 
+/// Messaging channel context prompt
+///
+/// Appended to the system prompt when the LLM is replying via a chat channel
+/// (`WhatsApp`, Telegram, Slack, Discord, Messenger). Instructs the model to
+/// keep responses concise and mobile-friendly.
+pub const MESSAGING_CONTEXT_PROMPT: &str = include_str!("messaging_context.md");
+
 /// Get the system prompt for the Pierre fitness assistant
 ///
 /// This is the default system prompt used when starting a new conversation.
@@ -70,4 +77,13 @@ pub const fn get_insight_validation_prompt() -> &'static str {
 #[must_use]
 pub const fn get_insight_generation_prompt() -> &'static str {
     INSIGHT_GENERATION_PROMPT
+}
+
+/// Get the messaging channel context prompt
+///
+/// Appended to the system prompt when replying via chat channels.
+/// Constrains response length and formatting for mobile chat UX.
+#[must_use]
+pub const fn get_messaging_context_prompt() -> &'static str {
+    MESSAGING_CONTEXT_PROMPT
 }

@@ -53,7 +53,7 @@ User sends message
 | Telegram | Secret token header | `/start {code}` deep link | HTML parse mode |
 | Slack | HMAC-SHA256 (v0 scheme) | OAuth callback | Block Kit JSON |
 | Discord | Ed25519 | OAuth callback | Embeds + components |
-| WhatsApp | HMAC-SHA256 | `LINK {code}` text | Twilio Messages API |
+| WhatsApp | HMAC-SHA256 (`sha256=` prefix) | `LINK {code}` text | Meta Cloud API |
 | Messenger | HMAC-SHA256 (`sha256=` prefix) | OAuth callback | Graph API templates |
 
 ## Quick Start (Telegram)
@@ -231,31 +231,32 @@ curl -X PUT http://localhost:8081/api/messaging/channels/discord \
 
 ---
 
-### WhatsApp (via Twilio)
+### WhatsApp (Meta Cloud API)
 
 | Field | Value |
 |-------|-------|
-| Platform | [Twilio Console](https://console.twilio.com/) → Messaging → WhatsApp Sandbox |
+| Platform | [Meta for Developers](https://developers.facebook.com/) → Create App → Business → WhatsApp |
 | Webhook URL | `{BASE_URL}/api/messaging/webhook/whatsapp` |
-| Signature | `HMAC-SHA256(webhook_secret, body)` → hex |
-| Header | `x-twilio-signature` |
+| Signature | `sha256=HMAC-SHA256(app_secret, body)` |
+| Header | `x-hub-signature-256` |
 | Deep link | User sends `LINK {code}` to the bot |
 
 **Setup steps:**
 
-1. In Twilio Console, navigate to **Messaging → Try it out → Send a WhatsApp message**
-2. Follow the sandbox setup instructions (join the sandbox from your phone)
-3. Under **Sandbox Settings**, set the **When a message comes in** webhook URL
-4. Note your **Account SID**, **Auth Token**, and sandbox **phone number**
+1. Go to [developers.facebook.com](https://developers.facebook.com/) → **My Apps** → **Create App**
+2. Select **Business** type, then add **WhatsApp** product
+3. Under **WhatsApp → API Setup**, note your **Phone Number ID** and generate a **Permanent Access Token**
+4. Under **App Settings → Basic**, copy the **App Secret**
+5. Under **WhatsApp → Configuration**, set the Callback URL to your webhook URL and subscribe to `messages`
 
 **Required credentials:**
 
 | Credential field | Source |
 |-----------------|--------|
-| `webhook_secret` | A secret you define — used for HMAC signature verification |
-| `api_secret` | Twilio Auth Token — used for HTTP Basic Auth when sending |
-| `account_id` | Twilio Account SID — used in API URL and Basic Auth |
-| `phone_number` | Twilio WhatsApp number (e.g., `+14155238886`) |
+| `api_key` | Access Token — used as Bearer auth for sending messages |
+| `webhook_secret` | App Secret — used for HMAC-SHA256 signature verification |
+| `phone_number` | Phone Number ID (Meta's numeric ID, e.g., `123456789012345`) |
+| `account_id` | WhatsApp Business Account ID (optional) |
 
 ```bash
 curl -X PUT http://localhost:8081/api/messaging/channels/whatsapp \
@@ -264,10 +265,10 @@ curl -X PUT http://localhost:8081/api/messaging/channels/whatsapp \
   -d '{
     "enabled": true,
     "credentials": {
-      "webhook_secret": "my-hmac-secret",
-      "api_secret": "your_twilio_auth_token",
-      "account_id": "AC...",
-      "phone_number": "+14155238886"
+      "api_key": "EAABx...",
+      "webhook_secret": "app_secret_here",
+      "phone_number": "123456789012345",
+      "account_id": "987654321098765"
     }
   }'
 ```
@@ -411,11 +412,11 @@ The login page is served at `GET /messaging/link/{code}` and submits credentials
 {
   "enabled": true,
   "credentials": {
-    "api_key": "optional — Slack bot token, Messenger page token",
-    "api_secret": "optional — WhatsApp Twilio auth token",
+    "api_key": "optional — Slack bot token, Messenger/WhatsApp access token",
+    "api_secret": "optional — channel-specific API secret",
     "webhook_secret": "required — signing secret for verification",
-    "account_id": "optional — WhatsApp account SID, Discord app ID",
-    "phone_number": "optional — WhatsApp from-number",
+    "account_id": "optional — WhatsApp business account ID, Discord app ID",
+    "phone_number": "optional — WhatsApp Phone Number ID",
     "bot_token": "optional — Telegram/Discord bot token"
   },
   "webhook_url": "optional — override webhook URL"
@@ -459,7 +460,7 @@ Every inbound webhook is cryptographically verified before processing:
 | Telegram | Shared secret header | Constant-time comparison |
 | Slack | HMAC-SHA256 with v0 scheme | Constant-time comparison, 5-minute replay window |
 | Discord | Ed25519 | Library-handled verification |
-| WhatsApp | HMAC-SHA256 over body | Constant-time comparison |
+| WhatsApp | HMAC-SHA256 with `sha256=` prefix | Constant-time comparison |
 | Messenger | HMAC-SHA256 with `sha256=` prefix | Constant-time comparison |
 
 All HMAC comparisons use `subtle::ConstantTimeEq` to prevent timing attacks.

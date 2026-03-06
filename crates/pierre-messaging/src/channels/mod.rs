@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-/// `WhatsApp` Business API adapter via Twilio
+/// `WhatsApp` Business Cloud API adapter via Meta Graph API
 #[cfg(feature = "channel-whatsapp")]
 pub mod whatsapp;
 

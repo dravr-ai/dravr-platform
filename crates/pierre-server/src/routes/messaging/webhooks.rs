@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
@@ -21,6 +21,7 @@ use pierre_database::plugins::{
 };
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 use std::str::FromStr;
@@ -81,6 +82,79 @@ struct PendingDispatch {
     sender_id: String,
     /// Text content to dispatch
     text_content: String,
+}
+
+/// Query parameters for Meta webhook verification (GET request)
+///
+/// Meta platforms (Messenger, `WhatsApp`) send a GET request with these params
+/// when you configure the webhook URL in the App Dashboard. The server must
+/// validate `hub.verify_token` and echo back `hub.challenge` as plain text.
+#[derive(Debug, Deserialize)]
+pub struct MetaVerifyQuery {
+    /// Must be `"subscribe"`
+    #[serde(rename = "hub.mode")]
+    pub mode: String,
+    /// Random string that must be echoed back as the response body
+    #[serde(rename = "hub.challenge")]
+    pub challenge: String,
+    /// Token configured in the Meta App Dashboard — must match our stored verify token
+    #[serde(rename = "hub.verify_token")]
+    pub verify_token: String,
+}
+
+/// Handle Meta webhook verification (GET request)
+///
+/// Meta sends `GET /webhook?hub.mode=subscribe&hub.verify_token=TOKEN&hub.challenge=CHALLENGE`
+/// when configuring the webhook URL. We validate the verify token against the channel's
+/// `webhook_secret` and echo `hub.challenge` back as plain text to confirm ownership.
+///
+/// Supports both Messenger and `WhatsApp` channels.
+pub async fn verify_webhook(
+    State(resources): State<Arc<ServerResources>>,
+    Path(channel): Path<String>,
+    Query(query): Query<MetaVerifyQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    if query.mode != "subscribe" {
+        return Err(AppError::invalid_input(format!(
+            "Expected hub.mode=subscribe, got: {}",
+            query.mode
+        )));
+    }
+
+    let db: &dyn MessagingRepository = &*resources.database;
+    let configs = db.get_configs_by_channel_type(&channel).await?;
+
+    if configs.is_empty() {
+        return Err(AppError::auth_invalid(format!(
+            "No active channel configuration for {channel}"
+        )));
+    }
+
+    // Check if any config's webhook_secret matches the verify token
+    let token_matches = configs.iter().any(|config| {
+        config
+            .get("webhook_secret")
+            .and_then(|v| v.as_str())
+            .is_some_and(|secret| secret == query.verify_token)
+    });
+
+    if !token_matches {
+        warn!(
+            channel = %channel,
+            "Meta webhook verification failed: verify_token mismatch"
+        );
+        return Err(AppError::auth_invalid(
+            "Webhook verify token does not match",
+        ));
+    }
+
+    info!(
+        channel = %channel,
+        "Meta webhook verification successful"
+    );
+
+    // Echo challenge as plain text (Meta requires exactly this)
+    Ok((StatusCode::OK, query.challenge))
 }
 
 /// Handle an inbound webhook from a messaging channel

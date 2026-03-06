@@ -6,16 +6,15 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use pierre_core::errors::messaging::{MessagingError, MessagingResult};
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
 };
 use serde_json::Value;
-use sha2::Sha256;
 use uuid::Uuid;
 
+use crate::meta_signature::verify_meta_signature;
 use crate::transport::TransportAdapter;
 
 /// Meta Messenger Platform transport adapter
@@ -43,43 +42,7 @@ impl MessengerTransport {
 #[async_trait]
 impl TransportAdapter for MessengerTransport {
     fn verify_signature(&self, headers: &HeaderMap, body: &[u8]) -> MessagingResult<()> {
-        let signature_header = headers
-            .get("x-hub-signature-256")
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| MessagingError::SignatureVerificationFailed {
-                channel: "messenger".to_owned(),
-                reason: "missing x-hub-signature-256 header".to_owned(),
-            })?;
-
-        // Parse "sha256={hex}" format
-        let hex_sig = signature_header.strip_prefix("sha256=").ok_or_else(|| {
-            MessagingError::SignatureVerificationFailed {
-                channel: "messenger".to_owned(),
-                reason: "signature header must start with sha256=".to_owned(),
-            }
-        })?;
-
-        // Compute HMAC-SHA256
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.app_secret.as_bytes()).map_err(|e| {
-            MessagingError::SignatureVerificationFailed {
-                channel: "messenger".to_owned(),
-                reason: format!("HMAC key error: {e}"),
-            }
-        })?;
-        mac.update(body);
-        let expected = hex::encode(mac.finalize().into_bytes());
-
-        // Constant-time comparison
-        let equal: bool =
-            subtle::ConstantTimeEq::ct_eq(hex_sig.as_bytes(), expected.as_bytes()).into();
-        if equal {
-            Ok(())
-        } else {
-            Err(MessagingError::SignatureVerificationFailed {
-                channel: "messenger".to_owned(),
-                reason: "signature mismatch".to_owned(),
-            })
-        }
+        verify_meta_signature("messenger", &self.app_secret, headers, body)
     }
 
     async fn parse_inbound(

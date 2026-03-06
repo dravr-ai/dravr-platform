@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for messaging transport adapter signature verification and webhook parsing
-// ABOUTME: Validates HMAC-SHA256 (WhatsApp, Messenger, Slack), Ed25519 (Discord), and secret token (Telegram)
+// ABOUTME: Validates HMAC-SHA256 (WhatsApp, Messenger, Slack), Ed25519 (Discord), secret token (Telegram)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -32,7 +32,7 @@ fn hmac_sha256_hex(secret: &str, data: &[u8]) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WhatsApp Transport Tests (HMAC-SHA256)
+// WhatsApp Transport Tests (HMAC-SHA256 per Meta Cloud API spec)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #[cfg(feature = "client-messaging")]
@@ -40,16 +40,16 @@ mod whatsapp {
     use super::*;
     use pierre_messaging::channels::whatsapp::transport::WhatsAppTransport;
 
-    const SECRET: &str = "twilio-test-secret";
+    const APP_SECRET: &str = "whatsapp-test-app-secret";
 
     fn make_transport() -> WhatsAppTransport {
-        WhatsAppTransport::new(SECRET.to_owned())
+        WhatsAppTransport::new(APP_SECRET.to_owned())
     }
 
     fn signed_headers(body: &[u8]) -> HeaderMap {
-        let sig = hmac_sha256_hex(SECRET, body);
+        let sig = format!("sha256={}", hmac_sha256_hex(APP_SECRET, body));
         let mut headers = HeaderMap::new();
-        headers.insert("x-twilio-signature", sig.parse().unwrap());
+        headers.insert("x-hub-signature-256", sig.parse().unwrap());
         headers
     }
 
@@ -64,10 +64,9 @@ mod whatsapp {
     #[test]
     fn test_invalid_signature_rejected() {
         let transport = make_transport();
-        let body = b"test body";
         let mut headers = HeaderMap::new();
-        headers.insert("x-twilio-signature", "badhex000".parse().unwrap());
-        let err = transport.verify_signature(&headers, body).unwrap_err();
+        headers.insert("x-hub-signature-256", "sha256=badvalue".parse().unwrap());
+        let err = transport.verify_signature(&headers, b"body").unwrap_err();
         assert!(
             err.to_string().contains("signature mismatch"),
             "Expected signature mismatch, got: {err}"
@@ -80,9 +79,18 @@ mod whatsapp {
         let headers = HeaderMap::new();
         let err = transport.verify_signature(&headers, b"body").unwrap_err();
         assert!(
-            err.to_string().contains("missing x-twilio-signature"),
+            err.to_string().contains("missing x-hub-signature-256"),
             "Expected missing header, got: {err}"
         );
+    }
+
+    #[test]
+    fn test_missing_sha256_prefix_rejected() {
+        let transport = make_transport();
+        let mut headers = HeaderMap::new();
+        headers.insert("x-hub-signature-256", "noprefix".parse().unwrap());
+        let err = transport.verify_signature(&headers, b"body").unwrap_err();
+        assert!(err.to_string().contains("sha256="));
     }
 
     #[test]
@@ -90,7 +98,6 @@ mod whatsapp {
         let transport = make_transport();
         let body = b"original body";
         let headers = signed_headers(body);
-        // Verify against different body
         let err = transport
             .verify_signature(&headers, b"tampered body")
             .unwrap_err();
@@ -101,18 +108,29 @@ mod whatsapp {
     async fn test_parse_text_message() {
         let transport = make_transport();
         let payload = serde_json::json!({
-            "From": "whatsapp:+1234567890",
-            "Body": "Hello Pierre",
-            "MessageSid": "SM12345"
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.abc123",
+                            "type": "text",
+                            "text": { "body": "Hello Pierre" }
+                        }]
+                    }
+                }]
+            }]
         });
         let body = serde_json::to_vec(&payload).unwrap();
-        let headers = HeaderMap::new();
 
-        let messages = transport.parse_inbound(&headers, &body).await.unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].channel_type, ChannelType::WhatsApp);
-        assert_eq!(messages[0].sender_id, "whatsapp:+1234567890");
-        assert_eq!(messages[0].channel_message_id, "SM12345");
+        assert_eq!(messages[0].sender_id, "15551234567");
+        assert_eq!(messages[0].channel_message_id, "wamid.abc123");
         match &messages[0].content {
             MessageContent::Text { body } => assert_eq!(body, "Hello Pierre"),
             other => panic!("Expected Text, got: {other:?}"),
@@ -123,16 +141,29 @@ mod whatsapp {
     async fn test_parse_media_message() {
         let transport = make_transport();
         let payload = serde_json::json!({
-            "From": "whatsapp:+1234567890",
-            "Body": "Check this out",
-            "MessageSid": "SM12345",
-            "MediaUrl0": "https://example.com/photo.jpg",
-            "MediaContentType0": "image/jpeg"
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.img456",
+                            "type": "image",
+                            "image": {
+                                "id": "media_id_123",
+                                "mime_type": "image/jpeg",
+                                "caption": "Check this out"
+                            }
+                        }]
+                    }
+                }]
+            }]
         });
         let body = serde_json::to_vec(&payload).unwrap();
-        let headers = HeaderMap::new();
 
-        let messages = transport.parse_inbound(&headers, &body).await.unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
         assert_eq!(messages.len(), 1);
         match &messages[0].content {
             MessageContent::Media {
@@ -140,12 +171,50 @@ mod whatsapp {
                 mime_type,
                 caption,
             } => {
-                assert_eq!(url, "https://example.com/photo.jpg");
+                assert_eq!(url, "media_id_123");
                 assert_eq!(mime_type, "image/jpeg");
                 assert_eq!(caption.as_deref(), Some("Check this out"));
             }
             other => panic!("Expected Media, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_parse_statuses_skipped() {
+        let transport = make_transport();
+        // Delivery receipts have "statuses" but no "messages" — should return empty
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "statuses": [{
+                            "id": "wamid.xyz",
+                            "status": "delivered",
+                            "recipient_id": "15551234567"
+                        }]
+                    }
+                }]
+            }]
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        assert!(messages.is_empty(), "Delivery statuses should be skipped");
+    }
+
+    #[tokio::test]
+    async fn test_parse_empty_entry() {
+        let transport = make_transport();
+        let payload = serde_json::json!({ "entry": [] });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        assert!(messages.is_empty());
     }
 
     #[tokio::test]

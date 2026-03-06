@@ -1,41 +1,40 @@
-// ABOUTME: WhatsApp Business API transport via Twilio with HMAC-SHA256 signature verification
-// ABOUTME: Verifies x-twilio-signature header using webhook secret, parses Twilio webhook payloads
+// ABOUTME: WhatsApp Business Cloud API transport with x-hub-signature-256 HMAC-SHA256 verification
+// ABOUTME: Parses webhook entry[].changes[].value.messages[] into normalized IncomingMessage structs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
 use chrono::Utc;
-use hmac::{Hmac, Mac};
 use http::HeaderMap;
 use pierre_core::errors::messaging::{MessagingError, MessagingResult};
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, DeliveryReceipt, DeliveryStatus, IncomingMessage, MessageContent,
 };
 use serde_json::Value;
-use sha2::Sha256;
 use uuid::Uuid;
 
+use crate::meta_signature::verify_meta_signature;
 use crate::transport::TransportAdapter;
 
-/// `WhatsApp` Business API transport adapter via Twilio
+/// `WhatsApp` Business Cloud API transport adapter
 ///
-/// Verification: HMAC-SHA256 of the request body using the Twilio webhook secret.
-/// The signature is sent in the `x-twilio-signature` header as hex.
+/// Verification: HMAC-SHA256 of the request body using the app secret.
+/// Header `x-hub-signature-256` contains `sha256={hex}` — identical to Messenger.
 pub struct WhatsAppTransport {
-    /// HTTP client for outbound Twilio API calls
+    /// HTTP client for outbound Graph API calls
     client: reqwest::Client,
-    /// Twilio webhook signing secret
-    webhook_secret: String,
+    /// Facebook/Meta app secret for webhook HMAC verification
+    app_secret: String,
 }
 
 impl WhatsAppTransport {
-    /// Create a transport with the given Twilio webhook secret
+    /// Create a transport with the given Meta app secret
     #[must_use]
-    pub fn new(webhook_secret: String) -> Self {
+    pub fn new(app_secret: String) -> Self {
         Self {
             client: reqwest::Client::new(),
-            webhook_secret,
+            app_secret,
         }
     }
 }
@@ -43,36 +42,7 @@ impl WhatsAppTransport {
 #[async_trait]
 impl TransportAdapter for WhatsAppTransport {
     fn verify_signature(&self, headers: &HeaderMap, body: &[u8]) -> MessagingResult<()> {
-        let signature = headers
-            .get("x-twilio-signature")
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| MessagingError::SignatureVerificationFailed {
-                channel: "whatsapp".to_owned(),
-                reason: "missing x-twilio-signature header".to_owned(),
-            })?;
-
-        // Compute HMAC-SHA256 over the body
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(self.webhook_secret.as_bytes()).map_err(|e| {
-                MessagingError::SignatureVerificationFailed {
-                    channel: "whatsapp".to_owned(),
-                    reason: format!("HMAC key error: {e}"),
-                }
-            })?;
-        mac.update(body);
-        let expected = hex::encode(mac.finalize().into_bytes());
-
-        // Constant-time comparison
-        let equal: bool =
-            subtle::ConstantTimeEq::ct_eq(signature.as_bytes(), expected.as_bytes()).into();
-        if equal {
-            Ok(())
-        } else {
-            Err(MessagingError::SignatureVerificationFailed {
-                channel: "whatsapp".to_owned(),
-                reason: "signature mismatch".to_owned(),
-            })
-        }
+        verify_meta_signature("whatsapp", &self.app_secret, headers, body)
     }
 
     async fn parse_inbound(
@@ -86,55 +56,54 @@ impl TransportAdapter for WhatsAppTransport {
                 reason: format!("invalid JSON: {e}"),
             })?;
 
-        // Twilio WhatsApp webhook format
-        let from = payload
-            .get("From")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown");
-        let body_text = payload.get("Body").and_then(Value::as_str).unwrap_or("");
-        let message_sid = payload
-            .get("MessageSid")
-            .and_then(Value::as_str)
-            .unwrap_or("");
+        let mut messages = Vec::new();
 
-        let content = payload
-            .get("MediaUrl0")
-            .and_then(Value::as_str)
-            .map_or_else(
-                || MessageContent::Text {
-                    body: body_text.to_owned(),
-                },
-                |media_url| {
-                    let mime_type = payload
-                        .get("MediaContentType0")
-                        .and_then(Value::as_str)
-                        .unwrap_or("application/octet-stream");
-                    MessageContent::Media {
-                        url: media_url.to_owned(),
-                        mime_type: mime_type.to_owned(),
-                        caption: if body_text.is_empty() {
-                            None
-                        } else {
-                            Some(body_text.to_owned())
-                        },
-                    }
-                },
-            );
+        // WhatsApp Cloud API: { "entry": [{ "changes": [{ "value": { "messages": [...] } }] }] }
+        let entries = payload.get("entry").and_then(Value::as_array);
 
-        let incoming = IncomingMessage {
-            channel_type: ChannelType::WhatsApp,
-            sender_id: from.to_owned(),
-            sender_name: None,
-            content,
-            conversation_id: None,
-            channel_message_id: message_sid.to_owned(),
-            timestamp: Utc::now(),
-            raw_payload: payload,
-            correlation_id: Uuid::new_v4(),
-            metadata: Value::Null,
+        let Some(entries) = entries else {
+            return Ok(messages);
         };
 
-        Ok(vec![incoming])
+        for entry in entries {
+            let Some(changes) = entry.get("changes").and_then(Value::as_array) else {
+                continue;
+            };
+
+            for change in changes {
+                let Some(value) = change.get("value") else {
+                    continue;
+                };
+
+                // Skip status updates (delivery receipts) — only process user messages
+                let Some(msgs) = value.get("messages").and_then(Value::as_array) else {
+                    continue;
+                };
+
+                for msg in msgs {
+                    let sender_id = msg.get("from").and_then(Value::as_str).unwrap_or("unknown");
+
+                    let channel_message_id = msg.get("id").and_then(Value::as_str).unwrap_or("");
+
+                    let content = parse_whatsapp_content(msg);
+
+                    messages.push(IncomingMessage {
+                        channel_type: ChannelType::WhatsApp,
+                        sender_id: sender_id.to_owned(),
+                        sender_name: None,
+                        content,
+                        conversation_id: None,
+                        channel_message_id: channel_message_id.to_owned(),
+                        timestamp: Utc::now(),
+                        raw_payload: msg.clone(),
+                        correlation_id: Uuid::new_v4(),
+                        metadata: Value::Null,
+                    });
+                }
+            }
+        }
+
+        Ok(messages)
     }
 
     async fn send_raw(
@@ -142,33 +111,29 @@ impl TransportAdapter for WhatsAppTransport {
         payload: &Value,
         config: &ChannelConfig,
     ) -> MessagingResult<DeliveryReceipt> {
-        let account_sid =
+        let access_token =
             config
-                .account_id
-                .as_deref()
-                .ok_or_else(|| MessagingError::ChannelNotConfigured {
-                    channel: "whatsapp".to_owned(),
-                })?;
-        let auth_token =
-            config
-                .api_secret
+                .api_key
                 .as_deref()
                 .ok_or_else(|| MessagingError::ChannelNotConfigured {
                     channel: "whatsapp".to_owned(),
                 })?;
 
-        let url = format!("https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json");
+        let phone_number_id =
+            config
+                .phone_number
+                .as_deref()
+                .ok_or_else(|| MessagingError::ChannelNotConfigured {
+                    channel: "whatsapp".to_owned(),
+                })?;
 
-        // Twilio expects form-encoded params
-        let to = payload.get("To").and_then(Value::as_str).unwrap_or("");
-        let from = payload.get("From").and_then(Value::as_str).unwrap_or("");
-        let body_text = payload.get("Body").and_then(Value::as_str).unwrap_or("");
+        let url = format!("https://graph.facebook.com/v21.0/{phone_number_id}/messages");
 
         let response = self
             .client
             .post(&url)
-            .basic_auth(account_sid, Some(auth_token))
-            .form(&[("To", to), ("From", from), ("Body", body_text)])
+            .bearer_auth(access_token)
+            .json(payload)
             .send()
             .await
             .map_err(|e| MessagingError::DeliveryFailed {
@@ -198,7 +163,14 @@ impl TransportAdapter for WhatsAppTransport {
                 reason: format!("invalid response JSON: {e}"),
             })?;
 
-        let channel_message_id = result.get("sid").and_then(Value::as_str).map(str::to_owned);
+        // Response: { "messages": [{ "id": "wamid.xxx" }] }
+        let channel_message_id = result
+            .get("messages")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(|m| m.get("id"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
 
         Ok(DeliveryReceipt {
             message_id: Uuid::new_v4().to_string(),
@@ -206,5 +178,60 @@ impl TransportAdapter for WhatsAppTransport {
             status: DeliveryStatus::Sent,
             timestamp: Utc::now(),
         })
+    }
+}
+
+/// Parse message content from a `WhatsApp` Cloud API message object
+fn parse_whatsapp_content(msg: &Value) -> MessageContent {
+    let msg_type = msg.get("type").and_then(Value::as_str).unwrap_or("text");
+
+    match msg_type {
+        "text" => {
+            let body = msg
+                .pointer("/text/body")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            MessageContent::Text { body }
+        }
+        "image" | "video" | "audio" | "document" => {
+            let media_obj = msg.get(msg_type);
+            let url = media_obj
+                .and_then(|m| m.get("link").or_else(|| m.get("id")))
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let mime_type = media_obj
+                .and_then(|m| m.get("mime_type"))
+                .and_then(Value::as_str)
+                .unwrap_or(&format!("{msg_type}/*"))
+                .to_owned();
+            let caption = media_obj
+                .and_then(|m| m.get("caption"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            MessageContent::Media {
+                url,
+                mime_type,
+                caption,
+            }
+        }
+        "location" => {
+            let latitude = msg
+                .pointer("/location/latitude")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let longitude = msg
+                .pointer("/location/longitude")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            MessageContent::Location {
+                latitude,
+                longitude,
+            }
+        }
+        _ => MessageContent::Text {
+            body: "[unsupported message type]".to_owned(),
+        },
     }
 }
