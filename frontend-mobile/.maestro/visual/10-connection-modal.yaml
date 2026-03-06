@@ -14,15 +14,15 @@ appId: com.pierre.fitness
 - runFlow:
     when:
       visible:
-        id: "settings-tab"
+        id: "tab-settings"
     commands:
       - tapOn:
-          id: "settings-tab"
+          id: "tab-settings"
 
 - runFlow:
     when:
       notVisible:
-        id: "settings-tab"
+        id: "tab-settings"
     commands:
       - tapOn: "Settings"
 
