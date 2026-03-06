@@ -674,17 +674,21 @@ export function CoachLibraryScreen() {
         </View>
       )}
 
-      {/* Coaches List */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color={colors.primary[500]} />
-        </View>
-      ) : (
+      {/* Coaches List — FlashList stays mounted to avoid re-mount progressive rendering delays.
+         FlashList v2 requires a valid parent size at mount time (Issue #483) and goes through
+         a measurement cycle on fresh mount, which can cause items to not appear in the
+         accessibility tree for UI testing tools. Overlaying ActivityIndicator keeps FlashList
+         mounted so it updates data in-place without re-triggering the measurement cycle. */}
+      <View className="flex-1">
+        {isLoading && (
+          <View className="absolute inset-0 z-10 items-center justify-center bg-background-primary">
+            <ActivityIndicator size="large" color={colors.primary[500]} />
+          </View>
+        )}
         <FlashList
           data={filteredCoaches}
           renderItem={renderCoachCard}
           keyExtractor={(item) => item.id}
-
           contentContainerStyle={{ padding: spacing.md, paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -695,27 +699,29 @@ export function CoachLibraryScreen() {
             />
           }
           ListEmptyComponent={
-            <View className="items-center justify-center pt-12 px-5">
-              <Text className="text-lg font-semibold text-text-primary mb-2 text-center">
-                {showFavoritesOnly
-                  ? 'No favorite coaches'
-                  : selectedSource === 'user'
-                  ? 'No user-created coaches'
-                  : selectedSource === 'system'
-                  ? 'No system coaches'
-                  : selectedCategory !== 'all'
-                  ? `No ${selectedCategory} coaches`
-                  : 'No coaches yet'}
-              </Text>
-              <Text className="text-base text-text-tertiary text-center">
-                {coaches.length === 0
-                  ? 'Create your first coach to customize how Pierre helps you.'
-                  : 'Try adjusting your filters.'}
-              </Text>
-            </View>
+            !isLoading ? (
+              <View className="items-center justify-center pt-12 px-5">
+                <Text className="text-lg font-semibold text-text-primary mb-2 text-center">
+                  {showFavoritesOnly
+                    ? 'No favorite coaches'
+                    : selectedSource === 'user'
+                    ? 'No user-created coaches'
+                    : selectedSource === 'system'
+                    ? 'No system coaches'
+                    : selectedCategory !== 'all'
+                    ? `No ${selectedCategory} coaches`
+                    : 'No coaches yet'}
+                </Text>
+                <Text className="text-base text-text-tertiary text-center">
+                  {coaches.length === 0
+                    ? 'Create your first coach to customize how Pierre helps you.'
+                    : 'Try adjusting your filters.'}
+                </Text>
+              </View>
+            ) : null
           }
         />
-      )}
+      </View>
 
     </KeyboardAvoidingView>
 
