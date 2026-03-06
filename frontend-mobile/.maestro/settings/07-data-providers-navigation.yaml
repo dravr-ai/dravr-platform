@@ -14,7 +14,7 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Scroll to the Data Providers button (may be below profile header)
+# Scroll to the Data Providers button (profile section is tall)
 - scrollUntilVisible:
     element:
       id: "settings-data-providers-button"
@@ -31,8 +31,9 @@ appId: com.pierre.fitness
       text: "Connections"
     timeout: 5000
 
-# Navigate back
-- back
+# Navigate back via the back button (not hardware back which may not work on iOS)
+- tapOn:
+    id: "back-button"
 
 # Should be back on settings
 - extendedWaitUntil:

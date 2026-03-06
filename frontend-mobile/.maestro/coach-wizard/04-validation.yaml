@@ -38,7 +38,7 @@ appId: com.pierre.fitness
 
 # Dismiss keyboard. hideKeyboard fails in Expo Go v55.
 - tapOn:
-    point: "50%,20%"
+    point: "50%,5%"
 
 # Tap save again — system prompt error should appear
 - tapOn:
