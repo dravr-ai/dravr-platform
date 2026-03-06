@@ -34,6 +34,16 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::services::chat_orchestration;
 
+/// Outcome of persisting a single inbound message
+enum PersistOutcome {
+    /// Message was stored in DB and an LLM dispatch is pending
+    StoredWithDispatch(PendingDispatch),
+    /// Message was stored in DB but no LLM dispatch (non-text content)
+    StoredNoDispatch,
+    /// Message was handled but not stored (linking command or unlinked user prompt)
+    HandledNotStored,
+}
+
 /// Result of tenant-aware webhook verification
 struct WebhookVerification {
     /// Resolved tenant from the matching channel config
@@ -617,14 +627,14 @@ async fn persist_inbound(
         )
         .await
         {
-            Ok(Some(dispatch)) => {
+            Ok(PersistOutcome::StoredWithDispatch(dispatch)) => {
                 stored_count += 1;
                 pending_dispatches.push(dispatch);
             }
-            Ok(None) => {
+            Ok(PersistOutcome::StoredNoDispatch) => {
                 stored_count += 1;
             }
-            Err(()) => {}
+            Ok(PersistOutcome::HandledNotStored) | Err(()) => {}
         }
     }
 
@@ -653,12 +663,13 @@ async fn send_channel_response(
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
-/// 1. Linking command → consume code, create link, send confirmation (no LLM dispatch)
-/// 2. Linked user → resolve session, dispatch to LLM pipeline
-/// 3. Unlinked user → send prompt to authenticate (no LLM dispatch)
+/// 1. Linking command → consume code, create link, send confirmation (not stored)
+/// 2. Linked user → resolve session, store message, dispatch to LLM pipeline
+/// 3. Unlinked user → send prompt to authenticate (not stored)
 ///
-/// Returns `Ok(Some(dispatch))` for linked-user text messages,
-/// `Ok(None)` for linking commands or non-text messages,
+/// Returns `Ok(StoredWithDispatch)` for linked-user text messages,
+/// `Ok(StoredNoDispatch)` for stored non-text messages,
+/// `Ok(HandledNotStored)` for linking commands or unlinked users,
 /// or `Err(())` if persistence failed.
 async fn persist_single_message(
     resources: &Arc<ServerResources>,
@@ -667,7 +678,7 @@ async fn persist_single_message(
     channel_type: ChannelType,
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
-) -> Result<Option<PendingDispatch>, ()> {
+) -> Result<PersistOutcome, ()> {
     let db: &dyn MessagingRepository = &*resources.database;
 
     // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
@@ -676,7 +687,7 @@ async fn persist_single_message(
         let response =
             handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
         send_channel_response(db, tenant_id, channel, adapter, response).await;
-        return Ok(None);
+        return Ok(PersistOutcome::HandledNotStored);
     }
 
     // Resolve session via channel link (returns None for unlinked users)
@@ -692,7 +703,7 @@ async fn persist_single_message(
     .await?;
 
     let Some(session) = session else {
-        return Ok(None);
+        return Ok(PersistOutcome::HandledNotStored);
     };
 
     let stored = store_inbound_message(db, tenant_id, &session, channel, message).await?;
@@ -701,22 +712,24 @@ async fn persist_single_message(
     }
 
     // Extract text content for LLM dispatch
-    let dispatch = content_body_text(&message.content).map(|text_content| PendingDispatch {
-        resources: Arc::clone(resources),
-        adapter: Arc::clone(adapter),
-        session,
-        tenant_id,
-        channel_type,
-        channel: channel.to_owned(),
-        sender_id: message.sender_id.clone(),
-        text_content,
-    });
-
-    if dispatch.is_none() {
-        info!("Skipping non-text message for LLM dispatch");
-    }
-
-    Ok(dispatch)
+    content_body_text(&message.content).map_or_else(
+        || {
+            info!("Skipping non-text message for LLM dispatch");
+            Ok(PersistOutcome::StoredNoDispatch)
+        },
+        |text_content| {
+            Ok(PersistOutcome::StoredWithDispatch(PendingDispatch {
+                resources: Arc::clone(resources),
+                adapter: Arc::clone(adapter),
+                session,
+                tenant_id,
+                channel_type,
+                channel: channel.to_owned(),
+                sender_id: message.sender_id.clone(),
+                text_content,
+            }))
+        },
+    )
 }
 
 /// Resolve a linked session or send an authentication prompt for unlinked users
