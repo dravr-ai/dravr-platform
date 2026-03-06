@@ -14,6 +14,13 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
+# Scroll to Account section (below profile and data sections)
+- scrollUntilVisible:
+    element:
+      id: "settings-account-section"
+    direction: DOWN
+    timeout: 5000
+
 # Test: should show Account section
 - assertVisible:
     id: "settings-account-section"
@@ -26,4 +33,9 @@ appId: com.pierre.fitness
 - assertVisible: "Change Password"
 
 # Test: should show MCP Tokens option
+- scrollUntilVisible:
+    element:
+      text: "MCP Tokens"
+    direction: DOWN
+    timeout: 3000
 - assertVisible: "MCP Tokens"

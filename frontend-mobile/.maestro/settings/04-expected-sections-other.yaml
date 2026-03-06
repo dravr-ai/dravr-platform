@@ -14,7 +14,12 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
-# Test: should show Privacy section
+# Test: should show Privacy section (scroll to find it)
+- scrollUntilVisible:
+    element:
+      text: "Privacy"
+    direction: DOWN
+    timeout: 5000
 - assertVisible: "Privacy"
 
 # Test: should show About section

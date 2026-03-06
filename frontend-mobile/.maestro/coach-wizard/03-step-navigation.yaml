@@ -1,5 +1,5 @@
-# ABOUTME: Test wizard step navigation (Next/Back buttons)
-# ABOUTME: Converted from coach-wizard.test.js "step navigation" tests
+# ABOUTME: Test coach editor scrollable sections
+# ABOUTME: Verifies system prompt section is expanded and tags section is accessible
 
 appId: com.pierre.fitness
 
@@ -14,33 +14,40 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Fill required field first
-- tapOn:
-    id: "coach-title-input"
-- inputText: "Test Wizard Coach"
-
-# Test: should navigate to next step when Next is tapped
-- tapOn:
-    id: "next-button"
-
-# Should be on step 2
-- assertVisible: "Category & Tags"
+# System prompt section should be expanded by default
+- scrollUntilVisible:
+    element:
+      id: "system-prompt-input"
+    direction: DOWN
+    timeout: 5000
 - assertVisible:
-    id: "step-category-tags"
+    id: "system-prompt-input"
 
-# Test: should navigate back when Back is tapped
+# Tags section should be visible (collapsed by default)
+- scrollUntilVisible:
+    element:
+      id: "tags-section"
+    direction: DOWN
+    timeout: 5000
+- assertVisible:
+    id: "tags-section"
+
+# Expand the tags section
 - tapOn:
-    id: "back-button"
+    id: "tags-section-toggle"
 
-# Should be back on step 1
-- assertVisible: "Basic Info"
+# Tag input should now be visible
+- extendedWaitUntil:
+    visible:
+      id: "tag-input"
+    timeout: 3000
 
 - back

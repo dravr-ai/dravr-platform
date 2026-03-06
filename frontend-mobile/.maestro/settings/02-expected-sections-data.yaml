@@ -14,10 +14,16 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-settings.yaml
 
+# Scroll to Data section (may be below profile header)
+- scrollUntilVisible:
+    element:
+      id: "settings-data-section"
+    direction: DOWN
+    timeout: 5000
+
 # Test: should show Data section
 - assertVisible:
     id: "settings-data-section"
-- assertVisible: "Data"
 
 # Test: should show Data Providers button
 - assertVisible:

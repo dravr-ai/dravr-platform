@@ -1,5 +1,5 @@
-# ABOUTME: Test tag chips add/remove functionality
-# ABOUTME: Converted from coach-wizard.test.js "tag chips" tests
+# ABOUTME: Test tag chips add/remove functionality in coach editor
+# ABOUTME: Verifies adding and removing tags via the collapsible tags section
 
 appId: com.pierre.fitness
 
@@ -14,20 +14,24 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Go to category step
+# Scroll to tags section (collapsed by default)
+- scrollUntilVisible:
+    element:
+      id: "tags-section"
+    direction: DOWN
+    timeout: 5000
+
+# Expand the tags section
 - tapOn:
-    id: "coach-title-input"
-- inputText: "Tag Test"
-- tapOn:
-    id: "next-button"
+    id: "tags-section-toggle"
 
 - extendedWaitUntil:
     visible:

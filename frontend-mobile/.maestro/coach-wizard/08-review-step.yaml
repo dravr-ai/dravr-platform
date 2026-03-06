@@ -1,5 +1,5 @@
-# ABOUTME: Test review step displays all entered information
-# ABOUTME: Converted from coach-wizard.test.js "review step" tests
+# ABOUTME: Test token counter visibility in coach editor
+# ABOUTME: Verifies the token counter appears when system prompt has content
 
 appId: com.pierre.fitness
 
@@ -14,57 +14,39 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Open wizard
+# Open editor
 - tapOn:
     id: "create-coach-button"
 - extendedWaitUntil:
     visible:
-      id: "coach-wizard-screen"
+      id: "coach-editor-screen"
     timeout: 5000
 
-# Step 1: Basic Info
-- tapOn:
-    id: "coach-title-input"
-- inputText: "Review Test Coach"
-- tapOn:
-    id: "coach-description-input"
-- inputText: "A test description"
-- tapOn:
-    id: "next-button"
+# Scroll to system prompt input
+- scrollUntilVisible:
+    element:
+      id: "system-prompt-input"
+    direction: DOWN
+    timeout: 5000
 
-# Step 2: Category & Tags
-- tapOn:
-    id: "tag-input"
-- inputText: "test"
-- tapOn:
-    id: "add-tag-button"
-- tapOn:
-    id: "next-button"
-
-# Step 3: System Prompt
+# Type some content to show token count
 - tapOn:
     id: "system-prompt-input"
-- inputText: "You are a test coach."
+- inputText: "You are a helpful running coach specialized in marathon training."
+
+# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
 - tapOn:
-    id: "next-button"
+    point: "50%,20%"
 
-# Step 4: Review
-- extendedWaitUntil:
-    visible:
-      id: "step-review"
+# Token counter should be visible
+- scrollUntilVisible:
+    element:
+      id: "token-counter"
+    direction: DOWN
     timeout: 3000
-
 - assertVisible:
-    id: "review-title"
+    id: "token-counter"
 - assertVisible:
-    id: "review-coach-title"
-- assertVisible:
-    id: "review-description"
-- assertVisible:
-    id: "review-category"
-- assertVisible:
-    id: "review-tags"
-- assertVisible:
-    id: "review-prompt"
+    id: "token-count-text"
 
 - back
