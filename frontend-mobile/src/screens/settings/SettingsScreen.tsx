@@ -324,7 +324,7 @@ export function SettingsScreen() {
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
           <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Account</Text>
           <View style={glassCardStyle}>
-            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}>
+            <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]} testID="settings-personal-info-button">
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="user" size={20} color={colors.text.secondary} />
               </View>
@@ -335,6 +335,7 @@ export function SettingsScreen() {
             <TouchableOpacity
               style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}
               onPress={() => setShowChangePassword(true)}
+              testID="settings-change-password-button"
             >
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="lock" size={20} color={colors.text.secondary} />
@@ -343,7 +344,7 @@ export function SettingsScreen() {
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
-            <TouchableOpacity style={settingsRowStyle} onPress={() => setShowCreateToken(true)}>
+            <TouchableOpacity style={settingsRowStyle} onPress={() => setShowCreateToken(true)} testID="settings-mcp-tokens-button">
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="key" size={20} color={colors.text.secondary} />
               </View>

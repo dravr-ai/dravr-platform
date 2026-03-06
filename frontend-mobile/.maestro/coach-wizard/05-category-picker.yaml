@@ -22,25 +22,27 @@ appId: com.pierre.fitness
       id: "coach-editor-screen"
     timeout: 5000
 
-# Category picker should be visible
+# Category picker should be visible (shows default "Custom")
 - assertVisible:
     id: "category-picker"
 
-# Tap category picker
+# Tap category picker to show action sheet
 - tapOn:
     id: "category-picker"
 
-# Should show action sheet with category options
+# Wait for the action sheet to fully animate in
 - extendedWaitUntil:
     visible:
       text: "Training"
-    timeout: 3000
+    timeout: 5000
 
 # Select Training category
 - tapOn: "Training"
 
-# Verify category is selected
-- assertVisible:
-    id: "selected-category"
+# Verify category is selected (allow time for action sheet dismiss animation)
+- extendedWaitUntil:
+    visible:
+      id: "selected-category"
+    timeout: 3000
 
 - back
