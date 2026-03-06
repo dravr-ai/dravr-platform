@@ -100,24 +100,29 @@ mod whatsapp {
     fn test_render_text_message() {
         let msg = text_message(ChannelType::WhatsApp, "Hello runner");
         let payload = renderer().render(&msg).unwrap();
-        assert_eq!(payload["To"], "whatsapp:recipient-123");
-        assert_eq!(payload["Body"], "Hello runner");
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        assert_eq!(payload["to"], "recipient-123");
+        assert_eq!(payload["type"], "text");
+        assert_eq!(payload["text"]["body"], "Hello runner");
     }
 
     #[test]
     fn test_render_media_message() {
         let msg = media_message(ChannelType::WhatsApp);
         let payload = renderer().render(&msg).unwrap();
-        assert_eq!(payload["To"], "whatsapp:recipient-123");
-        assert_eq!(payload["MediaUrl"], "https://example.com/photo.jpg");
-        assert_eq!(payload["Body"], "A photo");
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        assert_eq!(payload["to"], "recipient-123");
+        assert_eq!(payload["type"], "image");
+        assert_eq!(payload["image"]["link"], "https://example.com/photo.jpg");
+        assert_eq!(payload["image"]["caption"], "A photo");
     }
 
     #[test]
     fn test_render_location_message() {
         let msg = location_message(ChannelType::WhatsApp);
         let payload = renderer().render(&msg).unwrap();
-        let body = payload["Body"].as_str().unwrap();
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        let body = payload["text"]["body"].as_str().unwrap();
         assert!(body.contains("48.8566"));
         assert!(body.contains("2.3522"));
     }
@@ -126,7 +131,8 @@ mod whatsapp {
     fn test_render_card_message() {
         let msg = card_message(ChannelType::WhatsApp);
         let payload = renderer().render(&msg).unwrap();
-        let body = payload["Body"].as_str().unwrap();
+        assert_eq!(payload["messaging_product"], "whatsapp");
+        let body = payload["text"]["body"].as_str().unwrap();
         assert!(body.contains("Training Plan"));
         assert!(body.contains("Your 5K plan is ready"));
         assert!(body.contains("View Plan"));
