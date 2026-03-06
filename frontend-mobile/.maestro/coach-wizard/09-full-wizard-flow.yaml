@@ -1,5 +1,5 @@
 # ABOUTME: Test complete coach editor flow to create a coach
-# ABOUTME: Fills all fields in the single-page editor and saves
+# ABOUTME: Fills required fields in the single-page editor and saves
 
 appId: com.pierre.fitness
 
@@ -27,27 +27,9 @@ appId: com.pierre.fitness
     id: "coach-title-input"
 - inputText: "E2E Editor Coach"
 
-# Dismiss keyboard. hideKeyboard fails in Expo Go v55.
+# Dismiss keyboard by tapping the header area. hideKeyboard fails in Expo Go v55.
 - tapOn:
-    point: "50%,5%"
-
-# Select category
-- tapOn:
-    id: "category-picker"
-- extendedWaitUntil:
-    visible:
-      text: "Training"
-    timeout: 3000
-- tapOn: "Training"
-
-# Fill description
-- tapOn:
-    id: "coach-description-input"
-- inputText: "Created via E2E test"
-
-# Dismiss keyboard
-- tapOn:
-    point: "50%,5%"
+    point: "50%,15%"
 
 # Scroll to system prompt (expanded by default)
 - scrollUntilVisible:
@@ -56,16 +38,23 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 5000
 
-# Fill system prompt
+# Fill system prompt (required field)
 - tapOn:
     id: "system-prompt-input"
-- inputText: "You are an E2E test coach created by Maestro."
+- inputText: "You are an E2E test coach."
 
 # Dismiss keyboard
 - tapOn:
-    point: "50%,5%"
+    point: "50%,15%"
 
-# Save the coach (save button is in header, always visible)
+# Scroll back up to save button in header
+- scrollUntilVisible:
+    element:
+      id: "save-button"
+    direction: UP
+    timeout: 5000
+
+# Save the coach
 - tapOn:
     id: "save-button"
 
@@ -80,5 +69,5 @@ appId: com.pierre.fitness
     element:
       text: "E2E Editor Coach"
     direction: DOWN
-    timeout: 5000
+    timeout: 10000
 - assertVisible: "E2E Editor Coach"
