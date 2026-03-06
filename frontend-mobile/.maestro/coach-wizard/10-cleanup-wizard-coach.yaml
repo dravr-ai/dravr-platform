@@ -14,18 +14,19 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Wait for coach list to load after fresh login
+# Wait for initial load to complete, then pull-to-refresh to ensure data is fresh.
+# The refresh path keeps FlashList mounted (unlike initial load which swaps to ActivityIndicator).
 - swipe:
-    start: "50%,50%"
-    end: "50%,51%"
-    duration: 3000
+    start: "50%,30%"
+    end: "50%,70%"
+    duration: 500
 
-# Find and delete the test coach
+# Find the test coach (scroll down if needed)
 - scrollUntilVisible:
     element:
       text: "E2E Editor Coach"
     direction: DOWN
-    timeout: 15000
+    timeout: 20000
 
 - longPressOn: "E2E Editor Coach"
 

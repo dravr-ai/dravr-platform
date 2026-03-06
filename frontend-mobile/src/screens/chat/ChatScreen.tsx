@@ -71,10 +71,11 @@ export function ChatScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // Refresh provider status on focus
+  // Refresh coaches and provider status on focus so newly created coaches appear
   useFocusEffect(
     useCallback(() => {
       if (isAuthenticated) {
+        coachSelection.loadCoaches();
         providerStatus.loadProviderStatus();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
