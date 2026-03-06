@@ -64,35 +64,16 @@ appId: com.pierre.fitness
       id: "coach-library-screen"
     timeout: 30000
 
-# Screenshot after navigating back — diagnose what's on screen
-- takeScreenshot: 09-after-save
-
-# Force a tab focus cycle to ensure useFocusEffect triggers loadCoaches.
-# In Expo Router, popping a stack screen should trigger focus, but cycling tabs
-# guarantees a fresh focus event and data reload.
+# Verify coach on the chat screen — uses a plain ScrollView (not FlashList)
+# which renders all coaches directly in the accessibility tree.
 - tapOn:
     id: "tab-chat"
 - extendedWaitUntil:
     visible:
       id: "chat-screen"
     timeout: 5000
-- tapOn:
-    id: "tab-coaches"
-- extendedWaitUntil:
-    visible:
-      id: "coach-library-screen"
-    timeout: 5000
 
-# Wait for API to respond after focus-triggered loadCoaches
-- swipe:
-    start: "50%,50%"
-    end: "50%,51%"
-    duration: 5000
-
-# Screenshot after tab cycle — should show coach list with data
-- takeScreenshot: 09-after-tab-cycle
-
-# Verify coach appears in list
+# Wait for coach list to load on chat screen
 - extendedWaitUntil:
     visible:
       text: "E2E Editor Coach"
