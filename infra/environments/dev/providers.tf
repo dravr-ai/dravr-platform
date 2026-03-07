@@ -2,16 +2,16 @@
 # ABOUTME: Uses both google and google-beta providers for full API coverage
 
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.14"
 
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 5.0"
+      version = "~> 7.0"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 5.0"
+      version = "~> 7.0"
     }
     random = {
       source  = "hashicorp/random"

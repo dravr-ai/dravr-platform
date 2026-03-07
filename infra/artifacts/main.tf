@@ -45,7 +45,7 @@ resource "google_artifact_registry_repository" "images" {
     action = "KEEP"
 
     most_recent_versions {
-      keep_count = 10
+      keep_count = 30
     }
   }
 
