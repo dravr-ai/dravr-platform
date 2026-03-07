@@ -23,6 +23,11 @@ appId: com.pierre.fitness
 - assertVisible: "Privacy"
 
 # Test: should show About section
+- scrollUntilVisible:
+    element:
+      text: "About"
+    direction: DOWN
+    timeout: 5000
 - assertVisible: "About"
 
 # Scroll down to see logout button

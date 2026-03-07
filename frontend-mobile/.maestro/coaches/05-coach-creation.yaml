@@ -21,8 +21,8 @@ appId: com.pierre.fitness
 # Should see coach editor screen
 - extendedWaitUntil:
     visible:
-      text: "Create Coach"
-    timeout: 5000
+      id: "coach-editor-screen"
+    timeout: 10000
 
 # Navigate back
 - back

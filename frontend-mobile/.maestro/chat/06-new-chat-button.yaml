@@ -17,15 +17,11 @@ appId: com.pierre.fitness
 - tapOn:
     id: "send-button"
 
-# Wait for response to complete
+# Verify the sent message appears in the chat.
+# CI has no LLM configured, so we verify the message was sent (not the response).
 - extendedWaitUntil:
-    visible:
-      id: "thinking-indicator"
-    timeout: 5000
-- extendedWaitUntil:
-    notVisible:
-      id: "thinking-indicator"
-    timeout: 30000
+    visible: "Test message"
+    timeout: 10000
 
 # Now create new chat via the floating tab bar
 - runFlow:
