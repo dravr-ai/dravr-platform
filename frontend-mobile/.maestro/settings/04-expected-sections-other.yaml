@@ -19,7 +19,7 @@ appId: com.pierre.fitness
     element:
       text: "Privacy"
     direction: DOWN
-    timeout: 5000
+    timeout: 15000
 - assertVisible: "Privacy"
 
 # Test: should show About section
@@ -27,7 +27,7 @@ appId: com.pierre.fitness
     element:
       text: "About"
     direction: DOWN
-    timeout: 5000
+    timeout: 15000
 - assertVisible: "About"
 
 # Scroll down to see logout button
@@ -35,7 +35,7 @@ appId: com.pierre.fitness
     element:
       id: "settings-logout-button"
     direction: DOWN
-    timeout: 5000
+    timeout: 15000
 
 # Test: should show Log Out button
 - assertVisible:

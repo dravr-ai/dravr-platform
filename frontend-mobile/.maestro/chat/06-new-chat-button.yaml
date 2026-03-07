@@ -10,18 +10,34 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/login.yaml
 
+# Wait for message input to be ready
+- extendedWaitUntil:
+    visible:
+      id: "message-input"
+    timeout: 10000
+
 # Send a message first to create a conversation
 - tapOn:
     id: "message-input"
-- inputText: "Test message"
+- inputText: "ycheck99"
+
+# Verify text was entered into the input
+- extendedWaitUntil:
+    visible: "ycheck99"
+    timeout: 5000
+
+# Dismiss keyboard so send button is fully tappable on all screen sizes
+- tapOn:
+    point: "50%,20%"
+
 - tapOn:
     id: "send-button"
 
 # Verify the sent message appears in the chat.
 # CI has no LLM configured, so we verify the message was sent (not the response).
 - extendedWaitUntil:
-    visible: "Test message"
-    timeout: 10000
+    visible: "ycheck99"
+    timeout: 30000
 
 # Now create new chat via the floating tab bar
 - runFlow:

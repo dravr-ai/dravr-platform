@@ -89,6 +89,19 @@ appId: com.pierre.fitness
 # Navigate back to library
 - back
 
+# Wait for library to reload
+- extendedWaitUntil:
+    visible:
+      id: "coach-library-screen"
+    timeout: 10000
+
+# Scroll up to find the source filter (may be off-screen after scrolling down)
+- scrollUntilVisible:
+    element:
+      id: "source-filter-all"
+    direction: UP
+    timeout: 10000
+
 # Reset filter
 - tapOn:
     id: "source-filter-all"
