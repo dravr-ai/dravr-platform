@@ -5,16 +5,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-
   ScrollView,
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  ActionSheetIOS,
-  Platform,
   KeyboardAvoidingView,
   Modal,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -63,6 +62,7 @@ export function CoachEditorScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [expandedTextArea, setExpandedTextArea] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
 
   // Load coach data for edit mode
   useEffect(() => {
@@ -120,37 +120,14 @@ export function CoachEditorScreen() {
     return Object.keys(newErrors).length === 0;
   }, [title, description, systemPrompt]);
 
-  // Show category picker
+  // Show category picker as a React Native Modal (cross-platform, Maestro-compatible)
   const showCategoryPicker = () => {
-    const options = [...CATEGORY_OPTIONS.map((c) => c.label), 'Cancel'];
-    const cancelButtonIndex = options.length - 1;
+    setShowCategoryModal(true);
+  };
 
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options,
-          cancelButtonIndex,
-          title: 'Select Category',
-        },
-        (buttonIndex) => {
-          if (buttonIndex !== cancelButtonIndex) {
-            setCategory(CATEGORY_OPTIONS[buttonIndex].key);
-          }
-        }
-      );
-    } else {
-      Alert.alert(
-        'Select Category',
-        undefined,
-        [
-          ...CATEGORY_OPTIONS.map((cat) => ({
-            text: cat.label,
-            onPress: () => setCategory(cat.key),
-          })),
-          { text: 'Cancel', style: 'cancel' as const },
-        ]
-      );
-    }
+  const selectCategory = (key: string) => {
+    setCategory(key);
+    setShowCategoryModal(false);
   };
 
   // Tag management
@@ -533,6 +510,57 @@ export function CoachEditorScreen() {
             </Text>
           </View>
         </SafeAreaView>
+      </Modal>
+
+      {/* Category Picker Modal */}
+      <Modal
+        visible={showCategoryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCategoryModal(false)}
+      >
+        <Pressable
+          className="flex-1 justify-end"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          onPress={() => setShowCategoryModal(false)}
+        >
+          <Pressable
+            className="rounded-t-2xl p-5 pb-10"
+            style={{ backgroundColor: '#1C1C1E' }}
+            onPress={() => {/* prevent dismiss when tapping content */}}
+          >
+            <Text className="text-text-primary text-lg font-bold text-center mb-4">
+              Select Category
+            </Text>
+            {CATEGORY_OPTIONS.map((cat) => (
+              <TouchableOpacity
+                key={cat.key}
+                className="flex-row items-center py-3.5 px-4 mb-1 rounded-xl"
+                style={{
+                  backgroundColor: category === cat.key ? 'rgba(255,255,255,0.1)' : 'transparent',
+                }}
+                onPress={() => selectCategory(cat.key)}
+                testID={`category-option-${cat.key}`}
+              >
+                <View
+                  className="w-3 h-3 rounded-full mr-3"
+                  style={{ backgroundColor: cat.color }}
+                />
+                <Text className="text-text-primary text-base">{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              className="mt-3 py-3.5 rounded-xl"
+              style={{ backgroundColor: 'rgba(255,255,255,0.08)' }}
+              onPress={() => setShowCategoryModal(false)}
+              testID="category-cancel"
+            >
+              <Text className="text-text-secondary text-base text-center font-semibold">
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       {/* Version History Modal */}
