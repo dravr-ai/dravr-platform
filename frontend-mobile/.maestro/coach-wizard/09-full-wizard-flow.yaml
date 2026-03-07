@@ -64,11 +64,21 @@ appId: com.pierre.fitness
       id: "coach-library-screen"
     timeout: 30000
 
-# Verify the new coach appears in the library.
-# The library reloads via useFocusEffect on return from the editor.
-# FlashList stays mounted (overlay pattern) so items render in-place.
-# The new coach sorts to the top (newest updated_at), so it's in the viewport.
-- extendedWaitUntil:
-    visible:
+# Filter to user-created coaches only. This reduces FlashList items,
+# making FlashList v2 render the target item faster (fewer cells to measure).
+# The new coach is the only user-created coach in a clean test DB.
+- tapOn:
+    id: "source-filter-user"
+
+# Use scrollUntilVisible to find the new coach in the FlashList.
+# scrollUntilVisible actively scrolls the list, which triggers FlashList v2
+# to render cells that extendedWaitUntil alone may miss due to deferred rendering.
+- scrollUntilVisible:
+    element:
       text: "E2E Editor Coach"
+    direction: DOWN
     timeout: 30000
+
+# Reset filter so subsequent tests see all coaches
+- tapOn:
+    id: "source-filter-all"

@@ -14,12 +14,17 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Wait for the coach to appear after initial load (useFocusEffect fetches fresh data).
-# The new coach sorts to the top (newest updated_at), so it's in the viewport.
-# 30s timeout covers API latency + FlashList rendering.
-- extendedWaitUntil:
-    visible:
+# Filter to user-created coaches only. This reduces FlashList items
+# so the target coach renders faster in FlashList v2.
+- tapOn:
+    id: "source-filter-user"
+
+# Use scrollUntilVisible to find the coach in the FlashList.
+# scrollUntilVisible actively scrolls, triggering FlashList v2 cell rendering.
+- scrollUntilVisible:
+    element:
       text: "E2E Editor Coach"
+    direction: DOWN
     timeout: 30000
 
 - longPressOn: "E2E Editor Coach"
@@ -43,3 +48,7 @@ appId: com.pierre.fitness
     notVisible:
       text: "E2E Editor Coach"
     timeout: 5000
+
+# Reset filter
+- tapOn:
+    id: "source-filter-all"
