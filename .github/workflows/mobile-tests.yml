@@ -563,15 +563,49 @@ jobs:
           curl -sf http://localhost:8081/health > /dev/null 2>&1 && echo "  Reachable" || echo "  NOT reachable"
 
       - name: Run Maestro tests
-        timeout-minutes: 25
+        timeout-minutes: 35
         working-directory: frontend-mobile
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Running full E2E suite (manual trigger)..."
-            $HOME/.maestro/bin/maestro test --device "$SIMULATOR_UDID" .maestro/ --format junit --output maestro-results.xml
+          MAESTRO="$HOME/.maestro/bin/maestro"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Running full E2E suite per-directory..."
+            # Run each test directory as a separate Maestro session.
+            # If XCUITest crashes in one directory, other directories still run
+            # because each gets a fresh Maestro/XCUITest connection.
+            DIRS="login settings chat coaches store social coach-wizard voice-input synthetic-provider visual"
+            ANY_FAILED=0
+
+            for dir in $DIRS; do
+              echo ""
+              echo "========================================="
+              echo "  Running $dir tests"
+              echo "========================================="
+              $MAESTRO test --device "$SIMULATOR_UDID" ".maestro/$dir/" \
+                --format junit --output "maestro-results-$dir.xml" || ANY_FAILED=1
+            done
+
+            # Merge per-directory JUnit XMLs into one file for artifact upload.
+            # Simple concatenation: extract testcase elements from each per-dir XML.
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<testsuites>'
+              echo '<testsuite name="Pierre E2E Tests (iOS)">'
+              for f in maestro-results-*.xml; do
+                [ -f "$f" ] && grep '<testcase' "$f" || true
+              done
+              echo '</testsuite>'
+              echo '</testsuites>'
+            } > maestro-results.xml
+            echo "Merged results into maestro-results.xml"
+            grep -c '<testcase' maestro-results.xml || echo "0 test cases"
+
+            if [ $ANY_FAILED -ne 0 ]; then
+              echo "Some test directories had failures"
+              exit 1
+            fi
           else
             echo "Running CI smoke tests (push trigger)..."
-            $HOME/.maestro/bin/maestro test --device "$SIMULATOR_UDID" \
+            $MAESTRO test --device "$SIMULATOR_UDID" \
               .maestro/login/01-show-login-screen.yaml \
               .maestro/login/02-show-email-password-inputs.yaml \
               --format junit --output maestro-results.xml
@@ -647,7 +681,7 @@ jobs:
         with:
           name: maestro-test-results-ios
           path: |
-            frontend-mobile/maestro-results.xml
+            frontend-mobile/maestro-results*.xml
             frontend-mobile/.maestro/
             /tmp/pre-maestro-screenshot.png
             /tmp/post-maestro-screenshot.png
@@ -903,8 +937,32 @@ jobs:
 
           MAESTRO_EXIT=0
           if [ "$MAESTRO_FULL_SUITE" = "true" ]; then
-            echo "Running full E2E suite (manual trigger)..."
-            $HOME/.maestro/bin/maestro test .maestro/ --format junit --output maestro-results-android.xml || MAESTRO_EXIT=$?
+            echo "Running full E2E suite per-directory (manual trigger)..."
+            # Run each test directory as a separate Maestro session to prevent
+            # XCUITest cascade failures from killing all remaining tests.
+            DIRS="login settings chat coaches store social coach-wizard voice-input synthetic-provider visual"
+            for dir in $DIRS; do
+              echo ""
+              echo "========================================="
+              echo "  Running $dir tests"
+              echo "========================================="
+              $HOME/.maestro/bin/maestro test ".maestro/$dir/" \
+                --format junit --output "maestro-results-$dir.xml" || MAESTRO_EXIT=1
+            done
+
+            # Merge per-directory JUnit XMLs into one file
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<testsuites>'
+              echo '<testsuite name="Pierre E2E Tests (Android)">'
+              for f in maestro-results-*.xml; do
+                [ -f "$f" ] && grep '<testcase' "$f" || true
+              done
+              echo '</testsuite>'
+              echo '</testsuites>'
+            } > maestro-results-android.xml
+            echo "Merged results into maestro-results-android.xml"
+            grep -c '<testcase' maestro-results-android.xml || echo "0 test cases"
           else
             echo "Running CI smoke tests (push trigger)..."
             $HOME/.maestro/bin/maestro test \
@@ -927,7 +985,7 @@ jobs:
           chmod +x /tmp/run-android-e2e.sh
 
       - name: Run Maestro tests on Android
-        timeout-minutes: 25
+        timeout-minutes: 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33
@@ -946,7 +1004,7 @@ jobs:
           TEST_EMAIL: "mobiletest@pierre.dev"
           TEST_PASSWORD: "MobileTest1234"
           BACKEND_URL: "http://10.0.2.2:8081"
-          MAESTRO_FULL_SUITE: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+          MAESTRO_FULL_SUITE: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule') && 'true' || 'false' }}
 
       - name: Upload Maestro test results
         uses: actions/upload-artifact@v4
@@ -954,6 +1012,6 @@ jobs:
         with:
           name: maestro-test-results-android
           path: |
-            frontend-mobile/maestro-results-android.xml
+            frontend-mobile/maestro-results*.xml
             frontend-mobile/.maestro/
           retention-days: 7
