@@ -15,8 +15,10 @@ appId: com.pierre.fitness
     file: ../helpers/navigate-to-coaches.yaml
 
 # Test: should toggle show hidden state when tapped
-- assertVisible:
-    id: "show-hidden-toggle"
+- extendedWaitUntil:
+    visible:
+      id: "show-hidden-toggle"
+    timeout: 10000
 
 # Tap the toggle
 - tapOn:

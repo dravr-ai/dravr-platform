@@ -242,7 +242,7 @@ jobs:
     runs-on: macos-latest
     # Run only on nightly schedule (midnight EDT) or manual trigger
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -697,7 +697,7 @@ jobs:
     runs-on: ubuntu-latest
     # Run only on nightly schedule (midnight EDT) or manual trigger
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

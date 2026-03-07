@@ -13,6 +13,10 @@ appId: com.pierre.fitness
     id: "email-input"
 - eraseText
 
+# Dismiss keyboard so password input is visible on all screen sizes
+- tapOn:
+    point: "50%,20%"
+
 - tapOn:
     id: "password-input"
 - eraseText
