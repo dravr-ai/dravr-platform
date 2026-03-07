@@ -1,46 +1,37 @@
 # ABOUTME: Multi-stage production Dockerfile for Pierre MCP Server (Rust binary)
-# ABOUTME: Builder stage compiles the release binary; runtime stage uses debian-slim with non-root user
+# ABOUTME: Uses cargo-chef for workspace-aware dependency caching; runtime stage uses debian-slim with non-root user
 
-# Build stage - use x86_64 for better Apple Silicon compatibility
-FROM --platform=linux/amd64 rust:1.83-slim as builder
+# Stage 0: base image with build dependencies and cargo-chef installed
+FROM --platform=linux/amd64 rust:1.92-slim AS chef
 
-# Install build dependencies
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user for security
-RUN useradd -m -u 1001 appuser
+RUN cargo install cargo-chef --locked
 
-# Set working directory
 WORKDIR /app
 
-# Copy manifests first for better layer caching
-COPY Cargo.toml Cargo.lock ./
+# Stage 1: generate dependency recipe from the full workspace source tree
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Create dummy source files to build dependencies
-RUN mkdir -p src/bin && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "// Dummy lib.rs" > src/lib.rs && \
-    echo "fn main() {}" > src/bin/pierre-mcp-server.rs
+# Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# Build dependencies (this layer will be cached unless Cargo.toml changes)
-RUN cargo build --release --bin pierre-mcp-server
-RUN rm src/main.rs src/lib.rs src/bin/pierre-mcp-server.rs
-
-# Copy source code
-COPY src ./src
-
-# Build the actual application
+# Build the actual application (reruns only when source code changes)
+COPY . .
 RUN cargo build --release --bin pierre-mcp-server
 
 # Verify the binary was built
 RUN ls -la target/release/pierre-mcp-server
 
-# Runtime stage - use x86_64 for better Apple Silicon compatibility
-FROM --platform=linux/amd64 debian:bookworm-slim
+FROM --platform=linux/amd64 debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
