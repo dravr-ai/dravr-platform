@@ -4,6 +4,7 @@
 name: Publish Images
 
 on:
+  workflow_dispatch:
   # Only publish after CI tests pass on main — prevents deploying broken code
   workflow_run:
     workflows: ["Backend CI"]
@@ -29,6 +30,7 @@ jobs:
     # Skip if triggered by a failed CI run
     if: >
       github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
 
     outputs:
@@ -76,7 +78,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve-sha.outputs.sha }}
 
@@ -84,13 +86,13 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Authenticate to GCP (Artifact Registry)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
       - name: Configure Docker credential helper
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
         with:
           skip_install: true
 
@@ -117,7 +119,7 @@ jobs:
 
       - name: Build and push server image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/images/server/Dockerfile
@@ -127,7 +129,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=server
 
       - name: Scan server image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.34.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -136,7 +138,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.build.outcome == 'success'
         with:
           sarif_file: 'trivy-server.sarif'
@@ -161,7 +163,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve-sha.outputs.sha }}
 
@@ -169,13 +171,13 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Authenticate to GCP (Artifact Registry)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
 
       - name: Configure Docker credential helper
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
         with:
           skip_install: true
 
@@ -202,7 +204,7 @@ jobs:
 
       - name: Build and push frontend image
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/images/frontend/Dockerfile
@@ -214,7 +216,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       - name: Scan frontend image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.34.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: '${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}'
           format: 'sarif'
@@ -223,7 +225,7 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always() && steps.build.outcome == 'success'
         with:
           sarif_file: 'trivy-frontend.sarif'
@@ -246,20 +248,20 @@ jobs:
 
     steps:
       - name: Authenticate to GCP (dev deployer)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
 
       - name: Deploy backend to Cloud Run (dev)
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-server.outputs.image }}
 
       - name: Deploy frontend to Cloud Run (dev)
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
@@ -277,20 +279,20 @@ jobs:
 
     steps:
       - name: Authenticate to GCP (prod deployer)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_PROD_DEPLOYER_SA }}
 
       - name: Deploy backend to Cloud Run (prod)
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_PROD_SERVICE_NAME }}-api
           region: ${{ vars.GCP_PROD_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-server.outputs.image }}
 
       - name: Deploy frontend to Cloud Run (prod)
-        uses: google-github-actions/deploy-cloudrun@v2
+        uses: google-github-actions/deploy-cloudrun@v3
         with:
           service: ${{ vars.GCP_PROD_SERVICE_NAME }}-frontend
           region: ${{ vars.GCP_PROD_CLOUD_RUN_REGION }}
