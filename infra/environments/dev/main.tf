@@ -99,7 +99,7 @@ module "service_accounts" {
   project_id           = var.project_id
   service_name         = var.service_name
   artifacts_project_id = var.artifacts_project_id
-  tf_state_bucket      = "dravr-terraform-state"
+  tf_state_bucket      = "dravr-dev-terraform-f58b1"
 
   depends_on = [module.project]
 }

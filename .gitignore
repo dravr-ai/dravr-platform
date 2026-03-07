@@ -116,5 +116,3 @@ pierre_mcp_server-integration/
 *.tfstate
 *.tfstate.backup
 *.tfplan
-infra/**/*.tfvars
-!infra/**/*.tfvars.example
