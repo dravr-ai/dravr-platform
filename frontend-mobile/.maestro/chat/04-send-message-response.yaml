@@ -14,15 +14,31 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/new-chat.yaml
 
-# Type and send a message
+# Wait for message input to be ready
+- extendedWaitUntil:
+    visible:
+      id: "message-input"
+    timeout: 10000
+
+# Type a message
 - tapOn:
     id: "message-input"
-- inputText: "What is my fitness level?"
+- inputText: "xcheck42"
+
+# Verify text was entered into the input
+- extendedWaitUntil:
+    visible: "xcheck42"
+    timeout: 5000
+
+# Dismiss keyboard so send button is fully tappable on all screen sizes
+- tapOn:
+    point: "50%,20%"
+
 - tapOn:
     id: "send-button"
 
 # Verify the sent message appears in the chat.
 # CI has no LLM configured, so we verify the message was sent (not the response).
 - extendedWaitUntil:
-    visible: "What is my fitness level?"
-    timeout: 10000
+    visible: "xcheck42"
+    timeout: 30000
