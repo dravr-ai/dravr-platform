@@ -253,6 +253,7 @@ impl DashboardTestSetup {
             },
             security: SecurityConfig {
                 cors_origins: vec!["*".to_owned()],
+                allowed_mobile_redirect_origins: vec![],
                 tls: TlsConfig {
                     enabled: false,
                     cert_path: None,
@@ -674,6 +675,7 @@ async fn test_get_dashboard_overview_empty_data() -> Result<()> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

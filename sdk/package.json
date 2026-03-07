@@ -89,7 +89,8 @@
     "verbose": true,
     "collectCoverage": false,
     "testMatch": [
-      "**/test/**/*.test.js"
+      "**/test/**/*.test.js",
+      "**/test/**/*.test.ts"
     ],
     "transformIgnorePatterns": [
       "node_modules/(?!(node-fetch)/)"

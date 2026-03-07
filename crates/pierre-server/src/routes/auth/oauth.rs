@@ -204,7 +204,7 @@ impl OAuthService {
 
         // Extract optional mobile redirect URL from the state string
         // (embedded as base64 in the third segment of the state format)
-        let mobile_redirect_url = Self::extract_mobile_redirect_from_state_str(state);
+        let mobile_redirect_url = self.extract_mobile_redirect_from_state_str(state);
 
         // PKCE code verifier stored server-side during authorization URL generation
         let pkce_code_verifier = client_state.pkce_code_verifier;
@@ -227,8 +227,13 @@ impl OAuthService {
     ///
     /// State format: `{user_id}:{random}:{base64_redirect_url}`
     /// Delegates to `services::oauth_flow::extract_mobile_redirect_from_state`.
-    fn extract_mobile_redirect_from_state_str(state: &str) -> Option<String> {
-        oauth_flow_service::extract_mobile_redirect_from_state(state)
+    fn extract_mobile_redirect_from_state_str(&self, state: &str) -> Option<String> {
+        let config = self.config.config();
+        oauth_flow_service::extract_mobile_redirect_from_state(
+            state,
+            &config.base_url,
+            &config.security.allowed_mobile_redirect_origins,
+        )
     }
 
     /// Validate that provider is supported by checking the provider registry
@@ -1027,7 +1032,12 @@ pub(super) async fn handle_oauth_callback(
 
             // For errors, we need to parse the state to check for mobile redirect URL
             // since handle_callback failed and didn't return the parsed state
-            let mobile_redirect_url = extract_mobile_redirect_from_state(state);
+            let config = server_context.config().config();
+            let mobile_redirect_url = oauth_flow_service::extract_mobile_redirect_from_state(
+                state,
+                &config.base_url,
+                &config.security.allowed_mobile_redirect_origins,
+            );
 
             // Priority: mobile redirect URL > frontend URL > render template
             if let Some(mobile_url) = mobile_redirect_url {
@@ -1337,15 +1347,13 @@ pub(super) async fn handle_mobile_oauth_init(
     // Get optional redirect_uri from query parameters (mobile app's deep link)
     let redirect_url = query.get("redirect_uri");
 
-    // Validate redirect URL scheme if provided
+    // Validate redirect URL against allowlist to prevent open-redirect attacks
     if let Some(url) = redirect_url {
-        let is_valid_scheme = url.starts_with("pierre://")
-            || url.starts_with("exp://")
-            || url.starts_with("http://localhost")
-            || url.starts_with("https://");
-        if !is_valid_scheme {
+        let base_url = &resources.config.base_url;
+        let extra_origins = &resources.config.security.allowed_mobile_redirect_origins;
+        if !oauth_flow_service::is_allowed_redirect_url(url, base_url, extra_origins) {
             return Err(AppError::invalid_input(
-                "Invalid redirect_url scheme. Allowed schemes: pierre://, exp://, http://localhost, https://",
+                "Invalid redirect_url. Must use pierre://, exp://, http://localhost, or an HTTPS origin matching the server's base_url.",
             ));
         }
     }
@@ -1591,29 +1599,4 @@ fn categorize_oauth_error(error: &AppError) -> (&'static str, Option<&'static st
             Some("An unexpected error occurred during the OAuth authorization process."),
         )
     }
-}
-
-/// Extract mobile redirect URL from OAuth state parameter for error handling
-///
-/// This is used when the OAuth callback fails and we need to redirect
-/// the error to the mobile app. Extracts the redirect URL without full validation.
-fn extract_mobile_redirect_from_state(state: &str) -> Option<String> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
-    let parts: Vec<&str> = state.splitn(3, ':').collect();
-    if parts.len() < 3 || parts[2].is_empty() {
-        return None;
-    }
-
-    URL_SAFE_NO_PAD
-        .decode(parts[2])
-        .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .filter(|url| {
-            // Validate URL scheme for security (only allow specific schemes)
-            url.starts_with("pierre://")
-                || url.starts_with("exp://")
-                || url.starts_with("http://localhost")
-                || url.starts_with("https://")
-        })
 }

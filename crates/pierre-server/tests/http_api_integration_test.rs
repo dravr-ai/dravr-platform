@@ -194,6 +194,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         },
         security: SecurityConfig {
             cors_origins: vec!["http://localhost:3000".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

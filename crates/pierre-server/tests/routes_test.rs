@@ -141,6 +141,7 @@ async fn test_register_user() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -326,6 +327,7 @@ async fn test_register_duplicate_user() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

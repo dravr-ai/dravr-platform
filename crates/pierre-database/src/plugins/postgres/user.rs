@@ -54,11 +54,12 @@ impl UserRepository for PostgresDatabase {
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
         let row = sqlx::query(
             r"
-            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                   role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider
-            FROM users
-            WHERE id = $1 AND tenant_id = $2
+            SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
+                   u.is_active, u.is_admin, u.role, u.user_status, u.approved_by, u.approved_at,
+                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider
+            FROM users u
+            INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
+            WHERE u.id = $1
             ",
         )
         .bind(user_id)
@@ -384,12 +385,15 @@ impl UserRepository for PostgresDatabase {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
                 r"
-                SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                       role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
-                       created_at, last_active, firebase_uid, auth_provider
-                FROM users
-                WHERE COALESCE(user_status, 'active') = $1 AND tenant_id = $2
-                ORDER BY created_at DESC
+                SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
+                       u.is_active, u.is_admin, u.role,
+                       COALESCE(u.user_status, 'active') as user_status,
+                       u.approved_by, u.approved_at, u.created_at, u.last_active,
+                       u.firebase_uid, u.auth_provider
+                FROM users u
+                INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
+                WHERE COALESCE(u.user_status, 'active') = $1
+                ORDER BY u.created_at DESC
                 ",
             )
             .bind(status_enum)

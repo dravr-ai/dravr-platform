@@ -120,10 +120,12 @@ impl Database {
         tenant_id: TenantId,
     ) -> AppResult<Option<User>> {
         let query = r"
-            SELECT id, email, display_name, password_hash, tier,
-                   is_active, user_status, is_admin, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider
-            FROM users WHERE id = $1 AND tenant_id = $2
+            SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
+                   u.is_active, u.user_status, u.is_admin, u.approved_by, u.approved_at,
+                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider
+            FROM users u
+            INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
+            WHERE u.id = $1
         ";
 
         let row = sqlx::query(query)
@@ -489,7 +491,10 @@ impl Database {
     ) -> AppResult<Vec<User>> {
         let rows = if let Some(tid) = tenant_id {
             sqlx::query(
-                "SELECT * FROM users WHERE user_status = ?1 AND tenant_id = ?2 ORDER BY created_at DESC",
+                r"SELECT u.* FROM users u
+                  INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = ?2
+                  WHERE u.user_status = ?1
+                  ORDER BY u.created_at DESC",
             )
             .bind(status)
             .bind(tid.to_string())
