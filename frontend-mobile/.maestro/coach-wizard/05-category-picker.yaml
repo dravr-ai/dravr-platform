@@ -1,5 +1,5 @@
 # ABOUTME: Test category picker functionality in coach editor
-# ABOUTME: Verifies selecting a category from the action sheet
+# ABOUTME: Verifies selecting a category from the modal picker
 
 appId: com.pierre.fitness
 
@@ -26,20 +26,21 @@ appId: com.pierre.fitness
 - assertVisible:
     id: "category-picker"
 
-# Tap category picker to show action sheet
+# Tap category picker to show modal
 - tapOn:
     id: "category-picker"
 
-# Wait for the action sheet to fully animate in
+# Wait for the modal to appear with category options
 - extendedWaitUntil:
     visible:
-      text: "Training"
+      text: "Select Category"
     timeout: 5000
 
-# Select Training category
-- tapOn: "Training"
+# Select Training category via testID
+- tapOn:
+    id: "category-option-training"
 
-# Verify category is selected (allow time for action sheet dismiss animation)
+# Verify category is selected (modal dismissed, selected-category shows Training)
 - extendedWaitUntil:
     visible:
       id: "selected-category"
