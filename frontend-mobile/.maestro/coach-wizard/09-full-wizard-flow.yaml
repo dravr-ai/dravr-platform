@@ -64,17 +64,11 @@ appId: com.pierre.fitness
       id: "coach-library-screen"
     timeout: 30000
 
-# Verify coach on the chat screen — uses a plain ScrollView (not FlashList)
-# which renders all coaches directly in the accessibility tree.
-- tapOn:
-    id: "tab-chat"
-- extendedWaitUntil:
-    visible:
-      id: "chat-screen"
-    timeout: 5000
-
-# Wait for coach list to load on chat screen
+# Verify the new coach appears in the library.
+# The library reloads via useFocusEffect on return from the editor.
+# FlashList stays mounted (overlay pattern) so items render in-place.
+# The new coach sorts to the top (newest updated_at), so it's in the viewport.
 - extendedWaitUntil:
     visible:
       text: "E2E Editor Coach"
-    timeout: 20000
+    timeout: 30000
