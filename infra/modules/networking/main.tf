@@ -61,7 +61,7 @@ resource "google_vpc_access_connector" "connector" {
   ip_cidr_range = var.vpc_connector_cidr
   network       = google_compute_network.vpc.name
 
-  min_instances = 1
+  min_instances = 2
   max_instances = 3
 
   depends_on = [google_compute_network.vpc]

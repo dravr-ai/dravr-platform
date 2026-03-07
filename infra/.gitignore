@@ -11,7 +11,6 @@
 .terraform.lock.hcl
 
 # Terraform variables files (may contain secrets)
-terraform.tfvars
 *.auto.tfvars
 
 # Crash log files
