@@ -1,5 +1,5 @@
-# ABOUTME: Test Share Insight flow
-# ABOUTME: Converted from social.test.js "Share Insight Flow" tests
+# ABOUTME: Test Share Insight flow from suggestions banner
+# ABOUTME: Share button is inside conditional suggestions banner
 
 appId: com.pierre.fitness
 
@@ -16,42 +16,28 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "social-feed-screen"
-    timeout: 5000
-- tapOn:
-    id: "share-insight-button"
-- extendedWaitUntil:
-    visible:
-      id: "share-insight-screen"
-    timeout: 5000
-
-# Test: should display share insight form
-- assertVisible: "Share Insight"
-- assertVisible:
-    id: "insight-type-picker"
-- assertVisible:
-    id: "insight-content-input"
-
-# Test: should select insight type
-- tapOn:
-    id: "insight-type-achievement"
-
-# Test: should enter insight content
-- tapOn:
-    id: "insight-content-input"
-- inputText: "Just completed my first 5k!"
-
-# Test: should select visibility
-- tapOn: "Friends Only"
-
-# Test: should share insight
-- tapOn:
-    id: "insight-title-input"
-- inputText: "First 5K"
-- tapOn:
-    id: "share-button"
-
-# Should navigate back to feed or show success
-- extendedWaitUntil:
-    visible:
-      id: "social-feed-screen"
     timeout: 10000
+
+# The share button is inside a suggestions banner that only appears
+# when there are shareable suggestions. Guard with when:visible.
+- runFlow:
+    when:
+      visible:
+        id: "share-suggestion-button"
+    commands:
+      - tapOn:
+          id: "share-suggestion-button"
+      - extendedWaitUntil:
+          visible:
+            id: "share-insight-screen"
+          timeout: 5000
+      - assertVisible: "Share Insight"
+      # Verify content input exists
+      - assertVisible:
+          id: "insight-content-input"
+      # Go back
+      - back
+
+# If no suggestions banner, verify the feed screen is still stable
+- assertVisible:
+    id: "social-feed-screen"

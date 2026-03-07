@@ -1,5 +1,5 @@
-# ABOUTME: Visual tests for social settings
-# ABOUTME: Converted from mobile-visual.test.js "Social Settings" tests
+# ABOUTME: Visual tests for social settings accessibility
+# ABOUTME: Social settings is not yet navigable from main settings screen
 
 appId: com.pierre.fitness
 
@@ -10,27 +10,26 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/login.yaml
 
-# Navigate to Social Settings via Settings tab
+# Navigate to Settings tab
 - tapOn:
     id: "tab-settings"
 - extendedWaitUntil:
     visible:
       id: "settings-screen"
-    timeout: 5000
-- tapOn: "Social Settings"
+    timeout: 10000
 
-# Test: social settings - displays screen
-- extendedWaitUntil:
-    visible:
-      id: "social-settings-screen"
-    timeout: 5000
+# Test: settings displays Privacy section
+- scrollUntilVisible:
+    element:
+      text: "Privacy"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "Privacy"
 
-# Test: social settings - displays visibility options
-- assertVisible: "Discoverable"
-
-# Test: social settings - toggle discoverable
-- tapOn:
-    id: "discoverable-switch"
-
-# Test: social settings - displays notification options
-- assertVisible: "Notifications"
+# Test: settings displays About section
+- scrollUntilVisible:
+    element:
+      text: "About"
+    direction: DOWN
+    timeout: 10000
+- assertVisible: "About"

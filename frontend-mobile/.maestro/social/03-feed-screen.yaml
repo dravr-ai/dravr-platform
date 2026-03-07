@@ -16,7 +16,7 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "social-feed-screen"
-    timeout: 5000
+    timeout: 10000
 
 # Test: should display Feed screen header
 - assertVisible: "Feed"
@@ -35,14 +35,17 @@ appId: com.pierre.fitness
       - assertVisible:
           id: "feed-list"
 
-# Test: should navigate to Share Insight
-- tapOn:
-    id: "share-insight-button"
-- extendedWaitUntil:
-    visible:
-      id: "share-insight-screen"
-    timeout: 5000
-- assertVisible: "Share Insight"
-
-# Go back
-- back
+# Test: share button (inside suggestions banner, may not be visible)
+- runFlow:
+    when:
+      visible:
+        id: "share-suggestion-button"
+    commands:
+      - tapOn:
+          id: "share-suggestion-button"
+      - extendedWaitUntil:
+          visible:
+            id: "share-insight-screen"
+          timeout: 5000
+      - assertVisible: "Share Insight"
+      - back

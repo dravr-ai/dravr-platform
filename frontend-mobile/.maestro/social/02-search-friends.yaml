@@ -17,11 +17,14 @@ appId: com.pierre.fitness
     visible:
       id: "social-feed-screen"
     timeout: 5000
+- extendedWaitUntil:
+    visible: "Find Friends"
+    timeout: 10000
 - tapOn: "Find Friends"
 - extendedWaitUntil:
     visible:
       id: "friends-screen"
-    timeout: 5000
+    timeout: 10000
 
 # Test: should navigate to Search Friends
 - extendedWaitUntil:

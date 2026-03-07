@@ -44,4 +44,4 @@ appId: com.pierre.fitness
       notVisible: "No Friends Yet"
     commands:
       - assertVisible:
-          id: "friends-search-input"
+          id: "search-friends-button"
