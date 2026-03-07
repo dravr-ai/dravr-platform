@@ -26,7 +26,7 @@ jobs:
       version: ${{ steps.get_version.outputs.VERSION }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Get version from tag
         id: get_version
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check if CHANGELOG exists
         id: check_changelog
@@ -210,7 +210,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free disk space (Ubuntu only)
         if: runner.os == 'Linux'
@@ -234,7 +234,7 @@ jobs:
           sudo apt-get install -y musl-tools
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -352,7 +352,7 @@ jobs:
           Get-ChildItem "${env:PACKAGE_NAME}.zip"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.target }}
           path: |
@@ -368,10 +368,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 

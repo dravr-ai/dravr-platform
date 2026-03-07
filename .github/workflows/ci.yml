@@ -47,7 +47,7 @@ jobs:
       release-worthy: ${{ steps.set-outputs.outputs.release-worthy }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -95,7 +95,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -114,10 +114,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -133,7 +133,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -158,10 +158,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -175,7 +175,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.92.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -216,7 +216,7 @@ jobs:
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
 
       - name: Setup Node.js (for SDK E2E tests runtime)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -273,10 +273,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -290,7 +290,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.92.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -303,7 +303,7 @@ jobs:
             ${{ runner.os }}-cargo-postgres-1.92.0-v2-
 
       - name: Setup Node.js (for SDK E2E tests runtime)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
@@ -379,10 +379,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -396,7 +396,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.92.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -449,10 +449,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -466,7 +466,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.92.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -519,7 +519,7 @@ jobs:
           echo "✅ Release binary executed successfully"
 
       - name: Upload release binary as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pierre-mcp-server-release-ubuntu
           path: target/release/pierre-mcp-server

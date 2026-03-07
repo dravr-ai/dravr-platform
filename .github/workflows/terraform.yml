@@ -52,16 +52,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Authenticate to GCP (dev terraform runner)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_TF_SA }}
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
@@ -73,7 +73,7 @@ jobs:
 
       - name: Post plan as PR comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -128,16 +128,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Authenticate to GCP (prod terraform runner)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_PROD_TF_SA }}
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-prod"
@@ -149,7 +149,7 @@ jobs:
 
       - name: Post plan as PR comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -207,16 +207,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Authenticate to GCP (dev terraform runner)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEV_TF_SA }}
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-dev"
@@ -245,16 +245,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Authenticate to GCP (prod terraform runner)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_PROD_TF_SA }}
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
 
       - name: Terraform Init
         run: terraform init -backend-config="prefix=dravr-prod"

@@ -83,7 +83,7 @@ jobs:
           ref: ${{ needs.resolve-sha.outputs.sha }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Authenticate to GCP (Artifact Registry)
         uses: google-github-actions/auth@v3
@@ -168,7 +168,7 @@ jobs:
           ref: ${{ needs.resolve-sha.outputs.sha }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Authenticate to GCP (Artifact Registry)
         uses: google-github-actions/auth@v3

@@ -37,10 +37,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@v1
         with:
           tool-cache: false
           android: true
@@ -59,7 +59,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -94,7 +94,7 @@ jobs:
           CARGO_INCREMENTAL: 0
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: lcov.info
           flags: backend
