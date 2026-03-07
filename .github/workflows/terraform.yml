@@ -232,11 +232,13 @@ jobs:
     name: Apply Prod
     runs-on: ubuntu-latest
     needs: plan-prod
-    if: >
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_dispatch' &&
-       github.event.inputs.environment == 'prod' &&
-       github.event.inputs.action == 'apply')
+    # Production apply is disabled. To re-enable, replace the line below with:
+    # if: >
+    #   github.event_name == 'push' ||
+    #   (github.event_name == 'workflow_dispatch' &&
+    #    github.event.inputs.environment == 'prod' &&
+    #    github.event.inputs.action == 'apply')
+    if: false
     environment: production
 
     defaults:

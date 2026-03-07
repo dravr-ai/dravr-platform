@@ -274,7 +274,9 @@ jobs:
     name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [publish-server, publish-frontend]
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Production deployment is disabled. To re-enable, replace the line below with:
+    # if: startsWith(github.ref, 'refs/tags/v')
+    if: false
     environment: production
 
     steps:
