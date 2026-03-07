@@ -126,6 +126,7 @@ async fn test_oauth_authorization_url_generation() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -429,6 +430,7 @@ async fn test_oauth_state_validation() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -633,6 +635,7 @@ async fn test_connection_status_no_providers() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -869,6 +872,7 @@ async fn test_invalid_provider_error() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -1069,6 +1073,7 @@ async fn test_disconnect_provider() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -1383,6 +1388,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

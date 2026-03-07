@@ -506,7 +506,9 @@ impl Database {
     ) -> AppResult<(u64, u64)> {
         // Get total users (optionally scoped to tenant)
         let user_count: i64 = if let Some(tid) = tenant_id {
-            sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE tenant_id = ?1")
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM users u INNER JOIN tenant_users tu ON u.id = tu.user_id WHERE tu.tenant_id = ?1",
+            )
                 .bind(tid.to_string())
                 .fetch_one(&self.pool)
                 .await

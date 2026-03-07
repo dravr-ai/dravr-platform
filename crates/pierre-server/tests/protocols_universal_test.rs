@@ -134,6 +134,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -553,6 +554,7 @@ async fn test_set_goal_tool() -> Result<()> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -1302,6 +1304,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

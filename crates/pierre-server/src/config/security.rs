@@ -66,6 +66,11 @@ impl AuthConfig {
 pub struct SecurityConfig {
     /// CORS allowed origins
     pub cors_origins: Vec<String>,
+    /// Allowed HTTPS origins for mobile OAuth redirect URLs.
+    /// Prevents open-redirect attacks by restricting redirect targets to known hosts.
+    /// The server's own `base_url` is always allowed implicitly.
+    /// Set via `ALLOWED_MOBILE_REDIRECT_ORIGINS` (comma-separated list of HTTPS origins).
+    pub allowed_mobile_redirect_origins: Vec<String>,
     /// TLS configuration
     pub tls: TlsConfig,
     /// Security headers configuration
@@ -81,6 +86,10 @@ impl SecurityConfig {
     pub fn from_env() -> AppResult<Self> {
         Ok(Self {
             cors_origins: parse_origins(&env_var_or("CORS_ORIGINS", "*")),
+            allowed_mobile_redirect_origins: parse_origins(&env_var_or(
+                "ALLOWED_MOBILE_REDIRECT_ORIGINS",
+                "",
+            )),
             tls: TlsConfig::from_env(),
             headers: SecurityHeadersConfig::from_env(),
         })

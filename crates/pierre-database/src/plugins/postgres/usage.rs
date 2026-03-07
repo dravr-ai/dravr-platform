@@ -305,7 +305,9 @@ impl UsageRepository for PostgresDatabase {
 
     async fn get_system_stats(&self, tenant_id: Option<TenantId>) -> AppResult<(u64, u64)> {
         let user_count_row = if let Some(tid) = tenant_id {
-            sqlx::query("SELECT COUNT(*) as count FROM users WHERE tenant_id = $1")
+            sqlx::query(
+                "SELECT COUNT(*) as count FROM users u INNER JOIN tenant_users tu ON u.id = tu.user_id WHERE tu.tenant_id = $1",
+            )
                 .bind(tid.to_string())
                 .fetch_one(&self.pool)
                 .await
@@ -320,7 +322,7 @@ impl UsageRepository for PostgresDatabase {
 
         let api_key_count_row = if let Some(tid) = tenant_id {
             sqlx::query(
-                "SELECT COUNT(*) as count FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE ak.is_active = true AND u.tenant_id = $1",
+                "SELECT COUNT(*) as count FROM api_keys ak INNER JOIN tenant_users tu ON ak.user_id = tu.user_id WHERE ak.is_active = true AND tu.tenant_id = $1",
             )
             .bind(tid.to_string())
             .fetch_one(&self.pool)

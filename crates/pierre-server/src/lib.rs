@@ -173,3 +173,6 @@ pub(crate) mod services;
 // Re-export messaging outbound worker for binary startup
 #[cfg(feature = "client-messaging")]
 pub use services::messaging_outbound::start_outbound_worker;
+
+// Re-export OAuth flow validation for integration testing
+pub use services::oauth_flow;

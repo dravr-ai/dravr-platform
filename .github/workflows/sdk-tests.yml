@@ -168,7 +168,7 @@ jobs:
             echo "Warning: Only $MAP_COUNT tools have response schemas (expected >= 35)"
           fi
           # Run schema unit tests
-          bun test test/unit/response-schemas.test.ts || {
+          bun run test test/unit/response-schemas.test.js || {
             echo "Response schema tests failed - schemas may be out of sync"
             exit 1
           }

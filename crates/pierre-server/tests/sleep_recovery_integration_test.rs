@@ -108,6 +108,7 @@ fn create_test_external_services_config() -> ExternalServicesConfig {
 fn create_test_security_config() -> SecurityConfig {
     SecurityConfig {
         cors_origins: vec!["*".to_owned()],
+        allowed_mobile_redirect_origins: vec![],
         tls: TlsConfig {
             enabled: false,
             cert_path: None,

@@ -255,6 +255,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,
@@ -754,6 +755,7 @@ async fn test_input_validation() -> Result<()> {
         },
         security: SecurityConfig {
             cors_origins: vec!["*".to_owned()],
+            allowed_mobile_redirect_origins: vec![],
             tls: TlsConfig {
                 enabled: false,
                 cert_path: None,

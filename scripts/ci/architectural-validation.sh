@@ -280,6 +280,17 @@ if [ "$IMPLEMENTATION_PLACEHOLDERS" -gt 0 ]; then
     fail_validation "Placeholder implementations must be completed"
 fi
 
+# Placeholder test bodies in JS/TS test files
+# Detects tests that only log messages or have comment-only bodies instead of real assertions
+echo -e "${BLUE}Checking for placeholder test implementations in JS/TS...${NC}"
+JS_PLACEHOLDER_PATTERNS="In a full E2E test, we would|testing infrastructure ready|testing ready|validation infrastructure ready"
+JS_PLACEHOLDER_TESTS=$(rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ frontend-mobile/tests/ --count -g "*.test.*" -g "*.spec.*" 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$JS_PLACEHOLDER_TESTS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $JS_PLACEHOLDER_TESTS placeholder test implementations in JS/TS${NC}"
+    rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ frontend-mobile/tests/ -n -g "*.test.*" -g "*.spec.*" 2>/dev/null | head -10
+    fail_validation "JS/TS test placeholders must be replaced with real assertions"
+fi
+
 # FORBIDDEN anyhow! macro usage (CLAUDE.md violation)
 if [ "$TOML_ERROR_CONTEXT" -gt 0 ]; then
     echo -e "${RED}❌ FORBIDDEN: Found $TOML_ERROR_CONTEXT uses of anyhow! macro${NC}"
@@ -670,6 +681,13 @@ if [ "$IMPLEMENTATION_PLACEHOLDERS" -eq 0 ]; then
 else
     FIRST_PLACEHOLDER=$(get_first_location 'rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PLACEHOLDER"
+fi
+
+printf "│ %-35s │ %5d │ " "JS/TS test placeholders" "$JS_PLACEHOLDER_TESTS"
+if [ "$JS_PLACEHOLDER_TESTS" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "No JS/TS placeholder tests"
+else
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "Replace placeholder tests"
 fi
 
 printf "│ %-35s │ %5d │ " "Resource creation patterns" "$RESOURCE_CREATION"
