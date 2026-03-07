@@ -17,6 +17,9 @@ appId: com.pierre.fitness
     visible:
       id: "social-feed-screen"
     timeout: 5000
+- extendedWaitUntil:
+    visible: "Find Friends"
+    timeout: 10000
 - tapOn: "Find Friends"
 
 # Test: friends - displays screen
