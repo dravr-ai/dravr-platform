@@ -387,6 +387,8 @@ export function CoachLibraryScreen() {
         onLongPress={() => handleCoachLongPress(item)}
         delayLongPress={300}
         activeOpacity={0.7}
+        accessible={true}
+        accessibilityLabel={item.title}
         testID={`coach-card-${item.id}`}
       >
         {/* Category-colored gradient accent bar */}
@@ -689,6 +691,7 @@ export function CoachLibraryScreen() {
           data={filteredCoaches}
           renderItem={renderCoachCard}
           keyExtractor={(item) => item.id}
+          drawDistance={500}
           contentContainerStyle={{ padding: spacing.md, paddingBottom: 100 }}
           showsVerticalScrollIndicator={false}
           refreshControl={
