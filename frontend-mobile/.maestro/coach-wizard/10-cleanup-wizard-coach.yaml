@@ -14,19 +14,13 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Wait for initial load to complete, then pull-to-refresh to ensure data is fresh.
-# The refresh path keeps FlashList mounted (unlike initial load which swaps to ActivityIndicator).
-- swipe:
-    start: "50%,30%"
-    end: "50%,70%"
-    duration: 500
-
-# Find the test coach (scroll down if needed)
-- scrollUntilVisible:
-    element:
+# Wait for the coach to appear after initial load (useFocusEffect fetches fresh data).
+# The new coach sorts to the top (newest updated_at), so it's in the viewport.
+# 30s timeout covers API latency + FlashList rendering.
+- extendedWaitUntil:
+    visible:
       text: "E2E Editor Coach"
-    direction: DOWN
-    timeout: 20000
+    timeout: 30000
 
 - longPressOn: "E2E Editor Coach"
 
