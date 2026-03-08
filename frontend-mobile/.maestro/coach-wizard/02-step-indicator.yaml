@@ -31,8 +31,8 @@ appId: com.pierre.fitness
 - assertVisible:
     id: "coach-description-input"
 
-# Check save button in header
+# Check save button in header (testID is save-button-disabled with empty fields)
 - assertVisible:
-    id: "save-button"
+    id: "save-button-disabled"
 
 - back

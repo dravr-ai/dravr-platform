@@ -92,6 +92,9 @@ export function CoachEditorScreen() {
     }
   };
 
+  // Derived save-readiness for dynamic testID (Maestro sync point)
+  const canSave = title.trim().length > 0 && systemPrompt.trim().length > 0 && !isSaving;
+
   // Calculate token count (same formula as web)
   const tokenCount = Math.ceil(systemPrompt.length / 4);
   const contextPercentage = ((tokenCount / CONTEXT_WINDOW_SIZE) * 100).toFixed(1);
@@ -231,7 +234,7 @@ export function CoachEditorScreen() {
             }}
             onPress={handleSave}
             disabled={isSaving}
-            testID="save-button"
+            testID={canSave ? 'save-button' : 'save-button-disabled'}
           >
             {isSaving ? (
               <ActivityIndicator size="small" color="#fff" />
