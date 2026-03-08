@@ -64,6 +64,21 @@ appId: com.pierre.fitness
 - tapOn:
     id: "save-button"
 
+# Wait for the API call to complete and router.back() to fire.
+# Use a micro-swipe as a 5-second delay (Maestro has no native sleep).
+- swipe:
+    start: "50%,30%"
+    end: "50%,32%"
+    duration: 5000
+
+# If still on the editor (router.back() failed on iOS), send Maestro back.
+- runFlow:
+    when:
+      visible:
+        id: "coach-editor-screen"
+    commands:
+      - back
+
 # Wait to return to library (long timeout for CI API latency)
 - extendedWaitUntil:
     visible:

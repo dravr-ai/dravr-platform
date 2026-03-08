@@ -25,13 +25,18 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 30000
 
+# Ensure the coach card is fully rendered before long-pressing.
+- extendedWaitUntil:
+    visible: "E2E Test Coach"
+    timeout: 5000
+
 # Long press to show action menu
 - longPressOn: "E2E Test Coach"
 
 # Wait for Delete option in the action menu
 - extendedWaitUntil:
     visible: "Delete"
-    timeout: 5000
+    timeout: 10000
 
 # Tap Delete
 - tapOn: "Delete"

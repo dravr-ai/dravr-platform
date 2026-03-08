@@ -43,10 +43,14 @@ appId: com.pierre.fitness
     id: "tag-input"
 - inputText: "intervals"
 
-# Submit tag via Enter key (triggers onSubmitEditing which calls addTag).
-# More reliable than dismiss keyboard + tap add-tag-button, especially
-# on Android where keyboard may cover the button.
-- pressKey: Enter
+# Dismiss keyboard before tapping add button. pressKey Enter does not
+# reliably trigger onSubmitEditing on iOS in Expo Go.
+- tapOn:
+    point: "50%,15%"
+
+# Tap the add-tag-button to submit the tag
+- tapOn:
+    id: "add-tag-button"
 
 # Tag should appear as a chip
 - extendedWaitUntil:

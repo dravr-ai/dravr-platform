@@ -32,6 +32,11 @@ appId: com.pierre.fitness
 - tapOn:
     id: "send-button"
 
+# Dismiss keyboard so the message list is fully visible.
+# On iOS, the keyboard stays up after send, hiding the chat messages.
+- tapOn:
+    point: "50%,15%"
+
 # Wait for sent message to appear
 - extendedWaitUntil:
     visible: "Test message"

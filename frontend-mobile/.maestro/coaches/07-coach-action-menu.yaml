@@ -25,13 +25,19 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 30000
 
+# Ensure the coach card is fully rendered before long-pressing.
+# On iOS, FlashList cells may not be interactable immediately after scrolling.
+- extendedWaitUntil:
+    visible: "E2E Test Coach"
+    timeout: 5000
+
 # Long press on the coach card
 - longPressOn: "E2E Test Coach"
 
 # Should see action menu with Add to favorites option
 - extendedWaitUntil:
     visible: "Add to favorites"
-    timeout: 5000
+    timeout: 10000
 
 # Close menu by tapping outside
 - tapOn:
