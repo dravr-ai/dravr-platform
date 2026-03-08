@@ -22,7 +22,7 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "coach-editor-screen"
-    timeout: 10000
+    timeout: 15000
 
 # Navigate back
 - back

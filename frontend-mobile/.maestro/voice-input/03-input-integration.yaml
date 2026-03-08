@@ -19,9 +19,11 @@ appId: com.pierre.fitness
 - assertVisible:
     id: "voice-input-button"
 
-# Send button should be visible
-- assertVisible:
-    id: "send-button"
+# Send button testID switches to send-button when canSend is true.
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000
 
 # Clear for next test
 - eraseText

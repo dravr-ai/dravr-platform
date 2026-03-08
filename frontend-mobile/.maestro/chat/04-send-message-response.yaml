@@ -28,6 +28,13 @@ appId: com.pierre.fitness
 # enabling the send button via canSend check.
 - inputText: "Hello Pierre"
 
+# Wait for send button to become enabled (testID switches from
+# send-button-disabled to send-button once React state updates).
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000
+
 # Tap send button
 - tapOn:
     id: "send-button"

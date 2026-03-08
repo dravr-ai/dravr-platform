@@ -18,6 +18,10 @@ appId: com.pierre.fitness
 - tapOn:
     id: "message-input"
 - inputText: "Analyze my training load using synthetic data"
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000
 - tapOn:
     id: "send-button"
 
