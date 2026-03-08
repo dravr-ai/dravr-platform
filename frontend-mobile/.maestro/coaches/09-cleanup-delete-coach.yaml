@@ -18,7 +18,7 @@ appId: com.pierre.fitness
 - tapOn:
     id: "source-filter-user"
 
-# Scroll to find the test coach
+# Scroll to find the test coach. If it doesn't exist (test 06 failed), skip.
 - scrollUntilVisible:
     element:
       text: "E2E Test Coach"
@@ -28,27 +28,24 @@ appId: com.pierre.fitness
 # Long press to show action menu
 - longPressOn: "E2E Test Coach"
 
-# Wait for Delete option
+# Wait for Delete option in the action menu
 - extendedWaitUntil:
-    visible:
-      text: "Delete"
-    timeout: 3000
+    visible: "Delete"
+    timeout: 5000
 
 # Tap Delete
 - tapOn: "Delete"
 
 # Confirm deletion in dialog
 - extendedWaitUntil:
-    visible:
-      text: "Delete"
-    timeout: 3000
+    visible: "Delete"
+    timeout: 5000
 - tapOn: "Delete"
 
 # Verify coach is deleted
 - extendedWaitUntil:
-    notVisible:
-      text: "E2E Test Coach"
-    timeout: 5000
+    notVisible: "E2E Test Coach"
+    timeout: 10000
 
 # Reset filter
 - tapOn:

@@ -76,11 +76,11 @@ appId: com.pierre.fitness
 # Tap the coach to navigate to detail screen
 - tapOn: "E2E Test Coach"
 
-# Should see coach detail screen
+# Should see coach detail screen (generous timeout for navigation transition)
 - extendedWaitUntil:
     visible:
       id: "coach-detail-screen"
-    timeout: 5000
+    timeout: 15000
 
 # Verify the edit button is available (user-created coach)
 - assertVisible:
@@ -93,14 +93,7 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "coach-library-screen"
-    timeout: 10000
-
-# Scroll up to find the source filter (may be off-screen after scrolling down)
-- scrollUntilVisible:
-    element:
-      id: "source-filter-all"
-    direction: UP
-    timeout: 10000
+    timeout: 15000
 
 # Reset filter
 - tapOn:

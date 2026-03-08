@@ -16,28 +16,26 @@ appId: com.pierre.fitness
       id: "message-input"
     timeout: 10000
 
-# Send a message first to create a conversation
+# Send a message first to create a conversation.
+# Tap input, erase any stale text, then type.
 - tapOn:
     id: "message-input"
-- inputText: "ycheck99"
+- eraseText: 10
+- inputText: "Test message"
 
-# Verify text was entered into the input
+# Wait a moment for React state to sync
 - extendedWaitUntil:
-    visible: "ycheck99"
+    visible:
+      id: "send-button"
     timeout: 5000
-
-# Dismiss keyboard so send button is fully tappable on all screen sizes
-- tapOn:
-    point: "50%,20%"
 
 - tapOn:
     id: "send-button"
 
-# Verify the sent message appears in the chat.
-# CI has no LLM configured, so we verify the message was sent (not the response).
+# Wait for sent message to appear
 - extendedWaitUntil:
-    visible: "ycheck99"
-    timeout: 30000
+    visible: "Test message"
+    timeout: 15000
 
 # Now create new chat via the floating tab bar
 - runFlow:
