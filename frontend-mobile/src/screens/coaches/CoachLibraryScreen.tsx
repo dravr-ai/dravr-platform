@@ -190,7 +190,7 @@ export function CoachLibraryScreen() {
   };
 
   const handleCreateCoach = () => {
-    router.push('/(app)/(tabs)/(coaches)/editor');
+    router.navigate('/(app)/(tabs)/(coaches)/editor');
   };
 
   const handleToggleFavorite = async (coach?: Coach) => {
@@ -328,7 +328,7 @@ export function CoachLibraryScreen() {
               // Add the new forked coach to the list
               setCoaches((prev) => [result.coach, ...prev]);
               // Navigate to wizard to customize
-              router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: result.coach.id } });
+              router.navigate({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: result.coach.id } });
             } catch (error) {
               console.error('Failed to fork coach:', error);
               Alert.alert('Error', 'Failed to fork coach. Please try again.');
