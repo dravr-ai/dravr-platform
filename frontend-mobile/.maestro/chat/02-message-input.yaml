@@ -18,6 +18,6 @@ appId: com.pierre.fitness
 - assertVisible:
     id: "message-input"
 
-# Test: should have send button visible (disabled state)
+# Test: should have send button visible (disabled state shows send-button-disabled)
 - assertVisible:
-    id: "send-button"
+    id: "send-button-disabled"

@@ -94,7 +94,7 @@ export function ChatInputBar({
           style={canSend ? { backgroundColor: colors.pierre.violet } : undefined}
           onPress={onSendMessage}
           disabled={!canSend}
-          testID="send-button"
+          testID={canSend ? 'send-button' : 'send-button-disabled'}
         >
           {isSending ? (
             <ActivityIndicator size="small" color={colors.text.primary} />

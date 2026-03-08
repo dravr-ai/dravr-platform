@@ -19,6 +19,9 @@ appId: com.pierre.fitness
     id: "message-input"
 - inputText: "Hello Pierre"
 
-# Send button should be visible (enabled)
-- assertVisible:
-    id: "send-button"
+# Send button testID switches to send-button when canSend is true.
+# Use extendedWaitUntil to allow React state to propagate.
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000

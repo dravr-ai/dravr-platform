@@ -18,6 +18,10 @@ appId: com.pierre.fitness
 - tapOn:
     id: "message-input"
 - inputText: "Do I need a rest day? Use synthetic data"
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000
 - tapOn:
     id: "send-button"
 

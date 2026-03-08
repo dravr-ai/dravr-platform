@@ -43,12 +43,10 @@ appId: com.pierre.fitness
     id: "tag-input"
 - inputText: "intervals"
 
-# Dismiss keyboard before tapping add button (may be behind keyboard)
-- tapOn:
-    point: "50%,15%"
-
-- tapOn:
-    id: "add-tag-button"
+# Submit tag via Enter key (triggers onSubmitEditing which calls addTag).
+# More reliable than dismiss keyboard + tap add-tag-button, especially
+# on Android where keyboard may cover the button.
+- pressKey: Enter
 
 # Tag should appear as a chip
 - extendedWaitUntil:
