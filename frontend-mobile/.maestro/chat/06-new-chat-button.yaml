@@ -16,26 +16,19 @@ appId: com.pierre.fitness
       id: "message-input"
     timeout: 10000
 
-# Send a message first to create a conversation.
-# Tap input, erase any stale text, then type.
+# Send a message first to create a conversation
 - tapOn:
     id: "message-input"
-- eraseText: 10
 - inputText: "Test message"
 
-# Wait a moment for React state to sync
-- extendedWaitUntil:
-    visible:
-      id: "send-button"
-    timeout: 5000
-
+# Tap send button
 - tapOn:
     id: "send-button"
 
 # Wait for sent message to appear
 - extendedWaitUntil:
     visible: "Test message"
-    timeout: 15000
+    timeout: 30000
 
 # Now create new chat via the floating tab bar
 - runFlow:

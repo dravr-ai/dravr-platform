@@ -22,7 +22,12 @@ appId: com.pierre.fitness
 - tapOn: "Nutrition"
 - assertVisible: "Nutrition"
 
-# Test: should filter by Recovery category
+# Test: should filter by Recovery category (may be off-screen on Android)
+- scrollUntilVisible:
+    element:
+      text: "Recovery"
+    direction: RIGHT
+    timeout: 5000
 - tapOn: "Recovery"
 - assertVisible: "Recovery"
 

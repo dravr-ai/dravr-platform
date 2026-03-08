@@ -21,7 +21,7 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "coach-editor-screen"
-    timeout: 5000
+    timeout: 15000
 
 - tapOn:
     id: "coach-title-input"

@@ -25,6 +25,10 @@ appId: com.pierre.fitness
     timeout: 5000
 
 # Enable showing hidden coaches (system coaches may be hidden by default)
+- extendedWaitUntil:
+    visible:
+      id: "show-hidden-toggle"
+    timeout: 15000
 - tapOn:
     id: "show-hidden-toggle"
 

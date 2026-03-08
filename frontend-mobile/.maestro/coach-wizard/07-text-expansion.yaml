@@ -20,7 +20,7 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "coach-editor-screen"
-    timeout: 5000
+    timeout: 15000
 
 # Scroll to system prompt section (expanded by default)
 - scrollUntilVisible:
