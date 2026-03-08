@@ -19,6 +19,7 @@ use pierre_database::plugins::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -30,6 +31,9 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
+
+/// Fallback base URL when `BASE_URL` env var is not set
+const FALLBACK_BASE_URL: &str = "http://localhost:8081";
 
 /// Length of the cryptographically random linking code
 const LINK_CODE_LENGTH: usize = 32;
@@ -112,9 +116,10 @@ fn build_linking_url(channel_type: ChannelType, code: &str, config: &serde_json:
             let encoded_message = urlencoding::encode(&message_text);
             format!("https://wa.me/{phone}?text={encoded_message}")
         }
-        // OAuth channels return a placeholder — the frontend constructs the actual OAuth URL
+        // OAuth channels return the full callback URL so callers get a usable absolute URL
         ChannelType::Slack | ChannelType::Discord | ChannelType::Messenger => {
-            format!("/api/messaging/link/callback/{channel_type}?state={code}")
+            let base = env::var("BASE_URL").unwrap_or_else(|_| FALLBACK_BASE_URL.to_owned());
+            format!("{base}/api/messaging/link/callback/{channel_type}?state={code}")
         }
     }
 }

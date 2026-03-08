@@ -410,22 +410,7 @@ impl ToolRegistry {
         #[cfg(feature = "tools-store")]
         self.register_store_tools();
 
-        // Always register default tools (no feature flag required)
-        self.register_default_tools();
-
         info!("Registered {} built-in tools", self.len());
-    }
-
-    /// Register default tools that are always available
-    fn register_default_tools(&mut self) {
-        // Reserve capacity for future tool registration (uses &mut self)
-        self.tools.reserve(0);
-        // Default tools that don't require feature flags go here
-        // These might include basic info tools, health checks, etc.
-        debug!(
-            "Default tools registration placeholder (registry has {} tools)",
-            self.tools.len()
-        );
     }
 
     /// Register connection management tools
