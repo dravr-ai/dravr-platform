@@ -220,6 +220,7 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8081/auth/strava/callback"
+          PIERRE_LLM_MODEL: "ci-test-model"
 
       - name: Run mobile integration tests
         working-directory: frontend-mobile
@@ -311,6 +312,7 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8081/auth/strava/callback"
+          PIERRE_LLM_MODEL: "ci-test-model"
 
       - name: Seed test user for Maestro tests
         run: |
@@ -810,6 +812,7 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8081/auth/strava/callback"
+          PIERRE_LLM_MODEL: "ci-test-model"
 
       - name: Seed test user for Maestro tests
         run: |
