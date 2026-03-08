@@ -29,7 +29,9 @@ appId: com.pierre.fitness
     direction: RIGHT
     timeout: 5000
 - tapOn: "Recovery"
-- assertVisible: "Recovery"
+- extendedWaitUntil:
+    visible: "Recovery"
+    timeout: 5000
 
 # Test: should reset filters when All is selected
 - tapOn: "All"

@@ -34,7 +34,9 @@ appId: com.pierre.fitness
     timeout: 5000
 
 # Test: settings - displays profile section
-- assertVisible: "Profile"
+- extendedWaitUntil:
+    visible: "Profile"
+    timeout: 10000
 
 # Test: settings - displays connections section (may need scroll)
 - runFlow:
