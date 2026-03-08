@@ -30,9 +30,6 @@ pub mod renderer;
 /// Channel registry mapping `ChannelType` to adapter instances
 pub mod registry;
 
-/// Message router: inbound dispatch to Pierre chat, outbound formatting and queueing
-pub mod router;
-
 /// Stateless adapter factory for on-demand channel adapter construction
 pub mod factory;
 

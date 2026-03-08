@@ -44,8 +44,6 @@ pub mod recipes;
 pub mod repositories;
 /// Security repository: RSA keypairs, key rotation, audit events, system secrets
 pub mod security_repository;
-/// System coaches seeding for server startup
-pub mod seed_coaches;
 /// Social features (friend connections, shared insights)
 pub mod social;
 /// Backend-agnostic social manager dispatch enum

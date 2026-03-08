@@ -16,8 +16,5 @@ pub mod mappers;
 /// Encryption/decryption utilities for OAuth tokens and sensitive data
 pub mod encryption;
 
-/// Query parameter binding helpers (reduce repetitive `.bind()` chains)
-pub mod builders;
-
 /// Transaction retry patterns (deadlock handling, exponential backoff)
 pub mod transactions;

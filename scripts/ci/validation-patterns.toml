@@ -35,6 +35,7 @@ critical = [
     "return Ok\\(\\); // placeholder",
     "return Err.*not implemented",
     "not yet.*implemented",
+    "reserved for future",
     "Intelligence analysis requires authenticated provider access",
     "requires authenticated provider access",
     "This handler.*delegates to.*services",

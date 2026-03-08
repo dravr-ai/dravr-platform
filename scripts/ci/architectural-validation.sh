@@ -291,6 +291,39 @@ if [ "$JS_PLACEHOLDER_TESTS" -gt 0 ]; then
     fail_validation "JS/TS test placeholders must be replaced with real assertions"
 fi
 
+# Structural dead code: empty Rust source modules (comment-only, no declarations)
+# A .rs file in src/ with zero fn/struct/enum/impl/const/static/type/trait/macro/mod/use is dead weight.
+# Files containing pub mod/pub use re-exports (mod.rs, lib.rs) are structural and exempt.
+echo -e "${BLUE}Checking for empty source modules...${NC}"
+EMPTY_MODULES=0
+EMPTY_MODULE_LIST=""
+while IFS= read -r rs_file; do
+    DECL_COUNT=$(rg "^(pub )?(pub\(crate\) )?(pub\(super\) )?(async )?(unsafe )?(fn |struct |enum |impl |const |static |type |trait |macro|mod |use )" "$rs_file" --count 2>/dev/null || echo 0)
+    if [ "$DECL_COUNT" -eq 0 ]; then
+        EMPTY_MODULES=$((EMPTY_MODULES + 1))
+        SHORT_PATH="${rs_file#$PROJECT_ROOT/}"
+        if [ -z "$EMPTY_MODULE_LIST" ]; then
+            EMPTY_MODULE_LIST="$SHORT_PATH"
+        else
+            EMPTY_MODULE_LIST="$EMPTY_MODULE_LIST, $SHORT_PATH"
+        fi
+    fi
+done < <(find crates/*/src -name "*.rs" -not -path "*/tests/*" -not -path "*/bin/*" 2>/dev/null)
+if [ "$EMPTY_MODULES" -gt 0 ]; then
+    echo -e "${RED}❌ Found $EMPTY_MODULES empty source module(s) with no declarations:${NC}"
+    echo -e "${RED}   $EMPTY_MODULE_LIST${NC}"
+    fail_validation "Empty source modules are dead code — remove or implement them"
+fi
+
+# Structural dead code: no-op functions (body is only reserve(0), logging, or comments)
+echo -e "${BLUE}Checking for no-op function bodies...${NC}"
+NOOP_FUNCTIONS=$(rg "\.reserve\(0\)" crates/*/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$NOOP_FUNCTIONS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $NOOP_FUNCTIONS no-op reserve(0) call(s) in production code:${NC}"
+    rg "\.reserve\(0\)" crates/*/src/ -n | head -5
+    fail_validation "reserve(0) is a no-op — remove the function or implement it"
+fi
+
 # FORBIDDEN anyhow! macro usage (CLAUDE.md violation)
 if [ "$TOML_ERROR_CONTEXT" -gt 0 ]; then
     echo -e "${RED}❌ FORBIDDEN: Found $TOML_ERROR_CONTEXT uses of anyhow! macro${NC}"
@@ -688,6 +721,20 @@ if [ "$JS_PLACEHOLDER_TESTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No JS/TS placeholder tests"
 else
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "Replace placeholder tests"
+fi
+
+printf "│ %-35s │ %5d │ " "Empty source modules" "$EMPTY_MODULES"
+if [ "$EMPTY_MODULES" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "No dead code modules"
+else
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$EMPTY_MODULE_LIST"
+fi
+
+printf "│ %-35s │ %5d │ " "No-op reserve(0) calls" "$NOOP_FUNCTIONS"
+if [ "$NOOP_FUNCTIONS" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "No no-op function bodies"
+else
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "Dead code in production"
 fi
 
 printf "│ %-35s │ %5d │ " "Resource creation patterns" "$RESOURCE_CREATION"
