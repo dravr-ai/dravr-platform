@@ -28,6 +28,9 @@ RUN cd frontend && bun run build
 # ---------------------------------------------------------------------------
 FROM nginx:1.28-alpine3.23
 
+# Upgrade system packages to patch CVEs (zlib CVE-2026-22184, CVE-2026-27171)
+RUN apk upgrade --no-cache
+
 # Copy built assets from the builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
