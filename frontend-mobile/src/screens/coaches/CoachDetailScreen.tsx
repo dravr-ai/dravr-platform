@@ -70,7 +70,7 @@ export function CoachDetailScreen() {
 
   const handleEdit = () => {
     if (!coach) return;
-    router.navigate({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: coach.id } });
+    router.push({ pathname: '/(app)/(tabs)/(coaches)/editor', params: { coachId: coach.id } });
   };
 
   const handleDelete = () => {
