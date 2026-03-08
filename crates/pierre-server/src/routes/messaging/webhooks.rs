@@ -872,12 +872,13 @@ async fn send_outbound_response(dispatch: &PendingDispatch, outgoing: &OutgoingM
 
     match dispatch.adapter.send(outgoing, &channel_config).await {
         Ok(receipt) => {
+            let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
             info!(
-                message_id = %receipt.message_id,
+                channel_message_id = %channel_msg_id,
                 channel = %dispatch.channel,
                 "Outbound message sent successfully"
             );
-            persist_outbound_message(db, dispatch, &receipt.message_id, outgoing).await;
+            persist_outbound_message(db, dispatch, channel_msg_id, outgoing).await;
         }
         Err(e) => {
             warn!(

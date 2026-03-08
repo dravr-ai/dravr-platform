@@ -203,9 +203,10 @@ async fn attempt_delivery(
 ) {
     match adapter.send_raw(payload, channel_config).await {
         Ok(receipt) => {
+            let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
             info!(
                 entry_id = %entry_id,
-                message_id = %receipt.message_id,
+                channel_message_id = %channel_msg_id,
                 "Outbound retry delivery succeeded"
             );
             let _ = db
