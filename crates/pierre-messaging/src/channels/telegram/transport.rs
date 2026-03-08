@@ -144,7 +144,8 @@ impl TransportAdapter for TelegramTransport {
                     channel: "telegram".to_owned(),
                 })?;
 
-        let url = format!("https://api.telegram.org/bot{bot_token}/sendMessage");
+        let method = resolve_bot_api_method(payload);
+        let url = format!("https://api.telegram.org/bot{bot_token}/{method}");
 
         let response = self
             .client
@@ -190,6 +191,22 @@ impl TransportAdapter for TelegramTransport {
             status: DeliveryStatus::Sent,
             timestamp: Utc::now(),
         })
+    }
+}
+
+/// Resolve the Telegram Bot API method from the rendered payload shape
+///
+/// The renderer produces payloads with different keys depending on content type:
+/// - `"photo"` key → `sendPhoto`
+/// - `"latitude"` key → `sendLocation`
+/// - default → `sendMessage` (text and card content)
+fn resolve_bot_api_method(payload: &Value) -> &'static str {
+    if payload.get("photo").is_some() {
+        "sendPhoto"
+    } else if payload.get("latitude").is_some() {
+        "sendLocation"
+    } else {
+        "sendMessage"
     }
 }
 
