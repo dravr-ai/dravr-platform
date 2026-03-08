@@ -175,7 +175,14 @@ export function CoachEditorScreen() {
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.back();
+      // In create mode, dismiss all screens in the coaches stack to return to
+      // the library. router.back() is unreliable on iOS when the stack entry
+      // was created via router.push(). In edit mode, back() pops one screen.
+      if (isEditMode) {
+        router.back();
+      } else {
+        router.dismissAll();
+      }
     } catch (error) {
       console.error('Failed to save coach:', error);
       Alert.alert('Error', `Failed to ${isEditMode ? 'update' : 'create'} coach`);

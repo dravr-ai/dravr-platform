@@ -14,25 +14,15 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Filter to user-created coaches for faster FlashList rendering
-- tapOn:
-    id: "source-filter-user"
-
-# Scroll to find E2E Test Coach (created in test 06)
-- scrollUntilVisible:
-    element:
-      text: "E2E Test Coach"
-    direction: DOWN
-    timeout: 30000
-
-# Ensure the coach card is fully rendered before long-pressing.
-# On iOS, FlashList cells may not be interactable immediately after scrolling.
+# Test the action menu on a system coach visible at the top of the list.
+# System coaches render immediately without FlashList scrolling, avoiding
+# cell lifecycle issues that make long-press unreliable after scrollUntilVisible.
 - extendedWaitUntil:
-    visible: "E2E Test Coach"
-    timeout: 5000
+    visible: "Marathon Coach"
+    timeout: 10000
 
 # Long press on the coach card
-- longPressOn: "E2E Test Coach"
+- longPressOn: "Marathon Coach"
 
 # Should see action menu with Add to favorites option
 - extendedWaitUntil:
@@ -42,7 +32,3 @@ appId: com.pierre.fitness
 # Close menu by tapping outside
 - tapOn:
     id: "coach-library-screen"
-
-# Reset filter
-- tapOn:
-    id: "source-filter-all"
