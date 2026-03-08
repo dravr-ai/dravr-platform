@@ -70,3 +70,40 @@ pub use prompts::{
     get_messaging_context_prompt, get_pierre_system_prompt,
 };
 pub use provider::ChatProvider;
+
+/// Shared HTTP client configuration for all cloud LLM providers
+mod http_client {
+    use std::env;
+    use std::time::Duration;
+
+    /// Default connect timeout for LLM API calls (30 seconds)
+    const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 30;
+
+    /// Default request timeout for LLM API calls (5 minutes, since completions can be slow)
+    const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 300;
+
+    /// Build a `reqwest::Client` with consistent timeout configuration
+    ///
+    /// Reads from environment variables with sensible defaults:
+    /// - `LLM_CONNECT_TIMEOUT_SECS`: TCP connect timeout (default: 30s)
+    /// - `LLM_REQUEST_TIMEOUT_SECS`: Total request timeout (default: 300s)
+    #[must_use]
+    pub fn build_llm_http_client() -> reqwest::Client {
+        let connect_secs = env::var("LLM_CONNECT_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_CONNECT_TIMEOUT_SECS);
+        let request_secs = env::var("LLM_REQUEST_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS);
+
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(connect_secs))
+            .timeout(Duration::from_secs(request_secs))
+            .build()
+            .unwrap_or_default()
+    }
+}
+
+pub(crate) use http_client::build_llm_http_client;

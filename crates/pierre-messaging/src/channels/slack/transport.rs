@@ -116,11 +116,14 @@ impl TransportAdapter for SlackTransport {
         _headers: &HeaderMap,
         body: &[u8],
     ) -> MessagingResult<Vec<IncomingMessage>> {
-        let payload: Value =
-            serde_json::from_slice(body).map_err(|e| MessagingError::InvalidPayload {
-                channel: "slack".to_owned(),
-                reason: format!("invalid JSON: {e}"),
-            })?;
+        // Slack interactive payloads arrive form-encoded with a `payload` key
+        let payload: Value = Self::parse_slack_body(body)?;
+
+        // Check for interactive `block_actions` payload (button taps)
+        let payload_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+        if payload_type == "block_actions" {
+            return Ok(parse_block_actions(&payload));
+        }
 
         // Slack Events API sends events in the "event" field
         let Some(event) = payload.get("event") else {
@@ -235,4 +238,117 @@ impl TransportAdapter for SlackTransport {
             timestamp: Utc::now(),
         })
     }
+}
+
+impl SlackTransport {
+    /// Parse the Slack request body, handling both JSON and form-encoded interactive payloads
+    fn parse_slack_body(body: &[u8]) -> MessagingResult<Value> {
+        // Try direct JSON first (Events API)
+        if let Ok(value) = serde_json::from_slice::<Value>(body) {
+            return Ok(value);
+        }
+
+        // Try form-encoded with `payload` key (interactive payloads)
+        let body_str = str::from_utf8(body).map_err(|e| MessagingError::InvalidPayload {
+            channel: "slack".to_owned(),
+            reason: format!("invalid UTF-8: {e}"),
+        })?;
+
+        for pair in body_str.split('&') {
+            if let Some(value) = pair.strip_prefix("payload=") {
+                let decoded = percent_decode(value);
+                return serde_json::from_str(&decoded).map_err(|e| {
+                    MessagingError::InvalidPayload {
+                        channel: "slack".to_owned(),
+                        reason: format!("invalid JSON in interactive payload: {e}"),
+                    }
+                });
+            }
+        }
+
+        Err(MessagingError::InvalidPayload {
+            channel: "slack".to_owned(),
+            reason: "body is neither valid JSON nor form-encoded interactive payload".to_owned(),
+        })
+    }
+}
+
+/// Parse a Slack `block_actions` interactive payload (button taps)
+fn parse_block_actions(payload: &Value) -> Vec<IncomingMessage> {
+    let user_id = payload
+        .pointer("/user/id")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let user_name = payload
+        .pointer("/user/name")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let channel_id = payload
+        .pointer("/channel/id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    let Some(actions) = payload.get("actions").and_then(Value::as_array) else {
+        debug!("Slack block_actions payload without actions array");
+        return vec![];
+    };
+
+    actions
+        .iter()
+        .filter_map(|action| {
+            let action_id = action.get("action_id").and_then(Value::as_str)?;
+            let action_ts = action
+                .get("action_ts")
+                .and_then(Value::as_str)
+                .unwrap_or("0");
+
+            Some(IncomingMessage {
+                channel_type: ChannelType::Slack,
+                sender_id: user_id.to_owned(),
+                sender_name: user_name.clone(),
+                content: MessageContent::Text {
+                    body: action_id.to_owned(),
+                },
+                conversation_id: Some(channel_id.to_owned()),
+                channel_message_id: action_ts.to_owned(),
+                timestamp: Utc::now(),
+                raw_payload: payload.clone(),
+                correlation_id: Uuid::new_v4(),
+                metadata: Value::Null,
+            })
+        })
+        .collect()
+}
+
+/// Decode a percent-encoded (URL-encoded) string
+///
+/// Handles `+` → space and `%XX` → byte conversions per RFC 3986.
+fn percent_decode(input: &str) -> String {
+    let mut result = Vec::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                result.push(b' ');
+                i += 1;
+            }
+            b'%' if i + 2 < bytes.len() => {
+                if let Ok(byte) = u8::from_str_radix(&input[i + 1..i + 3], 16) {
+                    result.push(byte);
+                    i += 3;
+                } else {
+                    result.push(b'%');
+                    i += 1;
+                }
+            }
+            other => {
+                result.push(other);
+                i += 1;
+            }
+        }
+    }
+
+    String::from_utf8(result).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }

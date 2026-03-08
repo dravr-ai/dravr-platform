@@ -16,7 +16,6 @@ use std::str::FromStr;
 /// - `From30MinTest`: 30-minute time trial with 1.03 multiplier
 /// - `FromRampTest`: Average HR from last 20 minutes of ramp test
 /// - `FrielMethod`: HR drift analysis in sustained efforts
-/// - `Hybrid`: Auto-select based on available test data
 ///
 /// # Scientific References
 ///
@@ -98,15 +97,6 @@ pub enum LthrAlgorithm {
         /// Duration of each half (seconds)
         half_duration_seconds: f64,
     },
-
-    /// Hybrid: Auto-select best method based on available data
-    ///
-    /// Priority:
-    /// 1. Friel method if HR drift data available (most accurate)
-    /// 2. 30-minute test if available (gold standard)
-    /// 3. Ramp test if HR samples available
-    /// 4. `MaxHR` percentage (fallback)
-    Hybrid,
 }
 
 impl Default for LthrAlgorithm {
@@ -164,9 +154,6 @@ impl LthrAlgorithm {
                 *second_half_avg_hr,
                 *half_duration_seconds,
             ),
-            Self::Hybrid => Err(AppError::invalid_input(
-                "Hybrid LTHR estimation requires specific test data. Use one of the explicit test protocols.".to_owned(),
-            )),
         }
     }
 
@@ -280,7 +267,6 @@ impl LthrAlgorithm {
             Self::From30MinTest { .. } => "30min_test",
             Self::FromRampTest { .. } => "ramp_test",
             Self::FrielMethod { .. } => "friel_method",
-            Self::Hybrid => "hybrid",
         }
     }
 
@@ -308,7 +294,6 @@ impl LthrAlgorithm {
                     (first_half_avg_hr + second_half_avg_hr) / 2.0
                 )
             }
-            Self::Hybrid => "Hybrid (auto-select best method)".to_owned(),
         }
     }
 
@@ -320,7 +305,6 @@ impl LthrAlgorithm {
             Self::From30MinTest { .. } => "LTHR = avg_hr_30min x 1.03",
             Self::FromRampTest { .. } => "LTHR = avg(HR_last_20min)",
             Self::FrielMethod { .. } => "LTHR = avg(HR) where drift ≤ 5%",
-            Self::Hybrid => "Auto-select based on available test data",
         }
     }
 }
@@ -343,9 +327,8 @@ impl FromStr for LthrAlgorithm {
                 second_half_avg_hr: 0.0,
                 half_duration_seconds: 0.0,
             }),
-            "hybrid" => Ok(Self::Hybrid),
             other => Err(AppError::invalid_input(format!(
-                "Unknown LTHR algorithm: '{other}'. Valid options: from_max_hr, 30min_test, ramp_test, friel_method, hybrid"
+                "Unknown LTHR algorithm: '{other}'. Valid options: from_max_hr, 30min_test, ramp_test, friel_method"
             ))),
         }
     }

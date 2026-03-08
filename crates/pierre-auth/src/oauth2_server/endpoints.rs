@@ -860,45 +860,107 @@ impl OAuth2AuthorizationServer {
         }
     }
 
+    /// Atomically consume an old refresh token and store a rotated replacement
+    ///
+    /// Returns the new refresh token value on success.
+    async fn consume_and_rotate_refresh_token(
+        &self,
+        old_token_value: &str,
+        old_token_data: &super::models::OAuth2RefreshToken,
+    ) -> AppResult<String> {
+        // Atomically consume the old refresh token
+        let consumed = self
+            .database
+            .consume_refresh_token(old_token_value, &old_token_data.client_id, Utc::now())
+            .await
+            .map_err(|e| {
+                error!("Failed to consume refresh token: {:#}", e);
+                AppError::new(ErrorCode::DatabaseError, "Failed to consume refresh token")
+            })?;
+
+        if consumed.is_none() {
+            return Err(AppError::new(
+                ErrorCode::AuthInvalid,
+                "Refresh token already consumed (possible replay)",
+            ));
+        }
+
+        // Generate and store the rotated refresh token
+        let new_value = Self::generate_refresh_token()?;
+        let new_refresh_token = super::models::OAuth2RefreshToken {
+            token: new_value.clone(),
+            client_id: old_token_data.client_id.clone(),
+            user_id: old_token_data.user_id,
+            tenant_id: old_token_data.tenant_id.clone(),
+            scope: old_token_data.scope.clone(),
+            expires_at: Utc::now() + Duration::days(30),
+            created_at: Utc::now(),
+            revoked: false,
+        };
+
+        self.store_refresh_token(&new_refresh_token)
+            .await
+            .map_err(|e| {
+                error!("Failed to store rotated refresh token: {:#}", e);
+                AppError::new(
+                    ErrorCode::DatabaseError,
+                    "Failed to store rotated refresh token",
+                )
+            })?;
+
+        Ok(new_value)
+    }
+
+    /// Execute the refresh token rotation and access token generation
+    ///
+    /// Uses `?` propagation — caller converts errors to invalid responses.
+    async fn execute_token_refresh(
+        &self,
+        refresh_token_value: &str,
+        user_id_str: &str,
+    ) -> AppResult<super::models::ValidateRefreshResponse> {
+        let refresh_token_data = self
+            .lookup_and_validate_refresh_token(refresh_token_value, user_id_str)
+            .await?;
+
+        let new_refresh_token_value = self
+            .consume_and_rotate_refresh_token(refresh_token_value, &refresh_token_data)
+            .await?;
+
+        let new_access_token = self.generate_access_token(
+            &refresh_token_data.client_id,
+            Some(refresh_token_data.user_id),
+            refresh_token_data.scope.as_deref(),
+        )?;
+
+        info!(
+            "Refresh token rotated via validate_and_refresh for user {}",
+            user_id_str
+        );
+
+        Ok(Self::create_refreshed_response(
+            new_access_token,
+            &new_refresh_token_value,
+        ))
+    }
+
     /// Attempt to refresh an expired token using a refresh token
+    ///
+    /// Enforces the same token lifecycle as `handle_refresh_token_grant`:
+    /// atomically consumes the old refresh token and issues a rotated one.
     async fn attempt_token_refresh(
         &self,
         refresh_token_value: &str,
         claims: &Claims,
     ) -> AppResult<super::models::ValidateRefreshResponse> {
-        // Look up refresh token by value and verify it belongs to this user
-        let refresh_token_data = match self
-            .lookup_and_validate_refresh_token(refresh_token_value, &claims.sub)
+        match self
+            .execute_token_refresh(refresh_token_value, &claims.sub)
             .await
         {
-            Ok(data) => data,
+            Ok(response) => Ok(response),
             Err(e) => {
-                warn!("Refresh token validation failed: {}", e);
-                return Ok(Self::create_invalid_response("invalid_refresh_token"));
-            }
-        };
-
-        // Generate new access token
-        match self.generate_access_token(
-            &refresh_token_data.client_id,
-            Some(refresh_token_data.user_id),
-            refresh_token_data.scope.as_deref(),
-        ) {
-            Ok(new_access_token) => {
-                info!(
-                    "Successfully refreshed access token for user {}",
-                    claims.sub
-                );
-                Ok(Self::create_refreshed_response(
-                    new_access_token,
-                    refresh_token_value,
-                ))
-            }
-            Err(e) => {
-                error!("Failed to generate new access token: {}", e);
-                Ok(Self::create_invalid_response(
-                    "refresh_failed_token_generation",
-                ))
+                warn!("Token refresh failed: {}", e);
+                Ok(Self::create_invalid_response("invalid_refresh_token"))
             }
         }
     }

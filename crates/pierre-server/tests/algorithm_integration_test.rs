@@ -524,18 +524,14 @@ fn test_vo2max_from_pace_negative_speeds() {
 }
 
 #[test]
-fn test_vo2max_hybrid_requires_specific_data() {
-    let algorithm = Vo2maxAlgorithm::Hybrid;
-    let result = algorithm.estimate_vo2max();
-
-    assert!(
-        result.is_err(),
-        "Hybrid algorithm should require specific test data"
-    );
+fn test_vo2max_hybrid_string_is_rejected() {
+    use std::str::FromStr;
+    let result = Vo2maxAlgorithm::from_str("hybrid");
+    assert!(result.is_err(), "Hybrid is not a valid VO2max algorithm");
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("requires specific test data"));
+        .contains("Unknown VO2max algorithm"));
 }
 
 #[test]
@@ -598,10 +594,9 @@ fn test_vo2max_from_str_parsing() {
         .to_string()
         .contains("requires test parameters"));
 
-    // Hybrid has no parameters, so it can be parsed from string
+    // Hybrid was removed — it should now be rejected
     let hybrid = Vo2maxAlgorithm::from_str("hybrid");
-    assert!(hybrid.is_ok(), "Hybrid should parse successfully");
-    assert!(matches!(hybrid.unwrap(), Vo2maxAlgorithm::Hybrid));
+    assert!(hybrid.is_err(), "Hybrid is no longer a valid algorithm");
 
     // Unknown algorithm should error
     let invalid = Vo2maxAlgorithm::from_str("invalid_algorithm");

@@ -522,7 +522,7 @@ impl Database {
         // Get total API keys (optionally scoped to tenant via user ownership)
         let api_key_count: i64 = if let Some(tid) = tenant_id {
             sqlx::query_scalar(
-                "SELECT COUNT(*) FROM api_keys ak JOIN users u ON ak.user_id = u.id WHERE u.tenant_id = ?1",
+                "SELECT COUNT(*) FROM api_keys ak INNER JOIN tenant_users tu ON ak.user_id = tu.user_id WHERE tu.tenant_id = ?1",
             )
             .bind(tid.to_string())
             .fetch_one(&self.pool)

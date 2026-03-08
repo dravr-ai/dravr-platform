@@ -9,10 +9,13 @@
 //! Implements the A2A Agent Card specification for Pierre,
 //! enabling agent discovery and capability negotiation.
 
-use crate::constants::api_tier_limits::{STARTER_REQUESTS_PER_MONTH, TRIAL_REQUESTS_PER_MONTH};
+use std::collections::HashMap;
+use std::env;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+
+use crate::constants::api_tier_limits::{STARTER_REQUESTS_PER_MONTH, TRIAL_REQUESTS_PER_MONTH};
 
 /// A2A Agent Card for Pierre
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,8 +117,14 @@ pub struct ToolExample {
 }
 
 impl AgentCard {
-    /// Default base URL when none is provided
-    const DEFAULT_BASE_URL: &'static str = "http://localhost:8081";
+    /// Fallback base URL when `BASE_URL` env var is not set
+    const FALLBACK_BASE_URL: &'static str = "http://localhost:8081";
+
+    /// Resolve the base URL from `BASE_URL` env var, falling back to localhost
+    #[must_use]
+    fn resolve_base_url() -> String {
+        env::var("BASE_URL").unwrap_or_else(|_| Self::FALLBACK_BASE_URL.to_owned())
+    }
 
     /// Create a new Agent Card for Pierre with specified base URL
     ///
@@ -158,12 +167,13 @@ impl AgentCard {
         }
     }
 
-    /// Create a new Agent Card for Pierre using default base URL
+    /// Create a new Agent Card for Pierre using `BASE_URL` env var
     ///
-    /// For production use, prefer `with_base_url()` with `config.base_url`.
+    /// Falls back to `http://localhost:8081` if `BASE_URL` is not set.
+    /// For explicit URL control, use `with_base_url()`.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_base_url(Self::DEFAULT_BASE_URL)
+        Self::with_base_url(&Self::resolve_base_url())
     }
 
     /// Create transport definitions for the agent card
@@ -223,7 +233,7 @@ impl AgentCard {
                     },
                     "provider": {
                         "type": "string",
-                        "enum": ["strava", "fitbit"],
+                        "enum": ["strava", "garmin", "fitbit", "coros", "whoop"],
                         "description": "Specific provider to query (optional)"
                     }
                 }

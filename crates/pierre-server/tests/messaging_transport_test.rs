@@ -901,8 +901,9 @@ mod telegram {
         });
         let body = serde_json::to_vec(&payload).unwrap();
         let result = transport.parse_inbound(&HeaderMap::new(), &body).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("message"));
+        // Updates without message or callback_query are silently ignored
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 
     #[tokio::test]

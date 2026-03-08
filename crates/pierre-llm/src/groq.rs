@@ -62,6 +62,7 @@ use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, FunctionCall,
     LlmCapabilities, LlmProvider, StreamChunk, TokenUsage, Tool,
 };
+use crate::build_llm_http_client;
 use crate::errors::{AppError, ErrorCode};
 
 /// Environment variable for Groq API key
@@ -284,7 +285,7 @@ impl GroqProvider {
             .unwrap_or(RetryConfig::default_config().max_delay_ms);
 
         Self {
-            client: Client::new(),
+            client: build_llm_http_client(),
             api_key,
             default_model,
             fallback_model,

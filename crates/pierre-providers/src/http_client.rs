@@ -7,6 +7,7 @@
 use reqwest::{Client, ClientBuilder};
 use std::sync::OnceLock;
 use std::time::Duration;
+use tracing::error;
 
 /// Default request timeout in seconds
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -43,6 +44,11 @@ pub fn shared_client() -> &'static Client {
             .timeout(Duration::from_secs(timeout))
             .connect_timeout(Duration::from_secs(connect_timeout))
             .build()
-            .unwrap_or_else(|_| Client::new())
+            .unwrap_or_else(|e| {
+                error!(
+                    "Failed to build configured HTTP client: {e}; falling back to default client without timeouts"
+                );
+                Client::new()
+            })
     })
 }

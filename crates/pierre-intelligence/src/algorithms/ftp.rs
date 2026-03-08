@@ -17,7 +17,6 @@ use std::str::FromStr;
 /// - `FromRampTest`: Ramp test with 0.75 multiplier of max 1-minute power
 /// - `From60MinPower`: True FTP from 1-hour sustained power
 /// - `CriticalPower`: Critical Power model from multiple time trials
-/// - `Hybrid`: Auto-select based on available test data
 ///
 /// # Scientific References
 ///
@@ -121,15 +120,6 @@ pub enum FtpAlgorithm {
         /// Power coefficient (typically 13.5 W per ml/kg/min)
         power_coefficient: f64,
     },
-
-    /// Hybrid: Auto-select best method based on available data
-    ///
-    /// Priority:
-    /// 1. Critical Power model if multiple time trials available
-    /// 2. 60-minute power if available (true FTP)
-    /// 3. 20-minute test (most common)
-    /// 4. Ramp test (if only short data available)
-    Hybrid,
 }
 
 impl Default for FtpAlgorithm {
@@ -223,9 +213,6 @@ impl FtpAlgorithm {
 
                 Ok(power_at_vo2max * ftp_percentage)
             }
-            Self::Hybrid => Err(AppError::invalid_input(
-                "Hybrid FTP estimation requires specific test data. Use one of the explicit test protocols.".to_owned(),
-            )),
         }
     }
 
@@ -350,7 +337,6 @@ impl FtpAlgorithm {
             Self::From60MinPower { .. } => "60min_power",
             Self::CriticalPower { .. } => "critical_power",
             Self::FromVo2Max { .. } => "from_vo2max",
-            Self::Hybrid => "hybrid",
         }
     }
 
@@ -386,7 +372,6 @@ impl FtpAlgorithm {
             } => {
                 format!("VO2max-based FTP (VO2max={vo2_max:.1} ml/kg/min, coeff={power_coefficient:.1})")
             }
-            Self::Hybrid => "Hybrid (auto-select best method)".to_owned(),
         }
     }
 
@@ -400,7 +385,6 @@ impl FtpAlgorithm {
             Self::From60MinPower { .. } => "FTP = avg_power_60min",
             Self::CriticalPower { .. } => "CP = (W2 - W1) / (t2 - t1)",
             Self::FromVo2Max { .. } => "FTP = VO2max x power_coefficient x fitness_factor",
-            Self::Hybrid => "Auto-select based on available test data",
         }
     }
 }
@@ -432,9 +416,8 @@ impl FromStr for FtpAlgorithm {
                 vo2_max: 0.0,
                 power_coefficient: 13.5,
             }),
-            "hybrid" => Ok(Self::Hybrid),
             other => Err(AppError::invalid_input(format!(
-                "Unknown FTP algorithm: '{other}'. Valid options: 20min_test, 8min_test, ramp_test, 60min_power, critical_power, from_vo2max, hybrid"
+                "Unknown FTP algorithm: '{other}'. Valid options: 20min_test, 8min_test, ramp_test, 60min_power, critical_power, from_vo2max"
             ))),
         }
     }
