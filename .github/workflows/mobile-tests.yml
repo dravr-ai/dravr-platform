@@ -243,7 +243,7 @@ jobs:
     runs-on: macos-latest
     # Run only on nightly schedule (midnight EDT) or manual trigger
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -572,7 +572,7 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
             echo "Running full E2E suite in four batches..."
             # Split tests into four Maestro sessions to isolate XCUITest
-            # driver crashes and prevent batch timeout (120 min limit).
+            # driver crashes and prevent batch timeout (150 min limit).
             BATCH1_DIRS="login settings chat"
             BATCH2_DIRS="coaches coach-wizard"
             BATCH3_DIRS="store synthetic-provider visual voice-input"

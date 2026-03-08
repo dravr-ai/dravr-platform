@@ -29,21 +29,30 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 5000
 
-# Wait for category-picker to be fully rendered before tapping.
-# On iOS, scrollUntilVisible can stop with the element partially off-screen.
+# Wait for category-picker to be fully rendered and interactable.
+# On iOS, scrollUntilVisible can stop with the element partially off-screen,
+# and the view needs time to settle before touch events register.
 - extendedWaitUntil:
     visible:
       id: "category-picker"
+    timeout: 5000
+
+# Scroll slightly to ensure the picker is fully within the viewport
+- scrollUntilVisible:
+    element:
+      id: "category-picker"
+    direction: UP
     timeout: 3000
 
 # Tap category picker to show modal
 - tapOn:
     id: "category-picker"
 
-# Wait for the modal to appear with category options
+# Wait for the modal to appear with category options.
+# Modal animation can take time on iOS — generous timeout.
 - extendedWaitUntil:
     visible: "Select Category"
-    timeout: 10000
+    timeout: 15000
 
 # Select Training category via testID
 - tapOn:

@@ -1,5 +1,5 @@
 # ABOUTME: Cleanup - delete the coach created in the editor flow test
-# ABOUTME: Uses long-press action menu to delete the test coach
+# ABOUTME: Navigates to coach detail screen and uses the delete button
 
 appId: com.pierre.fitness
 
@@ -20,32 +20,37 @@ appId: com.pierre.fitness
     id: "source-filter-user"
 
 # Use scrollUntilVisible to find the coach in the FlashList.
-# scrollUntilVisible actively scrolls, triggering FlashList v2 cell rendering.
 - scrollUntilVisible:
     element:
       text: "E2E Editor Coach"
     direction: DOWN
     timeout: 30000
 
-# Ensure the coach card is fully rendered before long-pressing.
-# On iOS, FlashList cells may not be interactable immediately after scrolling.
+# Tap to navigate to the detail screen. This is more reliable than
+# long-press on FlashList items which can fail due to cell recycling.
+- tapOn: "E2E Editor Coach"
+
+# Wait for the detail screen to load
 - extendedWaitUntil:
-    visible: "E2E Editor Coach"
-    timeout: 5000
+    visible:
+      id: "coach-detail-screen"
+    timeout: 15000
 
-- longPressOn: "E2E Editor Coach"
-
-- extendedWaitUntil:
-    visible: "Delete"
-    timeout: 10000
-
-- tapOn: "Delete"
+# Tap the delete button on the detail screen
+- tapOn:
+    id: "delete-button"
 
 # Confirm deletion in the alert dialog
 - extendedWaitUntil:
     visible: "Delete"
     timeout: 5000
 - tapOn: "Delete"
+
+# Wait to return to library after deletion
+- extendedWaitUntil:
+    visible:
+      id: "coach-library-screen"
+    timeout: 15000
 
 # Verify coach is deleted
 - extendedWaitUntil:

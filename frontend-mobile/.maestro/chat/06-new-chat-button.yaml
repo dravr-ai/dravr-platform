@@ -37,9 +37,12 @@ appId: com.pierre.fitness
 - tapOn:
     point: "50%,15%"
 
-# Wait for sent message to appear
-- extendedWaitUntil:
-    visible: "Test message"
+# Wait for sent message to appear. Use scrollUntilVisible to handle
+# FlashList rendering and scroll position issues on iOS.
+- scrollUntilVisible:
+    element:
+      text: "Test message"
+    direction: DOWN
     timeout: 30000
 
 # Now create new chat via the floating tab bar
