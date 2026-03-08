@@ -37,7 +37,7 @@ use crate::services::chat_orchestration;
 /// Outcome of persisting a single inbound message
 enum PersistOutcome {
     /// Message was stored in DB and an LLM dispatch is pending
-    StoredWithDispatch(PendingDispatch),
+    StoredWithDispatch(Box<PendingDispatch>),
     /// Message was stored in DB but no LLM dispatch (non-text content)
     StoredNoDispatch,
     /// Message was handled but not stored (linking command or unlinked user prompt)
@@ -90,6 +90,8 @@ struct PendingDispatch {
     channel: String,
     /// Original sender to reply to
     sender_id: String,
+    /// Channel-specific conversation/thread identifier (channel ID, chat ID, etc.)
+    conversation_id: Option<String>,
     /// Text content to dispatch
     text_content: String,
 }
@@ -629,7 +631,7 @@ async fn persist_inbound(
         {
             Ok(PersistOutcome::StoredWithDispatch(dispatch)) => {
                 stored_count += 1;
-                pending_dispatches.push(dispatch);
+                pending_dispatches.push(*dispatch);
             }
             Ok(PersistOutcome::StoredNoDispatch) => {
                 stored_count += 1;
@@ -718,16 +720,19 @@ async fn persist_single_message(
             Ok(PersistOutcome::StoredNoDispatch)
         },
         |text_content| {
-            Ok(PersistOutcome::StoredWithDispatch(PendingDispatch {
-                resources: Arc::clone(resources),
-                adapter: Arc::clone(adapter),
-                session,
-                tenant_id,
-                channel_type,
-                channel: channel.to_owned(),
-                sender_id: message.sender_id.clone(),
-                text_content,
-            }))
+            Ok(PersistOutcome::StoredWithDispatch(Box::new(
+                PendingDispatch {
+                    resources: Arc::clone(resources),
+                    adapter: Arc::clone(adapter),
+                    session,
+                    tenant_id,
+                    channel_type,
+                    channel: channel.to_owned(),
+                    sender_id: message.sender_id.clone(),
+                    conversation_id: message.conversation_id.clone(),
+                    text_content,
+                },
+            )))
         },
     )
 }
@@ -849,9 +854,17 @@ async fn dispatch_and_respond(dispatch: PendingDispatch) {
         }
     };
 
+    // Use conversation_id (channel/chat/thread) as the reply target when available;
+    // fall back to sender_id for DM-only platforms (e.g., WhatsApp)
+    let reply_target = dispatch
+        .conversation_id
+        .as_deref()
+        .unwrap_or(&dispatch.sender_id)
+        .to_owned();
+
     let outgoing = OutgoingMessage {
         channel_type: dispatch.channel_type,
-        recipient_id: dispatch.sender_id.clone(),
+        recipient_id: reply_target,
         content: MessageContent::Text {
             body: response_text,
         },
@@ -975,8 +988,11 @@ async fn try_enqueue_for_retry(
 
     let payload_str = payload.to_string();
 
-    // Persist the outbound message record first (FK requirement for queue entry)
+    // Persist the outbound message record first (FK requirement for queue entry).
+    // Use a unique retry-prefixed ID to avoid colliding with the (tenant_id, channel_message_id)
+    // uniqueness constraint — retry messages have no real channel ID yet.
     let out_msg_id = Uuid::new_v4().to_string();
+    let retry_channel_msg_id = format!("retry-{out_msg_id}");
     let body = content_body_text(&outgoing.content);
     let correlation_str = outgoing.correlation_id.to_string();
     let out_params = InsertMessageParams {
@@ -985,14 +1001,19 @@ async fn try_enqueue_for_retry(
         session_id: &dispatch.session.session_id,
         direction: "outbound",
         channel_type: &dispatch.channel,
-        channel_message_id: "",
+        channel_message_id: &retry_channel_msg_id,
         sender_id: "pierre",
         content_type: "text",
         content_body: body.as_deref(),
         correlation_id: &correlation_str,
         raw_payload: Some(&payload_str),
     };
-    db.insert_message(&out_params).await?;
+    let inserted = db.insert_message(&out_params).await?;
+    if !inserted {
+        return Err(AppError::internal(
+            "Failed to persist retry message: duplicate channel_message_id",
+        ));
+    }
 
     let queue_id = Uuid::new_v4().to_string();
     db.enqueue_outbound(

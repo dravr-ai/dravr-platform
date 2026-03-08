@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use html_escape::encode_text;
 use pierre_core::errors::messaging::MessagingResult;
 use pierre_core::models::messaging::{MessageContent, OutgoingMessage};
 use serde_json::{json, Value};
@@ -22,7 +23,7 @@ impl ResponseRenderer for TelegramRenderer {
         match &msg.content {
             MessageContent::Text { body } => Ok(json!({
                 "chat_id": chat_id,
-                "text": body,
+                "text": encode_text(body).as_ref(),
                 "parse_mode": "HTML"
             })),
             MessageContent::Media { url, caption, .. } => Ok(json!({
@@ -43,7 +44,7 @@ impl ResponseRenderer for TelegramRenderer {
                 body,
                 actions,
             } => {
-                let text = format!("<b>{title}</b>\n\n{body}");
+                let text = format!("<b>{}</b>\n\n{}", encode_text(title), encode_text(body));
                 let mut payload = json!({
                     "chat_id": chat_id,
                     "text": text,

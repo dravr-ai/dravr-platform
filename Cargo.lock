@@ -2632,6 +2632,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "hmac",
+ "html-escape",
  "http",
  "pierre-core",
  "reqwest",

@@ -57,8 +57,6 @@ use pierre_database::database::store_listings::StoreListingsManager;
 use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::SecurityRepository;
 #[cfg(feature = "client-messaging")]
-use pierre_messaging::router::MessageRouter;
-#[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -196,9 +194,6 @@ pub struct ServerResources {
     /// Multi-channel messaging registry for webhook routing
     #[cfg(feature = "client-messaging")]
     pub messaging_registry: Arc<ChannelRegistry>,
-    /// Message router for dispatching inbound messages to chat pipeline
-    #[cfg(feature = "client-messaging")]
-    pub message_router: Arc<MessageRouter>,
 }
 
 impl ServerResources {
@@ -360,8 +355,6 @@ impl ServerResources {
             email_service,
             #[cfg(feature = "client-messaging")]
             messaging_registry: Arc::new(ChannelRegistry::new()),
-            #[cfg(feature = "client-messaging")]
-            message_router: Arc::new(MessageRouter::new()),
         }
     }
 
@@ -732,13 +725,6 @@ impl ServerResources {
     #[must_use]
     pub fn messaging_registry(&self) -> &ChannelRegistry {
         &self.messaging_registry
-    }
-
-    /// Get the message router for inbound message dispatch
-    #[cfg(feature = "client-messaging")]
-    #[must_use]
-    pub fn message_router(&self) -> &MessageRouter {
-        &self.message_router
     }
 }
 

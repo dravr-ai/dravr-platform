@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+
 use http::HeaderMap;
 use pierre_core::errors::messaging::{MessagingError, MessagingResult};
 use pierre_core::models::messaging::{
@@ -16,7 +17,7 @@ use serde_json::Value;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::transport::TransportAdapter;
+use crate::transport::{outbound_http_timeout, TransportAdapter};
 
 /// Discord Bot API transport adapter
 ///
@@ -35,10 +36,14 @@ impl DiscordTransport {
     /// Create a transport with the given Ed25519 public key and application ID
     #[must_use]
     pub fn new(public_key_hex: String, application_id: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(outbound_http_timeout())
+            .build()
+            .unwrap_or_default();
         Self {
             public_key_hex,
             application_id,
-            client: reqwest::Client::new(),
+            client,
         }
     }
 }
@@ -132,23 +137,31 @@ impl TransportAdapter for DiscordTransport {
             return Ok(vec![]);
         }
 
-        // Extract message data from the interaction
-        let data = payload.get("data");
-        let content_text = data
-            .and_then(|d| d.get("options"))
-            .and_then(Value::as_array)
-            .and_then(|opts| opts.first())
-            .and_then(|opt| opt.get("value"))
-            .and_then(Value::as_str)
-            .or_else(|| {
-                payload
-                    .pointer("/data/resolved/messages")
-                    .and_then(Value::as_object)
-                    .and_then(|msgs| msgs.values().next())
-                    .and_then(|msg| msg.get("content"))
-                    .and_then(Value::as_str)
-            })
-            .unwrap_or("");
+        // Extract content based on interaction type
+        let content_text = if interaction_type == 3 {
+            // MESSAGE_COMPONENT: button click — extract custom_id as the action payload
+            payload
+                .pointer("/data/custom_id")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+        } else {
+            // APPLICATION_COMMAND: extract from options or resolved messages
+            let data = payload.get("data");
+            data.and_then(|d| d.get("options"))
+                .and_then(Value::as_array)
+                .and_then(|opts| opts.first())
+                .and_then(|opt| opt.get("value"))
+                .and_then(Value::as_str)
+                .or_else(|| {
+                    payload
+                        .pointer("/data/resolved/messages")
+                        .and_then(Value::as_object)
+                        .and_then(|msgs| msgs.values().next())
+                        .and_then(|msg| msg.get("content"))
+                        .and_then(Value::as_str)
+                })
+                .unwrap_or("")
+        };
 
         let user_id = payload
             .pointer("/member/user/id")

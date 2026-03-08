@@ -15,7 +15,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::meta_signature::verify_meta_signature;
-use crate::transport::TransportAdapter;
+use crate::transport::{outbound_http_timeout, TransportAdapter};
 
 /// Meta Messenger Platform transport adapter
 ///
@@ -32,10 +32,11 @@ impl MessengerTransport {
     /// Create a transport with the given Facebook app secret
     #[must_use]
     pub fn new(app_secret: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            app_secret,
-        }
+        let client = reqwest::Client::builder()
+            .timeout(outbound_http_timeout())
+            .build()
+            .unwrap_or_default();
+        Self { client, app_secret }
     }
 }
 
@@ -76,26 +77,49 @@ impl TransportAdapter for MessengerTransport {
                     .and_then(Value::as_str)
                     .unwrap_or("unknown");
 
-                let Some(msg) = event.get("message") else {
+                // Handle regular messages
+                if let Some(msg) = event.get("message") {
+                    let mid = msg.get("mid").and_then(Value::as_str).unwrap_or("");
+                    let content = parse_message_content(msg);
+
+                    messages.push(IncomingMessage {
+                        channel_type: ChannelType::Messenger,
+                        sender_id: sender_id.to_owned(),
+                        sender_name: None,
+                        content,
+                        conversation_id: Some(sender_id.to_owned()),
+                        channel_message_id: mid.to_owned(),
+                        timestamp: Utc::now(),
+                        raw_payload: event.clone(),
+                        correlation_id: Uuid::new_v4(),
+                        metadata: Value::Null,
+                    });
                     continue;
-                };
+                }
 
-                let mid = msg.get("mid").and_then(Value::as_str).unwrap_or("");
+                // Handle postback events (button taps from generic templates)
+                if let Some(postback) = event.get("postback") {
+                    let payload_text = postback
+                        .get("payload")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let mid = postback.get("mid").and_then(Value::as_str).unwrap_or("");
 
-                let content = parse_message_content(msg);
-
-                messages.push(IncomingMessage {
-                    channel_type: ChannelType::Messenger,
-                    sender_id: sender_id.to_owned(),
-                    sender_name: None,
-                    content,
-                    conversation_id: Some(sender_id.to_owned()),
-                    channel_message_id: mid.to_owned(),
-                    timestamp: Utc::now(),
-                    raw_payload: event.clone(),
-                    correlation_id: Uuid::new_v4(),
-                    metadata: Value::Null,
-                });
+                    messages.push(IncomingMessage {
+                        channel_type: ChannelType::Messenger,
+                        sender_id: sender_id.to_owned(),
+                        sender_name: None,
+                        content: MessageContent::Text {
+                            body: payload_text.to_owned(),
+                        },
+                        conversation_id: Some(sender_id.to_owned()),
+                        channel_message_id: mid.to_owned(),
+                        timestamp: Utc::now(),
+                        raw_payload: event.clone(),
+                        correlation_id: Uuid::new_v4(),
+                        metadata: Value::Null,
+                    });
+                }
             }
         }
 
@@ -115,12 +139,12 @@ impl TransportAdapter for MessengerTransport {
                     channel: "messenger".to_owned(),
                 })?;
 
-        let url =
-            format!("https://graph.facebook.com/v18.0/me/messages?access_token={access_token}");
+        let url = "https://graph.facebook.com/v18.0/me/messages";
 
         let response = self
             .client
-            .post(&url)
+            .post(url)
+            .bearer_auth(access_token)
             .json(payload)
             .send()
             .await

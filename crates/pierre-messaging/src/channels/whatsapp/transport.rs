@@ -15,7 +15,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::meta_signature::verify_meta_signature;
-use crate::transport::TransportAdapter;
+use crate::transport::{outbound_http_timeout, TransportAdapter};
 
 /// `WhatsApp` Business Cloud API transport adapter
 ///
@@ -32,10 +32,11 @@ impl WhatsAppTransport {
     /// Create a transport with the given Meta app secret
     #[must_use]
     pub fn new(app_secret: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            app_secret,
-        }
+        let client = reqwest::Client::builder()
+            .timeout(outbound_http_timeout())
+            .build()
+            .unwrap_or_default();
+        Self { client, app_secret }
     }
 }
 

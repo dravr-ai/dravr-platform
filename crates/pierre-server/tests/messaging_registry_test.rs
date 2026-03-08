@@ -1,5 +1,5 @@
-// ABOUTME: Unit tests for ChannelRegistry and MessageRouter
-// ABOUTME: Validates channel registration, lookup, duplicate handling, and message routing
+// ABOUTME: Unit tests for ChannelRegistry
+// ABOUTME: Validates channel registration, lookup, and duplicate handling
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,6 @@
 
 use pierre_core::models::messaging::ChannelType;
 use pierre_messaging::registry::ChannelRegistry;
-use pierre_messaging::router::MessageRouter;
 use std::sync::Arc;
 
 #[cfg(feature = "client-messaging")]
@@ -92,43 +91,4 @@ fn test_register_multiple_channels() {
     let channels = registry.registered_channels();
     assert!(channels.contains(&ChannelType::WhatsApp));
     assert!(channels.contains(&ChannelType::Telegram));
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MessageRouter Tests
-// ═══════════════════════════════════════════════════════════════════════════════
-
-#[test]
-fn test_message_router_creation() {
-    use std::mem;
-    let router = MessageRouter::new();
-    // Verify the router can be created (zero-sized type)
-    assert_eq!(mem::size_of_val(&router), 0);
-}
-
-#[test]
-fn test_message_router_route_inbound() {
-    use chrono::Utc;
-    use pierre_core::models::messaging::{IncomingMessage, MessageContent};
-    use serde_json::Value;
-    use uuid::Uuid;
-
-    let router = MessageRouter::new();
-    let message = IncomingMessage {
-        channel_type: ChannelType::WhatsApp,
-        sender_id: "sender-1".to_owned(),
-        sender_name: None,
-        content: MessageContent::Text {
-            body: "Test message".to_owned(),
-        },
-        conversation_id: None,
-        channel_message_id: "mid-1".to_owned(),
-        timestamp: Utc::now(),
-        raw_payload: Value::Null,
-        correlation_id: Uuid::new_v4(),
-        metadata: Value::Null,
-    };
-
-    // Should not panic
-    router.route_inbound(&message);
 }

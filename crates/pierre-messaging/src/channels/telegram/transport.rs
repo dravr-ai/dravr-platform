@@ -15,7 +15,7 @@ use serde_json::Value;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::transport::TransportAdapter;
+use crate::transport::{outbound_http_timeout, TransportAdapter};
 
 /// Telegram Bot API transport adapter
 ///
@@ -32,8 +32,12 @@ impl TelegramTransport {
     /// Create a transport with the given webhook secret
     #[must_use]
     pub fn new(webhook_secret: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(outbound_http_timeout())
+            .build()
+            .unwrap_or_default();
         Self {
-            client: reqwest::Client::new(),
+            client,
             webhook_secret,
         }
     }
@@ -76,14 +80,15 @@ impl TransportAdapter for TelegramTransport {
                 reason: format!("invalid JSON: {e}"),
             })?;
 
-        // Telegram sends one Update per webhook
-        let message = update.get("message").ok_or_else(|| {
-            debug!("Telegram update without message field, may be edited_message or callback");
-            MessagingError::InvalidPayload {
-                channel: "telegram".to_owned(),
-                reason: "update contains no 'message' field".to_owned(),
-            }
-        })?;
+        // Telegram sends one Update per webhook — check for callback_query first (button taps)
+        if let Some(callback) = update.get("callback_query") {
+            return Ok(parse_callback_query(callback, &update));
+        }
+
+        let Some(message) = update.get("message") else {
+            debug!("Telegram update without message or callback_query field");
+            return Ok(vec![]);
+        };
 
         let chat_id = message
             .pointer("/chat/id")
@@ -208,6 +213,45 @@ fn resolve_bot_api_method(payload: &Value) -> &'static str {
     } else {
         "sendMessage"
     }
+}
+
+/// Parse a Telegram `callback_query` update (inline keyboard button tap)
+///
+/// The `callback_query` contains the button's `data` field and the original message context.
+fn parse_callback_query(callback: &Value, update: &Value) -> Vec<IncomingMessage> {
+    let from_id = callback
+        .pointer("/from/id")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let from_name = callback
+        .pointer("/from/first_name")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+
+    let chat_id = callback
+        .pointer("/message/chat/id")
+        .and_then(Value::as_i64)
+        .unwrap_or(from_id);
+
+    let callback_data = callback.get("data").and_then(Value::as_str).unwrap_or("");
+    let callback_id = callback.get("id").and_then(Value::as_str).unwrap_or("0");
+
+    let incoming = IncomingMessage {
+        channel_type: ChannelType::Telegram,
+        sender_id: from_id.to_string(),
+        sender_name: from_name,
+        content: MessageContent::Text {
+            body: callback_data.to_owned(),
+        },
+        conversation_id: Some(chat_id.to_string()),
+        channel_message_id: callback_id.to_owned(),
+        timestamp: Utc::now(),
+        raw_payload: update.clone(),
+        correlation_id: Uuid::new_v4(),
+        metadata: Value::Null,
+    };
+
+    vec![incoming]
 }
 
 /// Parse non-text message content (location, photo, or unsupported)
