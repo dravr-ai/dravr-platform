@@ -1,5 +1,5 @@
 # ABOUTME: CI workflow that scans MCP server config and Claude skills for security issues
-# ABOUTME: Uses Invariant Labs mcp-scan via uvx to detect prompt injection and tool poisoning
+# ABOUTME: Uses Snyk Agent Scan (formerly mcp-scan) via uvx to detect prompt injection and tool poisoning
 
 name: MCP Security Scan
 
@@ -40,7 +40,11 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Scan MCP server configuration
-        run: uvx mcp-scan@latest .mcp.json
+        run: uvx snyk-agent-scan@latest .mcp.json
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Scan Claude skills
-        run: uvx mcp-scan@latest --skills .claude/skills
+        run: uvx snyk-agent-scan@latest --skills .claude/skills
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
