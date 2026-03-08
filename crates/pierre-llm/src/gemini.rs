@@ -55,6 +55,7 @@ use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
     StreamChunk, TokenUsage,
 };
+use crate::build_llm_http_client;
 use crate::config::LlmModelConfig;
 use crate::errors::{AppError, ErrorCode};
 
@@ -292,7 +293,7 @@ impl GeminiProvider {
     pub fn with_config(api_key: impl Into<String>, model_config: &LlmModelConfig) -> Self {
         Self {
             api_key: api_key.into(),
-            client: Client::new(),
+            client: build_llm_http_client(),
             default_model: model_config.default_model.clone(),
             fallback_model: model_config.fallback_model.clone(),
             available_models: AVAILABLE_MODELS.iter().map(|s| (*s).to_owned()).collect(),

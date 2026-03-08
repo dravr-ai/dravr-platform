@@ -47,7 +47,6 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::env;
-use std::time::Duration;
 use tracing::{debug, error, info, instrument, warn};
 
 use super::sse_parser;
@@ -55,6 +54,7 @@ use super::{
     ChatMessage, ChatRequest, ChatResponse, ChatResponseWithTools, ChatStream, FunctionCall,
     LlmCapabilities, LlmProvider, StreamChunk, TokenUsage, Tool,
 };
+use crate::build_llm_http_client;
 use crate::errors::{AppError, ErrorCode};
 
 // ============================================================================
@@ -78,12 +78,6 @@ const DEFAULT_BASE_URL: &str = "http://localhost:11434/v1";
 
 /// Default model for local inference
 const DEFAULT_MODEL: &str = "qwen2.5:14b-instruct";
-
-/// Connection timeout for local servers (more lenient than cloud)
-const CONNECT_TIMEOUT_SECS: u64 = 30;
-
-/// Request timeout (local inference can be slower)
-const REQUEST_TIMEOUT_SECS: u64 = 300;
 
 // ============================================================================
 // API Request/Response Types (OpenAI-compatible format)
@@ -348,15 +342,9 @@ impl OpenAiCompatibleProvider {
     ///
     /// Returns an error if the HTTP client cannot be created.
     pub fn new(config: OpenAiCompatibleConfig) -> Result<Self, AppError> {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .build()
-            .map_err(|e| AppError::internal(format!("Failed to create HTTP client: {e}")))?;
-
         let available_models = FALLBACK_MODELS.iter().map(|s| (*s).to_owned()).collect();
         Ok(Self {
-            client,
+            client: build_llm_http_client(),
             config,
             available_models,
         })

@@ -27,7 +27,6 @@ struct RockportTestData {
 /// - `RockportWalk`: 1-mile walk test with heart rate
 /// - `AstrandRyhming`: Submaximal cycle ergometer test
 /// - `FromPace`: Speed-based estimation from race performance
-/// - `Hybrid`: Auto-select based on available data
 ///
 /// # Scientific References
 ///
@@ -125,15 +124,6 @@ pub enum Vo2maxAlgorithm {
         /// Easy/recovery pace speed (m/s)
         recovery_speed_ms: f64,
     },
-
-    /// Hybrid: Auto-select best method based on available data
-    ///
-    /// Priority:
-    /// 1. Cooper test if 12-min run data available
-    /// 2. Rockport walk if 1-mile walk data available
-    /// 3. From `VDOT` if race performance available
-    /// 4. From pace if training pace data available
-    Hybrid,
 }
 
 impl Default for Vo2maxAlgorithm {
@@ -202,9 +192,6 @@ impl Vo2maxAlgorithm {
                 max_speed_ms,
                 recovery_speed_ms,
             } => Self::calculate_from_pace(*max_speed_ms, *recovery_speed_ms),
-            Self::Hybrid => Err(AppError::invalid_input(
-                "Hybrid VO2max estimation requires specific test data. Use one of the explicit test protocols.".to_owned(),
-            )),
         }
     }
 
@@ -385,7 +372,6 @@ impl Vo2maxAlgorithm {
             Self::RockportWalk { .. } => "rockport_walk",
             Self::AstrandRyhming { .. } => "astrand_ryhming",
             Self::FromPace { .. } => "from_pace",
-            Self::Hybrid => "hybrid",
         }
     }
 
@@ -429,7 +415,6 @@ impl Vo2maxAlgorithm {
                     "From Pace (max: {max_speed_ms:.2} m/s, recovery: {recovery_speed_ms:.2} m/s)"
                 )
             }
-            Self::Hybrid => "Hybrid (auto-select best method)".to_owned(),
         }
     }
 
@@ -446,7 +431,6 @@ impl Vo2maxAlgorithm {
                 "VO2max = (VO2_sub x HRmax) / (HR_sub - HRrest)"
             }
             Self::FromPace { .. } => "VO2max = 15.3 x (MaxSpeed / RecSpeed)",
-            Self::Hybrid => "Auto-select based on available test data",
         }
     }
 }
@@ -471,9 +455,8 @@ impl FromStr for Vo2maxAlgorithm {
             "from_pace" | "pace" => Err(AppError::invalid_input(
                 "FromPace algorithm requires speed parameters (max_speed_ms, recovery_speed_ms). Use Vo2maxAlgorithm::FromPace { ... }".to_owned()
             )),
-            "hybrid" => Ok(Self::Hybrid),
             other => Err(AppError::invalid_input(format!(
-                "Unknown VO2max algorithm: '{other}'. Valid options: from_vdot, cooper_test, rockport_walk, astrand_ryhming, from_pace, hybrid"
+                "Unknown VO2max algorithm: '{other}'. Valid options: from_vdot, cooper_test, rockport_walk, astrand_ryhming, from_pace"
             ))),
         }
     }
