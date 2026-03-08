@@ -47,6 +47,14 @@ appId: com.pierre.fitness
 - tapOn:
     point: "50%,15%"
 
+# Wait for save button to become enabled (testID switches from
+# save-button-disabled to save-button once title and systemPrompt
+# React state updates propagate).
+- extendedWaitUntil:
+    visible:
+      id: "save-button"
+    timeout: 10000
+
 # Scroll back up to make save button accessible
 - scrollUntilVisible:
     element:

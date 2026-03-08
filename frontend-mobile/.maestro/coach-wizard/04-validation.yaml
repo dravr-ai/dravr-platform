@@ -23,8 +23,9 @@ appId: com.pierre.fitness
     timeout: 15000
 
 # Test: should show error when title is empty and Save is tapped
+# testID is save-button-disabled because both fields are empty (canSave=false)
 - tapOn:
-    id: "save-button"
+    id: "save-button-disabled"
 
 # Should show title error
 - assertVisible:
@@ -41,8 +42,9 @@ appId: com.pierre.fitness
     point: "50%,5%"
 
 # Tap save again — system prompt error should appear
+# testID is still save-button-disabled because systemPrompt is empty
 - tapOn:
-    id: "save-button"
+    id: "save-button-disabled"
 
 # Should show system prompt error
 - scrollUntilVisible:
