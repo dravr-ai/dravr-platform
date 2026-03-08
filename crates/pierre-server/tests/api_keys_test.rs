@@ -226,7 +226,7 @@ fn test_api_key_validation_edge_cases() {
     assert!(manager.validate_key_format("").is_err());
     assert!(manager.validate_key_format("pk_live_").is_err()); // Too short
     assert!(manager
-        .validate_key_format("sk_live_abcdefghijklmnopqrstuvwxyz123456")
+        .validate_key_format("wrong_prefix_abcdefghijklmnopqrstuvwx0")
         .is_err()); // Wrong prefix
     assert!(manager
         .validate_key_format("pk_test_abcdefghijklmnopqrstuvwxyz123456")
