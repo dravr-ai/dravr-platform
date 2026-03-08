@@ -28,11 +28,10 @@ appId: com.pierre.fitness
 # Long press on the coach card
 - longPressOn: "E2E Test Coach"
 
-# Should see action menu with options
+# Should see action menu with Add to favorites option
 - extendedWaitUntil:
-    visible:
-      text: "Add to favorites"
-    timeout: 3000
+    visible: "Add to favorites"
+    timeout: 5000
 
 # Close menu by tapping outside
 - tapOn:

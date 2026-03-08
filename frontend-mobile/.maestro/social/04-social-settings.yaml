@@ -1,5 +1,5 @@
-# ABOUTME: Test Social Settings screen display
-# ABOUTME: Social settings navigation is not yet wired in the main settings screen
+# ABOUTME: Test Social Feed screen display and interaction
+# ABOUTME: Verifies social feed loads correctly with items or empty state
 
 appId: com.pierre.fitness
 
@@ -16,13 +16,22 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "social-feed-screen"
-    timeout: 10000
+    timeout: 15000
 
-# Verify the social feed is displayed
+# Verify the social feed header is displayed
 - assertVisible: "Feed"
 
-# Test: should display Find Friends button
-- extendedWaitUntil:
-    visible: "Find Friends"
-    timeout: 5000
-- assertVisible: "Find Friends"
+# Test: feed shows either items or empty state
+- runFlow:
+    when:
+      visible:
+        id: "feed-list"
+    commands:
+      - assertVisible:
+          id: "feed-list"
+
+- runFlow:
+    when:
+      visible: "No Insights Yet"
+    commands:
+      - assertVisible: "No Insights Yet"

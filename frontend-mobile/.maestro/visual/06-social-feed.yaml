@@ -18,22 +18,25 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "social-feed-screen"
-    timeout: 10000
+    timeout: 15000
 
-# Test: feed - displays insight cards or empty state
+# Verify the header
+- assertVisible: "Feed"
+
+# Test: feed - displays feed list or empty state
 - runFlow:
     when:
       visible:
-        id: "insight-card"
+        id: "feed-list"
     commands:
       - assertVisible:
-          id: "insight-card"
+          id: "feed-list"
 
 - runFlow:
     when:
-      visible: "No Insights"
+      visible: "No Insights Yet"
     commands:
-      - assertVisible: "No Insights"
+      - assertVisible: "No Insights Yet"
 
 # Test: feed - share button visible (inside suggestions banner, may not appear)
 - runFlow:

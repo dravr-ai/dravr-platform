@@ -22,9 +22,12 @@ appId: com.pierre.fitness
       id: "coach-editor-screen"
     timeout: 5000
 
-# Category picker should be visible (shows default "Custom")
-- assertVisible:
-    id: "category-picker"
+# Scroll to category picker (may be below fold on smaller screens)
+- scrollUntilVisible:
+    element:
+      id: "category-picker"
+    direction: DOWN
+    timeout: 5000
 
 # Tap category picker to show modal
 - tapOn:
@@ -32,8 +35,7 @@ appId: com.pierre.fitness
 
 # Wait for the modal to appear with category options
 - extendedWaitUntil:
-    visible:
-      text: "Select Category"
+    visible: "Select Category"
     timeout: 5000
 
 # Select Training category via testID
@@ -44,6 +46,6 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "selected-category"
-    timeout: 3000
+    timeout: 5000
 
 - back

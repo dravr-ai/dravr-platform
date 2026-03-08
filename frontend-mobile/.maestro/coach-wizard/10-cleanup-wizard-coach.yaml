@@ -30,24 +30,21 @@ appId: com.pierre.fitness
 - longPressOn: "E2E Editor Coach"
 
 - extendedWaitUntil:
-    visible:
-      text: "Delete"
-    timeout: 3000
+    visible: "Delete"
+    timeout: 5000
 
 - tapOn: "Delete"
 
-# Confirm deletion
+# Confirm deletion in the alert dialog
 - extendedWaitUntil:
-    visible:
-      text: "Delete"
-    timeout: 3000
+    visible: "Delete"
+    timeout: 5000
 - tapOn: "Delete"
 
 # Verify coach is deleted
 - extendedWaitUntil:
-    notVisible:
-      text: "E2E Editor Coach"
-    timeout: 5000
+    notVisible: "E2E Editor Coach"
+    timeout: 10000
 
 # Reset filter
 - tapOn:

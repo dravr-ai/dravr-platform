@@ -568,16 +568,49 @@ jobs:
         run: |
           MAESTRO="$HOME/.maestro/bin/maestro"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "Running full E2E suite..."
-            # Single Maestro session for all tests. The ActionSheetIOS crash that
-            # previously caused cascade failures has been replaced with a Modal.
-            $MAESTRO test --device "$SIMULATOR_UDID" .maestro/ \
-              --format junit --output maestro-results.xml || true
-            echo "Test results:"
+            echo "Running full E2E suite in two batches..."
+            # Split tests into two Maestro sessions to isolate XCUITest driver
+            # crashes. A crash in one batch cannot cascade to the other.
+            BATCH1_DIRS="login settings chat coaches coach-wizard store"
+            BATCH2_DIRS="social synthetic-provider visual voice-input"
+
+            TOTAL_FAILURES=0
+            for BATCH_NUM in 1 2; do
+              if [ "$BATCH_NUM" = "1" ]; then
+                DIRS="$BATCH1_DIRS"
+              else
+                DIRS="$BATCH2_DIRS"
+              fi
+
+              echo ""
+              echo "=== Batch $BATCH_NUM: $DIRS ==="
+              FLOW_ARGS=""
+              for DIR in $DIRS; do
+                FLOW_ARGS="$FLOW_ARGS .maestro/$DIR/"
+              done
+
+              $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
+                --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || true
+
+              BATCH_TESTS=$(grep -c '<testcase' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
+              BATCH_FAILS=$(grep -c '<failure' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
+              echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_FAILS failures"
+              TOTAL_FAILURES=$((TOTAL_FAILURES + BATCH_FAILS))
+            done
+
+            # Merge results into single XML for artifact upload
+            echo '<?xml version="1.0" encoding="UTF-8"?><testsuites>' > maestro-results.xml
+            for f in maestro-results-batch*.xml; do
+              # Extract content between <testsuites> tags
+              sed -n '/<testsuite/,/<\/testsuite>/p' "$f" >> maestro-results.xml 2>/dev/null || true
+            done
+            echo '</testsuites>' >> maestro-results.xml
+
+            echo ""
+            echo "Total test results:"
             grep -c '<testcase' maestro-results.xml || echo "0 test cases"
-            # Fail if any test had a failure
-            if grep -q '<failure' maestro-results.xml 2>/dev/null; then
-              echo "Some tests failed"
+            if [ "$TOTAL_FAILURES" -gt 0 ]; then
+              echo "$TOTAL_FAILURES test(s) failed"
               exit 1
             fi
           else
@@ -914,13 +947,47 @@ jobs:
 
           MAESTRO_EXIT=0
           if [ "$MAESTRO_FULL_SUITE" = "true" ]; then
-            echo "Running full E2E suite..."
-            # Single Maestro session for all tests. The ActionSheetIOS crash that
-            # previously caused cascade failures has been replaced with a Modal.
-            $HOME/.maestro/bin/maestro test .maestro/ \
-              --format junit --output maestro-results-android.xml || MAESTRO_EXIT=1
-            echo "Test results:"
+            echo "Running full E2E suite in two batches..."
+            BATCH1_DIRS="login settings chat coaches coach-wizard store"
+            BATCH2_DIRS="social synthetic-provider visual voice-input"
+
+            TOTAL_FAILURES=0
+            for BATCH_NUM in 1 2; do
+              if [ "$BATCH_NUM" = "1" ]; then
+                DIRS="$BATCH1_DIRS"
+              else
+                DIRS="$BATCH2_DIRS"
+              fi
+
+              echo ""
+              echo "=== Batch $BATCH_NUM: $DIRS ==="
+              FLOW_ARGS=""
+              for DIR in $DIRS; do
+                FLOW_ARGS="$FLOW_ARGS .maestro/$DIR/"
+              done
+
+              $HOME/.maestro/bin/maestro test $FLOW_ARGS \
+                --format junit --output "maestro-results-android-batch${BATCH_NUM}.xml" || true
+
+              BATCH_TESTS=$(grep -c '<testcase' "maestro-results-android-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
+              BATCH_FAILS=$(grep -c '<failure' "maestro-results-android-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
+              echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_FAILS failures"
+              TOTAL_FAILURES=$((TOTAL_FAILURES + BATCH_FAILS))
+            done
+
+            # Merge results into single XML
+            echo '<?xml version="1.0" encoding="UTF-8"?><testsuites>' > maestro-results-android.xml
+            for f in maestro-results-android-batch*.xml; do
+              sed -n '/<testsuite/,/<\/testsuite>/p' "$f" >> maestro-results-android.xml 2>/dev/null || true
+            done
+            echo '</testsuites>' >> maestro-results-android.xml
+
+            echo ""
+            echo "Total test results:"
             grep -c '<testcase' maestro-results-android.xml || echo "0 test cases"
+            if [ "$TOTAL_FAILURES" -gt 0 ]; then
+              MAESTRO_EXIT=1
+            fi
           else
             echo "Running CI smoke tests (push trigger)..."
             $HOME/.maestro/bin/maestro test \

@@ -20,25 +20,31 @@ appId: com.pierre.fitness
       id: "message-input"
     timeout: 10000
 
-# Type a message
+# Tap the input to focus it
 - tapOn:
     id: "message-input"
-- inputText: "xcheck42"
 
-# Verify text was entered into the input
+# Type a message using eraseText+inputText pattern.
+# eraseText first ensures the field is in a clean state for inputText.
+- eraseText: 10
+- inputText: "Hello Pierre"
+
+# Wait a moment for React state to sync
 - extendedWaitUntil:
-    visible: "xcheck42"
+    visible:
+      id: "send-button"
     timeout: 5000
 
-# Dismiss keyboard so send button is fully tappable on all screen sizes
-- tapOn:
-    point: "50%,20%"
-
+# Tap send button.
+# If the button is disabled (React state didn't sync), the tap is a no-op
+# and the test will time out at the next step.
 - tapOn:
     id: "send-button"
 
-# Verify the sent message appears in the chat.
+# Verify the sent message appears in the chat list.
+# The message should appear as a user message bubble.
 # CI has no LLM configured, so we verify the message was sent (not the response).
+# Use 15s timeout - if send worked, message appears immediately in the list.
 - extendedWaitUntil:
-    visible: "xcheck42"
-    timeout: 30000
+    visible: "Hello Pierre"
+    timeout: 15000

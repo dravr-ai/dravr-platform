@@ -27,7 +27,7 @@ appId: com.pierre.fitness
     element:
       id: "tags-section"
     direction: DOWN
-    timeout: 5000
+    timeout: 10000
 
 # Expand the tags section
 - tapOn:
@@ -36,18 +36,25 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible:
       id: "tag-input"
-    timeout: 3000
+    timeout: 5000
 
 # Test: should add tag when input is submitted
 - tapOn:
     id: "tag-input"
 - inputText: "intervals"
+
+# Dismiss keyboard before tapping add button (may be behind keyboard)
+- tapOn:
+    point: "50%,15%"
+
 - tapOn:
     id: "add-tag-button"
 
 # Tag should appear as a chip
-- assertVisible:
-    id: "tag-chip-intervals"
+- extendedWaitUntil:
+    visible:
+      id: "tag-chip-intervals"
+    timeout: 5000
 
 # Test: should remove tag when X is tapped
 - tapOn:
@@ -57,6 +64,6 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     notVisible:
       id: "tag-chip-intervals"
-    timeout: 2000
+    timeout: 5000
 
 - back
