@@ -27,11 +27,17 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 30000
 
+# Ensure the coach card is fully rendered before long-pressing.
+# On iOS, FlashList cells may not be interactable immediately after scrolling.
+- extendedWaitUntil:
+    visible: "E2E Editor Coach"
+    timeout: 5000
+
 - longPressOn: "E2E Editor Coach"
 
 - extendedWaitUntil:
     visible: "Delete"
-    timeout: 5000
+    timeout: 10000
 
 - tapOn: "Delete"
 

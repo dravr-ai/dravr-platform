@@ -39,6 +39,11 @@ appId: com.pierre.fitness
 - tapOn:
     id: "send-button"
 
+# Dismiss keyboard so the message list is fully visible.
+# On iOS, the keyboard stays up after send, hiding the chat messages.
+- tapOn:
+    point: "50%,15%"
+
 # Verify the sent message appears in the chat list.
 # CI has no LLM configured, so we verify the message was sent (not the response).
 # The message should appear as a user message bubble in the FlatList.
