@@ -43,12 +43,10 @@ appId: com.pierre.fitness
     id: "tag-input"
 - inputText: "intervals"
 
-# Dismiss keyboard before tapping add button. pressKey Enter does not
-# reliably trigger onSubmitEditing on iOS in Expo Go.
-- tapOn:
-    point: "50%,15%"
-
-# Tap the add-tag-button to submit the tag
+# Tap the add-tag-button directly (visible next to tag-input in same row).
+# pressKey Enter does not reliably trigger onSubmitEditing on iOS in Expo Go.
+# ScrollView has keyboardShouldPersistTaps="handled" so tapping add-tag-button
+# works while keyboard is still open.
 - tapOn:
     id: "add-tag-button"
 

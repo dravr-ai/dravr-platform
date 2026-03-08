@@ -119,7 +119,7 @@ export function useMessages(): MessagesState & MessagesActions {
       created_at: new Date().toISOString(),
     };
     setMessages(prev => [...prev, userMessage]);
-    deferredScrollToBottom(50);
+    deferredScrollToBottom(200);
 
     try {
       const response = await chatApi.sendMessage(conversationId, messageText);
@@ -147,7 +147,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
         return [...filtered, ...newMessages];
       });
-      deferredScrollToBottom(50);
+      deferredScrollToBottom(200);
     } catch (sendErr) {
       const errorMsg = sendErr instanceof Error ? sendErr.message : 'Failed to send message';
       setError(errorMsg);
@@ -164,7 +164,7 @@ export function useMessages(): MessagesState & MessagesActions {
         );
         return [...updated, errorResponse];
       });
-      deferredScrollToBottom(50);
+      deferredScrollToBottom(200);
     } finally {
       setIsSending(false);
     }
@@ -187,7 +187,7 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
     const insightPrompt = createInsightPrompt(content);
-    deferredScrollToBottom(50);
+    deferredScrollToBottom(200);
 
     try {
       const response = await chatApi.sendMessage(resolvedConversationId, insightPrompt);
@@ -205,7 +205,7 @@ export function useMessages(): MessagesState & MessagesActions {
           execution_time_ms: response.execution_time_ms,
         }]);
       }
-      deferredScrollToBottom(50);
+      deferredScrollToBottom(200);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to generate insight';
       setError(errorMsg);
@@ -247,7 +247,7 @@ export function useMessages(): MessagesState & MessagesActions {
         }
         return prev;
       });
-      deferredScrollToBottom(50);
+      deferredScrollToBottom(200);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to get response';
       setError(errorMsg);
@@ -259,7 +259,7 @@ export function useMessages(): MessagesState & MessagesActions {
         isError: true,
       };
       setMessages(prev => [...prev, errorMessage]);
-      deferredScrollToBottom(50);
+      deferredScrollToBottom(200);
     } finally {
       setIsSending(false);
     }

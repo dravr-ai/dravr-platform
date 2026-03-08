@@ -443,7 +443,7 @@ describe('CoachLibraryScreen', () => {
 
       fireEvent.press(getByText('+'));
 
-      expect(mockRouter.navigate).toHaveBeenCalledWith('/(app)/(tabs)/(coaches)/editor');
+      expect(mockRouter.push).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(coaches)/editor' });
     });
   });
 
