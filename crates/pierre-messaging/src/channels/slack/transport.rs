@@ -20,7 +20,7 @@ use sha2::Sha256;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::transport::TransportAdapter;
+use crate::transport::{outbound_http_timeout, TransportAdapter};
 
 /// Slack Events API transport adapter
 ///
@@ -37,8 +37,12 @@ impl SlackTransport {
     /// Create a transport with the given Slack signing secret
     #[must_use]
     pub fn new(signing_secret: String) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(outbound_http_timeout())
+            .build()
+            .unwrap_or_default();
         Self {
-            client: reqwest::Client::new(),
+            client,
             signing_secret,
         }
     }
@@ -125,8 +129,9 @@ impl TransportAdapter for SlackTransport {
         };
 
         let event_type = event.get("type").and_then(Value::as_str).unwrap_or("");
+
         if event_type != "message" {
-            debug!(event_type, "Ignoring non-message Slack event");
+            debug!(event_type, "Ignoring unhandled Slack event type");
             return Ok(vec![]);
         }
 
@@ -143,7 +148,7 @@ impl TransportAdapter for SlackTransport {
         let channel_id = event.get("channel").and_then(Value::as_str).unwrap_or("");
         let ts = event.get("ts").and_then(Value::as_str).unwrap_or("0");
 
-        let incoming = IncomingMessage {
+        Ok(vec![IncomingMessage {
             channel_type: ChannelType::Slack,
             sender_id: user_id.to_owned(),
             sender_name: None,
@@ -156,9 +161,7 @@ impl TransportAdapter for SlackTransport {
             raw_payload: payload,
             correlation_id: Uuid::new_v4(),
             metadata: Value::Null,
-        };
-
-        Ok(vec![incoming])
+        }])
     }
 
     async fn send_raw(
