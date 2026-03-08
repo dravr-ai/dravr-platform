@@ -175,13 +175,15 @@ export function CoachEditorScreen() {
       }
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      // In create mode, dismiss all screens in the coaches stack to return to
-      // the library. router.back() is unreliable on iOS when the stack entry
-      // was created via router.push(). In edit mode, back() pops one screen.
+      // In create mode, replace the current screen with the library index.
+      // router.back() and router.dismissAll() are both unreliable on iOS
+      // Expo Go for stack entries created via router.push().
+      // router.replace navigates to the target route and removes the current
+      // screen from the stack history, guaranteeing the library appears.
       if (isEditMode) {
         router.back();
       } else {
-        router.dismissAll();
+        router.replace('/(app)/(tabs)/(coaches)');
       }
     } catch (error) {
       console.error('Failed to save coach:', error);

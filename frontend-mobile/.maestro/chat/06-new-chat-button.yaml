@@ -32,17 +32,20 @@ appId: com.pierre.fitness
 - tapOn:
     id: "send-button"
 
+# Wait for the FlashList to mount (transition from empty ScrollView).
+- extendedWaitUntil:
+    visible:
+      id: "messages-list"
+    timeout: 15000
+
 # Dismiss keyboard so the message list is fully visible.
-# On iOS, the keyboard stays up after send, hiding the chat messages.
 - tapOn:
     point: "50%,15%"
 
-# Wait for sent message to appear. Use scrollUntilVisible to handle
-# FlashList rendering and scroll position issues on iOS.
-- scrollUntilVisible:
-    element:
-      text: "Test message"
-    direction: DOWN
+# Wait for sent message to appear. The FlashList auto-scrolls via
+# onContentSizeChange so the message should be visible without scrolling.
+- extendedWaitUntil:
+    visible: "Test message"
     timeout: 30000
 
 # Now create new chat via the floating tab bar

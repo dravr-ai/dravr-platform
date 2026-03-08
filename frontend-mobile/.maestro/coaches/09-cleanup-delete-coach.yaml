@@ -35,14 +35,23 @@ appId: com.pierre.fitness
       id: "coach-detail-screen"
     timeout: 15000
 
+# Scroll to ensure the delete button is visible. On smaller screens
+# or iOS, the button may be below the fold of the detail screen.
+- scrollUntilVisible:
+    element:
+      id: "delete-button"
+    direction: DOWN
+    timeout: 10000
+
 # Tap the delete button on the detail screen
 - tapOn:
     id: "delete-button"
 
-# Confirm deletion in the alert dialog
+# Confirm deletion in the alert dialog.
+# Native iOS Alerts can take time to animate in, especially on simulator.
 - extendedWaitUntil:
     visible: "Delete"
-    timeout: 5000
+    timeout: 15000
 - tapOn: "Delete"
 
 # Wait to return to library after deletion

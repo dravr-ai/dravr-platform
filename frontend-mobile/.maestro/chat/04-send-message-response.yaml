@@ -39,16 +39,23 @@ appId: com.pierre.fitness
 - tapOn:
     id: "send-button"
 
+# Wait for the FlashList to mount. The MessageList component transitions
+# from a ScrollView (empty state) to a FlashList when messages are added.
+# This testID only appears on the FlashList wrapper, confirming the
+# component has rendered the message list.
+- extendedWaitUntil:
+    visible:
+      id: "messages-list"
+    timeout: 15000
+
 # Dismiss keyboard so the message list is fully visible.
 # On iOS, the keyboard stays up after send, hiding the chat messages.
 - tapOn:
     point: "50%,15%"
 
 # Verify the sent message appears in the chat list.
-# Use scrollUntilVisible to handle FlashList rendering delays and scroll
-# position issues on iOS where the auto-scroll may not reach the bottom.
-- scrollUntilVisible:
-    element:
-      text: "Hello Pierre"
-    direction: DOWN
+# Use extendedWaitUntil (not scrollUntilVisible) because the FlashList
+# auto-scrolls to the bottom via onContentSizeChange.
+- extendedWaitUntil:
+    visible: "Hello Pierre"
     timeout: 30000
