@@ -521,7 +521,7 @@ export function MessageList({
   }
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1 }} testID="messages-list">
       <FlashList
         ref={flatListRef}
         data={messages ?? []}

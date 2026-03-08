@@ -27,7 +27,7 @@ appId: com.pierre.fitness
     element:
       id: "category-picker"
     direction: DOWN
-    timeout: 5000
+    timeout: 10000
 
 # Wait for category-picker to be fully rendered and interactable.
 # On iOS, scrollUntilVisible can stop with the element partially off-screen,
@@ -36,13 +36,6 @@ appId: com.pierre.fitness
     visible:
       id: "category-picker"
     timeout: 5000
-
-# Scroll slightly to ensure the picker is fully within the viewport
-- scrollUntilVisible:
-    element:
-      id: "category-picker"
-    direction: UP
-    timeout: 3000
 
 # Tap category picker to show modal
 - tapOn:

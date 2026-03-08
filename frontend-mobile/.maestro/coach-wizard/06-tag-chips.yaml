@@ -43,22 +43,9 @@ appId: com.pierre.fitness
     id: "tag-input"
 - inputText: "intervals"
 
-# Dismiss keyboard so add-tag-button is visible and not behind the keyboard.
-# On iOS, KeyboardAvoidingView can push the content up and the button may
-# end up behind the keyboard or scrolled out of view.
-- tapOn:
-    point: "50%,15%"
-
-# Scroll to ensure the add-tag-button is visible after keyboard dismiss
-- scrollUntilVisible:
-    element:
-      id: "add-tag-button"
-    direction: DOWN
-    timeout: 5000
-
-# Tap the add-tag-button to submit the tag
-- tapOn:
-    id: "add-tag-button"
+# Submit the tag via the keyboard return key (onSubmitEditing calls addTag).
+# This avoids keyboard dismiss + scroll issues with the add-tag-button on iOS.
+- pressKey: "Enter"
 
 # Tag should appear as a chip
 - extendedWaitUntil:
@@ -66,7 +53,17 @@ appId: com.pierre.fitness
       id: "tag-chip-intervals"
     timeout: 5000
 
+# Dismiss keyboard before testing remove (keyboard may cover tag chips)
+- tapOn:
+    point: "50%,15%"
+
 # Test: should remove tag when X is tapped
+- scrollUntilVisible:
+    element:
+      id: "remove-tag-intervals"
+    direction: DOWN
+    timeout: 5000
+
 - tapOn:
     id: "remove-tag-intervals"
 

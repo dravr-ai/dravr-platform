@@ -33,9 +33,10 @@ appId: com.pierre.fitness
       id: "settings-screen"
     timeout: 5000
 
-# Test: settings - displays profile section
+# Test: settings - displays profile section (use testID for reliable matching)
 - extendedWaitUntil:
-    visible: "Profile"
+    visible:
+      id: "settings-profile-section"
     timeout: 10000
 
 # Test: settings - displays connections section (may need scroll)

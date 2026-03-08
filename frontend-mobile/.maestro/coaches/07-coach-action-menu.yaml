@@ -14,12 +14,25 @@ appId: com.pierre.fitness
 - runFlow:
     file: ../helpers/navigate-to-coaches.yaml
 
-# Test the action menu on a system coach visible at the top of the list.
-# System coaches render immediately without FlashList scrolling, avoiding
-# cell lifecycle issues that make long-press unreliable after scrollUntilVisible.
+# Filter to system coaches only to reduce the list and ensure
+# Marathon Coach is visible. System coaches may be hidden by default.
+- tapOn:
+    id: "source-filter-system"
+
+# Enable showing hidden coaches (system coaches may be hidden by default)
 - extendedWaitUntil:
-    visible: "Marathon Coach"
-    timeout: 10000
+    visible:
+      id: "show-hidden-toggle"
+    timeout: 15000
+- tapOn:
+    id: "show-hidden-toggle"
+
+# Scroll to find Marathon Coach (a seeded system coach)
+- scrollUntilVisible:
+    element:
+      text: "Marathon Coach"
+    direction: DOWN
+    timeout: 15000
 
 # Long press on the coach card
 - longPressOn: "Marathon Coach"
@@ -32,3 +45,9 @@ appId: com.pierre.fitness
 # Close menu by tapping outside
 - tapOn:
     id: "coach-library-screen"
+
+# Reset filters
+- tapOn:
+    id: "show-hidden-toggle"
+- tapOn:
+    id: "source-filter-all"
