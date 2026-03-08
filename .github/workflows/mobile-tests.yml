@@ -569,17 +569,20 @@ jobs:
           MAESTRO="$HOME/.maestro/bin/maestro"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "${{ github.event_name }}" = "schedule" ]; then
             echo "Running full E2E suite in two batches..."
-            # Split tests into two Maestro sessions to isolate XCUITest driver
-            # crashes. A crash in one batch cannot cascade to the other.
+            # Split tests into three Maestro sessions to isolate XCUITest
+            # driver crashes. A crash in one batch cannot cascade to others.
             BATCH1_DIRS="login settings chat coaches coach-wizard store"
-            BATCH2_DIRS="social synthetic-provider visual voice-input"
+            BATCH2_DIRS="synthetic-provider visual voice-input"
+            BATCH3_DIRS="social"
 
             TOTAL_FAILURES=0
-            for BATCH_NUM in 1 2; do
+            for BATCH_NUM in 1 2 3; do
               if [ "$BATCH_NUM" = "1" ]; then
                 DIRS="$BATCH1_DIRS"
-              else
+              elif [ "$BATCH_NUM" = "2" ]; then
                 DIRS="$BATCH2_DIRS"
+              else
+                DIRS="$BATCH3_DIRS"
               fi
 
               echo ""
@@ -947,16 +950,19 @@ jobs:
 
           MAESTRO_EXIT=0
           if [ "$MAESTRO_FULL_SUITE" = "true" ]; then
-            echo "Running full E2E suite in two batches..."
+            echo "Running full E2E suite in three batches..."
             BATCH1_DIRS="login settings chat coaches coach-wizard store"
-            BATCH2_DIRS="social synthetic-provider visual voice-input"
+            BATCH2_DIRS="synthetic-provider visual voice-input"
+            BATCH3_DIRS="social"
 
             TOTAL_FAILURES=0
-            for BATCH_NUM in 1 2; do
+            for BATCH_NUM in 1 2 3; do
               if [ "$BATCH_NUM" = "1" ]; then
                 DIRS="$BATCH1_DIRS"
-              else
+              elif [ "$BATCH_NUM" = "2" ]; then
                 DIRS="$BATCH2_DIRS"
+              else
+                DIRS="$BATCH3_DIRS"
               fi
 
               echo ""

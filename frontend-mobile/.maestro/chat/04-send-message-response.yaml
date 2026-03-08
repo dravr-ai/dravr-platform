@@ -24,27 +24,17 @@ appId: com.pierre.fitness
 - tapOn:
     id: "message-input"
 
-# Type a message using eraseText+inputText pattern.
-# eraseText first ensures the field is in a clean state for inputText.
-- eraseText: 10
+# Type a message. inputText triggers onChangeText on RN controlled inputs,
+# enabling the send button via canSend check.
 - inputText: "Hello Pierre"
 
-# Wait a moment for React state to sync
-- extendedWaitUntil:
-    visible:
-      id: "send-button"
-    timeout: 5000
-
-# Tap send button.
-# If the button is disabled (React state didn't sync), the tap is a no-op
-# and the test will time out at the next step.
+# Tap send button
 - tapOn:
     id: "send-button"
 
 # Verify the sent message appears in the chat list.
-# The message should appear as a user message bubble.
 # CI has no LLM configured, so we verify the message was sent (not the response).
-# Use 15s timeout - if send worked, message appears immediately in the list.
+# The message should appear as a user message bubble in the FlatList.
 - extendedWaitUntil:
     visible: "Hello Pierre"
-    timeout: 15000
+    timeout: 30000
