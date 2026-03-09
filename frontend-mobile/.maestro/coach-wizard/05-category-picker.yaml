@@ -37,6 +37,13 @@ appId: com.pierre.fitness
       id: "category-picker"
     timeout: 5000
 
+# Small delay for scroll animation to settle on iOS. Without this,
+# the tap may land on a moving element and not register.
+- swipe:
+    start: "50%,50%"
+    end: "50%,49%"
+    duration: 1000
+
 # Tap category picker to show modal
 - tapOn:
     id: "category-picker"
@@ -46,6 +53,18 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible: "Select Category"
     timeout: 15000
+
+# Fallback: if modal didn't open, try tapping again. On iOS, the first tap
+# may be consumed by scroll deceleration rather than triggering onPress.
+- runFlow:
+    when:
+      notVisible: "Select Category"
+    commands:
+      - tapOn:
+          id: "category-picker"
+      - extendedWaitUntil:
+          visible: "Select Category"
+          timeout: 10000
 
 # Select Training category via testID
 - tapOn:

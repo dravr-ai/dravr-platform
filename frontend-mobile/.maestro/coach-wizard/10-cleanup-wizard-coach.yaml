@@ -44,6 +44,14 @@ appId: com.pierre.fitness
     direction: DOWN
     timeout: 10000
 
+# Extra scroll to push delete button above the floating tab bar.
+# scrollUntilVisible stops as soon as the element enters the accessibility
+# tree, which may leave it behind the ExpandableTabBar (~96px from bottom).
+- swipe:
+    start: "50%,50%"
+    end: "50%,30%"
+    duration: 500
+
 # Tap the delete button on the detail screen
 - tapOn:
     id: "delete-button"
@@ -53,6 +61,21 @@ appId: com.pierre.fitness
 - extendedWaitUntil:
     visible: "Delete"
     timeout: 15000
+
+# Fallback: if alert didn't appear, tap delete-button again. On iOS,
+# the first tap may not register if the element was still animating
+# from the scroll.
+- runFlow:
+    when:
+      visible:
+        id: "delete-button"
+    commands:
+      - tapOn:
+          id: "delete-button"
+      - extendedWaitUntil:
+          visible: "Delete"
+          timeout: 10000
+
 - tapOn: "Delete"
 
 # Wait to return to library after deletion

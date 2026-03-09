@@ -64,12 +64,19 @@ appId: com.pierre.fitness
 - tapOn:
     id: "save-button"
 
-# Wait to return to library after save completes and router.back() pops the stack.
-# CoachLibraryScreen uses router.push() to open the editor, so router.back() works.
-- extendedWaitUntil:
-    visible:
-      id: "coach-library-screen"
-    timeout: 30000
+# Wait for save API call to complete. Micro-swipe acts as a delay
+# since Maestro has no native sleep command. 5s accounts for CI latency.
+- swipe:
+    start: "50%,50%"
+    end: "50%,48%"
+    duration: 5000
+
+# Navigate to coaches tab explicitly. router.replace is unreliable on iOS
+# in Expo Go — sometimes the navigation doesn't fire. Tapping the tab
+# button works regardless of router state. If router.replace already
+# navigated to the library, tapping the coaches tab is a no-op.
+- runFlow:
+    file: ../helpers/navigate-to-coaches.yaml
 
 # Filter to user-created coaches for faster FlashList rendering
 - tapOn:

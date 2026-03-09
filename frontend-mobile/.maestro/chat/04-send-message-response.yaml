@@ -35,7 +35,19 @@ appId: com.pierre.fitness
       id: "send-button"
     timeout: 5000
 
-# Tap send button
+# Dismiss keyboard before tapping send. On iOS, the first tap outside
+# the TextInput dismisses the keyboard instead of triggering onPress.
+# The inputText state persists after keyboard dismissal.
+- tapOn:
+    point: "50%,15%"
+
+# Re-verify send button is still enabled after keyboard dismissal
+- extendedWaitUntil:
+    visible:
+      id: "send-button"
+    timeout: 5000
+
+# Tap send button (keyboard is now dismissed, tap will trigger onPress)
 - tapOn:
     id: "send-button"
 
