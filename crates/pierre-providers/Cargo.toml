@@ -33,7 +33,7 @@ pierre-core = { version = "0.3.0", path = "../pierre-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
 tracing = "0.1"
 thiserror = "2.0"
 async-trait = "0.1"
@@ -41,7 +41,7 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["sync", "time"] }
 async-stream = "0.3"
 base64 = "0.22"
-bitflags = { version = "2.6", features = ["serde"] }
+bitflags = { version = "2.11", features = ["serde"] }
 futures-util = "0.3"
 num-traits = "0.2"
 rand = "0.8"

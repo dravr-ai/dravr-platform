@@ -207,7 +207,7 @@ pierre-a2a = { version = "0.1.0", path = "../pierre-a2a", optional = true }
 pierre-messaging = { version = "0.1.0", path = "../pierre-messaging", optional = true }
 pierre-providers = { version = "0.1.0", path = "../pierre-providers" }
 
-tokio = { version = "1.45", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -233,7 +233,7 @@ bytes = "1.11"
 url = "2.5"
 clap = { version = "4.5", features = ["derive", "std"], default-features = false }
 dirs = "5.0"
-uuid = { version = "1.11", features = ["v4", "v5", "serde"] }
+uuid = { version = "1.22", features = ["v4", "v5", "serde"] }
 dashmap = "5.5"
 urlencoding = "2.1"
 sha2 = "0.10"
@@ -241,7 +241,7 @@ rand = "0.8"
 aes-gcm = "0.10"
 # Encryption and database support for multi-tenant
 ring = "0.17"
-ed25519-dalek = "2.1"
+ed25519-dalek = "2.2"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid", "derive", "migrate", "macros"], default-features = false }
 bcrypt = "0.16"
 argon2 = "0.5"
@@ -253,40 +253,40 @@ hex = "0.4"
 # HTTP framework: Axum (migrated from Warp)
 axum = { version = "0.7", features = ["ws", "json", "query", "macros", "tokio", "http2", "form"], default-features = false }
 axum-extra = { version = "0.9", features = ["typed-header"] }
-http = "1.0"
+http = "1.4"
 futures-util = "0.3"
 eventsource-stream = "0.2"
-base64ct = "1.6"
+base64ct = "1.8"
 # LRU cache for bounded session storage (DoS prevention)
 lru = "0.16"
 # Glob pattern matching for cache invalidation
 glob = "0.3"
 # Regex for PII redaction and pattern matching
-regex = "1.11"
+regex = "1.12"
 # Bitflags for PII redaction feature configuration
-bitflags = { version = "2.6", features = ["serde"] }
+bitflags = { version = "2.11", features = ["serde"] }
 # Redis client with connection pooling and async support
 redis = { version = "0.28", features = ["tokio-comp", "connection-manager", "aio"] }
 
 num-traits = "0.2"
 # Rayon for CPU-bound parallel data processing (zone analysis, fitness calculations)
-rayon = "1.10"
+rayon = "1.11"
 rsa = "0.9"
-x509-parser = "0.18.0"
+x509-parser = "0.18.1"
 # TOON format for token-efficient LLM serialization (~40% token reduction vs JSON)
 toon-format = { version = "0.2", optional = true }
 rand_chacha = "0.3"
 # OpenAPI documentation generation with utoipa
 # OpenAPI documentation - optional (enable with --features openapi)
-utoipa = { version = "5.3", features = ["axum_extras", "chrono", "uuid"], optional = true }
+utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 utoipa-axum = { version = "0.2", optional = true }
 utoipa-swagger-ui = { version = "8.1", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 
 [dev-dependencies]
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.4.1" }
-tempfile = "3.20"
-serial_test = "3.1"
+tempfile = "3.26"
+serial_test = "3.4"
 tokio-tungstenite = "0.24"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
@@ -295,7 +295,7 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 subtle = "2.6"
-ed25519-dalek = "2.1"
+ed25519-dalek = "2.2"
 
 # ============================================================================
 # Benchmark Configuration

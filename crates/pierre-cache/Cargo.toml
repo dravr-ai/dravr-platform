@@ -22,9 +22,9 @@ glob = "0.3"
 lru = "0.16"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.45", features = ["sync", "time", "rt", "macros"] }
+tokio = { version = "1.50", features = ["sync", "time", "rt", "macros"] }
 tracing = "0.1"
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # Optional: Redis backend
 redis = { version = "0.28", features = ["tokio-comp", "connection-manager", "aio"], optional = true }
