@@ -251,8 +251,8 @@ subtle = "2.6"
 zeroize = { version = "1.8", features = ["alloc"] }
 hex = "0.4"
 # HTTP framework: Axum (migrated from Warp)
-axum = { version = "0.7", features = ["ws", "json", "query", "macros", "tokio", "http2", "form"], default-features = false }
-axum-extra = { version = "0.9", features = ["typed-header"] }
+axum = { version = "0.8", features = ["ws", "json", "query", "macros", "tokio", "http2", "form"], default-features = false }
+axum-extra = { version = "0.12", features = ["typed-header"] }
 http = "1.4"
 futures-util = "0.3"
 eventsource-stream = "0.2"
@@ -280,7 +280,7 @@ rand_chacha = "0.3"
 # OpenAPI documentation - optional (enable with --features openapi)
 utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], optional = true }
 utoipa-axum = { version = "0.2", optional = true }
-utoipa-swagger-ui = { version = "8.1", features = ["axum"], optional = true }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 
 [dev-dependencies]

@@ -35,7 +35,7 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.22", features = ["v4", "serde"] }
 
 # HTTP framework (for cookie/header types)
-axum = { version = "0.7", features = ["json"], default-features = false }
+axum = { version = "0.8", features = ["json"], default-features = false }
 http = "1.4"
 
 # HTTP client (for OAuth flows)

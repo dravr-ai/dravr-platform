@@ -129,7 +129,7 @@ impl LlmSettingsRoutes {
                 post(Self::validate_llm_credentials),
             )
             .route(
-                "/api/user/llm-settings/:provider",
+                "/api/user/llm-settings/{provider}",
                 delete(Self::delete_llm_credentials),
             )
             .with_state(resources)

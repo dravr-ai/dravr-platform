@@ -75,23 +75,23 @@ impl AuthRoutes {
             // OAuth2 ROPC endpoint (RFC 6749 Section 4.3) - unified login for all clients
             .route("/oauth/token", post(login::handle_oauth2_token))
             .route(
-                "/api/oauth/callback/:provider",
+                "/api/oauth/callback/{provider}",
                 get(oauth::handle_oauth_callback),
             )
             .route("/api/oauth/status", get(oauth::handle_oauth_status))
             .route("/api/providers", get(oauth::handle_providers_status))
             .route(
-                "/api/oauth/auth/:provider/:user_id",
+                "/api/oauth/auth/{provider}/{user_id}",
                 get(oauth::handle_oauth_auth_initiate),
             )
             // Mobile OAuth initiation - returns OAuth URL in JSON (requires auth)
             .route(
-                "/api/oauth/mobile/init/:provider",
+                "/api/oauth/mobile/init/{provider}",
                 get(oauth::handle_mobile_oauth_init),
             )
             // Disconnect a provider (requires auth)
             .route(
-                "/api/oauth/providers/:provider/disconnect",
+                "/api/oauth/providers/{provider}/disconnect",
                 delete(oauth::handle_disconnect_provider_rest),
             )
             .with_state(resources)

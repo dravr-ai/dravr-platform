@@ -32,39 +32,39 @@ impl MessagingRoutes {
         Router::new()
             // Webhook ingress (per-channel signature verification)
             .route(
-                "/api/messaging/webhook/:channel",
+                "/api/messaging/webhook/{channel}",
                 get(webhooks::verify_webhook).post(webhooks::handle_webhook),
             )
             // Channel configuration CRUD
             .route("/api/messaging/channels", get(config::list_channel_configs))
             .route(
-                "/api/messaging/channels/:channel",
+                "/api/messaging/channels/{channel}",
                 get(config::get_channel_config),
             )
             .route(
-                "/api/messaging/channels/:channel",
+                "/api/messaging/channels/{channel}",
                 put(config::upsert_channel_config),
             )
             .route(
-                "/api/messaging/channels/:channel",
+                "/api/messaging/channels/{channel}",
                 delete(config::delete_channel_config),
             )
             // Channel linking (OAuth/deep-link account verification)
             .route(
-                "/api/messaging/link/init/:channel",
+                "/api/messaging/link/init/{channel}",
                 post(linking::init_channel_link),
             )
             .route(
-                "/api/messaging/link/callback/:channel",
+                "/api/messaging/link/callback/{channel}",
                 get(linking::link_callback),
             )
             .route("/api/messaging/links", get(linking::list_channel_links))
             .route(
-                "/api/messaging/links/:channel",
+                "/api/messaging/links/{channel}",
                 delete(linking::delete_channel_link),
             )
             // Webhook-initiated channel linking (HTML pages, public, no auth)
-            .route("/messaging/link/:code", get(linking::channel_link_page))
+            .route("/messaging/link/{code}", get(linking::channel_link_page))
             .route("/messaging/link/auth", post(linking::channel_link_auth))
             .with_state(resources)
     }

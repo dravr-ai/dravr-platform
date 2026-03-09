@@ -173,26 +173,26 @@ impl AdminRoutes {
             .route("/admin/users", get(users::handle_list_users))
             .route("/admin/pending-users", get(users::handle_pending_users))
             .route(
-                "/admin/approve-user/:user_id",
+                "/admin/approve-user/{user_id}",
                 post(users::handle_approve_user),
             )
             .route(
-                "/admin/suspend-user/:user_id",
+                "/admin/suspend-user/{user_id}",
                 post(users::handle_suspend_user),
             )
             .route(
-                "/admin/users/:user_id/reset-password",
+                "/admin/users/{user_id}/reset-password",
                 post(users::handle_reset_user_password),
             )
             .route(
-                "/admin/users/:user_id/rate-limit",
+                "/admin/users/{user_id}/rate-limit",
                 get(users::handle_get_user_rate_limit),
             )
             .route(
-                "/admin/users/:user_id/activity",
+                "/admin/users/{user_id}/activity",
                 get(users::handle_get_user_activity),
             )
-            .route("/admin/users/:user_id", delete(users::handle_delete_user))
+            .route("/admin/users/{user_id}", delete(users::handle_delete_user))
             .with_state(context)
     }
 
@@ -237,15 +237,15 @@ impl AdminRoutes {
             .route("/admin/tokens", post(tokens::handle_create_admin_token))
             .route("/admin/tokens", get(tokens::handle_list_admin_tokens))
             .route(
-                "/admin/tokens/:token_id",
+                "/admin/tokens/{token_id}",
                 get(tokens::handle_get_admin_token),
             )
             .route(
-                "/admin/tokens/:token_id/revoke",
+                "/admin/tokens/{token_id}/revoke",
                 post(tokens::handle_revoke_admin_token),
             )
             .route(
-                "/admin/tokens/:token_id/rotate",
+                "/admin/tokens/{token_id}/rotate",
                 post(tokens::handle_rotate_admin_token),
             )
             .with_state(context)
@@ -269,11 +269,11 @@ impl AdminRoutes {
                 get(store::handle_list_pending_coaches),
             )
             .route(
-                "/admin/store/coaches/:coach_id/approve",
+                "/admin/store/coaches/{coach_id}/approve",
                 post(store::handle_approve_coach),
             )
             .route(
-                "/admin/store/coaches/:coach_id/reject",
+                "/admin/store/coaches/{coach_id}/reject",
                 post(store::handle_reject_coach),
             )
             .with_state(context)

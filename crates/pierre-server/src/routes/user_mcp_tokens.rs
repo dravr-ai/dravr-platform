@@ -86,7 +86,7 @@ impl UserMcpTokenRoutes {
             .route("/api/user/mcp-tokens", post(Self::handle_create_token))
             .route("/api/user/mcp-tokens", get(Self::handle_list_tokens))
             .route(
-                "/api/user/mcp-tokens/:token_id",
+                "/api/user/mcp-tokens/{token_id}",
                 delete(Self::handle_revoke_token),
             )
             .with_state(resources)

@@ -86,14 +86,14 @@ impl SocialRoutes {
                 get(Self::handle_pending_requests),
             )
             .route(
-                "/api/social/friends/:id/accept",
+                "/api/social/friends/{id}/accept",
                 post(Self::handle_accept_request),
             )
             .route(
-                "/api/social/friends/:id/decline",
+                "/api/social/friends/{id}/decline",
                 post(Self::handle_decline_request),
             )
-            .route("/api/social/friends/:id", delete(Self::handle_unfriend))
+            .route("/api/social/friends/{id}", delete(Self::handle_unfriend))
             // Social settings
             .route("/api/social/settings", get(Self::handle_get_settings))
             .route("/api/social/settings", put(Self::handle_update_settings))
@@ -112,34 +112,34 @@ impl SocialRoutes {
                 "/api/social/insights/generate",
                 post(Self::handle_generate_insight),
             )
-            .route("/api/social/insights/:id", get(Self::handle_get_insight))
+            .route("/api/social/insights/{id}", get(Self::handle_get_insight))
             .route(
-                "/api/social/insights/:id",
+                "/api/social/insights/{id}",
                 delete(Self::handle_delete_insight),
             )
             // Reactions
             .route(
-                "/api/social/insights/:id/reactions",
+                "/api/social/insights/{id}/reactions",
                 get(Self::handle_list_reactions),
             )
             .route(
-                "/api/social/insights/:id/reactions",
+                "/api/social/insights/{id}/reactions",
                 post(Self::handle_add_reaction),
             )
             .route(
-                "/api/social/insights/:id/reactions/:reaction_type",
+                "/api/social/insights/{id}/reactions/{reaction_type}",
                 delete(Self::handle_remove_reaction),
             )
             // Feed
             .route("/api/social/feed", get(Self::handle_get_feed))
             // Adapted insights
             .route(
-                "/api/social/insights/:id/adapt",
+                "/api/social/insights/{id}/adapt",
                 post(Self::handle_adapt_insight),
             )
             .route("/api/social/adapted", get(Self::handle_list_adapted))
             .route(
-                "/api/social/adapted/:id/helpful",
+                "/api/social/adapted/{id}/helpful",
                 put(Self::handle_update_helpful),
             )
             // Discovery

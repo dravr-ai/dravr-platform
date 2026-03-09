@@ -48,33 +48,33 @@ impl CoachesRoutes {
             .route("/api/coaches/hidden", get(user::handle_list_hidden))
             .route("/api/coaches/import", post(user::handle_import))
             .route("/api/coaches/generate", post(user::handle_generate))
-            .route("/api/coaches/:id", get(user::handle_get))
-            .route("/api/coaches/:id", put(user::handle_update))
-            .route("/api/coaches/:id", delete(user::handle_delete))
-            .route("/api/coaches/:id/export", get(user::handle_export))
+            .route("/api/coaches/{id}", get(user::handle_get))
+            .route("/api/coaches/{id}", put(user::handle_update))
+            .route("/api/coaches/{id}", delete(user::handle_delete))
+            .route("/api/coaches/{id}/export", get(user::handle_export))
             .route(
-                "/api/coaches/:id/favorite",
+                "/api/coaches/{id}/favorite",
                 post(user::handle_toggle_favorite),
             )
-            .route("/api/coaches/:id/usage", post(user::handle_record_usage))
-            .route("/api/coaches/:id/hide", post(user::handle_hide_coach))
-            .route("/api/coaches/:id/hide", delete(user::handle_show_coach))
-            .route("/api/coaches/:id/fork", post(user::handle_fork))
+            .route("/api/coaches/{id}/usage", post(user::handle_record_usage))
+            .route("/api/coaches/{id}/hide", post(user::handle_hide_coach))
+            .route("/api/coaches/{id}/hide", delete(user::handle_show_coach))
+            .route("/api/coaches/{id}/fork", post(user::handle_fork))
             // Version history routes
             .route(
-                "/api/coaches/:id/versions",
+                "/api/coaches/{id}/versions",
                 get(versions::handle_list_versions),
             )
             .route(
-                "/api/coaches/:id/versions/:version",
+                "/api/coaches/{id}/versions/{version}",
                 get(versions::handle_get_version),
             )
             .route(
-                "/api/coaches/:id/versions/:version/revert",
+                "/api/coaches/{id}/versions/{version}/revert",
                 post(versions::handle_revert_version),
             )
             .route(
-                "/api/coaches/:id/versions/:v1/diff/:v2",
+                "/api/coaches/{id}/versions/{v1}/diff/{v2}",
                 get(versions::handle_diff_versions),
             )
             .with_state(resources)
@@ -85,13 +85,13 @@ impl CoachesRoutes {
         Router::new()
             .route("/coaches", get(admin::handle_admin_list))
             .route("/coaches", post(admin::handle_admin_create))
-            .route("/coaches/:id", get(admin::handle_admin_get))
-            .route("/coaches/:id", put(admin::handle_admin_update))
-            .route("/coaches/:id", delete(admin::handle_admin_delete))
-            .route("/coaches/:id/assign", post(admin::handle_admin_assign))
-            .route("/coaches/:id/assign", delete(admin::handle_admin_unassign))
+            .route("/coaches/{id}", get(admin::handle_admin_get))
+            .route("/coaches/{id}", put(admin::handle_admin_update))
+            .route("/coaches/{id}", delete(admin::handle_admin_delete))
+            .route("/coaches/{id}/assign", post(admin::handle_admin_assign))
+            .route("/coaches/{id}/assign", delete(admin::handle_admin_unassign))
             .route(
-                "/coaches/:id/assignments",
+                "/coaches/{id}/assignments",
                 get(admin::handle_admin_list_assignments),
             )
             // Store management routes
@@ -100,15 +100,15 @@ impl CoachesRoutes {
             .route("/store/published", get(admin::handle_admin_published))
             .route("/store/rejected", get(admin::handle_admin_rejected))
             .route(
-                "/store/coaches/:id/approve",
+                "/store/coaches/{id}/approve",
                 post(admin::handle_admin_approve),
             )
             .route(
-                "/store/coaches/:id/reject",
+                "/store/coaches/{id}/reject",
                 post(admin::handle_admin_reject),
             )
             .route(
-                "/store/coaches/:id/unpublish",
+                "/store/coaches/{id}/unpublish",
                 post(admin::handle_admin_unpublish),
             )
             .with_state(resources)
