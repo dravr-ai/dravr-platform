@@ -14,7 +14,7 @@ enable_cache    = false
 enable_frontend = true
 
 backend_cpu           = "1"
-backend_memory        = "512Mi"
+backend_memory        = "1Gi"
 backend_min_instances = 0
 backend_max_instances = 1
 
