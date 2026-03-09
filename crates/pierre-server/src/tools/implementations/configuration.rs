@@ -483,6 +483,7 @@ impl McpTool for UpdateUserConfigurationTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Profile name to apply".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -490,6 +491,7 @@ impl McpTool for UpdateUserConfigurationTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Configuration parameters to update".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -568,6 +570,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("VO2 max in ml/kg/min (required)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -575,6 +578,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Resting heart rate in bpm".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -582,6 +586,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum heart rate in bpm".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -589,6 +594,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Lactate threshold".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -596,6 +602,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Sport efficiency factor".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -603,6 +610,7 @@ impl McpTool for CalculatePersonalizedZonesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Functional Threshold Power in watts".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -699,6 +707,7 @@ impl McpTool for ValidateConfigurationTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Configuration parameters to validate".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {

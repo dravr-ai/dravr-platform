@@ -112,6 +112,7 @@ impl McpTool for GetActivitiesTool {
                 description: Some(
                     "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -122,6 +123,7 @@ impl McpTool for GetActivitiesTool {
                 description: Some(
                     "Maximum number of activities to return. Defaults to format-aware limit to prevent context overflow.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -130,6 +132,7 @@ impl McpTool for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Number of activities to skip for pagination.".to_owned()),
+                ..Default::default()
             },
         );
 
@@ -141,6 +144,7 @@ impl McpTool for GetActivitiesTool {
                     "Filter by sport type (e.g., 'run', 'ride', 'swim'). Case-insensitive."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -151,6 +155,7 @@ impl McpTool for GetActivitiesTool {
                 description: Some(
                     "Unix timestamp - return activities before this time.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -159,6 +164,7 @@ impl McpTool for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Unix timestamp - return activities after this time.".to_owned()),
+                ..Default::default()
             },
         );
 
@@ -169,6 +175,7 @@ impl McpTool for GetActivitiesTool {
                 description: Some(
                     "Output mode: 'summary' (default, minimal fields) or 'detailed' (full activity data).".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -180,6 +187,7 @@ impl McpTool for GetActivitiesTool {
                     "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -235,6 +243,7 @@ impl McpTool for GetAthleteTool {
                 description: Some(
                     "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -246,6 +255,7 @@ impl McpTool for GetAthleteTool {
                     "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -301,6 +311,7 @@ impl McpTool for GetStatsTool {
                 description: Some(
                     "Fitness provider to query (e.g., 'strava', 'fitbit'). Defaults to configured default provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -312,6 +323,7 @@ impl McpTool for GetStatsTool {
                     "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
 

@@ -254,6 +254,7 @@ impl McpTool for AnalyzeTrainingLoadTool {
                     "Fitness provider to query (e.g., 'strava'). Defaults to configured provider."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -263,6 +264,7 @@ impl McpTool for AnalyzeTrainingLoadTool {
                 description: Some(
                     "Number of days of history to analyze. Default: 42 (6 weeks).".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -387,6 +389,7 @@ impl McpTool for DetectPatternsTool {
                 description: Some(
                     "Fitness provider to query. Defaults to configured provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -396,6 +399,7 @@ impl McpTool for DetectPatternsTool {
                 description: Some(
                     "Number of weeks to analyze for patterns. Default: 4.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -486,6 +490,7 @@ impl McpTool for CalculateFitnessScoreTool {
                 description: Some(
                     "Fitness provider to query. Defaults to configured provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -574,6 +579,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the activity to analyze".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -584,6 +590,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
                     "Fitness provider to query (e.g., 'strava'). Defaults to configured provider."
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -593,6 +600,7 @@ impl McpTool for AnalyzeWeatherImpactTool {
                 description: Some(
                     "Temperature and distance units: 'metric' (default) or 'imperial'.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {

@@ -40,6 +40,7 @@ fn create_get_recipe_constraints_tool() -> ToolSchema {
             description: Some(
                 "Training phase for macro targets: 'pre_training', 'post_training', 'rest_day', or 'general'".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -50,6 +51,7 @@ fn create_get_recipe_constraints_tool() -> ToolSchema {
             description: Some(
                 "Target calories for the meal (optional, for portion guidance)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -74,6 +76,7 @@ fn create_validate_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Recipe name".into()),
+            ..Default::default()
         },
     );
 
@@ -82,6 +85,7 @@ fn create_validate_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of servings the recipe makes".into()),
+            ..Default::default()
         },
     );
 
@@ -92,6 +96,34 @@ fn create_validate_recipe_tool() -> ToolSchema {
             description: Some(
                 "Array of ingredients with: name (string), amount (number), unit (string: 'grams', 'cups', 'tablespoons', 'teaspoons', 'pieces', 'ounces', 'milliliters'), fdc_id (number, optional USDA food ID for validation)".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "object".into(),
+                properties: Some(HashMap::from([
+                    ("name".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Ingredient name".into()),
+                        ..Default::default()
+                    }),
+                    ("amount".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Quantity of the ingredient".into()),
+                        ..Default::default()
+                    }),
+                    ("unit".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Unit of measurement".into()),
+                        ..Default::default()
+                    }),
+                    ("fdc_id".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Optional USDA FoodData Central food ID".into()),
+                        ..Default::default()
+                    }),
+                ])),
+                required: Some(vec!["name".to_owned(), "amount".to_owned(), "unit".to_owned()]),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -103,6 +135,7 @@ fn create_validate_recipe_tool() -> ToolSchema {
                 "Intended meal timing: 'pre_training', 'post_training', 'rest_day', or 'general'"
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -131,6 +164,7 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Recipe name".into()),
+            ..Default::default()
         },
     );
 
@@ -139,6 +173,7 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Recipe description (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -147,6 +182,7 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of servings".into()),
+            ..Default::default()
         },
     );
 
@@ -155,6 +191,7 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Preparation time in minutes (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -163,6 +200,7 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Cooking time in minutes (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -173,6 +211,44 @@ fn create_save_recipe_tool() -> ToolSchema {
             description: Some(
                 "Array of ingredients with: name (string), amount (number), unit (string), grams (number), fdc_id (number, optional), preparation (string, optional)".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "object".into(),
+                properties: Some(HashMap::from([
+                    ("name".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Ingredient name".into()),
+                        ..Default::default()
+                    }),
+                    ("amount".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Quantity of the ingredient".into()),
+                        ..Default::default()
+                    }),
+                    ("unit".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Unit of measurement".into()),
+                        ..Default::default()
+                    }),
+                    ("grams".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Weight in grams".into()),
+                        ..Default::default()
+                    }),
+                    ("fdc_id".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Optional USDA FoodData Central food ID".into()),
+                        ..Default::default()
+                    }),
+                    ("preparation".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Optional preparation method".into()),
+                        ..Default::default()
+                    }),
+                ])),
+                required: Some(vec!["name".to_owned(), "amount".to_owned(), "unit".to_owned(), "grams".to_owned()]),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -181,6 +257,12 @@ fn create_save_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "array".into(),
             description: Some("Array of instruction steps as strings".into()),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Instruction step".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -191,6 +273,12 @@ fn create_save_recipe_tool() -> ToolSchema {
             description: Some(
                 "Array of tags (optional, e.g., ['high-protein', 'quick', 'vegetarian'])".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Tag label".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -202,6 +290,7 @@ fn create_save_recipe_tool() -> ToolSchema {
                 "Meal timing category: 'pre_training', 'post_training', 'rest_day', or 'general'"
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -212,6 +301,7 @@ fn create_save_recipe_tool() -> ToolSchema {
             description: Some(
                 "Pre-validated nutrition data with: calories, protein_g, carbs_g, fat_g, fiber_g (optional), sodium_mg (optional), sugar_g (optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -243,6 +333,7 @@ fn create_list_recipes_tool() -> ToolSchema {
             description: Some(
                 "Filter by meal timing: 'pre_training', 'post_training', 'rest_day', or 'general' (optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -251,6 +342,7 @@ fn create_list_recipes_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of recipes to return (default: 20)".into()),
+            ..Default::default()
         },
     );
 
@@ -259,6 +351,7 @@ fn create_list_recipes_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of recipes to skip for pagination (default: 0)".into()),
+            ..Default::default()
         },
     );
 
@@ -285,6 +378,7 @@ fn create_get_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the recipe to retrieve".into()),
+            ..Default::default()
         },
     );
 
@@ -311,6 +405,7 @@ fn create_delete_recipe_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the recipe to delete".into()),
+            ..Default::default()
         },
     );
 
@@ -335,6 +430,7 @@ fn create_search_recipes_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Search query for recipe name, description, or tags".into()),
+            ..Default::default()
         },
     );
 
@@ -343,6 +439,7 @@ fn create_search_recipes_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of results to return (default: 10, max: 100)".into()),
+            ..Default::default()
         },
     );
 
@@ -351,6 +448,7 @@ fn create_search_recipes_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of results to skip (for pagination, default: 0)".into()),
+            ..Default::default()
         },
     );
 

@@ -138,6 +138,7 @@ impl McpTool for ListStretchingExercisesTool {
                 description: Some(
                     "Filter by stretch category: static, dynamic, pnf, ballistic".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -147,6 +148,7 @@ impl McpTool for ListStretchingExercisesTool {
                 description: Some(
                     "Filter by difficulty: beginner, intermediate, advanced".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -156,6 +158,7 @@ impl McpTool for ListStretchingExercisesTool {
                 description: Some(
                     "Filter by muscle group (e.g., hamstrings, quadriceps, calves)".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -165,6 +168,7 @@ impl McpTool for ListStretchingExercisesTool {
                 description: Some(
                     "Filter by recommended activity (e.g., running, cycling, swimming)".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -172,6 +176,7 @@ impl McpTool for ListStretchingExercisesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum number of results to return (default: 20)".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -269,6 +274,7 @@ impl McpTool for GetStretchingExerciseTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("The unique ID of the stretching exercise".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -348,6 +354,7 @@ impl McpTool for SuggestStretchesForActivityTool {
                     "The activity type to get stretches for (e.g., running, cycling, swimming, hiking)"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -358,6 +365,7 @@ impl McpTool for SuggestStretchesForActivityTool {
                     "Optional focus: warmup (dynamic stretches) or cooldown (static stretches)"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -365,6 +373,7 @@ impl McpTool for SuggestStretchesForActivityTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum number of stretches to suggest (default: 6)".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -493,6 +502,7 @@ impl McpTool for ListYogaPosesTool {
                     "Filter by pose category: standing, seated, supine, prone, inversion, balance, twist"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -502,6 +512,7 @@ impl McpTool for ListYogaPosesTool {
                 description: Some(
                     "Filter by difficulty: beginner, intermediate, advanced".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -512,6 +523,7 @@ impl McpTool for ListYogaPosesTool {
                     "Filter by pose type: stretch, strength, balance, relaxation, breathing"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -521,6 +533,7 @@ impl McpTool for ListYogaPosesTool {
                 description: Some(
                     "Filter by muscle group (e.g., hamstrings, hips, shoulders)".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -531,6 +544,7 @@ impl McpTool for ListYogaPosesTool {
                     "Filter by recovery context: post_cardio, rest_day, morning, evening"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -538,6 +552,7 @@ impl McpTool for ListYogaPosesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum number of results to return (default: 20)".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -645,6 +660,7 @@ impl McpTool for GetYogaPoseTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("The unique ID of the yoga pose".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -732,6 +748,7 @@ impl McpTool for SuggestYogaSequenceTool {
                     "Purpose of the sequence: post_cardio, rest_day, morning, evening, stress_relief"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -741,6 +758,7 @@ impl McpTool for SuggestYogaSequenceTool {
                 description: Some(
                     "Target duration in minutes (10, 15, 20, 30). Default: 15".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -750,6 +768,7 @@ impl McpTool for SuggestYogaSequenceTool {
                 description: Some(
                     "Maximum difficulty level: beginner, intermediate, advanced".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -759,6 +778,7 @@ impl McpTool for SuggestYogaSequenceTool {
                 description: Some(
                     "Optional muscle/area focus: hips, hamstrings, back, shoulders".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {

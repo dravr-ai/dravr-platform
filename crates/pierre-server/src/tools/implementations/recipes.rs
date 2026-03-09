@@ -144,6 +144,7 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Target calories for the meal".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -151,6 +152,7 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("User's Total Daily Energy Expenditure".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -158,6 +160,7 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("pre_training, post_training, rest_day, or general".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -165,6 +168,12 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Dietary restrictions like gluten_free, vegan".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Dietary restriction".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -172,6 +181,7 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum preparation time".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -179,6 +189,7 @@ impl McpTool for GetRecipeConstraintsTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum cooking time".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -311,6 +322,7 @@ impl McpTool for ValidateRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Recipe name".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -318,6 +330,7 @@ impl McpTool for ValidateRecipeTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Number of servings".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -325,6 +338,42 @@ impl McpTool for ValidateRecipeTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of {name, amount, unit}".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "object".to_owned(),
+                    properties: Some(HashMap::from([
+                        (
+                            "name".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some("Ingredient name".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "amount".to_owned(),
+                            PropertySchema {
+                                property_type: "number".to_owned(),
+                                description: Some("Quantity".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "unit".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some("Unit of measurement".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                    ])),
+                    required: Some(vec![
+                        "name".to_owned(),
+                        "amount".to_owned(),
+                        "unit".to_owned(),
+                    ]),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -542,6 +591,7 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Recipe name".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -549,6 +599,7 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Number of servings".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -556,6 +607,12 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of instruction steps".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Instruction step".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -563,6 +620,42 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of {name, amount, unit}".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "object".to_owned(),
+                    properties: Some(HashMap::from([
+                        (
+                            "name".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some("Ingredient name".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "amount".to_owned(),
+                            PropertySchema {
+                                property_type: "number".to_owned(),
+                                description: Some("Quantity".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "unit".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some("Unit of measurement".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                    ])),
+                    required: Some(vec![
+                        "name".to_owned(),
+                        "amount".to_owned(),
+                        "unit".to_owned(),
+                    ]),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -570,6 +663,7 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Recipe description".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -577,6 +671,7 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("pre_training, post_training, rest_day, or general".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -584,6 +679,12 @@ impl McpTool for SaveRecipeTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Tags for organization".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Tag label".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -683,6 +784,7 @@ impl McpTool for ListRecipesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Filter by meal timing".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -690,6 +792,7 @@ impl McpTool for ListRecipesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum results (default: 20)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -697,6 +800,7 @@ impl McpTool for ListRecipesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Pagination offset".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -790,6 +894,7 @@ impl McpTool for GetRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Recipe ID".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -877,6 +982,7 @@ impl McpTool for DeleteRecipeTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Recipe ID to delete".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -938,6 +1044,7 @@ impl McpTool for SearchRecipesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Search query".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -945,6 +1052,7 @@ impl McpTool for SearchRecipesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum results (default: 10)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -952,6 +1060,7 @@ impl McpTool for SearchRecipesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Pagination offset".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {

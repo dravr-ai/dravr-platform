@@ -116,6 +116,7 @@ impl McpTool for AnalyzeSleepQualityTool {
                      light_sleep_hours, awake_hours, efficiency_percent, hrv_rmssd_ms"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -123,6 +124,12 @@ impl McpTool for AnalyzeSleepQualityTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of recent HRV values for trend analysis".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -130,6 +137,7 @@ impl McpTool for AnalyzeSleepQualityTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("User's baseline HRV for comparison".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -216,6 +224,7 @@ impl McpTool for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Sleep data for recovery calculation".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -225,6 +234,7 @@ impl McpTool for CalculateRecoveryScoreTool {
                 description: Some(
                     "Training load data with ctl, atl, tsb values (optional)".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -232,6 +242,12 @@ impl McpTool for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of recent HRV values".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -239,6 +255,7 @@ impl McpTool for CalculateRecoveryScoreTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("User's baseline HRV".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -352,6 +369,7 @@ impl McpTool for SuggestRestDayTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Last night's sleep data".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -359,6 +377,7 @@ impl McpTool for SuggestRestDayTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Training load data (ctl, atl, tsb)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -366,6 +385,12 @@ impl McpTool for SuggestRestDayTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Recent HRV values for trend analysis".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("HRV RMSSD value in milliseconds".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -373,6 +398,7 @@ impl McpTool for SuggestRestDayTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("User's baseline HRV".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -604,6 +630,30 @@ impl McpTool for TrackSleepTrendsTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Array of sleep data objects (minimum 7 days)".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "object".to_owned(),
+                    properties: Some(HashMap::from([
+                        (
+                            "date".to_owned(),
+                            PropertySchema {
+                                property_type: "string".to_owned(),
+                                description: Some("Date of sleep record".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "duration_hours".to_owned(),
+                            PropertySchema {
+                                property_type: "number".to_owned(),
+                                description: Some("Sleep duration in hours".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                    ])),
+                    required: Some(vec!["date".to_owned(), "duration_hours".to_owned()]),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -709,6 +759,7 @@ impl McpTool for OptimizeSleepScheduleTool {
             PropertySchema {
                 property_type: "object".to_owned(),
                 description: Some("Training load data (ctl, atl, tsb)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -716,6 +767,7 @@ impl McpTool for OptimizeSleepScheduleTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("low, moderate, or high".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -723,6 +775,7 @@ impl McpTool for OptimizeSleepScheduleTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Wake time in HH:MM format (default: 06:00)".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {

@@ -76,6 +76,7 @@ impl McpTool for GetFitnessConfigTool {
                 description: Some(
                     "Name of the configuration to retrieve (default: 'default')".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -155,6 +156,7 @@ impl McpTool for SetFitnessConfigTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Name for this configuration (default: 'default')".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -165,6 +167,7 @@ impl McpTool for SetFitnessConfigTool {
                     "Fitness configuration object with sport_types, intelligence settings"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -174,6 +177,7 @@ impl McpTool for SetFitnessConfigTool {
                 description: Some(
                     "If true, save as user-specific config. If false, save as tenant default (requires admin)".to_owned()
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -264,6 +268,7 @@ impl McpTool for ListFitnessConfigsTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some("Include tenant-level configurations (default: true)".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -348,6 +353,7 @@ impl McpTool for DeleteFitnessConfigTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Name of the configuration to delete".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -357,6 +363,7 @@ impl McpTool for DeleteFitnessConfigTool {
                 description: Some(
                     "If true, delete user-specific config. If false, delete tenant config (requires admin)".to_owned()
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {

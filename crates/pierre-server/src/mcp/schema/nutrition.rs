@@ -37,6 +37,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Body weight in kilograms".into()),
+            ..Default::default()
         },
     );
 
@@ -45,6 +46,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Height in centimeters".into()),
+            ..Default::default()
         },
     );
 
@@ -53,6 +55,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Age in years (max 150)".into()),
+            ..Default::default()
         },
     );
 
@@ -61,6 +64,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Gender: 'male' or 'female'".into()),
+            ..Default::default()
         },
     );
 
@@ -71,6 +75,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
             description: Some(
                 "Activity level: 'sedentary', 'lightly_active', 'moderately_active', 'very_active', or 'extra_active'".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -81,6 +86,7 @@ fn create_calculate_daily_nutrition_tool() -> ToolSchema {
             description: Some(
                 "Training goal: 'maintenance', 'weight_loss', 'muscle_gain', or 'endurance_performance'".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -115,6 +121,7 @@ fn create_get_nutrient_timing_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Body weight in kilograms".into()),
+            ..Default::default()
         },
     );
 
@@ -123,6 +130,7 @@ fn create_get_nutrient_timing_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Daily protein target in grams".into()),
+            ..Default::default()
         },
     );
 
@@ -133,6 +141,7 @@ fn create_get_nutrient_timing_tool() -> ToolSchema {
             description: Some(
                 "Workout intensity: 'low', 'moderate', or 'high'. Optional if activity_provider specified (auto-inferred from recent training load).".into()
             ),
+            ..Default::default()
         },
     );
 
@@ -143,6 +152,7 @@ fn create_get_nutrient_timing_tool() -> ToolSchema {
             description: Some(
                 "Fitness provider for activity data (e.g., 'strava', 'garmin'). If provided, workout intensity is auto-inferred from recent training load.".into()
             ),
+            ..Default::default()
         },
     );
 
@@ -153,6 +163,7 @@ fn create_get_nutrient_timing_tool() -> ToolSchema {
             description: Some(
                 "Number of days of activity history to analyze for intensity inference (default: 7).".into()
             ),
+            ..Default::default()
         },
     );
 
@@ -182,6 +193,7 @@ fn create_search_food_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Food name or description to search for".into()),
+            ..Default::default()
         },
     );
 
@@ -190,6 +202,7 @@ fn create_search_food_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of results per page (default: 10, max: 200)".into()),
+            ..Default::default()
         },
     );
 
@@ -198,6 +211,7 @@ fn create_search_food_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Page number to retrieve (1-indexed, default: 1)".into()),
+            ..Default::default()
         },
     );
 
@@ -226,6 +240,7 @@ fn create_get_food_details_tool() -> ToolSchema {
             description: Some(
                 "USDA FoodData Central ID for the food (from search_food results)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -255,6 +270,30 @@ fn create_analyze_meal_nutrition_tool() -> ToolSchema {
                 "Array of food items with 'fdc_id' (number) and 'grams' (number) for each food"
                     .into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "object".into(),
+                properties: Some(HashMap::from([
+                    (
+                        "fdc_id".to_owned(),
+                        PropertySchema {
+                            property_type: "number".into(),
+                            description: Some("USDA FoodData Central food ID".into()),
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        "grams".to_owned(),
+                        PropertySchema {
+                            property_type: "number".into(),
+                            description: Some("Portion size in grams".into()),
+                            ..Default::default()
+                        },
+                    ),
+                ])),
+                required: Some(vec!["fdc_id".to_owned(), "grams".to_owned()]),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -283,6 +322,7 @@ fn create_analyze_sleep_quality_tool() -> ToolSchema {
             description: Some(
                 "Provider to fetch sleep data from: 'whoop', 'fitbit', 'garmin', or 'terra'. Auto-fetches most recent night's data.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -293,6 +333,7 @@ fn create_analyze_sleep_quality_tool() -> ToolSchema {
             description: Some(
                 "Manual sleep data object (used if sleep_provider not specified) with: date (string), duration_hours (number), efficiency_percent (number), deep_sleep_hours (number), rem_sleep_hours (number), light_sleep_hours (number), awakenings (number), hrv_rmssd_ms (number, optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -303,6 +344,12 @@ fn create_analyze_sleep_quality_tool() -> ToolSchema {
             description: Some(
                 "Optional array of recent HRV RMSSD values (numbers) for trend analysis".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "number".into(),
+                description: Some("HRV RMSSD value in milliseconds".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -311,6 +358,7 @@ fn create_analyze_sleep_quality_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Optional baseline HRV RMSSD value for comparison".into()),
+            ..Default::default()
         },
     );
 
@@ -339,6 +387,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
             description: Some(
                 "Provider for activity/training data: 'strava', 'garmin', 'fitbit', 'whoop', or 'terra'. Auto-selects best connected provider if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -349,6 +398,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
             description: Some(
                 "Provider for sleep/HRV data: 'whoop', 'fitbit', 'garmin', or 'terra'. Auto-fetches most recent sleep data. Auto-selects if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -359,6 +409,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
             description: Some(
                 "Manual sleep data (used if sleep_provider not specified) with: date (string), duration_hours (number), efficiency_percent (number), deep_sleep_hours (number), rem_sleep_hours (number), hrv_rmssd_ms (number, optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -369,6 +420,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
             description: Some(
                 "Optional user configuration with: ftp (number), lthr (number), max_hr (number), resting_hr (number), weight_kg (number)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -379,6 +431,12 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
             description: Some(
                 "Optional array of recent HRV RMSSD values for trend analysis".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "number".into(),
+                description: Some("HRV RMSSD value in milliseconds".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -387,6 +445,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Optional baseline HRV RMSSD value for comparison".into()),
+            ..Default::default()
         },
     );
 
@@ -415,6 +474,7 @@ fn create_suggest_rest_day_tool() -> ToolSchema {
             description: Some(
                 "Provider for activity/training data: 'strava', 'garmin', 'fitbit', 'whoop', or 'terra'. Auto-selects if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -425,6 +485,7 @@ fn create_suggest_rest_day_tool() -> ToolSchema {
             description: Some(
                 "Provider for sleep/HRV data: 'whoop', 'fitbit', 'garmin', or 'terra'. Auto-selects if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -433,6 +494,7 @@ fn create_suggest_rest_day_tool() -> ToolSchema {
         PropertySchema {
             property_type: "object".into(),
             description: Some("Manual sleep data (used if sleep_provider not specified)".into()),
+            ..Default::default()
         },
     );
 
@@ -443,6 +505,7 @@ fn create_suggest_rest_day_tool() -> ToolSchema {
             description: Some(
                 "Optional user configuration with: ftp, lthr, max_hr, resting_hr, weight_kg".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -469,6 +532,7 @@ fn create_track_sleep_trends_tool() -> ToolSchema {
             description: Some(
                 "Provider to fetch sleep history from: 'whoop', 'fitbit', 'garmin', or 'terra'. Auto-selects if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -479,6 +543,7 @@ fn create_track_sleep_trends_tool() -> ToolSchema {
             description: Some(
                 "Number of days of sleep history to analyze (default: 14). Minimum 7 days required for trend analysis.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -489,6 +554,39 @@ fn create_track_sleep_trends_tool() -> ToolSchema {
             description: Some(
                 "Manual sleep history array (used if sleep_provider not specified). Each item needs: date (string), duration_hours (number), efficiency_percent (number, optional), deep_sleep_hours (number, optional), rem_sleep_hours (number, optional). Minimum 7 days required.".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "object".into(),
+                properties: Some(HashMap::from([
+                    ("date".to_owned(), PropertySchema {
+                        property_type: "string".into(),
+                        description: Some("Date of sleep record".into()),
+                        ..Default::default()
+                    }),
+                    ("duration_hours".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Total sleep duration in hours".into()),
+                        ..Default::default()
+                    }),
+                    ("efficiency_percent".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Sleep efficiency percentage".into()),
+                        ..Default::default()
+                    }),
+                    ("deep_sleep_hours".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("Deep sleep duration in hours".into()),
+                        ..Default::default()
+                    }),
+                    ("rem_sleep_hours".to_owned(), PropertySchema {
+                        property_type: "number".into(),
+                        description: Some("REM sleep duration in hours".into()),
+                        ..Default::default()
+                    }),
+                ])),
+                required: Some(vec!["date".to_owned(), "duration_hours".to_owned()]),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -517,6 +615,7 @@ fn create_optimize_sleep_schedule_tool() -> ToolSchema {
             description: Some(
                 "Provider for activity/training data: 'strava', 'garmin', 'fitbit', 'whoop', or 'terra'. Auto-selects if not specified.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -527,6 +626,7 @@ fn create_optimize_sleep_schedule_tool() -> ToolSchema {
             description: Some(
                 "Optional user configuration with: ftp (number), lthr (number), max_hr (number), resting_hr (number), weight_kg (number)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -538,6 +638,7 @@ fn create_optimize_sleep_schedule_tool() -> ToolSchema {
                 "Intensity of upcoming workout: 'low', 'moderate', or 'high' (default: 'moderate')"
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -546,6 +647,7 @@ fn create_optimize_sleep_schedule_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Your typical wake time in 'HH:MM' format (default: '06:00')".into()),
+            ..Default::default()
         },
     );
 

@@ -123,6 +123,7 @@ impl McpTool for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Body weight in kilograms".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -130,6 +131,7 @@ impl McpTool for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Height in centimeters".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -137,6 +139,7 @@ impl McpTool for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Age in years".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -144,6 +147,7 @@ impl McpTool for CalculateDailyNutritionTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Gender: male or female".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -153,6 +157,7 @@ impl McpTool for CalculateDailyNutritionTool {
                 description: Some(
                     "Activity level: sedentary, lightly_active, moderately_active, very_active, extra_active".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -163,6 +168,7 @@ impl McpTool for CalculateDailyNutritionTool {
                     "Training goal: maintenance, weight_loss, muscle_gain, endurance_performance"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -297,6 +303,7 @@ impl McpTool for GetNutrientTimingTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Workout intensity: low, moderate, high".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -304,6 +311,7 @@ impl McpTool for GetNutrientTimingTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Body weight in kilograms".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -311,6 +319,7 @@ impl McpTool for GetNutrientTimingTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Daily protein target in grams".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -408,6 +417,7 @@ impl McpTool for SearchFoodTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Search query for food items".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -415,6 +425,7 @@ impl McpTool for SearchFoodTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Number of results per page (default: 10, max: 50)".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -422,6 +433,7 @@ impl McpTool for SearchFoodTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Page number (1-indexed, default: 1). Only use if previous response had has_more=true".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -515,6 +527,7 @@ impl McpTool for GetFoodDetailsTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("USDA FoodData Central ID of the food item".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -594,6 +607,30 @@ impl McpTool for AnalyzeMealNutritionTool {
                 description: Some(
                     "Array of ingredients with fdc_id and amount_g fields".to_owned(),
                 ),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "object".to_owned(),
+                    properties: Some(HashMap::from([
+                        (
+                            "fdc_id".to_owned(),
+                            PropertySchema {
+                                property_type: "number".to_owned(),
+                                description: Some("USDA FoodData Central food ID".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                        (
+                            "amount_g".to_owned(),
+                            PropertySchema {
+                                property_type: "number".to_owned(),
+                                description: Some("Amount in grams".to_owned()),
+                                ..Default::default()
+                            },
+                        ),
+                    ])),
+                    required: Some(vec!["fdc_id".to_owned(), "amount_g".to_owned()]),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {

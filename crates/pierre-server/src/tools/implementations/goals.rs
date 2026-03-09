@@ -305,6 +305,7 @@ impl McpTool for SetGoalTool {
                 description: Some(
                     "Type of goal: 'distance', 'time', 'frequency', or 'performance'".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -315,6 +316,7 @@ impl McpTool for SetGoalTool {
                     "Target value for the goal (km for distance, sessions for frequency, etc.)"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -325,6 +327,7 @@ impl McpTool for SetGoalTool {
                     "Goal timeframe: 'week', 'month', 'quarter', or 'year'. Default: 'month'"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -332,6 +335,7 @@ impl McpTool for SetGoalTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Title or description for the goal".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -342,6 +346,7 @@ impl McpTool for SetGoalTool {
                     "Sport type for the goal (e.g., 'Running', 'Cycling'). Default: 'Running'"
                         .to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -463,6 +468,7 @@ impl McpTool for SuggestGoalsTool {
                 description: Some(
                     "Fitness provider to analyze. Defaults to configured provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -570,6 +576,7 @@ impl McpTool for TrackProgressTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the goal to track progress for".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -579,6 +586,7 @@ impl McpTool for TrackProgressTool {
                 description: Some(
                     "Fitness provider to query. Defaults to configured provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -789,6 +797,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
                 description: Some(
                     "Type of goal: 'distance', 'time', 'frequency', or 'performance'".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -796,6 +805,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
             PropertySchema {
                 property_type: "number".to_owned(),
                 description: Some("Target value for the goal".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -803,6 +813,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Number of days to achieve the goal. Default: 30.".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -812,6 +823,7 @@ impl McpTool for AnalyzeGoalFeasibilityTool {
                 description: Some(
                     "Fitness provider to analyze. Defaults to configured provider.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         JsonSchema {
