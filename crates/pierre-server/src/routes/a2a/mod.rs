@@ -102,7 +102,7 @@ impl A2ARoutes {
     /// Routes match frontend API expectations:
     /// - /a2a/status - Basic A2A protocol status
     /// - /a2a/clients - List A2A clients
-    /// - /a2a/clients/:id - Get/delete A2A client
+    /// - /a2a/clients/{id} - Get/delete A2A client
     /// - /a2a/dashboard/overview - Dashboard overview for A2A clients
     /// - /a2a/dashboard/analytics - Usage analytics for A2A clients
     /// - /.well-known/agent-card.json - Agent card discovery
@@ -119,17 +119,17 @@ impl A2ARoutes {
                 "/a2a/clients",
                 get(Self::handle_list_clients).post(Self::handle_create_client),
             )
-            .route("/a2a/clients/:client_id", get(Self::handle_get_client))
+            .route("/a2a/clients/{client_id}", get(Self::handle_get_client))
             .route(
-                "/a2a/clients/:client_id",
+                "/a2a/clients/{client_id}",
                 delete(Self::handle_delete_client),
             )
             .route(
-                "/a2a/clients/:client_id/usage",
+                "/a2a/clients/{client_id}/usage",
                 get(Self::handle_client_usage),
             )
             .route(
-                "/a2a/clients/:client_id/rate-limit",
+                "/a2a/clients/{client_id}/rate-limit",
                 get(Self::handle_client_rate_limit),
             )
             // Dashboard routes

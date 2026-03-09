@@ -109,7 +109,7 @@ impl ImpersonationRoutes {
                 get(Self::handle_list_sessions),
             )
             .route(
-                "/api/admin/impersonate/sessions/:session_id",
+                "/api/admin/impersonate/sessions/{session_id}",
                 get(Self::handle_get_session),
             )
             .with_state(resources)

@@ -60,7 +60,7 @@ tracing = "0.1"
 bitflags = { version = "2.11", features = ["serde"] }
 
 # Optional: HTTP response support
-axum = { version = "0.7", optional = true, default-features = false, features = ["json"] }
+axum = { version = "0.8", optional = true, default-features = false, features = ["json"] }
 http = { version = "1.4", optional = true }
 
 # Optional: Database error types

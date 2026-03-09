@@ -196,7 +196,7 @@ pub async fn get_config(
 
 /// Get configuration for a specific category
 ///
-/// `GET /api/admin/config/category/:category_name`
+/// `GET /api/admin/config/category/{category_name}`
 ///
 /// Returns parameters for a specific category
 ///
@@ -330,7 +330,7 @@ pub async fn update_config(
 
 /// Update configuration for a specific category
 ///
-/// `PUT /api/admin/config/category/:category_name`
+/// `PUT /api/admin/config/category/{category_name}`
 ///
 /// Updates parameters within a specific category
 ///
@@ -514,8 +514,8 @@ pub fn admin_config_router(state: Arc<AdminConfigState>) -> axum::Router {
         .route("/catalog", get(get_catalog))
         .route("/", get(get_config))
         .route("/", put(update_config))
-        .route("/category/:category_name", get(get_category_config))
-        .route("/category/:category_name", put(update_category_config))
+        .route("/category/{category_name}", get(get_category_config))
+        .route("/category/{category_name}", put(update_category_config))
         .route("/validate", post(validate_config))
         .route("/reset", post(reset_config))
         .route("/audit", get(get_audit_log))

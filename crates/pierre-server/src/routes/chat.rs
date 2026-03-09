@@ -312,25 +312,25 @@ impl ChatRoutes {
             .route("/api/chat/conversations", post(Self::create_conversation))
             .route("/api/chat/conversations", get(Self::list_conversations))
             .route(
-                "/api/chat/conversations/:conversation_id",
+                "/api/chat/conversations/{conversation_id}",
                 get(Self::get_conversation),
             )
             .route(
-                "/api/chat/conversations/:conversation_id",
+                "/api/chat/conversations/{conversation_id}",
                 put(Self::update_conversation),
             )
             .route(
-                "/api/chat/conversations/:conversation_id",
+                "/api/chat/conversations/{conversation_id}",
                 delete(Self::delete_conversation),
             )
             // Messages
             .route(
-                "/api/chat/conversations/:conversation_id/messages",
+                "/api/chat/conversations/{conversation_id}/messages",
                 get(Self::get_messages),
             )
             // POST messages with MCP tool support (non-streaming)
             .route(
-                "/api/chat/conversations/:conversation_id/messages",
+                "/api/chat/conversations/{conversation_id}/messages",
                 post(Self::send_message),
             )
             .with_state(resources)

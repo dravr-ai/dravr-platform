@@ -307,31 +307,31 @@ impl WebAdminRoutes {
                 get(Self::handle_admin_tokens).post(Self::handle_create_admin_token),
             )
             .route(
-                "/api/admin/tokens/:token_id",
+                "/api/admin/tokens/{token_id}",
                 get(Self::handle_get_admin_token),
             )
             .route(
-                "/api/admin/tokens/:token_id/revoke",
+                "/api/admin/tokens/{token_id}/revoke",
                 post(Self::handle_revoke_admin_token),
             )
             .route(
-                "/api/admin/approve-user/:user_id",
+                "/api/admin/approve-user/{user_id}",
                 post(Self::handle_approve_user),
             )
             .route(
-                "/api/admin/suspend-user/:user_id",
+                "/api/admin/suspend-user/{user_id}",
                 post(Self::handle_suspend_user),
             )
             .route(
-                "/api/admin/users/:user_id/reset-password",
+                "/api/admin/users/{user_id}/reset-password",
                 post(Self::handle_reset_user_password),
             )
             .route(
-                "/api/admin/users/:user_id/rate-limit",
+                "/api/admin/users/{user_id}/rate-limit",
                 get(Self::handle_get_user_rate_limit),
             )
             .route(
-                "/api/admin/users/:user_id/activity",
+                "/api/admin/users/{user_id}/activity",
                 get(Self::handle_get_user_activity),
             )
             .route(
@@ -344,7 +344,7 @@ impl WebAdminRoutes {
                 get(Self::handle_get_tool_catalog),
             )
             .route(
-                "/api/admin/tools/catalog/:tool_name",
+                "/api/admin/tools/catalog/{tool_name}",
                 get(Self::handle_get_tool_catalog_entry),
             )
             .route(
@@ -352,19 +352,19 @@ impl WebAdminRoutes {
                 get(Self::handle_get_global_disabled_tools),
             )
             .route(
-                "/api/admin/tools/tenant/:tenant_id",
+                "/api/admin/tools/tenant/{tenant_id}",
                 get(Self::handle_get_tenant_tools),
             )
             .route(
-                "/api/admin/tools/tenant/:tenant_id/override",
+                "/api/admin/tools/tenant/{tenant_id}/override",
                 post(Self::handle_set_tool_override),
             )
             .route(
-                "/api/admin/tools/tenant/:tenant_id/override/:tool_name",
+                "/api/admin/tools/tenant/{tenant_id}/override/{tool_name}",
                 delete(Self::handle_remove_tool_override),
             )
             .route(
-                "/api/admin/tools/tenant/:tenant_id/summary",
+                "/api/admin/tools/tenant/{tenant_id}/summary",
                 get(Self::handle_get_tool_summary),
             )
             .with_state(resources)
@@ -1255,7 +1255,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// GET `/api/admin/tools/catalog/:tool_name` - Get single tool details
+    /// GET `/api/admin/tools/catalog/{tool_name}` - Get single tool details
     async fn handle_get_tool_catalog_entry(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1308,7 +1308,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// GET `/api/admin/tools/tenant/:tenant_id` - Get effective tools for tenant
+    /// GET `/api/admin/tools/tenant/{tenant_id}` - Get effective tools for tenant
     async fn handle_get_tenant_tools(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1333,7 +1333,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// POST `/api/admin/tools/tenant/:tenant_id/override` - Set tool override
+    /// POST `/api/admin/tools/tenant/{tenant_id}/override` - Set tool override
     async fn handle_set_tool_override(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1376,7 +1376,7 @@ impl WebAdminRoutes {
             .into_response())
     }
 
-    /// DELETE `/api/admin/tools/tenant/:tenant_id/override/:tool_name` - Remove override
+    /// DELETE `/api/admin/tools/tenant/{tenant_id}/override/{tool_name}` - Remove override
     async fn handle_remove_tool_override(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1411,7 +1411,7 @@ impl WebAdminRoutes {
         }
     }
 
-    /// GET `/api/admin/tools/tenant/:tenant_id/summary` - Get availability summary
+    /// GET `/api/admin/tools/tenant/{tenant_id}/summary` - Get availability summary
     async fn handle_get_tool_summary(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,

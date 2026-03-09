@@ -33,11 +33,14 @@ impl SseRoutes {
     pub fn routes(manager: Arc<SseManager>, resources: Arc<ServerResources>) -> Router {
         Router::new()
             .route(
-                "/notifications/sse/:user_id",
+                "/notifications/sse/{user_id}",
                 get(Self::handle_notification_sse),
             )
-            .route("/mcp/sse/:session_id", get(Self::handle_protocol_sse))
-            .route("/a2a/tasks/:task_id/stream", get(Self::handle_a2a_task_sse))
+            .route("/mcp/sse/{session_id}", get(Self::handle_protocol_sse))
+            .route(
+                "/a2a/tasks/{task_id}/stream",
+                get(Self::handle_a2a_task_sse),
+            )
             .with_state((manager, resources))
     }
 

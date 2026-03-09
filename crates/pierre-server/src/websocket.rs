@@ -138,7 +138,7 @@ impl WebSocketManager {
                     message: "Authentication successful".into(),
                 };
                 if let Ok(json) = serde_json::to_string(&success_msg) {
-                    if let Err(e) = tx.send(Message::Text(json)) {
+                    if let Err(e) = tx.send(Message::Text(json.into())) {
                         warn!(
                             user_id = %auth_result.user_id,
                             error = ?e,
@@ -153,7 +153,7 @@ impl WebSocketManager {
                     message: format!("Authentication failed: {e}"),
                 };
                 if let Ok(json) = serde_json::to_string(&error_msg) {
-                    if let Err(send_err) = tx.send(Message::Text(json)) {
+                    if let Err(send_err) = tx.send(Message::Text(json.into())) {
                         warn!(
                             auth_error = %e,
                             send_error = ?send_err,
@@ -177,7 +177,7 @@ impl WebSocketManager {
                 message: format!("Subscribed to {} topics", topics.len()),
             };
             if let Ok(json) = serde_json::to_string(&success_msg) {
-                if let Err(e) = tx.send(Message::Text(json)) {
+                if let Err(e) = tx.send(Message::Text(json.into())) {
                     warn!(
                         topic_count = topics.len(),
                         error = ?e,
@@ -191,7 +191,7 @@ impl WebSocketManager {
                 message: "Authentication required".into(),
             };
             if let Ok(json) = serde_json::to_string(&error_msg) {
-                if let Err(e) = tx.send(Message::Text(json)) {
+                if let Err(e) = tx.send(Message::Text(json.into())) {
                     warn!(
                         error = ?e,
                         "Failed to send authentication required error message over WebSocket"
@@ -226,43 +226,46 @@ impl WebSocketManager {
         // Handle incoming messages
         while let Some(msg) = ws_rx.next().await {
             match msg {
-                Ok(Message::Text(text)) => match serde_json::from_str::<WebSocketMessage>(&text) {
-                    Ok(WebSocketMessage::Authentication { token }) => {
-                        if let Some(user_id) = self.handle_auth_message(&token, &tx).await {
-                            // Register client immediately so broadcasts reach this connection
-                            let client = ClientConnection {
-                                user_id,
-                                subscriptions: Vec::new(),
-                                tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
-                            };
-                            clients.write().await.insert(connection_id, client);
-                        }
-                    }
-                    Ok(WebSocketMessage::Subscribe { topics }) => {
-                        let is_authenticated = clients.read().await.contains_key(&connection_id);
-                        let new_subscriptions =
-                            Self::handle_subscribe_message(topics, is_authenticated, &tx);
-                        // Update subscriptions in the shared map
-                        if let Some(client) = clients.write().await.get_mut(&connection_id) {
-                            client.subscriptions = new_subscriptions;
-                        }
-                    }
-                    Err(e) => {
-                        let error_msg = WebSocketMessage::Error {
-                            message: format!("Invalid message format: {e}"),
-                        };
-                        if let Ok(json) = serde_json::to_string(&error_msg) {
-                            if let Err(send_err) = tx.send(Message::Text(json)) {
-                                warn!(
-                                    parse_error = %e,
-                                    send_error = ?send_err,
-                                    "Failed to send invalid message format error over WebSocket"
-                                );
+                Ok(Message::Text(text)) => {
+                    match serde_json::from_str::<WebSocketMessage>(text.as_str()) {
+                        Ok(WebSocketMessage::Authentication { token }) => {
+                            if let Some(user_id) = self.handle_auth_message(&token, &tx).await {
+                                // Register client immediately so broadcasts reach this connection
+                                let client = ClientConnection {
+                                    user_id,
+                                    subscriptions: Vec::new(),
+                                    tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
+                                };
+                                clients.write().await.insert(connection_id, client);
                             }
                         }
+                        Ok(WebSocketMessage::Subscribe { topics }) => {
+                            let is_authenticated =
+                                clients.read().await.contains_key(&connection_id);
+                            let new_subscriptions =
+                                Self::handle_subscribe_message(topics, is_authenticated, &tx);
+                            // Update subscriptions in the shared map
+                            if let Some(client) = clients.write().await.get_mut(&connection_id) {
+                                client.subscriptions = new_subscriptions;
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = WebSocketMessage::Error {
+                                message: format!("Invalid message format: {e}"),
+                            };
+                            if let Ok(json) = serde_json::to_string(&error_msg) {
+                                if let Err(send_err) = tx.send(Message::Text(json.into())) {
+                                    warn!(
+                                        parse_error = %e,
+                                        send_error = ?send_err,
+                                        "Failed to send invalid message format error over WebSocket"
+                                    );
+                                }
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
-                },
+                }
                 Ok(Message::Close(_)) | Err(_) => break,
                 _ => {}
             }
@@ -338,7 +341,7 @@ impl WebSocketManager {
         for (_, client) in clients.iter() {
             if client.user_id == *user_id && client.subscriptions.contains(&topic.to_owned()) {
                 if let Ok(msg_text) = serde_json::to_string(message) {
-                    if let Err(e) = client.tx.send(Message::Text(msg_text)) {
+                    if let Err(e) = client.tx.send(Message::Text(msg_text.into())) {
                         warn!(
                             user_id = %user_id,
                             topic = %topic,
@@ -364,7 +367,7 @@ impl WebSocketManager {
         for (_, client) in clients.iter() {
             if client.subscriptions.contains(&topic.to_owned()) {
                 if let Ok(msg_text) = serde_json::to_string(message) {
-                    if let Err(e) = client.tx.send(Message::Text(msg_text)) {
+                    if let Err(e) = client.tx.send(Message::Text(msg_text.into())) {
                         warn!(
                             topic = %topic,
                             error = ?e,

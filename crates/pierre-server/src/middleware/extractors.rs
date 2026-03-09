@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::future::Future;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::HeaderMap;
@@ -49,16 +49,19 @@ impl AuthenticatedUser {
     }
 }
 
-#[async_trait]
 impl FromRequestParts<Arc<ServerResources>> for AuthenticatedUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         state: &Arc<ServerResources>,
-    ) -> Result<Self, Self::Rejection> {
-        let auth_result = extract_auth_from_headers(&parts.headers, state).await?;
-        Ok(Self(auth_result))
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let headers = parts.headers.clone();
+        let state = state.clone(); // Safe: Arc clone for async block
+        async move {
+            let auth_result = extract_auth_from_headers(&headers, &state).await?;
+            Ok(Self(auth_result))
+        }
     }
 }
 

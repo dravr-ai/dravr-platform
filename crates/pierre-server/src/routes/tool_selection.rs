@@ -98,24 +98,24 @@ impl ToolSelectionRoutes {
             // Catalog routes (read-only)
             .route("/admin/tools/catalog", get(Self::handle_get_catalog))
             .route(
-                "/admin/tools/catalog/:tool_name",
+                "/admin/tools/catalog/{tool_name}",
                 get(Self::handle_get_catalog_entry),
             )
             // Tenant configuration routes
             .route(
-                "/admin/tools/tenant/:tenant_id",
+                "/admin/tools/tenant/{tenant_id}",
                 get(Self::handle_get_tenant_tools),
             )
             .route(
-                "/admin/tools/tenant/:tenant_id/override",
+                "/admin/tools/tenant/{tenant_id}/override",
                 post(Self::handle_set_override),
             )
             .route(
-                "/admin/tools/tenant/:tenant_id/override/:tool_name",
+                "/admin/tools/tenant/{tenant_id}/override/{tool_name}",
                 delete(Self::handle_remove_override),
             )
             .route(
-                "/admin/tools/tenant/:tenant_id/summary",
+                "/admin/tools/tenant/{tenant_id}/summary",
                 get(Self::handle_get_summary),
             )
             // Global status
@@ -144,7 +144,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// GET `/admin/tools/catalog/:tool_name` - Get single tool details
+    /// GET `/admin/tools/catalog/{tool_name}` - Get single tool details
     async fn handle_get_catalog_entry(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -167,7 +167,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// GET `/admin/tools/tenant/:tenant_id` - Get effective tools for tenant
+    /// GET `/admin/tools/tenant/{tenant_id}` - Get effective tools for tenant
     async fn handle_get_tenant_tools(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -194,7 +194,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// POST `/admin/tools/tenant/:tenant_id/override` - Set tool override
+    /// POST `/admin/tools/tenant/{tenant_id}/override` - Set tool override
     async fn handle_set_override(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -242,7 +242,7 @@ impl ToolSelectionRoutes {
         ))
     }
 
-    /// DELETE `/admin/tools/tenant/:tenant_id/override/:tool_name` - Remove override
+    /// DELETE `/admin/tools/tenant/{tenant_id}/override/{tool_name}` - Remove override
     async fn handle_remove_override(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -277,7 +277,7 @@ impl ToolSelectionRoutes {
         }
     }
 
-    /// GET `/admin/tools/tenant/:tenant_id/summary` - Get availability summary
+    /// GET `/admin/tools/tenant/{tenant_id}/summary` - Get availability summary
     async fn handle_get_summary(
         State(context): State<Arc<ToolSelectionContext>>,
         Extension(admin_token): Extension<ValidatedAdminToken>,

@@ -189,19 +189,19 @@ impl StoreRoutes {
     /// # Endpoints
     ///
     /// - `GET /api/store/coaches` - Browse published coaches
-    /// - `GET /api/store/coaches/:id` - Get coach details by ID
+    /// - `GET /api/store/coaches/{id}` - Get coach details by ID
     /// - `GET /api/store/categories` - List categories with counts
     /// - `GET /api/store/search` - Search coaches
-    /// - `POST /api/store/coaches/:id/install` - Install a coach (ASY-163)
-    /// - `DELETE /api/store/coaches/:id/install` - Uninstall a coach (ASY-163)
+    /// - `POST /api/store/coaches/{id}/install` - Install a coach (ASY-163)
+    /// - `DELETE /api/store/coaches/{id}/install` - Uninstall a coach (ASY-163)
     /// - `GET /api/store/installations` - List user's installed coaches (ASY-163)
     pub fn router(resources: &ServerResources) -> Router {
         Router::new()
             .route("/api/store/health", get(store_health))
             .route("/api/store/coaches", get(Self::handle_browse))
-            .route("/api/store/coaches/:id", get(Self::handle_get_coach))
+            .route("/api/store/coaches/{id}", get(Self::handle_get_coach))
             .route(
-                "/api/store/coaches/:id/install",
+                "/api/store/coaches/{id}/install",
                 post(Self::handle_install).delete(Self::handle_uninstall),
             )
             .route("/api/store/categories", get(Self::handle_categories))
@@ -289,7 +289,7 @@ impl StoreRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Handle GET /api/store/coaches/:id - Get coach details
+    /// Handle GET /api/store/coaches/{id} - Get coach details
     async fn handle_get_coach(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -412,7 +412,7 @@ impl StoreRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Handle POST /api/store/coaches/:id/install - Install a coach from the Store
+    /// Handle POST /api/store/coaches/{id}/install - Install a coach from the Store
     async fn handle_install(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -461,7 +461,7 @@ impl StoreRoutes {
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
 
-    /// Handle DELETE /api/store/coaches/:id/install - Uninstall a coach
+    /// Handle DELETE /api/store/coaches/{id}/install - Uninstall a coach
     async fn handle_uninstall(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,

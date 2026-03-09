@@ -44,8 +44,11 @@ impl ApiKeyRoutes {
         Router::new()
             .route("/api/keys", post(Self::handle_create_api_key))
             .route("/api/keys", get(Self::handle_list_api_keys))
-            .route("/api/keys/:key_id", delete(Self::handle_deactivate_api_key))
-            .route("/api/keys/:key_id/usage", get(Self::handle_get_usage))
+            .route(
+                "/api/keys/{key_id}",
+                delete(Self::handle_deactivate_api_key),
+            )
+            .route("/api/keys/{key_id}/usage", get(Self::handle_get_usage))
             .with_state(resources)
     }
 
