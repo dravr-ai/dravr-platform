@@ -404,13 +404,15 @@ jobs:
       - name: Start Metro, install Expo Go, and open app
         working-directory: frontend-mobile
         run: |
-          # Use --ios to both start Metro AND install Expo Go in one process.
-          # The --ios flag will try to open exp://<network-IP>:8082 which fails
-          # (simulator can't reach the host's network IP), but Metro keeps running
-          # and Expo Go gets installed. We then override with 127.0.0.1.
-          echo "Starting Metro + installing Expo Go..."
-          npx expo start --go --ios --port 8082 2>&1 | tee /tmp/metro.log &
-          echo "METRO_PID=$!" >> $GITHUB_ENV
+          # Phase 1: Use --ios to download and install Expo Go on the simulator.
+          # The --ios flag also tries to open exp://<network-IP>:8082 which fails
+          # (simulator can't reach the runner's network IP). When that openurl
+          # times out, the expo process exits and kills Metro with it. We only
+          # need --ios for the Expo Go installation, so we kill this process
+          # after installation and restart Metro cleanly without --ios.
+          echo "Phase 1: Installing Expo Go via expo start --ios..."
+          npx expo start --go --ios --port 8082 2>&1 | tee /tmp/metro-install.log &
+          INSTALL_PID=$!
 
           # Wait for Expo Go to be installed
           echo "Waiting for Expo Go to be installed..."
@@ -421,19 +423,28 @@ jobs:
             fi
             if [ "$i" -eq 90 ]; then
               echo "ERROR: Expo Go installation timed out!"
-              cat /tmp/metro.log
+              cat /tmp/metro-install.log
               exit 1
             fi
             sleep 2
           done
 
-          # The --ios flag triggers an "Open in Expo Go?" iOS dialog that blocks
-          # URL processing (nobody taps "Open" in CI). Terminate Expo Go to
-          # dismiss the dialog, then relaunch it so we can forward URLs without
-          # the dialog (URLs sent to an already-running app skip the dialog).
+          # Kill the install process. Its openurl with the network IP will
+          # eventually fail and crash Metro anyway, so terminate it now.
+          echo "Killing install process (PID $INSTALL_PID)..."
+          kill $INSTALL_PID 2>/dev/null || true
+          wait $INSTALL_PID 2>/dev/null || true
+
+          # Terminate Expo Go if it was launched by --ios (dismiss any dialogs)
           echo "Terminating Expo Go to dismiss system URL dialog..."
           xcrun simctl terminate "$SIMULATOR_UDID" host.exp.Exponent || true
           sleep 2
+
+          # Phase 2: Start Metro cleanly WITHOUT --ios. This process stays
+          # alive because it never attempts a failing openurl.
+          echo "Phase 2: Starting Metro (without --ios)..."
+          npx expo start --go --port 8082 2>&1 | tee /tmp/metro.log &
+          echo "METRO_PID=$!" >> $GITHUB_ENV
 
           # Wait for Metro HTTP to be ready
           echo "Waiting for Metro to be ready..."
