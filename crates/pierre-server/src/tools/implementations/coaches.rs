@@ -139,6 +139,7 @@ impl McpTool for ListCoachesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Filter by category".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -146,6 +147,7 @@ impl McpTool for ListCoachesTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some("Include system coaches. Default: true".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -153,6 +155,7 @@ impl McpTool for ListCoachesTool {
             PropertySchema {
                 property_type: "boolean".to_owned(),
                 description: Some("Only show favorites. Default: false".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -160,6 +163,7 @@ impl McpTool for ListCoachesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Max results. Default: 50".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -167,6 +171,7 @@ impl McpTool for ListCoachesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Pagination offset. Default: 0".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -270,6 +275,7 @@ impl McpTool for CreateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Display title for the coach".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -277,6 +283,7 @@ impl McpTool for CreateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("System prompt that shapes AI responses".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -284,6 +291,7 @@ impl McpTool for CreateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Description of the coach".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -293,6 +301,7 @@ impl McpTool for CreateCoachTool {
                 description: Some(
                     "Category: training, nutrition, recovery, recipes, custom".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -300,6 +309,12 @@ impl McpTool for CreateCoachTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Tags for organization".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Tag label".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -307,6 +322,12 @@ impl McpTool for CreateCoachTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("Example prompts to show users".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Sample prompt text".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -407,6 +428,7 @@ impl McpTool for GetCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to retrieve".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -464,6 +486,7 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to update".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -471,6 +494,7 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("New title".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -478,6 +502,7 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("New system prompt".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -485,6 +510,7 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("New description".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -492,6 +518,7 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("New category".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -499,6 +526,12 @@ impl McpTool for UpdateCoachTool {
             PropertySchema {
                 property_type: "array".to_owned(),
                 description: Some("New tags".to_owned()),
+                items: Some(Box::new(PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Tag label".to_owned()),
+                    ..Default::default()
+                })),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -596,6 +629,7 @@ impl McpTool for DeleteCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to delete".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -655,6 +689,7 @@ impl McpTool for ToggleCoachFavoriteTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -715,6 +750,7 @@ impl McpTool for SearchCoachesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Search query".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -722,6 +758,7 @@ impl McpTool for SearchCoachesTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("Filter by category".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -729,6 +766,7 @@ impl McpTool for SearchCoachesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Maximum results per request. Default: 20, max: 100".to_owned()),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -736,6 +774,7 @@ impl McpTool for SearchCoachesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some("Pagination offset. Default: 0. Only use if previous response had has_more=true".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -817,6 +856,7 @@ impl McpTool for ActivateCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to activate".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -975,6 +1015,7 @@ impl McpTool for HideCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to hide".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {
@@ -1031,6 +1072,7 @@ impl McpTool for ShowCoachTool {
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some("ID of the coach to show".to_owned()),
+                ..Default::default()
             },
         );
         JsonSchema {

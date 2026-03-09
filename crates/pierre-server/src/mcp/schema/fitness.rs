@@ -41,6 +41,7 @@ fn create_get_activities_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 
@@ -49,6 +50,7 @@ fn create_get_activities_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of activities to return. Safe limits to avoid context overflow: format=toon + mode=summary: ≤300, format=toon + mode=detailed: ≤30, format=json + mode=summary: ≤150, format=json + mode=detailed: ≤15".into()),
+            ..Default::default()
         },
     );
 
@@ -57,6 +59,7 @@ fn create_get_activities_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of activities to skip (for pagination)".into()),
+            ..Default::default()
         },
     );
 
@@ -67,6 +70,7 @@ fn create_get_activities_tool() -> ToolSchema {
             description: Some(
                 "Unix timestamp (seconds) - return activities before this time".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -77,6 +81,7 @@ fn create_get_activities_tool() -> ToolSchema {
             description: Some(
                 "Unix timestamp (seconds) - return activities after this time. If not specified, defaults to 90 days ago to prevent context overflow.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -87,6 +92,7 @@ fn create_get_activities_tool() -> ToolSchema {
             description: Some(
                 "Response detail level: 'summary' returns compact data (id, name, sport_type, start_date, distance_meters, duration_seconds) - use for listing/browsing many activities. 'detailed' returns full activity data with GPS, segments, laps - use only when analyzing a specific activity. Default: 'summary'. WARNING: 'detailed' mode with many activities will overflow LLM context.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -97,6 +103,7 @@ fn create_get_activities_tool() -> ToolSchema {
             description: Some(
                 "Filter by sport type (e.g., 'NordicSki', 'Run', 'Ride', 'Swim'). Case-insensitive. Returns only activities matching this sport type.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -123,6 +130,7 @@ fn create_get_athlete_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 
@@ -149,6 +157,7 @@ fn create_get_stats_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 
@@ -175,6 +184,7 @@ fn create_get_activity_intelligence_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 
@@ -183,6 +193,7 @@ fn create_get_activity_intelligence_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the specific activity to analyze".into()),
+            ..Default::default()
         },
     );
 
@@ -191,6 +202,7 @@ fn create_get_activity_intelligence_tool() -> ToolSchema {
         PropertySchema {
             property_type: "boolean".into(),
             description: Some("Whether to include weather analysis (default: true)".into()),
+            ..Default::default()
         },
     );
 
@@ -199,6 +211,7 @@ fn create_get_activity_intelligence_tool() -> ToolSchema {
         PropertySchema {
             property_type: "boolean".into(),
             description: Some("Whether to include location intelligence (default: true)".into()),
+            ..Default::default()
         },
     );
 
@@ -228,6 +241,7 @@ fn create_connect_provider_tool() -> ToolSchema {
             description: Some(
                 "Fitness provider to connect to. Supported providers: 'strava', 'fitbit'".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -239,6 +253,7 @@ fn create_connect_provider_tool() -> ToolSchema {
             description: Some(
                 "Optional redirect URL for mobile OAuth flows. After OAuth completes, the server redirects to this URL with success/error params. Allowed schemes: pierre://, exp://, http://localhost, https://".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -264,6 +279,7 @@ fn create_get_connection_status_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Optional: Your Strava OAuth client ID. If provided with client_secret, will be used instead of server defaults.".into()),
+            ..Default::default()
         },
     );
 
@@ -275,6 +291,7 @@ fn create_get_connection_status_tool() -> ToolSchema {
                 "Optional: Your Strava OAuth client secret. Must be provided with client_id."
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -284,6 +301,7 @@ fn create_get_connection_status_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Optional: Your Fitbit OAuth client ID. If provided with client_secret, will be used instead of server defaults.".into()),
+            ..Default::default()
         },
     );
 
@@ -295,6 +313,7 @@ fn create_get_connection_status_tool() -> ToolSchema {
                 "Optional: Your Fitbit OAuth client secret. Must be provided with client_id."
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -319,6 +338,7 @@ fn create_disconnect_provider_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider to disconnect (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 

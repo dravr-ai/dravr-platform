@@ -58,6 +58,7 @@ fn create_analyze_activity_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".into()),
+            ..Default::default()
         },
     );
 
@@ -66,6 +67,7 @@ fn create_analyze_activity_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the activity to analyze".into()),
+            ..Default::default()
         },
     );
 
@@ -92,6 +94,7 @@ fn create_calculate_metrics_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -100,6 +103,7 @@ fn create_calculate_metrics_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the activity".into()),
+            ..Default::default()
         },
     );
 
@@ -111,6 +115,12 @@ fn create_calculate_metrics_tool() -> ToolSchema {
                 "Specific metrics to calculate (e.g., ['trimp', 'power_to_weight', 'efficiency'])"
                     .to_owned(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Metric name".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -137,6 +147,7 @@ fn create_analyze_performance_trends_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -148,12 +159,14 @@ fn create_analyze_performance_trends_tool() -> ToolSchema {
                 "Time period for analysis ('week', 'month', 'quarter', 'sixmonths', 'year')"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
     properties.insert("metric".into(), PropertySchema {
         property_type: "string".into(),
         description: Some("Metric to analyze trends for ('pace', 'heart_rate', 'power', 'distance', 'duration')".into()),
+        ..Default::default()
     });
 
     properties.insert(
@@ -161,6 +174,7 @@ fn create_analyze_performance_trends_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Filter by sport type (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -188,6 +202,7 @@ fn create_compare_activities_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -196,6 +211,7 @@ fn create_compare_activities_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Primary activity to compare".into()),
+            ..Default::default()
         },
     );
 
@@ -207,6 +223,7 @@ fn create_compare_activities_tool() -> ToolSchema {
                 "Type of comparison ('similar_activities', 'personal_best', 'average', 'recent')"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
@@ -239,12 +256,14 @@ fn create_detect_patterns_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
     properties.insert("pattern_type".into(), PropertySchema {
         property_type: "string".into(),
         description: Some("Type of pattern to detect ('training_consistency', 'seasonal_trends', 'performance_plateaus', 'injury_risk')".into()),
+        ..Default::default()
     });
 
     properties.insert(
@@ -252,6 +271,7 @@ fn create_detect_patterns_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Time period for pattern analysis".into()),
+            ..Default::default()
         },
     );
 
@@ -278,6 +298,7 @@ fn create_set_goal_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Goal title".into()),
+            ..Default::default()
         },
     );
 
@@ -286,6 +307,7 @@ fn create_set_goal_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Goal description".into()),
+            ..Default::default()
         },
     );
 
@@ -297,6 +319,7 @@ fn create_set_goal_tool() -> ToolSchema {
                 "Type of goal ('distance', 'time', 'frequency', 'performance', 'custom')"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
@@ -305,6 +328,7 @@ fn create_set_goal_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Target value to achieve".into()),
+            ..Default::default()
         },
     );
 
@@ -313,6 +337,7 @@ fn create_set_goal_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Target completion date (ISO format)".into()),
+            ..Default::default()
         },
     );
 
@@ -321,6 +346,7 @@ fn create_set_goal_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Sport type for the goal".into()),
+            ..Default::default()
         },
     );
 
@@ -351,6 +377,7 @@ fn create_track_progress_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the goal to track".into()),
+            ..Default::default()
         },
     );
 
@@ -375,6 +402,7 @@ fn create_suggest_goals_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -386,6 +414,7 @@ fn create_suggest_goals_tool() -> ToolSchema {
                 "Category of goals to suggest ('distance', 'performance', 'consistency', 'all')"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
@@ -410,6 +439,7 @@ fn create_analyze_goal_feasibility_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the goal to analyze".into()),
+            ..Default::default()
         },
     );
 
@@ -434,6 +464,7 @@ fn create_generate_recommendations_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -445,6 +476,7 @@ fn create_generate_recommendations_tool() -> ToolSchema {
                 "Type of recommendations ('training', 'recovery', 'nutrition', 'equipment', 'all')"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
@@ -453,6 +485,7 @@ fn create_generate_recommendations_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Specific activity to base recommendations on (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -483,6 +516,7 @@ fn create_calculate_fitness_score_tool() -> ToolSchema {
             description: Some(
                 "Fitness provider for activity data (e.g., 'strava', 'garmin')".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -493,6 +527,7 @@ fn create_calculate_fitness_score_tool() -> ToolSchema {
             description: Some(
                 "Time period for fitness assessment ('month', 'quarter', 'sixmonths')".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -503,6 +538,7 @@ fn create_calculate_fitness_score_tool() -> ToolSchema {
             description: Some(
                 "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery quality into fitness score.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -529,6 +565,7 @@ fn create_predict_performance_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Fitness provider name".into()),
+            ..Default::default()
         },
     );
 
@@ -537,6 +574,7 @@ fn create_predict_performance_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Sport type for prediction".into()),
+            ..Default::default()
         },
     );
 
@@ -545,6 +583,7 @@ fn create_predict_performance_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Target distance for performance prediction".into()),
+            ..Default::default()
         },
     );
 
@@ -553,6 +592,7 @@ fn create_predict_performance_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Target date for prediction (ISO format)".into()),
+            ..Default::default()
         },
     );
 
@@ -581,6 +621,7 @@ fn create_analyze_training_load_tool() -> ToolSchema {
             description: Some(
                 "Fitness provider for activity data (e.g., 'strava', 'garmin')".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -589,6 +630,7 @@ fn create_analyze_training_load_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Time period for load analysis ('week', 'month', 'quarter')".into()),
+            ..Default::default()
         },
     );
 
@@ -599,6 +641,7 @@ fn create_analyze_training_load_tool() -> ToolSchema {
             description: Some(
                 "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, includes recovery metrics in training load analysis.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -627,6 +670,7 @@ fn create_analyze_weather_impact_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the activity to analyze".into()),
+            ..Default::default()
         },
     );
 
@@ -638,6 +682,7 @@ fn create_analyze_weather_impact_tool() -> ToolSchema {
                 "Fitness provider name (e.g., 'strava', 'garmin'). Defaults to configured provider."
                     .into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -648,6 +693,7 @@ fn create_analyze_weather_impact_tool() -> ToolSchema {
             description: Some(
                 "Temperature and distance units: 'metric' (default) or 'imperial'.".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -718,6 +764,7 @@ fn create_update_user_configuration_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Configuration profile to apply (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -726,6 +773,7 @@ fn create_update_user_configuration_tool() -> ToolSchema {
         PropertySchema {
             property_type: "object".into(),
             description: Some("Parameter overrides to apply (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -751,6 +799,7 @@ fn create_calculate_personalized_zones_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("VO2 max in ml/kg/min".into()),
+            ..Default::default()
         },
     );
 
@@ -759,6 +808,7 @@ fn create_calculate_personalized_zones_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Resting heart rate in bpm (optional, defaults to 60)".into()),
+            ..Default::default()
         },
     );
 
@@ -767,6 +817,7 @@ fn create_calculate_personalized_zones_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum heart rate in bpm (optional, defaults to 190)".into()),
+            ..Default::default()
         },
     );
 
@@ -778,6 +829,7 @@ fn create_calculate_personalized_zones_tool() -> ToolSchema {
                 "Lactate threshold as percentage of VO2 max (optional, defaults to 0.85)"
                     .to_owned(),
             ),
+            ..Default::default()
         },
     );
 
@@ -786,6 +838,7 @@ fn create_calculate_personalized_zones_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Sport efficiency factor (optional, defaults to 1.0)".into()),
+            ..Default::default()
         },
     );
 
@@ -810,6 +863,7 @@ fn create_validate_configuration_tool() -> ToolSchema {
         PropertySchema {
             property_type: "object".into(),
             description: Some("Configuration parameters to validate".into()),
+            ..Default::default()
         },
     );
 
@@ -840,6 +894,7 @@ fn create_get_fitness_config_tool() -> ToolSchema {
             description: Some(
                 "Name of the fitness configuration to retrieve (defaults to 'default')".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -866,6 +921,7 @@ fn create_set_fitness_config_tool() -> ToolSchema {
             description: Some(
                 "Name of the fitness configuration to save (defaults to 'default')".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -874,6 +930,7 @@ fn create_set_fitness_config_tool() -> ToolSchema {
         PropertySchema {
             property_type: "object".into(),
             description: Some("Fitness configuration object containing zones, thresholds, and training parameters".into()),
+            ..Default::default()
         },
     );
 
@@ -912,6 +969,7 @@ fn create_delete_fitness_config_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Name of the fitness configuration to delete".into()),
+            ..Default::default()
         },
     );
 

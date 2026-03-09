@@ -234,7 +234,7 @@ pub struct Tool {
 }
 
 /// JSON Schema Property Definition
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PropertySchema {
     /// Property type (e.g., "string", "number", "boolean")
     #[serde(rename = "type")]
@@ -242,6 +242,15 @@ pub struct PropertySchema {
     /// Human-readable property description
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Item schema for array-type properties (JSON Schema `items` keyword)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<Self>>,
+    /// Nested property definitions for object-type properties
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, Self>>,
+    /// Required fields for object-type properties
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
 }
 
 /// MCP Server Capabilities
@@ -831,6 +840,7 @@ fn format_property() -> PropertySchema {
         description: Some(
             "Output serialization format: 'json' (default, universal) or 'toon' (Token-Oriented Object Notation - ~40% fewer tokens, optimized for LLM input). Use 'toon' for large datasets.".into(),
         ),
+        ..Default::default()
     }
 }
 

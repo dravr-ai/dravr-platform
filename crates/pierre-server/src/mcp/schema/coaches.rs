@@ -57,6 +57,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Filter by category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -65,6 +66,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "boolean".into(),
             description: Some("If true, only return favorite coaches (default: false)".into()),
+            ..Default::default()
         },
     );
 
@@ -73,6 +75,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of coaches to return (default: 50)".into()),
+            ..Default::default()
         },
     );
 
@@ -81,6 +84,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of coaches to skip for pagination (default: 0)".into()),
+            ..Default::default()
         },
     );
 
@@ -89,6 +93,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "boolean".into(),
             description: Some("Include system coaches created by admins (default: true)".into()),
+            ..Default::default()
         },
     );
 
@@ -97,6 +102,7 @@ fn create_list_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "boolean".into(),
             description: Some("Include coaches the user has hidden (default: false)".into()),
+            ..Default::default()
         },
     );
 
@@ -122,6 +128,7 @@ fn create_create_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Name of the coach (e.g., 'Marathon Training Coach')".into()),
+            ..Default::default()
         },
     );
 
@@ -132,6 +139,7 @@ fn create_create_coach_tool() -> ToolSchema {
             description: Some(
                 "The system prompt that defines the coach's persona and expertise".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -142,6 +150,7 @@ fn create_create_coach_tool() -> ToolSchema {
             description: Some(
                 "Brief description of what this coach specializes in (optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -150,6 +159,7 @@ fn create_create_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' (default: 'custom')".into()),
+            ..Default::default()
         },
     );
 
@@ -160,6 +170,12 @@ fn create_create_coach_tool() -> ToolSchema {
             description: Some(
                 "Tags for searchability (e.g., ['running', 'marathon', 'endurance'])".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Tag label".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -185,6 +201,7 @@ fn create_get_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to retrieve".into()),
+            ..Default::default()
         },
     );
 
@@ -209,6 +226,7 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to update".into()),
+            ..Default::default()
         },
     );
 
@@ -217,6 +235,7 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New name for the coach (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -225,6 +244,7 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New system prompt (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -233,6 +253,7 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New description (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -241,6 +262,7 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New category (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -249,6 +271,12 @@ fn create_update_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "array".into(),
             description: Some("New tags (optional)".into()),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Tag label".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -273,6 +301,7 @@ fn create_delete_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to delete".into()),
+            ..Default::default()
         },
     );
 
@@ -297,6 +326,7 @@ fn create_toggle_coach_favorite_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to toggle favorite status".into()),
+            ..Default::default()
         },
     );
 
@@ -321,6 +351,7 @@ fn create_search_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Search query for coach title, description, or tags".into()),
+            ..Default::default()
         },
     );
 
@@ -329,6 +360,7 @@ fn create_search_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of results to return (default: 20)".into()),
+            ..Default::default()
         },
     );
 
@@ -353,6 +385,7 @@ fn create_activate_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to activate".into()),
+            ..Default::default()
         },
     );
 
@@ -405,6 +438,7 @@ fn create_hide_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to hide".into()),
+            ..Default::default()
         },
     );
 
@@ -429,6 +463,7 @@ fn create_show_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the coach to show (unhide)".into()),
+            ..Default::default()
         },
     );
 
@@ -471,6 +506,7 @@ fn create_admin_list_system_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Filter by visibility level: 'tenant' or 'global' (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -479,6 +515,7 @@ fn create_admin_list_system_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of coaches to return (default: 50)".into()),
+            ..Default::default()
         },
     );
 
@@ -487,6 +524,7 @@ fn create_admin_list_system_coaches_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of coaches to skip for pagination (default: 0)".into()),
+            ..Default::default()
         },
     );
 
@@ -513,6 +551,7 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Name of the system coach (e.g., 'Elite Marathon Coach')".into()),
+            ..Default::default()
         },
     );
 
@@ -523,6 +562,7 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
             description: Some(
                 "The system prompt that defines the coach's persona and expertise".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -533,6 +573,7 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
             description: Some(
                 "Brief description of what this coach specializes in (optional)".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -541,6 +582,7 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Category: 'training', 'nutrition', 'recovery', 'recipes', 'custom' (default: 'custom')".into()),
+            ..Default::default()
         },
     );
 
@@ -551,6 +593,12 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
             description: Some(
                 "Tags for searchability (e.g., ['running', 'marathon', 'elite'])".into(),
             ),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Tag label".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -561,6 +609,7 @@ fn create_admin_create_system_coach_tool() -> ToolSchema {
             description: Some(
                 "Visibility level: 'tenant' (visible to tenant users) or 'global' (all tenants). Default: 'tenant'".into(),
             ),
+            ..Default::default()
         },
     );
 
@@ -585,6 +634,7 @@ fn create_admin_get_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the system coach to retrieve".into()),
+            ..Default::default()
         },
     );
 
@@ -609,6 +659,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the system coach to update".into()),
+            ..Default::default()
         },
     );
 
@@ -617,6 +668,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New name for the coach (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -625,6 +677,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New system prompt for the coach (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -633,6 +686,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New description for the coach (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -641,6 +695,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New category for the coach (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -649,6 +704,12 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "array".into(),
             description: Some("New tags for the coach (optional)".into()),
+            items: Some(Box::new(PropertySchema {
+                property_type: "string".into(),
+                description: Some("Tag label".into()),
+                ..Default::default()
+            })),
+            ..Default::default()
         },
     );
 
@@ -657,6 +718,7 @@ fn create_admin_update_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("New visibility level: 'tenant' or 'global' (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -681,6 +743,7 @@ fn create_admin_delete_system_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the system coach to delete".into()),
+            ..Default::default()
         },
     );
 
@@ -706,6 +769,7 @@ fn create_admin_assign_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the system coach to assign".into()),
+            ..Default::default()
         },
     );
 
@@ -714,6 +778,7 @@ fn create_admin_assign_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the user to assign the coach to".into()),
+            ..Default::default()
         },
     );
 
@@ -738,6 +803,7 @@ fn create_admin_unassign_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the system coach to unassign".into()),
+            ..Default::default()
         },
     );
 
@@ -746,6 +812,7 @@ fn create_admin_unassign_coach_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("ID of the user to unassign the coach from".into()),
+            ..Default::default()
         },
     );
 
@@ -770,6 +837,7 @@ fn create_admin_list_coach_assignments_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Filter by coach ID (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -778,6 +846,7 @@ fn create_admin_list_coach_assignments_tool() -> ToolSchema {
         PropertySchema {
             property_type: "string".into(),
             description: Some("Filter by user ID (optional)".into()),
+            ..Default::default()
         },
     );
 
@@ -786,6 +855,7 @@ fn create_admin_list_coach_assignments_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Maximum number of assignments to return (default: 100)".into()),
+            ..Default::default()
         },
     );
 
@@ -794,6 +864,7 @@ fn create_admin_list_coach_assignments_tool() -> ToolSchema {
         PropertySchema {
             property_type: "number".into(),
             description: Some("Number of assignments to skip for pagination (default: 0)".into()),
+            ..Default::default()
         },
     );
 

@@ -147,6 +147,7 @@ impl McpTool for ConnectProviderTool {
                 description: Some(
                     "Provider to connect (e.g., 'strava', 'fitbit', 'garmin')".to_owned(),
                 ),
+                ..Default::default()
             },
         );
         properties.insert(
@@ -156,6 +157,7 @@ impl McpTool for ConnectProviderTool {
                 description: Some(
                     "Optional redirect URL for mobile app OAuth flows (supports pierre://, exp://, http://localhost, https://)".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -314,6 +316,7 @@ impl McpTool for GetConnectionStatusTool {
                 description: Some(
                     "Optional: specific provider to check (e.g., 'strava'). If omitted, checks all providers.".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
@@ -408,6 +411,7 @@ impl McpTool for DisconnectProviderTool {
                 description: Some(
                     "Provider to disconnect (e.g., 'strava', 'fitbit', 'garmin')".to_owned(),
                 ),
+                ..Default::default()
             },
         );
 
