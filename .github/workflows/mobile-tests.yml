@@ -627,8 +627,11 @@ jobs:
               $MAESTRO test --device "$SIMULATOR_UDID" $FLOW_ARGS \
                 --format junit --output "maestro-results-batch${BATCH_NUM}.xml" || true
 
-              BATCH_TESTS=$(grep -c '<testcase' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
-              BATCH_FAILS=$(grep -c '<failure' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null || echo "0")
+              # grep -c outputs "0" AND returns exit code 1 when no matches found.
+              # Using || echo "0" would append a second "0" (grep's + echo's),
+              # producing "0\n0" which breaks arithmetic. Assign separately.
+              BATCH_TESTS=$(grep -c '<testcase' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_TESTS=0
+              BATCH_FAILS=$(grep -c '<failure' "maestro-results-batch${BATCH_NUM}.xml" 2>/dev/null) || BATCH_FAILS=0
               echo "Batch $BATCH_NUM: $BATCH_TESTS tests, $BATCH_FAILS failures"
               TOTAL_FAILURES=$((TOTAL_FAILURES + BATCH_FAILS))
             done
