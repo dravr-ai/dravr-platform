@@ -43,14 +43,11 @@ appId: com.pierre.fitness
     id: "tag-input"
 - inputText: "intervals"
 
-# Dismiss keyboard before tapping add-tag-button. On iOS, the keyboard
-# covers the button and the first tap outside the input dismisses the
-# keyboard instead of triggering onPress. pressKey Enter does not
-# trigger onSubmitEditing on iOS Expo Go.
-- tapOn:
-    point: "50%,15%"
-
-# Scroll to add-tag-button (may be below fold after keyboard dismissal)
+# Scroll to add-tag-button. keyboardShouldPersistTaps="handled" on the
+# ScrollView allows tapping buttons without dismissing the keyboard first.
+# Dismissing keyboard by tapping 50%,15% risks hitting tags-section-toggle
+# when KeyboardAvoidingView compresses the layout, which collapses the
+# section and unmounts add-tag-button.
 - scrollUntilVisible:
     element:
       id: "add-tag-button"
@@ -60,6 +57,21 @@ appId: com.pierre.fitness
 # Tap the add button to create the tag
 - tapOn:
     id: "add-tag-button"
+
+# Fallback: if tag wasn't created (first tap may dismiss keyboard instead
+# of triggering onPress), re-scroll and tap again.
+- runFlow:
+    when:
+      notVisible:
+        id: "tag-chip-intervals"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "add-tag-button"
+          direction: DOWN
+          timeout: 5000
+      - tapOn:
+          id: "add-tag-button"
 
 # Tag should appear as a chip
 - extendedWaitUntil:

@@ -32,20 +32,37 @@ appId: com.pierre.fitness
 - tapOn:
     id: "show-hidden-toggle"
 
-# Long press on first visible system coach to show action menu
-# Use the Marathon Coach which is a seeded system coach
+# Wait for Marathon Coach to appear in the FlashList after toggling.
+# FlashList v2 defers cell rendering, so the card may not be visible
+# immediately after the toggle tap.
+- scrollUntilVisible:
+    element:
+      text: "Marathon Coach"
+    direction: DOWN
+    timeout: 15000
+
+# Long press on Marathon Coach to show action menu
+- longPressOn: "Marathon Coach"
+
+# Wait for action menu modal to animate in. On iOS CI, modal animations
+# can be slow — generous timeout avoids flaky failures.
+- extendedWaitUntil:
+    visible: "Fork (create my copy)"
+    timeout: 10000
+
+# Fallback: if menu didn't appear, long press again. On iOS, the first
+# long press may not register on a FlashList cell that was still settling.
 - runFlow:
     when:
-      visible: "Marathon Coach"
+      notVisible: "Fork (create my copy)"
     commands:
       - longPressOn: "Marathon Coach"
-      # Should see Fork option in action menu
       - extendedWaitUntil:
-          visible:
-            text: "Fork"
-          timeout: 3000
-      # Dismiss the menu by going back
-      - back
+          visible: "Fork (create my copy)"
+          timeout: 10000
+
+# Dismiss the action menu
+- back
 
 # Reset filters
 - tapOn:

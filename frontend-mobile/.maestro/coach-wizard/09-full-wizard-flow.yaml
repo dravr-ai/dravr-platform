@@ -66,11 +66,28 @@ appId: com.pierre.fitness
 - tapOn:
     id: "save-button"
 
-# Should return to library (long timeout for CI API latency)
+# router.replace('/(app)/(tabs)/(coaches)') is unreliable on iOS Expo Go.
+# If it fired, we're on the library. If not, we're still on the editor.
+# Tapping tab-coaches is a no-op when already inside the (coaches) group,
+# so we use back-button to pop the editor from the stack instead.
+- swipe:
+    start: "50%,50%"
+    end: "50%,48%"
+    duration: 5000
+
+- runFlow:
+    when:
+      visible:
+        id: "coach-editor-screen"
+    commands:
+      - tapOn:
+          id: "back-button"
+
+# Wait for coach library screen
 - extendedWaitUntil:
     visible:
       id: "coach-library-screen"
-    timeout: 30000
+    timeout: 15000
 
 # Filter to user-created coaches only. This reduces FlashList items,
 # making FlashList v2 render the target item faster (fewer cells to measure).
