@@ -534,7 +534,7 @@ impl GeminiProvider {
     /// but if one appears here, map it to "user" for compatibility.
     const fn convert_role(role: MessageRole) -> &'static str {
         match role {
-            MessageRole::System | MessageRole::User => "user",
+            MessageRole::System | MessageRole::User | MessageRole::Tool => "user",
             MessageRole::Assistant => "model",
         }
     }
@@ -930,6 +930,7 @@ impl LlmProvider for GeminiProvider {
                         usage,
                         finish_reason,
                         warnings: None,
+                        tool_calls: None,
                     });
                 }
                 Err(e) => {

@@ -271,6 +271,7 @@ fn test_chat_response_creation() {
         usage: None,
         finish_reason: Some("stop".to_owned()),
         warnings: None,
+        tool_calls: None,
     };
 
     assert_eq!(response.content, "The answer is 4.");
@@ -292,6 +293,7 @@ fn test_chat_response_with_usage() {
         usage: Some(usage),
         finish_reason: None,
         warnings: None,
+        tool_calls: None,
     };
 
     let usage = response.usage.unwrap();
@@ -312,6 +314,7 @@ fn test_chat_response_serialization() {
         }),
         finish_reason: Some("stop".to_owned()),
         warnings: None,
+        tool_calls: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -510,6 +513,7 @@ fn test_chat_response_clone() {
         usage: None,
         finish_reason: None,
         warnings: None,
+        tool_calls: None,
     };
 
     let cloned = response.clone();

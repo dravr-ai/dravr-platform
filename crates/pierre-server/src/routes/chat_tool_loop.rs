@@ -1,5 +1,5 @@
 // ABOUTME: Strategy pattern for LLM tool execution loops in chat conversations
-// ABOUTME: Supports API-based, SDK-based (Copilot SDK), and CLI-based tool calling modes
+// ABOUTME: Supports API-based, headless (Copilot ACP), and CLI-based tool calling modes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! Three strategies exist for executing tool calls during LLM conversations:
 //! - [`run_api_tool_loop`]: Native function calling via `complete_with_tools()` (Gemini, Groq)
-//! - [`run_sdk_tool_loop`]: SDK-managed tool calling via `ToolHandler` callback (Copilot SDK)
+//! - [`run_headless_tool_loop`]: ACP-managed tool calling via Copilot Headless `converse()`
 //! - [`run_cli_tool_loop`]: Text-based tool calling via `<tool_call>` blocks (CLI providers)
 //!
 //! All strategies share the same MCP executor infrastructure and produce
@@ -18,18 +18,14 @@ use crate::models::TenantId;
 use crate::{
     errors::AppError,
     llm::{
-        convert_function_declarations, extract_declarations_from_tool_value, ChatMessage,
-        ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration, FunctionResponse, TokenUsage,
-        Tool, ToolHandler, ToolResultObject,
+        ChatMessage, ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration,
+        FunctionResponse, TokenUsage, Tool,
     },
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
 };
 use pierre_core::llm::tool_simulation;
-use serde_json::Value;
-use std::sync::{Arc, Mutex};
-use tokio::runtime::Handle;
-use tokio::task::block_in_place;
-use tracing::{info, warn};
+use std::sync::Arc;
+use tracing::info;
 
 // ============================================================================
 // Shared Types
@@ -510,7 +506,7 @@ pub fn add_function_responses_to_messages(
 ///
 /// Three-way dispatch:
 /// - Providers with `FUNCTION_CALLING` capability use [`run_api_tool_loop`]
-/// - Providers with `SDK_TOOL_CALLING` capability use [`run_sdk_tool_loop`]
+/// - Providers with `SDK_TOOL_CALLING` capability use [`run_headless_tool_loop`]
 /// - Providers with neither use [`run_cli_tool_loop`] (text-based tool calling)
 ///
 /// # Errors
@@ -524,151 +520,70 @@ pub async fn run_tool_loop(
     if capabilities.supports_function_calling() {
         run_api_tool_loop(params, llm_messages).await
     } else if capabilities.supports_sdk_tool_calling() {
-        run_sdk_tool_loop(params, llm_messages).await
+        run_headless_tool_loop(params, llm_messages).await
     } else {
         run_cli_tool_loop(params, llm_messages).await
     }
 }
 
 // ============================================================================
-// SDK Tool Loop (Copilot SDK native tool calling via ToolHandler)
+// Headless Tool Loop (Copilot ACP autonomous tool calling)
 // ============================================================================
 
-/// Executes the tool loop using Copilot SDK native tool calling.
+/// Executes the tool loop using Copilot Headless ACP (Agent Client Protocol).
 ///
-/// The SDK manages the tool call → execute → response cycle internally via the
-/// `ToolHandler` callback. The caller provides a bridge function that routes
-/// tool calls through the MCP executor.
+/// Copilot Headless manages its own tool execution loop internally via ACP.
+/// Tool calls are observed and reported via [`HeadlessToolResponse`], but the
+/// caller does not execute tools — Copilot handles that autonomously.
 ///
 /// # Errors
 ///
-/// Returns error if the SDK runner cannot be extracted, or the SDK call fails.
-async fn run_sdk_tool_loop(
+/// Returns error if the headless runner cannot be extracted, or the ACP call fails.
+async fn run_headless_tool_loop(
     params: &ToolLoopParams<'_>,
     llm_messages: &[ChatMessage],
 ) -> Result<ToolLoopResult, AppError> {
-    // Extract the CopilotSdkRunner from the ChatProvider
-    let sdk_runner = params
-        .provider
-        .as_cli_provider()
-        .and_then(|cli| cli.as_copilot_sdk_runner())
-        .ok_or_else(|| {
-            AppError::internal(
-                "SDK tool loop requires CopilotSdkRunner but provider is not Copilot SDK",
-            )
-        })?;
+    // Extract the CopilotHeadlessRunner from the ChatProvider
+    let cli_provider = params.provider.as_cli_provider().ok_or_else(|| {
+        AppError::internal(
+            "Headless tool loop requires CopilotHeadlessRunner but provider is not a CLI provider",
+        )
+    })?;
 
-    // Convert Pierre tool declarations to copilot-sdk Tool definitions
-    let tool_value = serde_json::to_value(params.tools).unwrap_or_default();
-    let declarations = extract_declarations_from_tool_value(&tool_value);
-    let sdk_tools = convert_function_declarations(&declarations);
+    let headless_runner = cli_provider.as_headless_runner().ok_or_else(|| {
+        AppError::internal(
+            "Headless tool loop requires CopilotHeadlessRunner but inner runner is a different type",
+        )
+    })?;
 
-    info!(
-        tool_count = sdk_tools.len(),
-        "SDK tool loop: registering tools with Copilot SDK"
-    );
+    info!("Headless tool loop: invoking Copilot ACP converse()");
 
     // Build the ChatRequest from the accumulated messages
     let request = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
 
-    // Shared state for capturing activity list from get_activities tool calls
-    let captured_activity_list: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-
-    // Build the ToolHandler closure that bridges sync SDK callbacks to async MCP execution
-    let executor = Arc::clone(&params.executor);
-    let user_id = params.user_id.to_owned();
-    let tenant_id = params.tenant_id;
-    let activity_list_capture = Arc::clone(&captured_activity_list);
-
-    let handler: ToolHandler = Arc::new(move |name: &str, args: &Value| {
-        let executor = Arc::clone(&executor);
-        let name = name.to_owned();
-        let args = args.clone();
-        let user_id = user_id.clone();
-        let activity_list_capture = Arc::clone(&activity_list_capture);
-
-        // Bridge sync ToolHandler to async MCP executor using block_in_place
-        block_in_place(|| {
-            Handle::current().block_on(async {
-                info!(tool_name = %name, "SDK tool handler: executing MCP tool");
-
-                let mcp_request = UniversalRequest {
-                    tool_name: name.clone(),
-                    parameters: args,
-                    user_id,
-                    protocol: "chat".to_owned(),
-                    tenant_id: Some(tenant_id.to_string()),
-                    progress_token: None,
-                    cancellation_token: None,
-                    progress_reporter: None,
-                };
-
-                match executor.execute_tool(mcp_request).await {
-                    Ok(response) => {
-                        let result_value = response.result.unwrap_or_else(|| {
-                            serde_json::json!({"status": "success"})
-                        });
-
-                        // Capture activity list from get_activities responses
-                        if name == "get_activities" {
-                            if let Some(list) = result_value
-                                .get("activity_list")
-                                .and_then(|v| v.as_str())
-                                .filter(|s| !s.is_empty())
-                            {
-                                info!(
-                                    list_len = list.len(),
-                                    "SDK tool handler: captured activity list"
-                                );
-                                if let Ok(mut guard) = activity_list_capture.lock() {
-                                    *guard = Some(list.to_owned());
-                                }
-                            }
-                        }
-
-                        let result_json = serde_json::to_string(&result_value)
-                            .unwrap_or_else(|_| "{}".to_owned());
-                        info!(
-                            tool_name = %name,
-                            result_len = result_json.len(),
-                            "SDK tool handler: tool executed successfully"
-                        );
-                        ToolResultObject::text(result_json)
-                    }
-                    Err(e) => {
-                        warn!(tool_name = %name, error = %e, "SDK tool handler: tool execution failed");
-                        ToolResultObject::error(e.to_string())
-                    }
-                }
-            })
-        })
-    });
-
-    // Execute the full conversation turn with tool calling
-    let sdk_response = sdk_runner
-        .execute_with_tools(&request, sdk_tools, handler)
+    // Copilot Headless handles tool execution internally via ACP
+    let headless_response = headless_runner
+        .converse(&request)
         .await
         .map_err(AppError::from)?;
 
-    // Extract captured activity list
-    let activity_list = captured_activity_list
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone());
+    let tool_calls_count = u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
 
     info!(
-        content_len = sdk_response.content.len(),
-        model = %sdk_response.model,
-        tool_calls = sdk_response.tool_calls_count,
-        has_activity_list = activity_list.is_some(),
-        "SDK tool loop completed"
+        content_len = headless_response.content.len(),
+        model = %headless_response.model,
+        tool_calls = tool_calls_count,
+        "Headless tool loop completed"
     );
 
     Ok(ToolLoopResult {
-        content: sdk_response.content,
-        usage: sdk_response.usage,
-        finish_reason: sdk_response.finish_reason,
-        activity_list,
-        tool_calls_count: sdk_response.tool_calls_count,
+        content: headless_response.content,
+        usage: headless_response.usage,
+        finish_reason: headless_response.finish_reason,
+        // Copilot Headless manages tools autonomously via ACP — the platform
+        // never sees individual tool responses, so activity_list extraction
+        // (which requires inspecting get_activities results) is not possible.
+        activity_list: None,
+        tool_calls_count,
     })
 }

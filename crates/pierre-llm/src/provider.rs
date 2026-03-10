@@ -15,7 +15,7 @@
 //! - `gemini` (default): Use Google Gemini for full-featured capabilities
 //! - `groq`: Use Groq for cost-effective open-source models
 //! - `local`/`ollama`/`vllm`/`localai`: Use a local `OpenAI`-compatible endpoint
-//! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Use an embacle runner
+//! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_headless`/`warp_cli`: Use an embacle runner
 
 use std::fmt;
 use std::time::Duration;
@@ -52,7 +52,7 @@ impl ChatProvider {
     /// - `gemini` (default): Creates `GeminiProvider` (requires `GEMINI_API_KEY`)
     /// - `groq`: Creates `GroqProvider` (requires `GROQ_API_KEY`)
     /// - `local`/`ollama`/`vllm`/`localai`: Creates `OpenAiCompatibleProvider`
-    /// - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_sdk`: Embacle runners
+    /// - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_headless`/`warp_cli`: Embacle runners
     ///
     /// When `PIERRE_LLM_FALLBACK_ENABLED=true`, if the primary provider fails,
     /// attempts to use the fallback provider specified by `PIERRE_LLM_PROVIDER_FALLBACK`.
@@ -71,7 +71,7 @@ impl ChatProvider {
             LlmProviderType::ENV_VAR
         );
 
-        let result = Self::create_provider(provider_type);
+        let result = Self::create_provider(provider_type).await;
         Self::finalize_or_fallback(result, provider_type).await
     }
 
@@ -118,7 +118,7 @@ impl ChatProvider {
 
         sleep(Duration::from_secs(wait_secs)).await;
 
-        match Self::create_provider(fallback) {
+        match Self::create_provider(fallback).await {
             Ok(provider) => {
                 info!(
                     "Fallback provider {} initialized with model: {}",
@@ -135,7 +135,7 @@ impl ChatProvider {
     }
 
     /// Create a provider for a specific type
-    fn create_provider(provider_type: LlmProviderType) -> Result<Self, AppError> {
+    async fn create_provider(provider_type: LlmProviderType) -> Result<Self, AppError> {
         match provider_type {
             LlmProviderType::Groq => Self::groq(),
             LlmProviderType::Gemini => Self::gemini(),
@@ -144,12 +144,13 @@ impl ChatProvider {
             | LlmProviderType::Copilot
             | LlmProviderType::CursorAgent
             | LlmProviderType::OpenCode
-            | LlmProviderType::CopilotSdk
+            | LlmProviderType::CopilotHeadless
             | LlmProviderType::GeminiCli
             | LlmProviderType::CodexCli
             | LlmProviderType::GooseCli
             | LlmProviderType::ClineCli
-            | LlmProviderType::ContinueCli => Self::cli(),
+            | LlmProviderType::ContinueCli
+            | LlmProviderType::WarpCli => Self::cli().await,
         }
     }
 
@@ -193,8 +194,8 @@ impl ChatProvider {
     /// # Errors
     ///
     /// Returns an error if no runner can be detected or initialized.
-    pub fn cli() -> Result<Self, AppError> {
-        Ok(Self::Cli(CliLlmProvider::from_env()?))
+    pub async fn cli() -> Result<Self, AppError> {
+        Ok(Self::Cli(CliLlmProvider::from_env().await?))
     }
 
     /// Create a Gemini provider with a specific API key

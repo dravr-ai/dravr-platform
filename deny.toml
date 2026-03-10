@@ -76,7 +76,7 @@ workspace-default-features = "allow"
 # External default features
 external-default-features = "allow"
 # Allow wildcard versions for git/path dependencies in private crates
-# (embacle and copilot-sdk are internal git deps without crates.io versions)
+# (embacle is an internal git dep without a crates.io version)
 allow-wildcard-paths = true
 # Allow build dependencies
 allow = []
@@ -97,7 +97,6 @@ unknown-git = "deny"
 unknown-registry = "deny"
 # Allow these specific Git repositories (if needed for specific deps)
 allow-git = [
-    "https://github.com/copilot-community-sdk/copilot-sdk-rust.git",
     "https://github.com/dravr-ai/dravr-embacle.git",
 ]
 # Allow these specific registries
