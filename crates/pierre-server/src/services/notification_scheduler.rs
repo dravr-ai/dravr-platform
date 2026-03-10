@@ -19,7 +19,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use chrono_tz::Tz;
 use cron::Schedule;
 use tokio::task::AbortHandle;
@@ -65,7 +65,7 @@ async fn run_scheduler_cycle(database: &Database, dispatcher: &NotificationDispa
     let due_notifications = query_due_notifications(database, now).await;
 
     for scheduled in &due_notifications {
-        dispatch_scheduled(dispatcher, scheduled).await;
+        dispatch_scheduled(database, dispatcher, scheduled).await;
         update_next_fire_time(database, scheduled, now).await;
     }
 }
@@ -93,10 +93,11 @@ async fn query_due_notifications(
 
 /// Dispatch the notification (errors logged, not propagated)
 async fn dispatch_scheduled(
+    database: &Database,
     dispatcher: &NotificationDispatcher,
     scheduled: &ScheduledNotification,
 ) {
-    let request = build_dispatch_request(scheduled);
+    let request = build_dispatch_request(database, scheduled).await;
     if let Err(e) = dispatcher.dispatch(&request).await {
         warn!(
             scheduled_id = %scheduled.id,
@@ -149,21 +150,33 @@ async fn update_next_fire_time(
         .await;
 }
 
-/// Build a `DispatchRequest` from a scheduled notification's type
-fn build_dispatch_request(scheduled: &ScheduledNotification) -> DispatchRequest {
+/// Build a `DispatchRequest` from a scheduled notification's type.
+///
+/// Queries the database for dynamic content (activity counts, training duration)
+/// and falls back to static text if the query fails.
+async fn build_dispatch_request(
+    database: &Database,
+    scheduled: &ScheduledNotification,
+) -> DispatchRequest {
     let (category, title, body, data) = match scheduled.notification_type.as_str() {
-        "weekly_training_summary" => (
-            NotificationCategory::Training,
-            "Weekly training summary".to_owned(),
-            "Your weekly training summary is ready".to_owned(),
-            Some(serde_json::json!({ "screen": "activities" })),
-        ),
-        "workout_reminder" => (
-            NotificationCategory::Reminders,
-            "Workout reminder".to_owned(),
-            "Don't forget your workout today".to_owned(),
-            Some(serde_json::json!({ "screen": "activities" })),
-        ),
+        "weekly_training_summary" => {
+            let dynamic_body = build_weekly_summary_body(database, scheduled).await;
+            (
+                NotificationCategory::Training,
+                "Weekly training summary".to_owned(),
+                dynamic_body,
+                Some(serde_json::json!({ "screen": "activities" })),
+            )
+        }
+        "workout_reminder" => {
+            let dynamic_body = build_workout_reminder_body(database, scheduled).await;
+            (
+                NotificationCategory::Reminders,
+                "Workout reminder".to_owned(),
+                dynamic_body,
+                Some(serde_json::json!({ "screen": "activities" })),
+            )
+        }
         "weekly_digest" => (
             NotificationCategory::Reminders,
             "Your week in review".to_owned(),
@@ -187,7 +200,69 @@ fn build_dispatch_request(scheduled: &ScheduledNotification) -> DispatchRequest 
         body,
         data,
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
+    }
+}
+
+/// Query the user's `activity_synced` notification count from the past 7 days for a dynamic summary
+async fn build_weekly_summary_body(
+    database: &Database,
+    scheduled: &ScheduledNotification,
+) -> String {
+    let seven_days_ago = Utc::now() - ChronoDuration::days(7);
+    match database
+        .count_notifications_since(
+            scheduled.user_id,
+            scheduled.tenant_id,
+            "training",
+            seven_days_ago,
+        )
+        .await
+    {
+        Ok(count) if count > 0 => {
+            format!("You completed {count} training activities this week")
+        }
+        Ok(_) => "No training activities recorded this week — get moving!".to_owned(),
+        Err(e) => {
+            warn!(
+                user_id = %scheduled.user_id,
+                error = %e,
+                "Failed to query weekly training data for scheduled notification"
+            );
+            "Your weekly training summary is ready".to_owned()
+        }
+    }
+}
+
+/// Check if the user already logged an activity today for a dynamic workout reminder
+async fn build_workout_reminder_body(
+    database: &Database,
+    scheduled: &ScheduledNotification,
+) -> String {
+    let today_start = Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .map(|ndt| DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc));
+
+    let Some(since) = today_start else {
+        return "Don't forget your workout today".to_owned();
+    };
+
+    match database
+        .count_notifications_since(scheduled.user_id, scheduled.tenant_id, "training", since)
+        .await
+    {
+        Ok(count) if count > 0 => "Great job on today's workout! Keep it up".to_owned(),
+        Ok(_) => "No activity logged today — time for a workout!".to_owned(),
+        Err(e) => {
+            warn!(
+                user_id = %scheduled.user_id,
+                error = %e,
+                "Failed to query today's activity data for workout reminder"
+            );
+            "Don't forget your workout today".to_owned()
+        }
     }
 }
 

@@ -97,6 +97,21 @@ export interface UpdateNotificationPreferenceRequest {
   max_per_day?: number;
 }
 
+// ========== ACTION TYPES ==========
+
+/** Type of action a notification button can trigger */
+export type NotificationActionType = 'open_screen' | 'accept_decline' | 'quick_reply';
+
+/** An action button attached to a notification */
+export interface NotificationAction {
+  /** Unique identifier for this action within the notification */
+  id: string;
+  /** Button label displayed to the user */
+  title: string;
+  /** Type of action triggered when the button is tapped */
+  action_type: NotificationActionType;
+}
+
 // ========== NOTIFICATION TYPES ==========
 
 /** A single notification in the feed */
@@ -123,6 +138,14 @@ export interface NotificationItem {
   opened_at: string | null;
   /** When the notification was created (ISO 8601) */
   created_at: string;
+  /** Action buttons attached to this notification */
+  actions?: NotificationAction[];
+}
+
+/** Response for POST /api/notifications/badge-sync */
+export interface BadgeSyncResponse {
+  /** Current unread notification count */
+  count: number;
 }
 
 /** Response for GET /api/notifications (feed) */

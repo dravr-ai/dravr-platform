@@ -79,6 +79,7 @@ mod dispatch_tests {
             body: "This is a test notification".to_owned(),
             data: Some(json!({ "screen": "test" })),
             image_url: None,
+            actions: None,
             bypass_frequency_cap: false,
         }
     }
@@ -252,6 +253,7 @@ mod dispatch_tests {
                     body: format!("Body {i}"),
                     data: None,
                     image_url: None,
+                    actions: None,
                 })
                 .await
                 .unwrap();
@@ -359,6 +361,7 @@ mod dispatch_tests {
                     body: format!("Body {i}"),
                     data: None,
                     image_url: None,
+                    actions: None,
                 })
                 .await
                 .unwrap();
@@ -376,6 +379,7 @@ mod dispatch_tests {
                 body: "Body".to_owned(),
                 data: None,
                 image_url: None,
+                actions: None,
             })
             .await
             .unwrap();
@@ -1105,6 +1109,7 @@ mod dispatch_tests {
                 body: "Existing notification".to_owned(),
                 data: None,
                 image_url: None,
+                actions: None,
             })
             .await
             .unwrap();
@@ -1123,6 +1128,7 @@ mod dispatch_tests {
             body: "Regular notification".to_owned(),
             data: None,
             image_url: None,
+            actions: None,
             bypass_frequency_cap: false,
         };
         let regular_outcome = dispatcher.dispatch(&regular_request).await.unwrap();
@@ -1144,6 +1150,7 @@ mod dispatch_tests {
             body: "Bypass notification".to_owned(),
             data: None,
             image_url: None,
+            actions: None,
             bypass_frequency_cap: true,
         };
         let bypass_outcome = dispatcher.dispatch(&bypass_request).await.unwrap();
@@ -1196,6 +1203,7 @@ mod dispatch_tests {
             body: "Should be suppressed by quiet hours".to_owned(),
             data: None,
             image_url: None,
+            actions: None,
             bypass_frequency_cap: true,
         };
         let outcome = dispatcher.dispatch(&request).await.unwrap();
@@ -1248,6 +1256,7 @@ mod dispatch_tests {
             body: "Should be suppressed by disabled category".to_owned(),
             data: None,
             image_url: None,
+            actions: None,
             bypass_frequency_cap: true,
         };
         let outcome = dispatcher.dispatch(&request).await.unwrap();
@@ -1298,6 +1307,7 @@ mod dispatch_tests {
                 body: "Fill cap".to_owned(),
                 data: None,
                 image_url: None,
+                actions: None,
             })
             .await
             .unwrap();

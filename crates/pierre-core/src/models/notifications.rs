@@ -276,6 +276,29 @@ impl From<NotificationPreference> for NotificationPreferenceItem {
     }
 }
 
+/// Type of action a notification button can trigger
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationActionType {
+    /// Navigate to a specific screen
+    OpenScreen,
+    /// Show accept/decline buttons (e.g., friend requests)
+    AcceptDecline,
+    /// Show a quick reply input (e.g., coach messages)
+    QuickReply,
+}
+
+/// An action button attached to a notification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationAction {
+    /// Unique identifier for this action within the notification
+    pub id: String,
+    /// Button label displayed to the user
+    pub title: String,
+    /// Type of action triggered when the button is tapped
+    pub action_type: NotificationActionType,
+}
+
 /// A notification record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
@@ -305,6 +328,8 @@ pub struct Notification {
     pub opened_at: Option<DateTime<Utc>>,
     /// When the user dismissed the notification
     pub dismissed_at: Option<DateTime<Utc>>,
+    /// Action buttons attached to this notification
+    pub actions: Option<Vec<NotificationAction>>,
     /// When the notification was created
     pub created_at: DateTime<Utc>,
 }
@@ -328,6 +353,8 @@ pub struct CreateNotificationParams {
     pub data: Option<serde_json::Value>,
     /// Optional image URL
     pub image_url: Option<String>,
+    /// Action buttons attached to this notification
+    pub actions: Option<Vec<NotificationAction>>,
 }
 
 /// Query parameters for listing notifications
@@ -379,6 +406,9 @@ pub struct NotificationItem {
     pub opened_at: Option<String>,
     /// When the notification was created (RFC3339)
     pub created_at: String,
+    /// Action buttons attached to this notification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<NotificationAction>>,
     /// Number of collapsed notifications (1 = not collapsed, >1 = group representative)
     #[serde(skip_serializing_if = "is_one")]
     pub collapsed_count: u32,
@@ -409,6 +439,7 @@ impl From<Notification> for NotificationItem {
             delivered_at: n.delivered_at.map(|t| t.to_rfc3339()),
             opened_at: n.opened_at.map(|t| t.to_rfc3339()),
             created_at: n.created_at.to_rfc3339(),
+            actions: n.actions,
             collapsed_count: 1,
             collapsed_ids: Vec::new(),
         }

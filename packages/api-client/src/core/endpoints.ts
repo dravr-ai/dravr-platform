@@ -177,6 +177,8 @@ export const ENDPOINTS = {
     DEVICE: (id: string) => `/api/notifications/device/${id}`,
     /** Get/update notification preferences */
     PREFERENCES: '/api/notifications/preferences',
+    /** Sync badge count with server */
+    BADGE_SYNC: '/api/notifications/badge-sync',
   },
 
   // ==================== USER ====================

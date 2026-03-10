@@ -15,6 +15,7 @@ import type {
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
+  BadgeSyncResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -29,6 +30,7 @@ export type {
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
+  BadgeSyncResponse,
 };
 
 /**
@@ -135,6 +137,17 @@ export function createNotificationsApi(axios: AxiosInstance) {
      */
     async deleteNotification(notificationId: string): Promise<void> {
       await axios.delete(ENDPOINTS.NOTIFICATIONS.DELETE(notificationId));
+    },
+
+    // ==================== BADGE SYNC ====================
+
+    /**
+     * Sync badge count with the server.
+     * Returns the current unread notification count for updating the app badge.
+     */
+    async badgeSync(): Promise<BadgeSyncResponse> {
+      const response = await axios.post<BadgeSyncResponse>(ENDPOINTS.NOTIFICATIONS.BADGE_SYNC);
+      return response.data;
     },
   };
 }
