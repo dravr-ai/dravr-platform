@@ -36,12 +36,6 @@ use crate::middleware::{CsrfMiddleware, McpAuthMiddleware};
 use crate::plugins::executor::PluginToolExecutor;
 use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
-#[cfg(feature = "client-notifications")]
-use crate::services::expo_push::ExpoPushService;
-#[cfg(feature = "client-notifications")]
-use crate::services::notification_dispatch::NotificationDispatcher;
-#[cfg(feature = "client-notifications")]
-use crate::services::notification_scheduler::start_notification_scheduler;
 use crate::services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use crate::sse::SseManager;
@@ -64,6 +58,8 @@ use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::SecurityRepository;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::NotificationService;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -200,9 +196,9 @@ pub struct ServerResources {
     /// Multi-channel messaging registry for webhook routing
     #[cfg(feature = "client-messaging")]
     pub messaging_registry: Arc<ChannelRegistry>,
-    /// Central notification dispatch service for intelligence-driven notifications
+    /// Notification service facade for dispatch, scheduling, and persistence
     #[cfg(feature = "client-notifications")]
-    pub notification_dispatcher: Option<Arc<NotificationDispatcher>>,
+    pub notification_service: Option<Arc<NotificationService>>,
     /// Abort handle for the background notification scheduler task
     #[cfg(feature = "client-notifications")]
     pub scheduler_abort_handle: Option<AbortHandle>,
@@ -327,15 +323,13 @@ impl ServerResources {
             warn!("Resend email service not configured — password reset emails will be skipped");
         }
 
-        // Create notification dispatcher and start scheduler if notifications feature is enabled
+        // Create notification service and start scheduler if notifications feature is enabled
         #[cfg(feature = "client-notifications")]
-        let notification_dispatcher = Self::create_notification_dispatcher(database_arc.clone());
+        let notification_service = Self::create_notification_service(&database_arc);
 
-        // Start the background notification scheduler if dispatcher is available
+        // Start the background notification scheduler if service is available
         #[cfg(feature = "client-notifications")]
-        let scheduler_abort_handle = notification_dispatcher
-            .as_ref()
-            .map(|d| start_notification_scheduler(database_arc.clone(), d.clone()));
+        let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 
         // Create and populate tool registry with all built-in tools
         let tool_registry = Arc::new(Self::create_tool_registry());
@@ -378,25 +372,23 @@ impl ServerResources {
             #[cfg(feature = "client-messaging")]
             messaging_registry: Arc::new(ChannelRegistry::new()),
             #[cfg(feature = "client-notifications")]
-            notification_dispatcher,
+            notification_service,
             #[cfg(feature = "client-notifications")]
             scheduler_abort_handle,
         }
     }
 
-    /// Create the notification dispatcher, logging success or failure
+    /// Create the notification service, logging success or failure
     #[cfg(feature = "client-notifications")]
-    fn create_notification_dispatcher(
-        database: Arc<Database>,
-    ) -> Option<Arc<NotificationDispatcher>> {
-        match ExpoPushService::new() {
-            Ok(expo_push) => {
-                let dispatcher = NotificationDispatcher::new(database, Arc::new(expo_push));
-                info!("Notification dispatcher initialized");
-                Some(Arc::new(dispatcher))
+    fn create_notification_service(database: &Arc<Database>) -> Option<Arc<NotificationService>> {
+        let pool = database.sqlite_pool()?.clone();
+        match NotificationService::from_sqlite(pool) {
+            Ok(service) => {
+                info!("Notification service initialized");
+                Some(Arc::new(service))
             }
             Err(e) => {
-                warn!("Failed to initialize notification dispatcher: {e}");
+                warn!("Failed to initialize notification service: {e}");
                 None
             }
         }

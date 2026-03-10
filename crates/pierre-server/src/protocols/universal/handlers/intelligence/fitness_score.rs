@@ -19,8 +19,8 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::mcp::resources::ServerResources, crate::services::notification_triggers,
-    pierre_core::models::TenantId, std::sync::Arc, uuid::Uuid,
+    crate::mcp::resources::ServerResources, pierre_core::models::TenantId,
+    pierre_notifications::triggers as notification_triggers, std::sync::Arc, uuid::Uuid,
 };
 
 /// Information about recovery adjustment applied to fitness score
@@ -582,7 +582,7 @@ fn fire_fitness_improvement_notification(
     tenant_id_str: Option<&str>,
     analysis: &serde_json::Value,
 ) {
-    let Some(dispatcher) = &resources.notification_dispatcher else {
+    let Some(service) = &resources.notification_service else {
         return;
     };
     let Some(tenant_str) = tenant_id_str else {
@@ -599,7 +599,7 @@ fn fire_fitness_improvement_notification(
     // Only trigger when fitness trend is improving and score is meaningful
     if trend == "improving" && score > 0 {
         notification_triggers::trigger_fitness_improvement(
-            dispatcher,
+            service,
             user_id,
             tenant_id,
             "Fitness Score",

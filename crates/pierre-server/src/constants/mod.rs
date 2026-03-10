@@ -846,26 +846,6 @@ pub mod sleep_recovery {
     pub const MINUTES_PER_DAY: i64 = 1440;
 }
 
-/// Push notification configuration
-///
-/// Environment variables:
-/// - `NOTIFICATION_FAN_OUT_PAGE_SIZE` - Page size when fanning out notifications to friends (default: 100)
-/// - `NOTIFICATION_DEFAULT_MAX_PER_DAY` - Default daily notification cap per category (default: 50)
-/// - `NOTIFICATION_MAX_SCHEDULES_PER_USER` - Maximum scheduled notifications per user (default: 20)
-pub mod notifications {
-    /// Page size for friend fan-out queries (e.g., notifying friends of a shared insight)
-    /// Set `NOTIFICATION_FAN_OUT_PAGE_SIZE` to override.
-    pub const FAN_OUT_PAGE_SIZE: i64 = 100;
-
-    /// Default daily cap per notification category when user has no preference set.
-    /// Set `NOTIFICATION_DEFAULT_MAX_PER_DAY` to override.
-    pub const DEFAULT_MAX_PER_DAY: i64 = 50;
-
-    /// Maximum scheduled notifications a user can create within a tenant.
-    /// Set `NOTIFICATION_MAX_SCHEDULES_PER_USER` to override.
-    pub const MAX_SCHEDULES_PER_USER: i64 = 20;
-}
-
 /// Self-service password reset flow configuration
 pub mod password_reset {
     /// Code expires after 15 minutes (shorter than admin-issued 1-hour tokens)

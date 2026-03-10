@@ -1,0 +1,37 @@
+# ABOUTME: Push notification service crate with SQLite and PostgreSQL backends
+# ABOUTME: Provides NotificationService facade encapsulating persistence, dispatch, and scheduling
+
+[package]
+name = "pierre-notifications"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Push notification service for Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[features]
+default = ["sqlite"]
+sqlite = ["sqlx/sqlite"]
+postgresql = ["sqlx/postgres"]
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
+
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "chrono", "uuid"], default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.15"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+tracing = "0.1"
+async-trait = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
+[lints]
+workspace = true

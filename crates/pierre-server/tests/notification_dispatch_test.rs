@@ -25,12 +25,11 @@ mod dispatch_tests {
         CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
     };
     use pierre_core::models::TenantId;
-    use pierre_database::repositories::{PushNotificationRepository, TenantRepository};
-    use pierre_mcp_server::services_notifications::expo_push::ExpoPushService;
-    use pierre_mcp_server::services_notifications::notification_dispatch::{
-        DispatchOutcome, DispatchRequest, NotificationDispatcher, SuppressionReason,
+    use pierre_database::repositories::TenantRepository;
+    use pierre_notifications::{
+        triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
+        SuppressionReason,
     };
-    use pierre_mcp_server::services_notifications::notification_triggers;
     use serde_json::json;
     use std::sync::Arc;
     use tokio::time::{sleep, Duration};
@@ -40,7 +39,7 @@ mod dispatch_tests {
     // Setup helpers
     // ════════════════════════════════════════════════════════════════
 
-    async fn setup_dispatcher() -> (Arc<NotificationDispatcher>, Uuid, TenantId) {
+    async fn setup_service() -> (Arc<NotificationService>, Uuid, TenantId) {
         let resources = create_test_server_resources().await.unwrap();
         let (user, _token) = create_test_tenant(&resources, "dispatch_test@example.com")
             .await
@@ -50,19 +49,13 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        // Use the dispatcher from resources if available, else create a new one
-        let dispatcher = resources
-            .notification_dispatcher
-            .clone()
-            .unwrap_or_else(|| {
-                let expo_push = ExpoPushService::new().unwrap();
-                Arc::new(NotificationDispatcher::new(
-                    Arc::clone(&resources.database),
-                    Arc::new(expo_push),
-                ))
-            });
+        // Use the notification service from resources if available, else create a new one
+        let service = resources.notification_service.clone().unwrap_or_else(|| {
+            let pool = resources.database.sqlite_pool().unwrap().clone();
+            Arc::new(NotificationService::from_sqlite(pool).unwrap())
+        });
 
-        (dispatcher, user.id, tenant_id)
+        (service, user.id, tenant_id)
     }
 
     fn make_test_request(
@@ -90,10 +83,10 @@ mod dispatch_tests {
 
     #[tokio::test]
     async fn test_dispatch_persists_notification_no_devices() {
-        let (dispatcher, user_id, tenant_id) = setup_dispatcher().await;
+        let (service, user_id, tenant_id) = setup_service().await;
 
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Training);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         // No device tokens registered, so notification is persisted but not pushed
         match outcome {
@@ -106,23 +99,19 @@ mod dispatch_tests {
 
     #[tokio::test]
     async fn test_dispatch_creates_notification_record() {
-        let (dispatcher, user_id, tenant_id) = setup_dispatcher().await;
+        let (service, user_id, tenant_id) = setup_service().await;
 
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Recovery);
-        dispatcher.dispatch(&request).await.unwrap();
+        service.dispatch(&request).await.unwrap();
 
-        // Verify the notification was persisted in the database
-        let resources = create_test_server_resources().await.unwrap();
-        let (_notifications, _total, _unread) = resources
-            .database
+        // Verify the notification was persisted via the same service
+        let (notifications, total, _unread) = service
             .list_notifications(user_id, tenant_id, 10, 0, None, false)
             .await
             .unwrap();
 
-        // Notification created by this dispatcher call
-        // (may be empty since we re-created resources, which creates a new DB)
-        // Instead check via the dispatcher's own database
-        // The key thing is dispatch() didn't error - it persisted successfully
+        assert!(total >= 1, "Dispatch should persist a notification record");
+        assert!(!notifications.is_empty());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -138,9 +127,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Disable the training category
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -155,12 +146,8 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -179,9 +166,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Disable SOCIAL category
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -196,13 +185,9 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         // Send a TRAINING notification — should NOT be suppressed
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         match outcome {
             DispatchOutcome::PersistedNoDevices { .. } | DispatchOutcome::Delivered { .. } => {
@@ -223,9 +208,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Set max_per_day = 2 for training
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -242,8 +229,7 @@ mod dispatch_tests {
 
         // Create 2 notifications to exhaust the cap
         for i in 0..2 {
-            resources
-                .database
+            service
                 .create_notification(&CreateNotificationParams {
                     user_id: user.id,
                     tenant_id,
@@ -259,13 +245,9 @@ mod dispatch_tests {
                 .unwrap();
         }
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         // Third dispatch should be suppressed by frequency cap
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -277,11 +259,11 @@ mod dispatch_tests {
 
     #[tokio::test]
     async fn test_dispatch_no_preference_defaults_to_enabled() {
-        let (dispatcher, user_id, tenant_id) = setup_dispatcher().await;
+        let (service, user_id, tenant_id) = setup_service().await;
 
         // No preferences set — defaults should allow delivery
         let request = make_test_request(user_id, tenant_id, NotificationCategory::Achievement);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         // Should be persisted (no devices, but not suppressed)
         assert!(
@@ -303,9 +285,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Set quiet hours that cover the entire day (00:00 - 23:59) — always quiet
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -320,12 +304,8 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Training);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
 
         match outcome {
             DispatchOutcome::Suppressed(reason) => {
@@ -348,10 +328,12 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Create 3 training notifications
         for i in 0..3 {
-            resources
-                .database
+            service
                 .create_notification(&CreateNotificationParams {
                     user_id: user.id,
                     tenant_id,
@@ -368,8 +350,7 @@ mod dispatch_tests {
         }
 
         // Create 1 recovery notification
-        resources
-            .database
+        service
             .create_notification(&CreateNotificationParams {
                 user_id: user.id,
                 tenant_id,
@@ -387,16 +368,14 @@ mod dispatch_tests {
         let since = chrono::Utc::now() - chrono::Duration::hours(1);
 
         // Count training notifications
-        let training_count = resources
-            .database
+        let training_count = service
             .count_notifications_since(user.id, tenant_id, "training", since)
             .await
             .unwrap();
         assert_eq!(training_count, 3, "Should count 3 training notifications");
 
         // Count recovery notifications
-        let recovery_count = resources
-            .database
+        let recovery_count = service
             .count_notifications_since(user.id, tenant_id, "recovery", since)
             .await
             .unwrap();
@@ -404,8 +383,7 @@ mod dispatch_tests {
 
         // Count with a future timestamp (should be 0)
         let future_since = chrono::Utc::now() + chrono::Duration::hours(1);
-        let future_count = resources
-            .database
+        let future_count = service
             .count_notifications_since(user.id, tenant_id, "training", future_since)
             .await
             .unwrap();
@@ -425,15 +403,12 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         // Fire the trigger — it's async fire-and-forget
         notification_triggers::trigger_activity_synced(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "activity_123",
@@ -446,8 +421,7 @@ mod dispatch_tests {
         sleep(Duration::from_millis(200)).await;
 
         // Check that a notification was created
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("training"), false)
             .await
             .unwrap();
@@ -471,18 +445,14 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
-        notification_triggers::trigger_training_load_alert(&dispatcher, user.id, tenant_id, 85.0);
+        notification_triggers::trigger_training_load_alert(&service, user.id, tenant_id, 85.0);
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("training"), false)
             .await
             .unwrap();
@@ -501,18 +471,14 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
-        notification_triggers::trigger_low_recovery_score(&dispatcher, user.id, tenant_id, 32.0);
+        notification_triggers::trigger_low_recovery_score(&service, user.id, tenant_id, 32.0);
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("recovery"), false)
             .await
             .unwrap();
@@ -531,18 +497,14 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
-        notification_triggers::trigger_overtraining_warning(&dispatcher, user.id, tenant_id);
+        notification_triggers::trigger_overtraining_warning(&service, user.id, tenant_id);
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("recovery"), false)
             .await
             .unwrap();
@@ -560,14 +522,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_personal_record(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "activity_456",
@@ -577,8 +536,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
             .await
             .unwrap();
@@ -598,24 +556,16 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_milestone_reached(
-            &dispatcher,
-            user.id,
-            tenant_id,
-            "1,000",
-            "km",
+            &service, user.id, tenant_id, "1,000", "km",
         );
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
             .await
             .unwrap();
@@ -635,24 +585,16 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_fitness_improvement(
-            &dispatcher,
-            user.id,
-            tenant_id,
-            "FTP",
-            "265W",
+            &service, user.id, tenant_id, "FTP", "265W",
         );
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
             .await
             .unwrap();
@@ -682,33 +624,23 @@ mod dispatch_tests {
         let tenants_b = resources.database.list_for_user(user_b.id).await.unwrap();
         let tenant_id_b = tenants_b[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         // Dispatch to user A
-        notification_triggers::trigger_training_load_alert(
-            &dispatcher,
-            user_a.id,
-            tenant_id_a,
-            90.0,
-        );
+        notification_triggers::trigger_training_load_alert(&service, user_a.id, tenant_id_a, 90.0);
 
         sleep(Duration::from_millis(200)).await;
 
         // User A should have the notification
-        let (notifs_a, _total_a, _unread_a) = resources
-            .database
+        let (notifs_a, _total_a, _unread_a) = service
             .list_notifications(user_a.id, tenant_id_a, 10, 0, None, false)
             .await
             .unwrap();
         assert_eq!(notifs_a.len(), 1, "User A should have 1 notification");
 
         // User B should NOT have any notifications
-        let (notifs_b, _total_b, _unread_b) = resources
-            .database
+        let (notifs_b, _total_b, _unread_b) = service
             .list_notifications(user_b.id, tenant_id_b, 10, 0, None, false)
             .await
             .unwrap();
@@ -732,9 +664,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Disable achievement category
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -749,20 +683,15 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         let request = make_test_request(user.id, tenant_id, NotificationCategory::Achievement);
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
         assert!(matches!(
             outcome,
             DispatchOutcome::Suppressed(SuppressionReason::CategoryDisabled)
         ));
 
         // Verify no notification was created
-        let (notifications, total, _unread) = resources
-            .database
+        let (notifications, total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("achievement"), false)
             .await
             .unwrap();
@@ -783,14 +712,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_friend_request_received(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "req-123",
@@ -799,8 +725,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
             .await
             .unwrap();
@@ -827,14 +752,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_friend_request_accepted(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "Bob Cyclist",
@@ -842,8 +764,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
             .await
             .unwrap();
@@ -869,14 +790,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_activity_kudos(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "insight-456",
@@ -886,8 +804,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
             .await
             .unwrap();
@@ -911,14 +828,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_insight_shared(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "insight-789",
@@ -927,8 +841,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("social"), false)
             .await
             .unwrap();
@@ -955,14 +868,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_coach_message(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "conv-001",
@@ -971,8 +881,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
             .await
             .unwrap();
@@ -995,14 +904,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_plan_updated(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "Endurance Coach",
@@ -1010,8 +916,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
             .await
             .unwrap();
@@ -1034,14 +939,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
 
         notification_triggers::trigger_coach_feedback(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "activity-789",
@@ -1051,8 +953,7 @@ mod dispatch_tests {
 
         sleep(Duration::from_millis(200)).await;
 
-        let (notifications, _total, _unread) = resources
-            .database
+        let (notifications, _total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
             .await
             .unwrap();
@@ -1080,9 +981,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Set max_per_day = 1 for coach category
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -1098,8 +1001,7 @@ mod dispatch_tests {
             .unwrap();
 
         // Create 1 notification to exhaust the cap
-        resources
-            .database
+        service
             .create_notification(&CreateNotificationParams {
                 user_id: user.id,
                 tenant_id,
@@ -1114,10 +1016,6 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         // Regular request (no bypass) should be suppressed
         let regular_request = DispatchRequest {
             user_id: user.id,
@@ -1131,7 +1029,7 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: false,
         };
-        let regular_outcome = dispatcher.dispatch(&regular_request).await.unwrap();
+        let regular_outcome = service.dispatch(&regular_request).await.unwrap();
         assert!(
             matches!(
                 regular_outcome,
@@ -1153,7 +1051,7 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let bypass_outcome = dispatcher.dispatch(&bypass_request).await.unwrap();
+        let bypass_outcome = service.dispatch(&bypass_request).await.unwrap();
         assert!(
             !matches!(
                 bypass_outcome,
@@ -1172,9 +1070,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Set quiet hours that cover the entire day (always quiet)
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -1189,10 +1089,6 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         // Even with bypass_frequency_cap, quiet hours should still suppress
         let request = DispatchRequest {
             user_id: user.id,
@@ -1206,7 +1102,7 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
         assert!(
             matches!(
                 outcome,
@@ -1225,9 +1121,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Disable the coach category
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -1242,10 +1140,6 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher =
-            NotificationDispatcher::new(Arc::clone(&resources.database), Arc::new(expo_push));
-
         // Even with bypass_frequency_cap, category disabled should still suppress
         let request = DispatchRequest {
             user_id: user.id,
@@ -1259,7 +1153,7 @@ mod dispatch_tests {
             actions: None,
             bypass_frequency_cap: true,
         };
-        let outcome = dispatcher.dispatch(&request).await.unwrap();
+        let outcome = service.dispatch(&request).await.unwrap();
         assert!(
             matches!(
                 outcome,
@@ -1278,9 +1172,11 @@ mod dispatch_tests {
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = Arc::new(NotificationService::from_sqlite(pool).unwrap());
+
         // Set max_per_day = 1 for coach
-        resources
-            .database
+        service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
                 tenant_id,
@@ -1296,8 +1192,7 @@ mod dispatch_tests {
             .unwrap();
 
         // Create 1 notification to exhaust the cap
-        resources
-            .database
+        service
             .create_notification(&CreateNotificationParams {
                 user_id: user.id,
                 tenant_id,
@@ -1312,15 +1207,9 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let expo_push = ExpoPushService::new().unwrap();
-        let dispatcher = Arc::new(NotificationDispatcher::new(
-            Arc::clone(&resources.database),
-            Arc::new(expo_push),
-        ));
-
         // Coach triggers use bypass_frequency_cap: true, so should deliver despite cap
         notification_triggers::trigger_coach_message(
-            &dispatcher,
+            &service,
             user.id,
             tenant_id,
             "conv-bypass",
@@ -1330,8 +1219,7 @@ mod dispatch_tests {
         sleep(Duration::from_millis(200)).await;
 
         // Should have 2 notifications total (fill + coach trigger)
-        let (notifications, total, _unread) = resources
-            .database
+        let (notifications, total, _unread) = service
             .list_notifications(user.id, tenant_id, 10, 0, Some("coach"), false)
             .await
             .unwrap();

@@ -16,8 +16,6 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[cfg(feature = "client-notifications")]
-use crate::services::notification_triggers;
 use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
@@ -26,6 +24,8 @@ use crate::{
 };
 use pierre_core::models::TenantId;
 use pierre_database::database::repositories::UserRepository;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
 
 use super::{SocialMetadata, SocialRoutes};
 
@@ -308,14 +308,14 @@ impl SocialRoutes {
 
         // Fire-and-forget notification to the receiver
         #[cfg(feature = "client-notifications")]
-        if let Some(dispatcher) = &resources.notification_dispatcher {
+        if let Some(service) = &resources.notification_service {
             if let Some(tenant_uuid) = auth.active_tenant_id {
                 let sender_user = resources.database.get_global(auth.user_id).await?;
                 let sender_name = sender_user
                     .and_then(|u| u.display_name)
                     .unwrap_or_else(|| "Someone".to_owned());
                 notification_triggers::trigger_friend_request_received(
-                    dispatcher,
+                    service,
                     receiver_id,
                     TenantId::from(tenant_uuid),
                     &result.connection.id.to_string(),
@@ -438,14 +438,14 @@ impl SocialRoutes {
 
         // Fire-and-forget notification to the original requester
         #[cfg(feature = "client-notifications")]
-        if let Some(dispatcher) = &resources.notification_dispatcher {
+        if let Some(service) = &resources.notification_service {
             if let Some(tenant_uuid) = auth.active_tenant_id {
                 let accepter_user = resources.database.get_global(auth.user_id).await?;
                 let accepter_name = accepter_user
                     .and_then(|u| u.display_name)
                     .unwrap_or_else(|| "Someone".to_owned());
                 notification_triggers::trigger_friend_request_accepted(
-                    dispatcher,
+                    service,
                     connection.initiator_id,
                     TenantId::from(tenant_uuid),
                     &accepter_name,
