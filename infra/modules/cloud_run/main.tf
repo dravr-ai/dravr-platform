@@ -2,15 +2,15 @@
 # ABOUTME: Supports VPC connector, Cloud SQL, secret env vars, and health probes
 
 resource "google_cloud_run_v2_service" "service" {
-  name     = var.service_name
-  project  = var.project_id
-  location = var.region
-  ingress  = var.ingress
-
-  labels = var.labels
+  name                = var.service_name
+  project             = var.project_id
+  location            = var.region
+  ingress             = var.ingress
+  deletion_protection = false
+  labels              = var.labels
 
   template {
-    service_account      = var.service_account_email
+    service_account       = var.service_account_email
     execution_environment = var.execution_environment
 
     scaling {
