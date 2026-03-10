@@ -29,7 +29,7 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 # Security: Explicit permissions following principle of least privilege
