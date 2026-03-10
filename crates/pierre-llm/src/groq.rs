@@ -699,6 +699,7 @@ impl LlmProvider for GroqProvider {
                 }),
                 finish_reason: choice.finish_reason,
                 warnings: None,
+                tool_calls: None,
             });
         }
 

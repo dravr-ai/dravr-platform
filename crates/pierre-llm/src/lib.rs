@@ -49,15 +49,13 @@ mod provider;
 pub mod sse_parser;
 
 pub use cli_llm_provider::{CliLlmProvider, ProviderReadiness};
-pub use embacle::{
-    convert_function_declarations, extract_declarations_from_tool_value, ToolHandler,
-    ToolResultObject,
-};
 pub use embacle::{AgentExecutor, AgentResult, FallbackProvider, MetricsProvider};
 pub use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
     CopilotRunner, CursorAgentRunner, GeminiCliRunner, GooseCliRunner, OpenCodeRunner,
+    WarpCliRunner,
 };
+pub use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner, HeadlessToolResponse};
 pub use embacle::{McpToolDefinition, McpToolExecutor, QualityGateProvider};
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,

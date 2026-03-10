@@ -230,8 +230,16 @@ async fn test_cursor_agent_runner_handles_error() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_opencode_runner_parses_json_response() {
-    let json = r#"{"type":"result","subtype":"success","is_error":false,"result":"OpenCode here!","session_id":"oc-789","usage":{"input_tokens":15,"output_tokens":12}}"#;
-    let script = create_mock_cli_script("opencode", &format!("echo '{json}'"));
+    // OpenCode 0.8.0+ uses NDJSON: one "text" line and one "step_finish" line
+    let ndjson = r#"{"type":"text","part":{"text":"OpenCode here!"},"sessionID":"oc-789"}
+{"type":"step_finish","part":{"reason":"stop","tokens":{"input":15,"output":12}}}"#;
+    let script = create_mock_cli_script(
+        "opencode",
+        &format!(
+            "printf '%s\\n' '{}'",
+            ndjson.replace('\n', "'\nprintf '%s\\n' '")
+        ),
+    );
     let config = RunnerConfig::new(script.clone());
     let runner = OpenCodeRunner::new(config);
 
@@ -250,8 +258,8 @@ async fn test_opencode_runner_parses_json_response() {
 #[cfg(unix)]
 #[tokio::test]
 async fn test_opencode_runner_handles_error() {
-    let json = r#"{"type":"result","subtype":"error","is_error":true,"result":"API key invalid"}"#;
-    let script = create_mock_cli_script("opencode", &format!("echo '{json}'"));
+    // OpenCode 0.8.0+ errors are signaled by non-zero exit code with stderr output
+    let script = create_mock_cli_script("opencode", "echo 'API key invalid' >&2; exit 1");
     let config = RunnerConfig::new(script.clone());
     let runner = OpenCodeRunner::new(config);
 

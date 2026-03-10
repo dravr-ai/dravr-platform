@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use embacle::CopilotSdkConfig;
+use embacle::CopilotHeadlessConfig;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt::{Display, Formatter, Result as FmtResult};
@@ -28,8 +28,10 @@ pub enum LlmProviderType {
     OpenCode,
     /// GitHub Copilot CLI provider - subprocess-based GitHub Copilot
     Copilot,
-    /// GitHub Copilot SDK provider - native JSON-RPC via `copilot --headless`
-    CopilotSdk,
+    /// GitHub Copilot Headless provider - ACP via `copilot --acp`
+    CopilotHeadless,
+    /// Warp terminal `oz` CLI provider
+    WarpCli,
     /// Gemini CLI provider - subprocess-based Google Gemini
     GeminiCli,
     /// Codex CLI provider - subprocess-based `OpenAI` Codex
@@ -56,7 +58,8 @@ impl LlmProviderType {
             "cursor_agent" | "cursor-agent" => Self::CursorAgent,
             "opencode" | "open_code" => Self::OpenCode,
             "copilot" | "github_copilot" | "github-copilot" => Self::Copilot,
-            "copilot_sdk" | "copilot-sdk" => Self::CopilotSdk,
+            "copilot_headless" | "copilot-headless" => Self::CopilotHeadless,
+            "warp_cli" | "warp-cli" | "warp" | "oz" => Self::WarpCli,
             "gemini_cli" | "gemini-cli" => Self::GeminiCli,
             "codex_cli" | "codex-cli" | "codex" => Self::CodexCli,
             "goose_cli" | "goose-cli" | "goose" => Self::GooseCli,
@@ -144,8 +147,8 @@ impl LlmProviderType {
 
         // Provider-specific defaults when PIERRE_LLM_MODEL is not set
         match self {
-            // CopilotSdkConfig reads COPILOT_SDK_MODEL with its built-in default
-            Self::CopilotSdk => Some(CopilotSdkConfig::from_env().model),
+            // CopilotHeadlessConfig reads COPILOT_HEADLESS_MODEL with its built-in default
+            Self::CopilotHeadless => Some(CopilotHeadlessConfig::from_env().model),
             // CLI runners pick their default model internally in new().
             // These fallbacks are only used for the conversation DB label when
             // RunnerConfig.model is None (no env override).
@@ -155,7 +158,7 @@ impl LlmProviderType {
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
             Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),
             Self::CodexCli => Some("codex-mini".to_owned()),
-            Self::GooseCli | Self::ClineCli | Self::ContinueCli => {
+            Self::GooseCli | Self::ClineCli | Self::ContinueCli | Self::WarpCli => {
                 Some("claude-sonnet-4".to_owned())
             }
             Self::Gemini | Self::Groq | Self::Local => unreachable!(),
@@ -218,7 +221,8 @@ impl Display for LlmProviderType {
             Self::CursorAgent => write!(f, "cursor_agent"),
             Self::OpenCode => write!(f, "opencode"),
             Self::Copilot => write!(f, "copilot"),
-            Self::CopilotSdk => write!(f, "copilot_sdk"),
+            Self::CopilotHeadless => write!(f, "copilot_headless"),
+            Self::WarpCli => write!(f, "warp_cli"),
             Self::GeminiCli => write!(f, "gemini_cli"),
             Self::CodexCli => write!(f, "codex_cli"),
             Self::GooseCli => write!(f, "goose_cli"),
