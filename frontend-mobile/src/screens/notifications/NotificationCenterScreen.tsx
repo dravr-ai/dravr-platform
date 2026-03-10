@@ -77,10 +77,12 @@ function formatRelativeTime(dateStr: string): string {
 function NotificationRow({
   item,
   onPress,
+  onAction,
   onDelete,
 }: {
   item: NotificationItem;
   onPress: (item: NotificationItem) => void;
+  onAction: (item: NotificationItem, actionId: string) => void;
   onDelete: (id: string) => void;
 }) {
   const isUnread = !item.read_at;
@@ -135,7 +137,7 @@ function NotificationRow({
                 key={action.id}
                 className="px-3 py-1.5 rounded-md"
                 style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}
-                onPress={() => onPress(item)}
+                onPress={() => onAction(item, action.id)}
                 testID={`action-${action.id}`}
               >
                 <Text className="text-xs font-medium" style={{ color: '#A78BFA' }}>
@@ -179,6 +181,18 @@ export function NotificationCenterScreen() {
     // Deep-link routing based on notification data
     if (item.data?.route && typeof item.data.route === 'string') {
       router.push(item.data.route as never);
+    }
+  }, [markAsRead, router]);
+
+  const handleAction = useCallback((item: NotificationItem, actionId: string) => {
+    if (!item.read_at) {
+      markAsRead(item.id);
+    }
+    // Route to the screen specified in data with the action context
+    const data = item.data as Record<string, string> | undefined;
+    const screen = data?.screen;
+    if (screen) {
+      router.push({ pathname: `/${screen}` as never, params: { action: actionId, id: data?.id } });
     }
   }, [markAsRead, router]);
 
@@ -285,6 +299,7 @@ export function NotificationCenterScreen() {
               key={item.id}
               item={item}
               onPress={handleNotificationPress}
+              onAction={handleAction}
               onDelete={handleDelete}
             />
           ))

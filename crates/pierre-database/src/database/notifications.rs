@@ -15,6 +15,7 @@ use pierre_core::models::notifications::{
 use pierre_core::models::TenantId;
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
+use tracing::warn;
 use uuid::Uuid;
 
 use super::Database;
@@ -171,7 +172,11 @@ fn parse_notification_row(row: &SqliteRow) -> AppResult<Notification> {
         delivered_at: delivered_at_str.as_deref().and_then(parse_dt),
         opened_at: opened_at_str.as_deref().and_then(parse_dt),
         dismissed_at: dismissed_at_str.as_deref().and_then(parse_dt),
-        actions: actions_str.and_then(|s| serde_json::from_str::<Vec<NotificationAction>>(&s).ok()),
+        actions: actions_str.and_then(|s| {
+            serde_json::from_str::<Vec<NotificationAction>>(&s).map_err(|e| {
+                warn!(error = %e, "Malformed actions JSON in notification row, treating as None");
+            }).ok()
+        }),
         created_at: parse_dt(&created_at_str).unwrap_or_else(Utc::now),
     })
 }
