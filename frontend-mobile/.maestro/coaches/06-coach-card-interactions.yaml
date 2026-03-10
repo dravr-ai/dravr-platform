@@ -71,12 +71,24 @@ appId: com.pierre.fitness
     end: "50%,48%"
     duration: 5000
 
-# Navigate to coaches tab explicitly. router.replace is unreliable on iOS
-# in Expo Go — sometimes the navigation doesn't fire. Tapping the tab
-# button works regardless of router state. If router.replace already
-# navigated to the library, tapping the coaches tab is a no-op.
+# router.replace('/(app)/(tabs)/(coaches)') is unreliable on iOS Expo Go.
+# If it fired, we're on the library. If not, we're still on the editor.
+# Tapping tab-coaches is a no-op when already inside the (coaches) group
+# (ExpandableTabBar.handleTabPress skips navigation when activeIndex matches),
+# so we use back-button to pop the editor from the stack instead.
 - runFlow:
-    file: ../helpers/navigate-to-coaches.yaml
+    when:
+      visible:
+        id: "coach-editor-screen"
+    commands:
+      - tapOn:
+          id: "back-button"
+
+# Wait for coach library screen
+- extendedWaitUntil:
+    visible:
+      id: "coach-library-screen"
+    timeout: 15000
 
 # Filter to user-created coaches for faster FlashList rendering
 - tapOn:

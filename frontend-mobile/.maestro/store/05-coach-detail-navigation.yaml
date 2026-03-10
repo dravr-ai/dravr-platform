@@ -36,8 +36,12 @@ appId: com.pierre.fitness
             id: "store-coach-detail-screen"
           timeout: 5000
 
-      # Verify detail elements
-      - assertVisible: "Install Coach"
+      # Wait for coach detail data to load. The screen testID appears on
+      # mount, but the Install button renders only after async fetch of
+      # coach detail and installation status completes.
+      - extendedWaitUntil:
+          visible: "Install Coach"
+          timeout: 15000
 
       # Navigate back
       - tapOn:
