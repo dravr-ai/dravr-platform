@@ -280,6 +280,17 @@ if [ "$IMPLEMENTATION_PLACEHOLDERS" -gt 0 ]; then
     fail_validation "Placeholder implementations must be completed"
 fi
 
+# Structural check: PostgreSQL factory stubs that return hardcoded errors instead of real implementations
+# Detects any PostgreSQL(_db) => Err(...) arm — regardless of the error message text.
+# A real PG implementation calls db.method(), it never returns a static Err().
+echo -e "${BLUE}Checking for PostgreSQL factory stubs...${NC}"
+PG_FACTORY_STUBS=$(rg -U 'PostgreSQL\(_\w+\)\s*=>\s*Err\(' crates/*/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$PG_FACTORY_STUBS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $PG_FACTORY_STUBS PostgreSQL factory stubs (return Err instead of real implementation)${NC}"
+    rg -U 'PostgreSQL\(_\w+\)\s*=>\s*Err\(' crates/*/src/ -n | head -10
+    fail_validation "PostgreSQL factory arms must have real implementations, not error stubs"
+fi
+
 # Placeholder test bodies in JS/TS test files
 # Detects tests that only log messages or have comment-only bodies instead of real assertions
 echo -e "${BLUE}Checking for placeholder test implementations in JS/TS...${NC}"
@@ -719,6 +730,14 @@ if [ "$IMPLEMENTATION_PLACEHOLDERS" -eq 0 ]; then
 else
     FIRST_PLACEHOLDER=$(get_first_location 'rg -i "$CRITICAL_PATTERNS" crates/pierre-server/src/ -n')
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PLACEHOLDER"
+fi
+
+printf "│ %-35s │ %5d │ " "PostgreSQL factory stubs" "$PG_FACTORY_STUBS"
+if [ "$PG_FACTORY_STUBS" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "All PG arms have real implementations"
+else
+    FIRST_PG_STUB=$(get_first_location 'rg -U "PostgreSQL\(_\w+\)\s*=>\s*Err\(" crates/*/src/ -n')
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_PG_STUB"
 fi
 
 printf "│ %-35s │ %5d │ " "JS/TS test placeholders" "$JS_PLACEHOLDER_TESTS"
