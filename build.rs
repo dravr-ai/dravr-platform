@@ -12,7 +12,7 @@
 //! `sdk/dist/cli.js` to exist. Since `sdk/dist/` is gitignored (build artifacts
 //! shouldn't be committed), local developers would need to manually run:
 //! ```bash
-//! cd sdk && npm install && npm run build
+//! cd sdk && bun install && bun run build
 //! ```
 //!
 //! This build script automates that process, ensuring the SDK is always available.
@@ -49,18 +49,18 @@ fn main() {
     if should_build && sdk_path.exists() {
         println!("cargo:warning=Building TypeScript SDK (required for E2E tests)...");
 
-        // Check if npm is available
-        let npm_check = if cfg!(target_os = "windows") {
+        // Check if bun is available
+        let bun_check = if cfg!(target_os = "windows") {
             Command::new("cmd")
-                .args(["/C", "npm", "--version"])
+                .args(["/C", "bun", "--version"])
                 .output()
         } else {
-            Command::new("npm").arg("--version").output()
+            Command::new("bun").arg("--version").output()
         };
 
-        if npm_check.is_err() {
-            println!("cargo:warning=npm not found - skipping SDK build");
-            println!("cargo:warning=Install Node.js to enable SDK-dependent tests");
+        if bun_check.is_err() {
+            println!("cargo:warning=bun not found - skipping SDK build");
+            println!("cargo:warning=Install bun to enable SDK-dependent tests");
             return;
         }
 
@@ -70,11 +70,11 @@ fn main() {
             println!("cargo:warning=Installing SDK dependencies...");
             let install_status = if cfg!(target_os = "windows") {
                 Command::new("cmd")
-                    .args(["/C", "npm", "install"])
+                    .args(["/C", "bun", "install"])
                     .current_dir(sdk_path)
                     .status()
             } else {
-                Command::new("npm")
+                Command::new("bun")
                     .arg("install")
                     .current_dir(sdk_path)
                     .status()
@@ -86,13 +86,13 @@ fn main() {
                 }
                 Ok(status) => {
                     println!(
-                        "cargo:warning=SDK dependency installation failed with exit code: {status}"
+                        "cargo:warning=SDK dependency install failed with exit code: {status}"
                     );
                     println!("cargo:warning=Some tests may fail without SDK");
                     return;
                 }
                 Err(e) => {
-                    println!("cargo:warning=Failed to run npm install: {e}");
+                    println!("cargo:warning=Failed to run bun install: {e}");
                     println!("cargo:warning=Some tests may fail without SDK");
                     return;
                 }
@@ -103,11 +103,11 @@ fn main() {
         println!("cargo:warning=Compiling TypeScript SDK...");
         let build_status = if cfg!(target_os = "windows") {
             Command::new("cmd")
-                .args(["/C", "npm", "run", "build"])
+                .args(["/C", "bun", "run", "build"])
                 .current_dir(sdk_path)
                 .status()
         } else {
-            Command::new("npm")
+            Command::new("bun")
                 .args(["run", "build"])
                 .current_dir(sdk_path)
                 .status()
@@ -122,12 +122,12 @@ fn main() {
                 println!("cargo:warning=Some E2E tests may fail");
             }
             Err(e) => {
-                println!("cargo:warning=Failed to run npm build: {e}");
+                println!("cargo:warning=Failed to run bun build: {e}");
                 println!("cargo:warning=Some E2E tests may fail");
             }
         }
     } else if cli_js.exists() {
-        println!("cargo:warning=SDK already built (sdk/dist/cli.js exists)");
+        // SDK already built — no warning needed, this is the normal state
     } else {
         println!("cargo:warning=SDK directory not found - skipping SDK build");
     }
