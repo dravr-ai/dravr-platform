@@ -199,6 +199,48 @@ check_license_headers() {
     return 0
 }
 
+# Check staged .tfvars files for sensitive-looking hardcoded values
+check_tfvars_secrets() {
+    # Get staged .tfvars files (excluding .tfvars.example)
+    local staged_tfvars
+    staged_tfvars=$(git diff --cached --name-only --diff-filter=ACM | grep '\.tfvars$' | grep -v '\.example$' || true)
+
+    if [ -z "$staged_tfvars" ]; then
+        return 0
+    fi
+
+    local failed=0
+
+    # Patterns that indicate a sensitive value is hardcoded
+    # Matches: key = "non-empty-value" or key = 'value'
+    local sensitive_keys="password|secret|api_key|private_key|token|credential|auth_token|access_key|client_secret"
+
+    while IFS= read -r file; do
+        # Check staged content (not working tree) for sensitive key=value pairs
+        local matches
+        matches=$(git diff --cached -- "$file" | grep '^+' | grep -v '^+++' \
+            | grep -iE "^\+[[:space:]]*(${sensitive_keys})[[:space:]]*=" \
+            | grep -v '=\s*""' \
+            | grep -v '=\s*null' \
+            | grep -v '#' || true)
+
+        if [ -n "$matches" ]; then
+            echo "❌ ERROR: Commit blocked - $file contains sensitive-looking values:"
+            echo "$matches" | head -5 | sed 's/^/    /'
+            failed=1
+        fi
+    done <<< "$staged_tfvars"
+
+    if [ "$failed" -eq 1 ]; then
+        echo ""
+        echo "  Secrets must not be stored in .tfvars files."
+        echo "  Use GCP Secret Manager or GitHub Secrets instead."
+        return 1
+    fi
+
+    return 0
+}
+
 # Main execution
 main() {
     local checks_passed=true
@@ -225,6 +267,10 @@ main() {
     fi
 
     if ! check_sdk_lint; then
+        checks_passed=false
+    fi
+
+    if ! check_tfvars_secrets; then
         checks_passed=false
     fi
 

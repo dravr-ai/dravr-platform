@@ -196,7 +196,7 @@ module "frontend" {
 
   container_port    = 8080
   cpu               = "1"
-  memory            = "256Mi"
+  memory            = "1Gi"
   cpu_idle          = true
   startup_cpu_boost = false
   min_instances     = var.frontend_min_instances
