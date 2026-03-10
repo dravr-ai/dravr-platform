@@ -23,7 +23,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 #[cfg(feature = "client-notifications")]
-use crate::{constants::notifications as notif_constants, services::notification_triggers};
+use pierre_notifications::{constants as notif_constants, triggers as notification_triggers};
 
 use crate::{
     config::{environment::default_provider, social},
@@ -574,7 +574,7 @@ impl SocialRoutes {
         // Notify connected friends about the shared insight (both FriendsOnly and Public)
         #[cfg(feature = "client-notifications")]
         {
-            if let Some(dispatcher) = &resources.notification_dispatcher {
+            if let Some(service) = &resources.notification_service {
                 if let Some(tenant_uuid) = auth.active_tenant_id {
                     let tenant_id = TenantId::from(tenant_uuid);
                     let sharer_user = resources.database.get_global(auth.user_id).await?;
@@ -604,7 +604,7 @@ impl SocialRoutes {
                                 conn.initiator_id
                             };
                             notification_triggers::trigger_insight_shared(
-                                dispatcher,
+                                service,
                                 friend_id,
                                 tenant_id,
                                 &insight_id_str,
@@ -1251,7 +1251,7 @@ impl SocialRoutes {
         // Fire-and-forget notification to the insight owner (skip self-reactions)
         #[cfg(feature = "client-notifications")]
         if insight.user_id != auth.user_id {
-            if let Some(dispatcher) = &resources.notification_dispatcher {
+            if let Some(service) = &resources.notification_service {
                 if let Some(tenant_uuid) = auth.active_tenant_id {
                     let reactor_user = resources.database.get_global(auth.user_id).await?;
                     let reactor_name = reactor_user
@@ -1259,7 +1259,7 @@ impl SocialRoutes {
                         .unwrap_or_else(|| "Someone".to_owned());
                     let insight_type_str = insight.insight_type.description();
                     notification_triggers::trigger_activity_kudos(
-                        dispatcher,
+                        service,
                         insight.user_id,
                         TenantId::from(tenant_uuid),
                         &insight_id.to_string(),

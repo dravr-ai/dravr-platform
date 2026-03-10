@@ -1,9 +1,10 @@
-// ABOUTME: SQLite implementation of push notification repository operations
+// ABOUTME: SQLite implementation of the notification repository trait
 // ABOUTME: Device token management, notification preferences, and notification CRUD with tenant isolation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use async_trait::async_trait;
 use chrono::{DateTime, NaiveTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::notifications::{
@@ -14,11 +15,11 @@ use pierre_core::models::notifications::{
 };
 use pierre_core::models::TenantId;
 use sqlx::sqlite::SqliteRow;
-use sqlx::Row;
+use sqlx::{Pool, Row, Sqlite};
 use tracing::warn;
 use uuid::Uuid;
 
-use super::Database;
+use super::NotificationRepository;
 
 // ════════════════════════════════════════════════════════════════
 // Helper functions for row parsing
@@ -94,7 +95,6 @@ fn parse_preference_row(row: &SqliteRow) -> AppResult<NotificationPreference> {
         .map_err(|e| AppError::database(format!("Missing updated_at: {e}")))?;
 
     let sub_preferences = sub_prefs_str.and_then(|s| serde_json::from_str(&s).ok());
-
     let quiet_hours_start = quiet_start.and_then(|s| NaiveTime::parse_from_str(&s, "%H:%M").ok());
     let quiet_hours_end = quiet_end.and_then(|s| NaiveTime::parse_from_str(&s, "%H:%M").ok());
 
@@ -151,7 +151,7 @@ fn parse_notification_row(row: &SqliteRow) -> AppResult<Notification> {
         .try_get("created_at")
         .map_err(|e| AppError::database(format!("Missing created_at: {e}")))?;
 
-    let parse_dt = |s: &str| -> Option<chrono::DateTime<Utc>> {
+    let parse_dt = |s: &str| -> Option<DateTime<Utc>> {
         DateTime::parse_from_rfc3339(s)
             .map(|dt| dt.with_timezone(&Utc))
             .ok()
@@ -173,24 +173,95 @@ fn parse_notification_row(row: &SqliteRow) -> AppResult<Notification> {
         opened_at: opened_at_str.as_deref().and_then(parse_dt),
         dismissed_at: dismissed_at_str.as_deref().and_then(parse_dt),
         actions: actions_str.and_then(|s| {
-            serde_json::from_str::<Vec<NotificationAction>>(&s).map_err(|e| {
-                warn!(error = %e, "Malformed actions JSON in notification row, treating as None");
-            }).ok()
+            serde_json::from_str::<Vec<NotificationAction>>(&s)
+                .map_err(|e| {
+                    warn!(error = %e, "Malformed actions JSON in notification row, treating as None");
+                })
+                .ok()
         }),
         created_at: parse_dt(&created_at_str).unwrap_or_else(Utc::now),
     })
 }
 
+/// Parse a scheduled notification from a `SQLite` row
+fn parse_scheduled_notification_row(row: &SqliteRow) -> AppResult<ScheduledNotification> {
+    let id_str: String = row
+        .try_get("id")
+        .map_err(|e| AppError::database(format!("Missing id: {e}")))?;
+    let user_id_str: String = row
+        .try_get("user_id")
+        .map_err(|e| AppError::database(format!("Missing user_id: {e}")))?;
+    let tenant_id_str: String = row
+        .try_get("tenant_id")
+        .map_err(|e| AppError::database(format!("Missing tenant_id: {e}")))?;
+
+    let id = Uuid::parse_str(&id_str)
+        .map_err(|e| AppError::database(format!("Invalid id UUID: {e}")))?;
+    let user_id = Uuid::parse_str(&user_id_str)
+        .map_err(|e| AppError::database(format!("Invalid user_id UUID: {e}")))?;
+    let tenant_uuid = Uuid::parse_str(&tenant_id_str)
+        .map_err(|e| AppError::database(format!("Invalid tenant_id UUID: {e}")))?;
+
+    let notification_type: String = row
+        .try_get("notification_type")
+        .map_err(|e| AppError::database(format!("Missing notification_type: {e}")))?;
+    let schedule_cron: String = row
+        .try_get("schedule_cron")
+        .map_err(|e| AppError::database(format!("Missing schedule_cron: {e}")))?;
+    let timezone: String = row.try_get("timezone").unwrap_or_else(|_| "UTC".to_owned());
+    let enabled: bool = row.try_get::<bool, _>("enabled").unwrap_or(true);
+
+    let next_fire_at = row
+        .try_get::<String, _>("next_fire_at")
+        .ok()
+        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    let last_fired_at = row
+        .try_get::<String, _>("last_fired_at")
+        .ok()
+        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&Utc));
+
+    let created_at = row
+        .try_get::<String, _>("created_at")
+        .ok()
+        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
+
+    Ok(ScheduledNotification {
+        id,
+        user_id,
+        tenant_id: TenantId(tenant_uuid),
+        notification_type,
+        schedule_cron,
+        timezone,
+        next_fire_at,
+        enabled,
+        last_fired_at,
+        created_at,
+    })
+}
+
 // ════════════════════════════════════════════════════════════════
-// Implementation methods (called by trait dispatch in factory)
+// SQLite Repository Implementation
 // ════════════════════════════════════════════════════════════════
 
-impl Database {
-    /// Upsert a device token for push notifications
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn upsert_device_token_impl(
+/// `SQLite`-backed notification repository
+pub struct SqliteNotificationRepository {
+    pool: Pool<Sqlite>,
+}
+
+impl SqliteNotificationRepository {
+    /// Create a new `SQLite` notification repository from a connection pool
+    pub fn new(pool: Pool<Sqlite>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl NotificationRepository for SqliteNotificationRepository {
+    async fn upsert_device_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -226,7 +297,6 @@ impl Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert device token: {e}")))?;
 
-        // Fetch the upserted row (could be new or updated)
         let row = sqlx::query(
             r"
             SELECT * FROM device_tokens
@@ -245,11 +315,7 @@ impl Database {
         parse_device_token_row(&row)
     }
 
-    /// Get all active device tokens for a user
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_device_tokens_impl(
+    async fn get_device_tokens(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -270,11 +336,7 @@ impl Database {
         rows.iter().map(parse_device_token_row).collect()
     }
 
-    /// Deactivate a device token
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn deactivate_device_token_impl(
+    async fn deactivate_device_token(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -299,11 +361,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Get notification preferences for a user
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_notification_preferences_impl(
+    async fn get_notification_preferences(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -324,11 +382,7 @@ impl Database {
         rows.iter().map(parse_preference_row).collect()
     }
 
-    /// Upsert a notification preference
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn upsert_notification_preference_impl(
+    async fn upsert_notification_preference(
         &self,
         params: &UpsertNotificationPreferenceParams,
     ) -> AppResult<NotificationPreference> {
@@ -389,11 +443,7 @@ impl Database {
         parse_preference_row(&row)
     }
 
-    /// Create a notification record
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn create_notification_impl(
+    async fn create_notification(
         &self,
         params: &CreateNotificationParams,
     ) -> AppResult<Notification> {
@@ -438,12 +488,8 @@ impl Database {
         parse_notification_row(&row)
     }
 
-    /// List notifications with filtering and pagination
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
     #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-    pub async fn list_notifications_impl(
+    async fn list_notifications(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -457,7 +503,6 @@ impl Database {
         let clamped_limit = limit.clamp(1, 100) as i32;
         let clamped_offset = offset as i32;
 
-        // Build dynamic query parts
         let mut conditions = String::from("user_id = ? AND tenant_id = ?");
         if category.is_some() {
             conditions.push_str(" AND category = ?");
@@ -480,7 +525,7 @@ impl Database {
             .map_err(|e| AppError::database(format!("Failed to count notifications: {e}")))?;
         let total: i64 = count_row.try_get::<i64, _>("cnt").unwrap_or(0);
 
-        // Get unread count (always for full user+tenant scope)
+        // Get unread count
         let unread_row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND tenant_id = ? AND read_at IS NULL",
         )
@@ -516,11 +561,7 @@ impl Database {
         Ok((notifications, total, unread_count))
     }
 
-    /// Mark a notification as read
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn mark_notification_read_impl(
+    async fn mark_notification_read(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -545,11 +586,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Mark all notifications as read
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn mark_all_notifications_read_impl(
+    async fn mark_all_notifications_read(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -572,11 +609,7 @@ impl Database {
         Ok(result.rows_affected())
     }
 
-    /// Delete a notification
-    ///
-    /// # Errors
-    /// Returns an error if the database operation fails
-    pub async fn delete_notification_impl(
+    async fn delete_notification(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -598,15 +631,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Get unread notification count
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_unread_count_impl(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<i64> {
+    async fn get_unread_count(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<i64> {
         let row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND tenant_id = ? AND read_at IS NULL",
         )
@@ -619,16 +644,12 @@ impl Database {
         Ok(row.try_get::<i64, _>("cnt").unwrap_or(0))
     }
 
-    /// Count notifications of a specific category created since a timestamp
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn count_notifications_since_impl(
+    async fn count_notifications_since(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         category: &str,
-        since: chrono::DateTime<chrono::Utc>,
+        since: DateTime<Utc>,
     ) -> AppResult<i64> {
         let row = sqlx::query(
             r"
@@ -651,13 +672,7 @@ impl Database {
         Ok(row.try_get::<i64, _>("cnt").unwrap_or(0))
     }
 
-    // ── Notification Analytics ──
-
-    /// Mark a notification as opened (user tapped on it)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn mark_notification_opened_impl(
+    async fn mark_notification_opened(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -682,11 +697,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Mark a notification as dismissed
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn mark_notification_dismissed_impl(
+    async fn mark_notification_dismissed(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -711,11 +722,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Get aggregated notification analytics for a tenant
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_notification_analytics_impl(
+    async fn get_notification_analytics(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -730,7 +737,6 @@ impl Database {
             .to_rfc3339();
         let until_str = until.unwrap_or_else(Utc::now).to_rfc3339();
 
-        // Build category filter clause
         let category_clause = if category.is_some() {
             "AND category = ?"
         } else {
@@ -867,73 +873,7 @@ impl Database {
         })
     }
 
-    // ── Scheduled Notifications ──
-
-    /// Parse a scheduled notification from a `SqliteRow`
-    fn parse_scheduled_notification_row(row: &SqliteRow) -> AppResult<ScheduledNotification> {
-        let id_str: String = row
-            .try_get("id")
-            .map_err(|e| AppError::database(format!("Missing id: {e}")))?;
-        let user_id_str: String = row
-            .try_get("user_id")
-            .map_err(|e| AppError::database(format!("Missing user_id: {e}")))?;
-        let tenant_id_str: String = row
-            .try_get("tenant_id")
-            .map_err(|e| AppError::database(format!("Missing tenant_id: {e}")))?;
-
-        let id = Uuid::parse_str(&id_str)
-            .map_err(|e| AppError::database(format!("Invalid id UUID: {e}")))?;
-        let user_id = Uuid::parse_str(&user_id_str)
-            .map_err(|e| AppError::database(format!("Invalid user_id UUID: {e}")))?;
-        let tenant_uuid = Uuid::parse_str(&tenant_id_str)
-            .map_err(|e| AppError::database(format!("Invalid tenant_id UUID: {e}")))?;
-
-        let notification_type: String = row
-            .try_get("notification_type")
-            .map_err(|e| AppError::database(format!("Missing notification_type: {e}")))?;
-        let schedule_cron: String = row
-            .try_get("schedule_cron")
-            .map_err(|e| AppError::database(format!("Missing schedule_cron: {e}")))?;
-        let timezone: String = row.try_get("timezone").unwrap_or_else(|_| "UTC".to_owned());
-        let enabled: bool = row.try_get::<bool, _>("enabled").unwrap_or(true);
-
-        let next_fire_at = row
-            .try_get::<String, _>("next_fire_at")
-            .ok()
-            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-            .map(|dt| dt.with_timezone(&Utc));
-
-        let last_fired_at = row
-            .try_get::<String, _>("last_fired_at")
-            .ok()
-            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-            .map(|dt| dt.with_timezone(&Utc));
-
-        let created_at = row
-            .try_get::<String, _>("created_at")
-            .ok()
-            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-            .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
-
-        Ok(ScheduledNotification {
-            id,
-            user_id,
-            tenant_id: TenantId(tenant_uuid),
-            notification_type,
-            schedule_cron,
-            timezone,
-            next_fire_at,
-            enabled,
-            last_fired_at,
-            created_at,
-        })
-    }
-
-    /// Get a single scheduled notification by ID, scoped to user and tenant
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_scheduled_notification_by_id_impl(
+    async fn get_scheduled_notification_by_id(
         &self,
         id: Uuid,
         user_id: Uuid,
@@ -955,15 +895,11 @@ impl Database {
         })?;
 
         row.as_ref()
-            .map(Self::parse_scheduled_notification_row)
+            .map(parse_scheduled_notification_row)
             .transpose()
     }
 
-    /// Count scheduled notifications for a user within a tenant
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn count_scheduled_notifications_impl(
+    async fn count_scheduled_notifications(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -982,11 +918,7 @@ impl Database {
         Ok(row.try_get::<i64, _>("cnt").unwrap_or(0))
     }
 
-    /// Create a new scheduled notification
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn create_scheduled_notification_impl(
+    async fn create_scheduled_notification(
         &self,
         params: &CreateScheduledNotificationParams,
     ) -> AppResult<ScheduledNotification> {
@@ -1026,11 +958,7 @@ impl Database {
         })
     }
 
-    /// List scheduled notifications for a user within a tenant
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn list_scheduled_notifications_impl(
+    async fn list_scheduled_notifications(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
@@ -1048,16 +976,10 @@ impl Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to list scheduled notifications: {e}")))?;
 
-        rows.iter()
-            .map(Self::parse_scheduled_notification_row)
-            .collect()
+        rows.iter().map(parse_scheduled_notification_row).collect()
     }
 
-    /// Delete a scheduled notification (tenant-isolated)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn delete_scheduled_notification_impl(
+    async fn delete_scheduled_notification(
         &self,
         id: Uuid,
         user_id: Uuid,
@@ -1079,11 +1001,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Update a scheduled notification (enable/disable, change schedule)
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn update_scheduled_notification_impl(
+    async fn update_scheduled_notification(
         &self,
         params: &UpdateScheduledNotificationParams,
     ) -> AppResult<bool> {
@@ -1132,11 +1050,7 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Get all due scheduled notifications
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn get_due_scheduled_notifications_impl(
+    async fn get_due_scheduled_notifications(
         &self,
         now: DateTime<Utc>,
     ) -> AppResult<Vec<ScheduledNotification>> {
@@ -1154,16 +1068,10 @@ impl Database {
             AppError::database(format!("Failed to get due scheduled notifications: {e}"))
         })?;
 
-        rows.iter()
-            .map(Self::parse_scheduled_notification_row)
-            .collect()
+        rows.iter().map(parse_scheduled_notification_row).collect()
     }
 
-    /// Update a scheduled notification after firing
-    ///
-    /// # Errors
-    /// Returns an error if the database query fails
-    pub async fn update_scheduled_notification_fired_impl(
+    async fn update_scheduled_notification_fired(
         &self,
         id: Uuid,
         last_fired_at: DateTime<Utc>,

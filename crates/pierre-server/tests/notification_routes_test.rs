@@ -25,8 +25,9 @@ mod notification_routes_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use pierre_core::models::notifications::{CreateNotificationParams, NotificationCategory};
-    use pierre_database::repositories::{PushNotificationRepository, TenantRepository};
+    use pierre_database::repositories::TenantRepository;
     use pierre_mcp_server::routes::notifications::NotificationRoutes;
+    use pierre_notifications::NotificationService;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -443,10 +444,12 @@ mod notification_routes_tests {
         let tenant_a = resources.database.list_for_user(user_a.id).await.unwrap()[0].id;
         let tenant_b = resources.database.list_for_user(user_b.id).await.unwrap()[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Create 3 notifications for user A
         for i in 0..3 {
-            resources
-                .database
+            service
                 .create_notification(&CreateNotificationParams {
                     user_id: user_a.id,
                     tenant_id: tenant_a,
@@ -463,8 +466,7 @@ mod notification_routes_tests {
         }
 
         // Create 1 notification for user B
-        resources
-            .database
+        service
             .create_notification(&CreateNotificationParams {
                 user_id: user_b.id,
                 tenant_id: tenant_b,
@@ -521,10 +523,12 @@ mod notification_routes_tests {
 
         let tenant_id = resources.database.list_for_user(user.id).await.unwrap()[0].id;
 
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
+
         // Create 2 unread notifications
         for i in 0..2 {
-            resources
-                .database
+            service
                 .create_notification(&CreateNotificationParams {
                     user_id: user.id,
                     tenant_id,

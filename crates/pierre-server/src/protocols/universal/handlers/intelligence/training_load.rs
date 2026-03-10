@@ -19,8 +19,8 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::mcp::resources::ServerResources, crate::services::notification_triggers,
-    pierre_core::models::TenantId, std::sync::Arc, uuid::Uuid,
+    crate::mcp::resources::ServerResources, pierre_core::models::TenantId,
+    pierre_notifications::triggers as notification_triggers, std::sync::Arc, uuid::Uuid,
 };
 
 /// Recovery context from sleep/HRV data for training load interpretation
@@ -537,7 +537,7 @@ fn fire_training_load_notifications(
     tenant_id_str: Option<&str>,
     analysis: &serde_json::Value,
 ) {
-    let Some(dispatcher) = &resources.notification_dispatcher else {
+    let Some(service) = &resources.notification_service else {
         return;
     };
     let Some(tenant_str) = tenant_id_str else {
@@ -556,11 +556,11 @@ fn fire_training_load_notifications(
 
     // Trigger training load alert when ATL > RATIO * CTL
     if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {
-        notification_triggers::trigger_training_load_alert(dispatcher, user_id, tenant_id, atl);
+        notification_triggers::trigger_training_load_alert(service, user_id, tenant_id, atl);
     }
 
     // Trigger overtraining warning when TSB drops below threshold
     if tsb < OVERTRAINING_TSB_THRESHOLD {
-        notification_triggers::trigger_overtraining_warning(dispatcher, user_id, tenant_id);
+        notification_triggers::trigger_overtraining_warning(service, user_id, tenant_id);
     }
 }

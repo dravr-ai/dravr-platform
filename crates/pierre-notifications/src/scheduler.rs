@@ -29,10 +29,9 @@ use tracing::{debug, info, warn};
 use pierre_core::models::notifications::{
     NotificationCategory, ScheduledNotification, UpdateScheduledNotificationParams,
 };
-use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::PushNotificationRepository;
 
-use super::notification_dispatch::{DispatchRequest, NotificationDispatcher};
+use crate::dispatch::{DispatchRequest, NotificationDispatcher};
+use crate::repository::NotificationRepository;
 
 /// Scheduler poll interval in seconds
 const POLL_INTERVAL_SECS: u64 = 60;
@@ -42,7 +41,7 @@ const POLL_INTERVAL_SECS: u64 = 60;
 /// Spawns a tokio task that polls every 60 seconds for due scheduled notifications
 /// and dispatches them through the notification pipeline.
 pub fn start_notification_scheduler(
-    database: Arc<Database>,
+    repo: Arc<dyn NotificationRepository>,
     dispatcher: Arc<NotificationDispatcher>,
 ) -> AbortHandle {
     let poll_duration = Duration::from_secs(POLL_INTERVAL_SECS);
@@ -51,7 +50,7 @@ pub fn start_notification_scheduler(
         let mut ticker = interval_at(Instant::now() + poll_duration, poll_duration);
         loop {
             ticker.tick().await;
-            run_scheduler_cycle(&database, &dispatcher).await;
+            run_scheduler_cycle(&repo, &dispatcher).await;
         }
     });
     let abort_handle = handle.abort_handle();
@@ -60,22 +59,25 @@ pub fn start_notification_scheduler(
 }
 
 /// Execute one scheduler cycle: query due notifications and dispatch each one
-async fn run_scheduler_cycle(database: &Database, dispatcher: &NotificationDispatcher) {
+async fn run_scheduler_cycle(
+    repo: &Arc<dyn NotificationRepository>,
+    dispatcher: &NotificationDispatcher,
+) {
     let now = Utc::now();
-    let due_notifications = query_due_notifications(database, now).await;
+    let due_notifications = query_due_notifications(repo.as_ref(), now).await;
 
     for scheduled in &due_notifications {
-        dispatch_scheduled(database, dispatcher, scheduled).await;
-        update_next_fire_time(database, scheduled, now).await;
+        dispatch_scheduled(repo.as_ref(), dispatcher, scheduled).await;
+        update_next_fire_time(repo.as_ref(), scheduled, now).await;
     }
 }
 
 /// Query due scheduled notifications, returning empty vec on error
 async fn query_due_notifications(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     now: DateTime<Utc>,
 ) -> Vec<ScheduledNotification> {
-    match database.get_due_scheduled_notifications(now).await {
+    match repo.get_due_scheduled_notifications(now).await {
         Ok(n) if n.is_empty() => {
             debug!("Scheduler tick: no due notifications");
             Vec::new()
@@ -93,11 +95,11 @@ async fn query_due_notifications(
 
 /// Dispatch the notification (errors logged, not propagated)
 async fn dispatch_scheduled(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     dispatcher: &NotificationDispatcher,
     scheduled: &ScheduledNotification,
 ) {
-    let request = build_dispatch_request(database, scheduled).await;
+    let request = build_dispatch_request(repo, scheduled).await;
     if let Err(e) = dispatcher.dispatch(&request).await {
         warn!(
             scheduled_id = %scheduled.id,
@@ -111,14 +113,14 @@ async fn dispatch_scheduled(
 
 /// Compute and persist the next fire time, or disable the schedule if none can be computed
 async fn update_next_fire_time(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     scheduled: &ScheduledNotification,
     now: DateTime<Utc>,
 ) {
     let next_fire_at = compute_next_fire_time(&scheduled.schedule_cron, &scheduled.timezone, now);
 
     if let Some(next) = next_fire_at {
-        if let Err(e) = database
+        if let Err(e) = repo
             .update_scheduled_notification_fired(scheduled.id, now, next)
             .await
         {
@@ -145,9 +147,7 @@ async fn update_next_fire_time(
         timezone: None,
         next_fire_at: None,
     };
-    let _ = database
-        .update_scheduled_notification(&disable_params)
-        .await;
+    let _ = repo.update_scheduled_notification(&disable_params).await;
 }
 
 /// Build a `DispatchRequest` from a scheduled notification's type.
@@ -155,12 +155,12 @@ async fn update_next_fire_time(
 /// Queries the database for dynamic content (activity counts, training duration)
 /// and falls back to static text if the query fails.
 async fn build_dispatch_request(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     scheduled: &ScheduledNotification,
 ) -> DispatchRequest {
     let (category, title, body, data) = match scheduled.notification_type.as_str() {
         "weekly_training_summary" => {
-            let dynamic_body = build_weekly_summary_body(database, scheduled).await;
+            let dynamic_body = build_weekly_summary_body(repo, scheduled).await;
             (
                 NotificationCategory::Training,
                 "Weekly training summary".to_owned(),
@@ -169,7 +169,7 @@ async fn build_dispatch_request(
             )
         }
         "workout_reminder" => {
-            let dynamic_body = build_workout_reminder_body(database, scheduled).await;
+            let dynamic_body = build_workout_reminder_body(repo, scheduled).await;
             (
                 NotificationCategory::Reminders,
                 "Workout reminder".to_owned(),
@@ -207,11 +207,11 @@ async fn build_dispatch_request(
 
 /// Query the user's `activity_synced` notification count from the past 7 days for a dynamic summary
 async fn build_weekly_summary_body(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     scheduled: &ScheduledNotification,
 ) -> String {
     let seven_days_ago = Utc::now() - ChronoDuration::days(7);
-    match database
+    match repo
         .count_notifications_since(
             scheduled.user_id,
             scheduled.tenant_id,
@@ -237,7 +237,7 @@ async fn build_weekly_summary_body(
 
 /// Check if the user already logged an activity today for a dynamic workout reminder
 async fn build_workout_reminder_body(
-    database: &Database,
+    repo: &dyn NotificationRepository,
     scheduled: &ScheduledNotification,
 ) -> String {
     let today_start = Utc::now()
@@ -249,7 +249,7 @@ async fn build_workout_reminder_body(
         return "Don't forget your workout today".to_owned();
     };
 
-    match database
+    match repo
         .count_notifications_since(scheduled.user_id, scheduled.tenant_id, "training", since)
         .await
     {
@@ -269,6 +269,7 @@ async fn build_workout_reminder_body(
 /// Compute the next fire time from a cron expression in the given timezone
 ///
 /// Returns `None` if the cron expression is invalid or no upcoming time can be found.
+#[must_use]
 pub fn compute_next_fire_time(
     cron_expr: &str,
     timezone_str: &str,
@@ -292,7 +293,8 @@ pub fn compute_next_fire_time(
 
 /// Validate a cron expression (5-field: minute hour dom month dow)
 ///
-/// Returns `Ok(())` if valid, `Err(message)` if invalid.
+/// # Errors
+/// Returns an error message string if the cron expression is invalid.
 pub fn validate_cron_expression(cron_expr: &str) -> Result<(), String> {
     let full_cron = format!("0 {cron_expr}");
     Schedule::from_str(&full_cron)

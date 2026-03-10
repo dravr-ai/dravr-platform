@@ -12,8 +12,6 @@
 use super::chat_tool_loop::{self, ToolLoopParams};
 use crate::models::ConnectionType;
 use crate::models::TenantId;
-#[cfg(feature = "client-notifications")]
-use crate::services::notification_triggers;
 use crate::{
     errors::AppError,
     llm::{
@@ -42,6 +40,8 @@ use pierre_database::database::repositories::{
     ChatRepository, LlmUsageRepository, ProviderConnectionRepository, TenantRepository,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt::Write, sync::Arc, time::Instant};
 use tracing::{debug, info, warn};
@@ -1153,10 +1153,10 @@ impl ChatRoutes {
         conversation_id: &str,
     ) {
         if conv.system_prompt.is_some() {
-            if let Some(dispatcher) = &resources.notification_dispatcher {
+            if let Some(service) = &resources.notification_service {
                 let coach_title = conv.title.clone();
                 notification_triggers::trigger_coach_message(
-                    dispatcher,
+                    service,
                     user_id,
                     tenant_id,
                     conversation_id,

@@ -2651,6 +2651,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pierre-notifications"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "chrono-tz",
+ "cron",
+ "pierre-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "pierre-providers"
 version = "0.1.0"
 dependencies = [
@@ -2721,6 +2739,7 @@ dependencies = [
  "pierre-intelligence",
  "pierre-llm",
  "pierre-messaging",
+ "pierre-notifications",
  "pierre-providers",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -4195,6 +4214,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.3",

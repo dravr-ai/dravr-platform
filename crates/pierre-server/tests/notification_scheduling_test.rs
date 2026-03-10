@@ -347,13 +347,13 @@ mod notification_scheduling_tests {
     // Analytics tracking tests
     // ════════════════════════════════════════════════════════════════
 
-    /// Helper: create a notification via the DB and return its ID + router + token
+    /// Helper: create a notification via the notification service and return its ID + router + token
     async fn create_notification_for_test(
         email: &str,
         category: NotificationCategory,
         notification_type: &str,
     ) -> (axum::Router, String, uuid::Uuid) {
-        use pierre_database::repositories::PushNotificationRepository;
+        use pierre_notifications::NotificationService;
 
         let resources = create_test_server_resources().await.unwrap();
         let (user, user_token) = create_test_tenant(&resources, email).await.unwrap();
@@ -363,6 +363,9 @@ mod notification_scheduling_tests {
         // Look up the user's tenant
         let tenants = resources.database.list_for_user(user.id).await.unwrap();
         let tenant_id = tenants[0].id;
+
+        let pool = resources.database.sqlite_pool().unwrap().clone();
+        let service = NotificationService::from_sqlite(pool).unwrap();
 
         let params = CreateNotificationParams {
             user_id: user.id,
@@ -375,11 +378,7 @@ mod notification_scheduling_tests {
             image_url: None,
             actions: None,
         };
-        let notification = resources
-            .database
-            .create_notification(&params)
-            .await
-            .unwrap();
+        let notification = service.create_notification(&params).await.unwrap();
 
         (router, token, notification.id)
     }

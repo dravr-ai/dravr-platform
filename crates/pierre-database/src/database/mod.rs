@@ -32,8 +32,6 @@ pub mod llm_usage;
 pub mod messaging;
 /// Mobility features (stretching exercises and yoga poses)
 pub mod mobility;
-/// Push notification repository (device tokens, preferences, notifications)
-pub mod notifications;
 /// OAuth callback notification handling
 pub mod oauth_notifications;
 /// Password reset token management for admin-initiated password resets

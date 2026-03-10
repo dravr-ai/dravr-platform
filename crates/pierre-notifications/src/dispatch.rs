@@ -17,16 +17,15 @@ use pierre_core::models::notifications::{
     NotificationCategory, NotificationPreference,
 };
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::PushNotificationRepository;
 use serde_json::Value;
 use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::expo_push::{ExpoPushMessage, ExpoPushService, ExpoPushTicket};
-use crate::constants::notifications as notif_constants;
+use crate::constants;
+use crate::expo_push::{ExpoPushMessage, ExpoPushService, ExpoPushTicket};
+use crate::repository::NotificationRepository;
 
 /// Reason a notification was suppressed before delivery
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,20 +85,16 @@ pub struct DispatchRequest {
 
 /// Central notification dispatch service
 pub struct NotificationDispatcher {
-    /// Database for notification persistence and preference lookup
-    database: Arc<Database>,
+    /// Notification repository for persistence and preference lookup
+    repo: Arc<dyn NotificationRepository>,
     /// Expo push service for device delivery
     expo_push: Arc<ExpoPushService>,
 }
 
 impl NotificationDispatcher {
-    /// Create a new dispatcher with shared database and push service
-    #[must_use]
-    pub fn new(database: Arc<Database>, expo_push: Arc<ExpoPushService>) -> Self {
-        Self {
-            database,
-            expo_push,
-        }
+    /// Create a new dispatcher with shared repository and push service
+    pub fn new(repo: Arc<dyn NotificationRepository>, expo_push: Arc<ExpoPushService>) -> Self {
+        Self { repo, expo_push }
     }
 
     /// Dispatch a notification through the full pipeline:
@@ -143,11 +138,11 @@ impl NotificationDispatcher {
             image_url: request.image_url.clone(),
             actions: request.actions.clone(),
         };
-        let notification = self.database.create_notification(&params).await?;
+        let notification = self.repo.create_notification(&params).await?;
 
         // Step 3: Look up device tokens and unread count for badge
         let tokens = self
-            .database
+            .repo
             .get_device_tokens(request.user_id, request.tenant_id)
             .await?;
 
@@ -163,7 +158,7 @@ impl NotificationDispatcher {
         }
 
         let unread_count = self
-            .database
+            .repo
             .get_unread_count(request.user_id, request.tenant_id)
             .await
             .unwrap_or(0);
@@ -235,7 +230,7 @@ impl NotificationDispatcher {
         bypass_frequency_cap: bool,
     ) -> AppResult<Option<SuppressionReason>> {
         let preferences = self
-            .database
+            .repo
             .get_notification_preferences(user_id, tenant_id)
             .await?;
 
@@ -308,11 +303,11 @@ impl NotificationDispatcher {
         let default_cap = env::var("NOTIFICATION_DEFAULT_MAX_PER_DAY")
             .ok()
             .and_then(|v| v.parse::<i32>().ok())
-            .unwrap_or(notif_constants::DEFAULT_MAX_PER_DAY as i32);
+            .unwrap_or(constants::DEFAULT_MAX_PER_DAY as i32);
         let max_per_day = i64::from(pref.max_per_day.unwrap_or(default_cap));
         let since = Utc::now() - Duration::hours(24);
         let count = self
-            .database
+            .repo
             .count_notifications_since(user_id, tenant_id, category.as_str(), since)
             .await?;
 

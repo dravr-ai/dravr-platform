@@ -19,13 +19,14 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::notification_dispatch::{DispatchRequest, NotificationDispatcher};
+use crate::dispatch::DispatchRequest;
+use crate::service::NotificationService;
 
 /// Spawns a fire-and-forget notification dispatch task.
 /// Failures are logged at WARN level but never propagated to the caller.
-fn spawn_dispatch(dispatcher: Arc<NotificationDispatcher>, request: DispatchRequest) {
+fn spawn_dispatch(service: Arc<NotificationService>, request: DispatchRequest) {
     tokio::spawn(async move {
-        if let Err(e) = dispatcher.dispatch(&request).await {
+        if let Err(e) = service.dispatch(&request).await {
             warn!(
                 user_id = %request.user_id,
                 notification_type = %request.notification_type,
@@ -44,7 +45,7 @@ fn spawn_dispatch(dispatcher: Arc<NotificationDispatcher>, request: DispatchRequ
 ///
 /// Example body: "Run — 10.2 km in 52:14"
 pub fn trigger_activity_synced(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
@@ -64,14 +65,14 @@ pub fn trigger_activity_synced(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when acute training load exceeds threshold.
 ///
 /// Threshold is caller-defined (e.g., ATL > 1.5 * CTL).
 pub fn trigger_training_load_alert(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     atl_value: f64,
@@ -88,14 +89,14 @@ pub fn trigger_training_load_alert(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when recovery score drops below threshold.
 ///
 /// Threshold is caller-defined (e.g., score < 40).
 pub fn trigger_low_recovery_score(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     score: f64,
@@ -112,12 +113,12 @@ pub fn trigger_low_recovery_score(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when TSS trend suggests overtraining risk.
 pub fn trigger_overtraining_warning(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
 ) {
@@ -133,14 +134,14 @@ pub fn trigger_overtraining_warning(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a personal record is detected.
 ///
 /// Example body: "New 5K PR: 22:14"
 pub fn trigger_personal_record(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
@@ -159,14 +160,14 @@ pub fn trigger_personal_record(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a cumulative milestone is reached.
 ///
 /// Example body: "You've logged 1,000 km this year"
 pub fn trigger_milestone_reached(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     value_display: &str,
@@ -184,14 +185,14 @@ pub fn trigger_milestone_reached(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a fitness metric improves (FTP, `VO2max`, etc.).
 ///
 /// Example body: "Your FTP increased to 265W"
 pub fn trigger_fitness_improvement(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     metric_name: &str,
@@ -209,7 +210,7 @@ pub fn trigger_fitness_improvement(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 // ============================================================================
@@ -220,7 +221,7 @@ pub fn trigger_fitness_improvement(
 ///
 /// Notifies the receiver that someone wants to connect.
 pub fn trigger_friend_request_received(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     receiver_id: Uuid,
     tenant_id: TenantId,
     request_id: &str,
@@ -249,14 +250,14 @@ pub fn trigger_friend_request_received(
         ]),
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a friend request is accepted.
 ///
 /// Notifies the original requester that their request was accepted.
 pub fn trigger_friend_request_accepted(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     initiator_id: Uuid,
     tenant_id: TenantId,
     accepter_name: &str,
@@ -273,14 +274,14 @@ pub fn trigger_friend_request_accepted(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when someone reacts to or gives kudos on an insight.
 ///
 /// Notifies the insight owner about the reaction.
 pub fn trigger_activity_kudos(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     insight_owner_id: Uuid,
     tenant_id: TenantId,
     insight_id: &str,
@@ -299,14 +300,14 @@ pub fn trigger_activity_kudos(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when someone shares an insight visible to a user.
 ///
 /// Notifies friends about a shared coaching insight.
 pub fn trigger_insight_shared(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     recipient_id: Uuid,
     tenant_id: TenantId,
     insight_id: &str,
@@ -324,7 +325,7 @@ pub fn trigger_insight_shared(
         actions: None,
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 // ============================================================================
@@ -336,7 +337,7 @@ pub fn trigger_insight_shared(
 /// Coach notifications bypass the daily frequency cap so athletes always
 /// receive their coach's communications.
 pub fn trigger_coach_message(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
     conversation_id: &str,
@@ -358,14 +359,14 @@ pub fn trigger_coach_message(
         }]),
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a coach updates an athlete's training plan.
 ///
 /// Coach notifications bypass the daily frequency cap.
 pub fn trigger_plan_updated(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
     coach_name: &str,
@@ -382,14 +383,14 @@ pub fn trigger_plan_updated(
         actions: None,
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 /// Trigger notification when a coach leaves feedback on an athlete's activity.
 ///
 /// Coach notifications bypass the daily frequency cap.
 pub fn trigger_coach_feedback(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     athlete_id: Uuid,
     tenant_id: TenantId,
     activity_id: &str,
@@ -408,7 +409,7 @@ pub fn trigger_coach_feedback(
         actions: None,
         bypass_frequency_cap: true,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }
 
 // ============================================================================
@@ -419,7 +420,7 @@ pub fn trigger_coach_feedback(
 ///
 /// Includes a "Reconnect" action button to guide users to re-authorize.
 pub fn trigger_sync_failure(
-    dispatcher: &Arc<NotificationDispatcher>,
+    service: &Arc<NotificationService>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider_name: &str,
@@ -443,5 +444,5 @@ pub fn trigger_sync_failure(
         }]),
         bypass_frequency_cap: false,
     };
-    spawn_dispatch(Arc::clone(dispatcher), request);
+    spawn_dispatch(Arc::clone(service), request);
 }

@@ -20,7 +20,7 @@ use pierre_database::database::store_listings::{CoachWithListing, StoreListingsM
 use std::sync::Arc;
 
 #[cfg(feature = "client-notifications")]
-use crate::services::notification_triggers;
+use pierre_notifications::triggers as notification_triggers;
 
 use super::types::{
     AdminCreateCoachBody, AssignCoachBody, AssignCoachResponse, CoachAssignment, CoachResponse,
@@ -109,13 +109,13 @@ pub(super) async fn handle_admin_update(
 
     // Notify users assigned to this coach that their training plan was updated
     #[cfg(feature = "client-notifications")]
-    if let Some(dispatcher) = &resources.notification_dispatcher {
+    if let Some(service) = &resources.notification_service {
         let coach_name = coach.title.clone();
         if let Ok(assignments) = manager.list_assignments_for_tenant(&id, tenant_id).await {
             for assignment in assignments {
                 if let Ok(user_uuid) = assignment.user_id.parse::<uuid::Uuid>() {
                     notification_triggers::trigger_plan_updated(
-                        dispatcher,
+                        service,
                         user_uuid,
                         tenant_id,
                         &coach_name,
@@ -183,12 +183,12 @@ pub(super) async fn handle_admin_assign(
 
     // Notify each assigned user about the new coach assignment
     #[cfg(feature = "client-notifications")]
-    if let Some(dispatcher) = &resources.notification_dispatcher {
+    if let Some(service) = &resources.notification_service {
         let coach_name = coach.title.clone();
         for user_id_str in &body.user_ids {
             if let Ok(user_uuid) = user_id_str.parse::<uuid::Uuid>() {
                 notification_triggers::trigger_plan_updated(
-                    dispatcher,
+                    service,
                     user_uuid,
                     tenant_id,
                     &coach_name,

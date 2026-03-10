@@ -297,18 +297,23 @@ fi
 echo -e "${BLUE}Checking for empty source modules...${NC}"
 EMPTY_MODULES=0
 EMPTY_MODULE_LIST=""
-while IFS= read -r rs_file; do
+EMPTY_MODULE_TMPFILE=$(mktemp)
+find crates/*/src -name "*.rs" -not -path "*/tests/*" -not -path "*/bin/*" 2>/dev/null | while IFS= read -r rs_file; do
     DECL_COUNT=$(rg "^(pub )?(pub\(crate\) )?(pub\(super\) )?(async )?(unsafe )?(fn |struct |enum |impl |const |static |type |trait |macro|mod |use )" "$rs_file" --count 2>/dev/null || echo 0)
     if [ "$DECL_COUNT" -eq 0 ]; then
-        EMPTY_MODULES=$((EMPTY_MODULES + 1))
-        SHORT_PATH="${rs_file#$PROJECT_ROOT/}"
-        if [ -z "$EMPTY_MODULE_LIST" ]; then
-            EMPTY_MODULE_LIST="$SHORT_PATH"
-        else
-            EMPTY_MODULE_LIST="$EMPTY_MODULE_LIST, $SHORT_PATH"
-        fi
+        echo "$rs_file" >> "$EMPTY_MODULE_TMPFILE"
     fi
-done < <(find crates/*/src -name "*.rs" -not -path "*/tests/*" -not -path "*/bin/*" 2>/dev/null)
+done
+while IFS= read -r rs_file; do
+    EMPTY_MODULES=$((EMPTY_MODULES + 1))
+    SHORT_PATH="${rs_file#$PROJECT_ROOT/}"
+    if [ -z "$EMPTY_MODULE_LIST" ]; then
+        EMPTY_MODULE_LIST="$SHORT_PATH"
+    else
+        EMPTY_MODULE_LIST="$EMPTY_MODULE_LIST, $SHORT_PATH"
+    fi
+done < "$EMPTY_MODULE_TMPFILE"
+rm -f "$EMPTY_MODULE_TMPFILE"
 if [ "$EMPTY_MODULES" -gt 0 ]; then
     echo -e "${RED}❌ Found $EMPTY_MODULES empty source module(s) with no declarations:${NC}"
     echo -e "${RED}   $EMPTY_MODULE_LIST${NC}"
