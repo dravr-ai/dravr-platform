@@ -17,6 +17,11 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use tracing::warn;
+#[cfg(feature = "client-notifications")]
+use {
+    crate::mcp::resources::ServerResources, crate::services::notification_triggers,
+    pierre_core::models::TenantId, std::sync::Arc, uuid::Uuid,
+};
 
 /// Recovery context from sleep/HRV data for training load interpretation
 struct RecoveryContextInfo {
@@ -393,6 +398,15 @@ pub fn handle_analyze_training_load(
 
                         let mut analysis = analyze_detailed_training_load(&activities, timeframe);
 
+                        // Fire intelligence-driven notification triggers based on computed metrics
+                        #[cfg(feature = "client-notifications")]
+                        fire_training_load_notifications(
+                            &executor.resources,
+                            user_uuid,
+                            request.tenant_id.as_deref(),
+                            &analysis,
+                        );
+
                         // If sleep_provider is specified, fetch recovery context
                         let recovery_context = if let Some(sleep_provider_name) = sleep_provider {
                             match fetch_recovery_context_for_training_load(
@@ -501,4 +515,52 @@ pub fn handle_analyze_training_load(
             Err(response) => Ok(response),
         }
     })
+}
+
+/// ATL threshold above which we trigger a training load alert notification.
+/// Fires when acute training load exceeds 1.5x chronic training load.
+#[cfg(feature = "client-notifications")]
+const TRAINING_LOAD_ALERT_ATL_RATIO: f64 = 1.5;
+
+/// TSB threshold below which we trigger an overtraining warning notification.
+/// A TSB below -30 indicates significant fatigue accumulation.
+#[cfg(feature = "client-notifications")]
+const OVERTRAINING_TSB_THRESHOLD: f64 = -30.0;
+
+/// Fire notification triggers based on training load analysis results.
+/// Checks ATL/CTL ratio for training load alerts and TSB for overtraining warnings.
+/// All triggers are fire-and-forget — failures are logged but never block the caller.
+#[cfg(feature = "client-notifications")]
+fn fire_training_load_notifications(
+    resources: &Arc<ServerResources>,
+    user_id: Uuid,
+    tenant_id_str: Option<&str>,
+    analysis: &serde_json::Value,
+) {
+    let Some(dispatcher) = &resources.notification_dispatcher else {
+        return;
+    };
+    let Some(tenant_str) = tenant_id_str else {
+        return;
+    };
+    let Ok(tenant_uuid) = tenant_str.parse::<Uuid>() else {
+        return;
+    };
+    let tenant_id = TenantId(tenant_uuid);
+
+    // Extract load metrics from the analysis JSON
+    let metrics = &analysis["load_metrics"];
+    let atl = metrics["atl"].as_f64().unwrap_or(0.0);
+    let ctl = metrics["ctl"].as_f64().unwrap_or(0.0);
+    let tsb = metrics["tsb"].as_f64().unwrap_or(0.0);
+
+    // Trigger training load alert when ATL > RATIO * CTL
+    if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {
+        notification_triggers::trigger_training_load_alert(dispatcher, user_id, tenant_id, atl);
+    }
+
+    // Trigger overtraining warning when TSB drops below threshold
+    if tsb < OVERTRAINING_TSB_THRESHOLD {
+        notification_triggers::trigger_overtraining_warning(dispatcher, user_id, tenant_id);
+    }
 }

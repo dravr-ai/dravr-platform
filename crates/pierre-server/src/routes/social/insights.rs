@@ -6,6 +6,9 @@
 
 use std::str::FromStr;
 
+#[cfg(feature = "client-notifications")]
+use std::env;
+
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -18,6 +21,9 @@ use std::sync::Arc;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 use uuid::Uuid;
+
+#[cfg(feature = "client-notifications")]
+use crate::{constants::notifications as notif_constants, services::notification_triggers};
 
 use crate::{
     config::{environment::default_provider, social},
@@ -564,6 +570,56 @@ impl SocialRoutes {
         insight.training_phase = training_phase;
 
         social.create_shared_insight(&insight).await?;
+
+        // Notify connected friends about the shared insight (both FriendsOnly and Public)
+        #[cfg(feature = "client-notifications")]
+        {
+            if let Some(dispatcher) = &resources.notification_dispatcher {
+                if let Some(tenant_uuid) = auth.active_tenant_id {
+                    let tenant_id = TenantId::from(tenant_uuid);
+                    let sharer_user = resources.database.get_global(auth.user_id).await?;
+                    let sharer_name = sharer_user
+                        .and_then(|u| u.display_name)
+                        .unwrap_or_else(|| "Someone".to_owned());
+                    let insight_id_str = insight.id.to_string();
+
+                    // Fan out notifications to all friends, paginating through the full list
+                    let page_size: i64 = env::var("NOTIFICATION_FAN_OUT_PAGE_SIZE")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(notif_constants::FAN_OUT_PAGE_SIZE);
+                    let mut offset: i64 = 0;
+                    loop {
+                        let Ok(friends) = social
+                            .get_friends_paginated(auth.user_id, page_size, offset)
+                            .await
+                        else {
+                            break;
+                        };
+                        let batch_len = friends.len();
+                        for conn in friends {
+                            let friend_id = if conn.initiator_id == auth.user_id {
+                                conn.receiver_id
+                            } else {
+                                conn.initiator_id
+                            };
+                            notification_triggers::trigger_insight_shared(
+                                dispatcher,
+                                friend_id,
+                                tenant_id,
+                                &insight_id_str,
+                                &sharer_name,
+                            );
+                        }
+                        #[allow(clippy::cast_possible_wrap)]
+                        if (batch_len as i64) < page_size {
+                            break;
+                        }
+                        offset += page_size;
+                    }
+                }
+            }
+        }
 
         let response: SharedInsightResponse = insight.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
@@ -1168,8 +1224,8 @@ impl SocialRoutes {
 
         let reaction_type = ReactionType::from_str(&body.reaction_type)?;
 
-        // Verify insight exists
-        social
+        // Verify insight exists and capture owner for notification
+        let insight = social
             .get_shared_insight(insight_id, auth.user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Insight {id}")))?;
@@ -1191,6 +1247,28 @@ impl SocialRoutes {
 
         let reaction = InsightReaction::new(insight_id, auth.user_id, reaction_type);
         social.create_insight_reaction(&reaction).await?;
+
+        // Fire-and-forget notification to the insight owner (skip self-reactions)
+        #[cfg(feature = "client-notifications")]
+        if insight.user_id != auth.user_id {
+            if let Some(dispatcher) = &resources.notification_dispatcher {
+                if let Some(tenant_uuid) = auth.active_tenant_id {
+                    let reactor_user = resources.database.get_global(auth.user_id).await?;
+                    let reactor_name = reactor_user
+                        .and_then(|u| u.display_name)
+                        .unwrap_or_else(|| "Someone".to_owned());
+                    let insight_type_str = insight.insight_type.description();
+                    notification_triggers::trigger_activity_kudos(
+                        dispatcher,
+                        insight.user_id,
+                        TenantId::from(tenant_uuid),
+                        &insight_id.to_string(),
+                        &reactor_name,
+                        insight_type_str,
+                    );
+                }
+            }
+        }
 
         let response: ReactionResponse = reaction.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())

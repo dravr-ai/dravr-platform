@@ -84,6 +84,20 @@ export type {
   SaveLlmCredentialsResponse,
 } from './domains/user';
 
+export { createNotificationsApi } from './domains/notifications';
+export type {
+  NotificationsApi,
+  DeviceToken,
+  RegisterDeviceTokenRequest,
+  NotificationPreferencesResponse,
+  UpdateNotificationPreferenceRequest,
+  NotificationPreferenceItem,
+  NotificationFeedResponse,
+  UnreadCountResponse,
+  MarkAllReadResponse,
+  ListNotificationsParams,
+} from './domains/notifications';
+
 // Re-export mobile adapter only (web adapter excluded for Hermes compatibility)
 export { createMobileAdapter } from './adapters/mobile';
 export type { AsyncStorageLike, MobileAdapterOptions } from './adapters/mobile';
@@ -99,6 +113,7 @@ import { createOAuthApi } from './domains/oauth';
 import { createSocialApi } from './domains/social';
 import { createStoreApi } from './domains/store';
 import { createUserApi } from './domains/user';
+import { createNotificationsApi } from './domains/notifications';
 
 /**
  * Complete API service combining all domain APIs.
@@ -119,6 +134,8 @@ export interface PierreApiService {
   store: ReturnType<typeof createStoreApi>;
   /** User API */
   user: ReturnType<typeof createUserApi>;
+  /** Notifications API */
+  notifications: ReturnType<typeof createNotificationsApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -149,6 +166,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     social: createSocialApi(axios),
     store: createStoreApi(axios),
     user: createUserApi(axios),
+    notifications: createNotificationsApi(axios),
     axios,
     adapter,
   };

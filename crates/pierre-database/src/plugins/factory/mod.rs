@@ -13,6 +13,7 @@ mod admin;
 mod api_key;
 mod chat;
 mod messaging;
+mod notifications;
 mod oauth;
 mod security;
 mod social;

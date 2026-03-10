@@ -54,3 +54,4 @@ export const oauthApi = api.oauth;
 export const socialApi = api.social;
 export const storeApi = api.store;
 export const userApi = api.user;
+export const notificationsApi = api.notifications;

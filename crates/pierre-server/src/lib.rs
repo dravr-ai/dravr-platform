@@ -176,3 +176,12 @@ pub use services::messaging_outbound::start_outbound_worker;
 
 // Re-export OAuth flow validation for integration testing
 pub use services::oauth_flow;
+
+// Re-export notification services for integration testing
+#[cfg(feature = "client-notifications")]
+pub mod services_notifications {
+    //! Public re-exports of notification service types for integration testing
+    pub use crate::services::expo_push;
+    pub use crate::services::notification_dispatch;
+    pub use crate::services::notification_triggers;
+}

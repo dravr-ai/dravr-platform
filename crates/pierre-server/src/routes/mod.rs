@@ -144,6 +144,10 @@ pub mod user_mcp_tokens;
 #[cfg(feature = "client-messaging")]
 pub mod messaging;
 
+/// Push notification routes (device registration, preferences, feed)
+#[cfg(feature = "client-notifications")]
+pub mod notifications;
+
 // ═══════════════════════════════════════════════════════════════
 // OPENAPI FEATURE
 // ═══════════════════════════════════════════════════════════════
@@ -243,6 +247,10 @@ pub use user_mcp_tokens::UserMcpTokenRoutes;
 // Messaging re-exports
 #[cfg(feature = "client-messaging")]
 pub use messaging::MessagingRoutes;
+
+// Notification re-exports
+#[cfg(feature = "client-notifications")]
+pub use notifications::NotificationRoutes;
 
 // OpenAPI re-exports
 #[cfg(feature = "openapi")]

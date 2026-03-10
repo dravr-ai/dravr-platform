@@ -12,6 +12,8 @@
 use super::chat_tool_loop::{self, ToolLoopParams};
 use crate::models::ConnectionType;
 use crate::models::TenantId;
+#[cfg(feature = "client-notifications")]
+use crate::services::notification_triggers;
 use crate::{
     errors::AppError,
     llm::{
@@ -1129,11 +1131,39 @@ impl ChatRoutes {
             activity_list: result.activity_list,
         };
 
+        // Notify user when a coach conversation produces a response
+        #[cfg(feature = "client-notifications")]
+        Self::notify_coach_response(&resources, &conv, auth.user_id, tenant_id, &conversation_id);
+
         // Build response with usage warning headers
         let mut http_response = (StatusCode::OK, Json(response)).into_response();
         Self::apply_usage_warning_headers(&mut http_response, usage_warning);
 
         Ok(http_response)
+    }
+
+    /// Fire-and-forget notification when a coach conversation produces a response.
+    /// Only sends if the conversation has a `system_prompt` (indicates coach persona).
+    #[cfg(feature = "client-notifications")]
+    fn notify_coach_response(
+        resources: &Arc<ServerResources>,
+        conv: &ConversationRecord,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) {
+        if conv.system_prompt.is_some() {
+            if let Some(dispatcher) = &resources.notification_dispatcher {
+                let coach_title = conv.title.clone();
+                notification_triggers::trigger_coach_message(
+                    dispatcher,
+                    user_id,
+                    tenant_id,
+                    conversation_id,
+                    &coach_title,
+                );
+            }
+        }
     }
 
     /// Check pre-chat quotas and return optional usage warning info for response headers.

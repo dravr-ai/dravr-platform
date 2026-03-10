@@ -110,6 +110,22 @@ export type {
   ListResponse,
 } from './api.js';
 
+// Notification types (push notifications, device tokens, preferences)
+export type {
+  NotificationCategory,
+  DevicePlatform,
+  DeviceToken,
+  RegisterDeviceTokenRequest,
+  NotificationPreferenceItem,
+  NotificationPreferencesResponse,
+  UpdateNotificationPreferenceRequest,
+  NotificationItem,
+  NotificationFeedResponse,
+  UnreadCountResponse,
+  MarkAllReadResponse,
+  ListNotificationsParams,
+} from './notifications.js';
+
 // Admin types (API keys, admin tokens, A2A protocol, dashboard)
 export type {
   ApiKeyStatus,

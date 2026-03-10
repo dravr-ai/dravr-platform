@@ -18,6 +18,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
 import { WebSocketProvider } from '../src/contexts/WebSocketContext';
+import { usePushTokenRegistration } from '../src/hooks/usePushTokenRegistration';
 import { colors } from '../src/constants/theme';
 
 LogBox.ignoreLogs([
@@ -34,6 +35,9 @@ function RootLayoutNav() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+
+  // Register push notification token when authenticated
+  usePushTokenRegistration();
 
   // Hide the native splash screen once auth state is resolved
   React.useEffect(() => {

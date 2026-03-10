@@ -180,6 +180,15 @@ export const QUERY_KEYS = {
     settings: () => ['social-settings'] as const,
   },
 
+  // ==================== NOTIFICATIONS ====================
+  notifications: {
+    all: ['notifications'] as const,
+    feed: (category?: string) => ['notifications-feed', category] as const,
+    unreadCount: () => ['notifications-unread-count'] as const,
+    preferences: () => ['notifications-preferences'] as const,
+    devices: () => ['notifications-devices'] as const,
+  },
+
   // ==================== USAGE QUOTAS ====================
   usage: {
     all: ['usage'] as const,

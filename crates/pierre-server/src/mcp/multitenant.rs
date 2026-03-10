@@ -1171,6 +1171,12 @@ impl MultiTenantMcpServer {
             app.merge(MessagingRoutes::routes(Arc::clone(resources)))
         };
 
+        #[cfg(feature = "client-notifications")]
+        let app = {
+            use crate::routes::NotificationRoutes;
+            app.merge(NotificationRoutes::routes(Arc::clone(resources)))
+        };
+
         // ═══════════════════════════════════════════════════════════════
         // OPENAPI DOCUMENTATION ROUTES
         // ═══════════════════════════════════════════════════════════════

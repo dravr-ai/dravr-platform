@@ -158,3 +158,12 @@ pub use recipes::{
 
 /// Multi-channel messaging gateway types
 pub mod messaging;
+
+/// Push notification models for device tokens, preferences, and notification records
+pub mod notifications;
+pub use notifications::{
+    CreateNotificationParams, DevicePlatform, DeviceToken, ListNotificationsQuery, Notification,
+    NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreference,
+    NotificationPreferenceItem, NotificationPreferencesResponse, RegisterDeviceTokenRequest,
+    ScheduledNotification, UpdateNotificationPreferenceRequest, UpsertNotificationPreferenceParams,
+};

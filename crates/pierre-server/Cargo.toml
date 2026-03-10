@@ -174,8 +174,9 @@ client-mobile = ["protocol-rest"]        # Mobile-specific routes (subset)
 client-mcp-tokens = ["protocol-mcp"]     # user_mcp_tokens.rs
 
 client-messaging = ["protocol-rest", "dep:pierre-messaging", "pierre-messaging/all-channels"]
+client-notifications = ["protocol-rest"]   # notifications.rs - push notification routes
 
-client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging"]
+client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens", "client-messaging", "client-notifications"]
 
 # ═══════════════════════════════════════════════════════════════
 # OAUTH (shared infrastructure)
@@ -228,6 +229,7 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "timeout", "limit", "set-header"] }
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 base64 = "0.22"
 bytes = "1.11"
 url = "2.5"
@@ -282,6 +284,7 @@ utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"], option
 utoipa-axum = { version = "0.2", optional = true }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
+cron = "0.15.0"
 
 [dev-dependencies]
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.4.1" }
