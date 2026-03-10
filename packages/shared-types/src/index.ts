@@ -119,11 +119,14 @@ export type {
   NotificationPreferenceItem,
   NotificationPreferencesResponse,
   UpdateNotificationPreferenceRequest,
+  NotificationActionType,
+  NotificationAction,
   NotificationItem,
   NotificationFeedResponse,
   UnreadCountResponse,
   MarkAllReadResponse,
   ListNotificationsParams,
+  BadgeSyncResponse,
 } from './notifications.js';
 
 // Admin types (API keys, admin tokens, A2A protocol, dashboard)

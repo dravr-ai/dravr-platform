@@ -166,7 +166,7 @@ impl NotificationDispatcher {
             .database
             .get_unread_count(request.user_id, request.tenant_id)
             .await
-            .unwrap_or(1);
+            .unwrap_or(0);
 
         // Step 4: Send push to all active devices
         let device_count = tokens.len();
