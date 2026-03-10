@@ -7,6 +7,7 @@ import type { ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
 import type { Conversation } from '../../types';
+import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 
 const popoverContainerStyle: ViewStyle = {
   position: 'absolute',
@@ -91,6 +92,9 @@ export function ChatHeader({
             <Text className="text-[10px] ml-1 text-text-tertiary">▼</Text>
           )}
         </TouchableOpacity>
+
+        {/* Notification bell */}
+        <NotificationBellButton size={20} color={colors.text.secondary} />
       </View>
 
       {/* Conversation Action Menu Modal - Claude-style popover */}

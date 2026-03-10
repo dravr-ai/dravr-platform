@@ -17,6 +17,11 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use tracing::warn;
+#[cfg(feature = "client-notifications")]
+use {
+    crate::mcp::resources::ServerResources, crate::services::notification_triggers,
+    pierre_core::models::TenantId, std::sync::Arc, uuid::Uuid,
+};
 
 /// Information about recovery adjustment applied to fitness score
 struct RecoveryAdjustmentInfo {
@@ -509,6 +514,15 @@ pub fn handle_calculate_fitness_score(
                             );
                         }
 
+                        // Fire fitness improvement notification if trend is improving
+                        #[cfg(feature = "client-notifications")]
+                        fire_fitness_improvement_notification(
+                            &executor.resources,
+                            user_uuid,
+                            request.tenant_id.as_deref(),
+                            &analysis,
+                        );
+
                         let result = UniversalResponse {
                             success: true,
                             result: Some(analysis),
@@ -557,4 +571,39 @@ pub fn handle_calculate_fitness_score(
             Err(response) => Ok(response),
         }
     })
+}
+
+/// Fire a fitness improvement notification when the trend is "improving"
+/// and the fitness score exceeds a meaningful threshold.
+#[cfg(feature = "client-notifications")]
+fn fire_fitness_improvement_notification(
+    resources: &Arc<ServerResources>,
+    user_id: Uuid,
+    tenant_id_str: Option<&str>,
+    analysis: &serde_json::Value,
+) {
+    let Some(dispatcher) = &resources.notification_dispatcher else {
+        return;
+    };
+    let Some(tenant_str) = tenant_id_str else {
+        return;
+    };
+    let Ok(tenant_uuid) = tenant_str.parse::<Uuid>() else {
+        return;
+    };
+    let tenant_id = TenantId(tenant_uuid);
+
+    let trend = analysis["trend"].as_str().unwrap_or("");
+    let score = analysis["fitness_score"].as_i64().unwrap_or(0);
+
+    // Only trigger when fitness trend is improving and score is meaningful
+    if trend == "improving" && score > 0 {
+        notification_triggers::trigger_fitness_improvement(
+            dispatcher,
+            user_id,
+            tenant_id,
+            "Fitness Score",
+            &format!("{score}"),
+        );
+    }
 }

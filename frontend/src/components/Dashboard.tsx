@@ -37,6 +37,8 @@ const StoreScreen = lazy(() => import('./StoreScreen'));
 const FriendsTab = lazy(() => import('./social/FriendsTab'));
 const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
 const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
+const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
+import { NotificationBell } from './notifications/NotificationBell';
 
 // Tab definition type with optional badge for notification counts
 interface TabDefinition {
@@ -322,6 +324,9 @@ export default function Dashboard() {
               )}
             </button>
 
+            {/* Notification bell */}
+            <NotificationBell onViewAll={() => setActiveTab('notifications')} />
+
             {/* Settings gear icon - visible shortcut to user settings */}
             <button
               onClick={() => setActiveTab('settings')}
@@ -503,6 +508,11 @@ export default function Dashboard() {
         {activeTab === 'settings' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <UserSettings />
+          </Suspense>
+        )}
+        {activeTab === 'notifications' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <NotificationsPanel />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (

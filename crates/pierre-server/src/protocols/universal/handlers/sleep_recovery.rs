@@ -721,6 +721,29 @@ pub fn handle_calculate_recovery_score(
                 (score, None, None, None)
             };
 
+        // Fire low recovery score notification if below threshold
+        #[cfg(feature = "client-notifications")]
+        {
+            use crate::services::notification_triggers;
+            use pierre_core::models::TenantId;
+
+            const LOW_RECOVERY_THRESHOLD: f64 = 40.0;
+            if recovery_score.overall_score < LOW_RECOVERY_THRESHOLD {
+                if let Some(dispatcher) = &executor.resources.notification_dispatcher {
+                    if let Some(tenant_str) = request.tenant_id.as_deref() {
+                        if let Ok(tenant_uuid) = tenant_str.parse::<Uuid>() {
+                            notification_triggers::trigger_low_recovery_score(
+                                dispatcher,
+                                user_uuid,
+                                TenantId(tenant_uuid),
+                                recovery_score.overall_score,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         let result = UniversalResponse {
             success: true,
             result: Some(serde_json::json!({

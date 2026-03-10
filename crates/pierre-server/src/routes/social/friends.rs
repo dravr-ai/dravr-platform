@@ -16,12 +16,15 @@ use std::sync::Arc;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+#[cfg(feature = "client-notifications")]
+use crate::services::notification_triggers;
 use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     models::{FriendConnection, FriendStatus},
     services::social_insights,
 };
+use pierre_core::models::TenantId;
 use pierre_database::database::repositories::UserRepository;
 
 use super::{SocialMetadata, SocialRoutes};
@@ -303,6 +306,24 @@ impl SocialRoutes {
         let result =
             social_insights::create_friend_request(&social, auth.user_id, receiver_id).await?;
 
+        // Fire-and-forget notification to the receiver
+        #[cfg(feature = "client-notifications")]
+        if let Some(dispatcher) = &resources.notification_dispatcher {
+            if let Some(tenant_uuid) = auth.active_tenant_id {
+                let sender_user = resources.database.get_global(auth.user_id).await?;
+                let sender_name = sender_user
+                    .and_then(|u| u.display_name)
+                    .unwrap_or_else(|| "Someone".to_owned());
+                notification_triggers::trigger_friend_request_received(
+                    dispatcher,
+                    receiver_id,
+                    TenantId::from(tenant_uuid),
+                    &result.connection.id.to_string(),
+                    &sender_name,
+                );
+            }
+        }
+
         let response: FriendConnectionResponse = result.connection.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
@@ -414,6 +435,23 @@ impl SocialRoutes {
         social
             .update_friend_connection_status(connection_id, auth.user_id, FriendStatus::Accepted)
             .await?;
+
+        // Fire-and-forget notification to the original requester
+        #[cfg(feature = "client-notifications")]
+        if let Some(dispatcher) = &resources.notification_dispatcher {
+            if let Some(tenant_uuid) = auth.active_tenant_id {
+                let accepter_user = resources.database.get_global(auth.user_id).await?;
+                let accepter_name = accepter_user
+                    .and_then(|u| u.display_name)
+                    .unwrap_or_else(|| "Someone".to_owned());
+                notification_triggers::trigger_friend_request_accepted(
+                    dispatcher,
+                    connection.initiator_id,
+                    TenantId::from(tenant_uuid),
+                    &accepter_name,
+                );
+            }
+        }
 
         let updated = social
             .get_friend_connection(connection_id)

@@ -37,3 +37,19 @@ pub mod usage_pruning;
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;
+
+/// Expo Push Service client for sending push notifications via Expo's HTTP API
+#[cfg(feature = "client-notifications")]
+pub mod expo_push;
+
+/// Central notification dispatch pipeline with preference checking and push delivery
+#[cfg(feature = "client-notifications")]
+pub mod notification_dispatch;
+
+/// Intelligence-driven notification triggers for activity sync, training load, and achievements
+#[cfg(feature = "client-notifications")]
+pub mod notification_triggers;
+
+/// Background worker that polls scheduled_notifications and fires due notifications via cron
+#[cfg(feature = "client-notifications")]
+pub mod notification_scheduler;

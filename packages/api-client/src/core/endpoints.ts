@@ -159,6 +159,26 @@ export const ENDPOINTS = {
     INSTALLATIONS: '/api/store/installations',
   },
 
+  // ==================== NOTIFICATIONS ====================
+  NOTIFICATIONS: {
+    /** List notifications (feed) */
+    FEED: '/api/notifications',
+    /** Get unread notification count */
+    UNREAD_COUNT: '/api/notifications/unread-count',
+    /** Mark all notifications as read */
+    READ_ALL: '/api/notifications/read-all',
+    /** Mark a single notification as read */
+    READ: (id: string) => `/api/notifications/${id}/read`,
+    /** Delete a notification */
+    DELETE: (id: string) => `/api/notifications/${id}`,
+    /** Register/list device tokens */
+    DEVICES: '/api/notifications/device',
+    /** Deactivate a specific device token */
+    DEVICE: (id: string) => `/api/notifications/device/${id}`,
+    /** Get/update notification preferences */
+    PREFERENCES: '/api/notifications/preferences',
+  },
+
   // ==================== USER ====================
   USER: {
     /** User profile */

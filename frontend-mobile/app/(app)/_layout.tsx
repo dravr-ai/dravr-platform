@@ -22,6 +22,10 @@ export default function AppLayout() {
         name="connections"
         options={{ presentation: 'modal', gestureEnabled: true }}
       />
+      <Stack.Screen
+        name="notifications"
+        options={{ presentation: 'modal', gestureEnabled: true }}
+      />
     </Stack>
   );
 }

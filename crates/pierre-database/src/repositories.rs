@@ -21,6 +21,11 @@ use pierre_core::models::coaches::{
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
+use pierre_core::models::notifications::{
+    CreateNotificationParams, CreateScheduledNotificationParams, DeviceToken, Notification,
+    NotificationAnalytics, NotificationPreference, ScheduledNotification,
+    UpdateScheduledNotificationParams, UpsertNotificationPreferenceParams,
+};
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{
@@ -1493,6 +1498,203 @@ pub trait MessagingRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: &str,
         channel_type: &str,
+    ) -> AppResult<bool>;
+}
+
+// ================================
+// Push notification repository
+// ================================
+
+/// Push notification repository for device tokens, preferences, and notification records.
+///
+/// All queries are tenant-scoped for multi-tenant isolation.
+/// Named `PushNotificationRepository` to avoid conflict with the existing
+/// `NotificationRepository` which handles OAuth notifications.
+#[async_trait]
+pub trait PushNotificationRepository: Send + Sync {
+    // ── Device Tokens ──
+
+    /// Register or update a device token for push notifications.
+    /// Uses upsert on (`user_id`, `tenant_id`, `expo_push_token`) to avoid duplicates.
+    async fn upsert_device_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        expo_push_token: &str,
+        platform: &str,
+        device_name: Option<&str>,
+    ) -> AppResult<DeviceToken>;
+
+    /// Get all active device tokens for a user within a tenant
+    async fn get_device_tokens(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<DeviceToken>>;
+
+    /// Deactivate a device token (soft-delete)
+    async fn deactivate_device_token(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        token_id: Uuid,
+    ) -> AppResult<bool>;
+
+    // ── Notification Preferences ──
+
+    /// Get all notification preferences for a user within a tenant.
+    /// Returns one row per category that has been explicitly configured.
+    async fn get_notification_preferences(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<NotificationPreference>>;
+
+    /// Upsert a notification preference for a specific category
+    async fn upsert_notification_preference(
+        &self,
+        params: &UpsertNotificationPreferenceParams,
+    ) -> AppResult<NotificationPreference>;
+
+    // ── Notifications ──
+
+    /// Create a new notification record
+    async fn create_notification(
+        &self,
+        params: &CreateNotificationParams,
+    ) -> AppResult<Notification>;
+
+    /// List notifications for a user with optional filters.
+    /// Returns (notifications, `total_count`, `unread_count`).
+    async fn list_notifications(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        limit: u32,
+        offset: u32,
+        category: Option<&str>,
+        unread_only: bool,
+    ) -> AppResult<(Vec<Notification>, i64, i64)>;
+
+    /// Mark a notification as read
+    async fn mark_notification_read(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        notification_id: Uuid,
+    ) -> AppResult<bool>;
+
+    /// Mark all notifications as read for a user within a tenant
+    async fn mark_all_notifications_read(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<u64>;
+
+    /// Delete a notification
+    async fn delete_notification(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        notification_id: Uuid,
+    ) -> AppResult<bool>;
+
+    /// Get unread notification count for a user within a tenant
+    async fn get_unread_count(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<i64>;
+
+    /// Count notifications of a specific category created since a given timestamp.
+    /// Used for frequency cap enforcement in the notification dispatch pipeline.
+    async fn count_notifications_since(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        category: &str,
+        since: DateTime<Utc>,
+    ) -> AppResult<i64>;
+
+    // ── Notification Analytics ──
+
+    /// Record when a user opened a notification (tapped on it)
+    async fn mark_notification_opened(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        notification_id: Uuid,
+    ) -> AppResult<bool>;
+
+    /// Record when a user dismissed a notification
+    async fn mark_notification_dismissed(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        notification_id: Uuid,
+    ) -> AppResult<bool>;
+
+    /// Get aggregated notification analytics for a tenant
+    async fn get_notification_analytics(
+        &self,
+        tenant_id: TenantId,
+        since: Option<DateTime<Utc>>,
+        until: Option<DateTime<Utc>>,
+        category: Option<&str>,
+    ) -> AppResult<NotificationAnalytics>;
+
+    // ── Scheduled Notifications ──
+
+    /// Get a single scheduled notification by ID (tenant-isolated)
+    async fn get_scheduled_notification_by_id(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<ScheduledNotification>>;
+
+    /// Count scheduled notifications for a user within a tenant (for rate limiting)
+    async fn count_scheduled_notifications(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<i64>;
+
+    /// Create a scheduled notification
+    async fn create_scheduled_notification(
+        &self,
+        params: &CreateScheduledNotificationParams,
+    ) -> AppResult<ScheduledNotification>;
+
+    /// List scheduled notifications for a user within a tenant
+    async fn list_scheduled_notifications(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<ScheduledNotification>>;
+
+    /// Delete a scheduled notification (tenant-isolated)
+    async fn delete_scheduled_notification(
+        &self,
+        id: Uuid,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Update a scheduled notification (enable/disable, change cron/timezone)
+    async fn update_scheduled_notification(
+        &self,
+        params: &UpdateScheduledNotificationParams,
+    ) -> AppResult<bool>;
+
+    /// Get all due scheduled notifications (where `next_fire_at <= now` and enabled)
+    async fn get_due_scheduled_notifications(
+        &self,
+        now: DateTime<Utc>,
+    ) -> AppResult<Vec<ScheduledNotification>>;
+
+    /// Update a scheduled notification after it fires
+    async fn update_scheduled_notification_fired(
+        &self,
+        id: Uuid,
+        last_fired_at: DateTime<Utc>,
+        next_fire_at: DateTime<Utc>,
     ) -> AppResult<bool>;
 }
 

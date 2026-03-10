@@ -23,6 +23,7 @@ export const oauthApi = pierreApi.oauth;
 export const socialApi = pierreApi.social;
 export const storeApi = pierreApi.store;
 export const userApi = pierreApi.user;
+export const notificationsApi = pierreApi.notifications;
 
 // Web-only providers API (includes non-OAuth providers like synthetic)
 export const providersApi = {

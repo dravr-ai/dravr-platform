@@ -14,9 +14,13 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use pierre_core::models::coaches::Coach;
 use pierre_core::models::coaches::UpdateCoachRequest;
 use pierre_database::database::store_listings::{CoachWithListing, StoreListingsManager};
 use std::sync::Arc;
+
+#[cfg(feature = "client-notifications")]
+use crate::services::notification_triggers;
 
 use super::types::{
     AdminCreateCoachBody, AssignCoachBody, AssignCoachResponse, CoachAssignment, CoachResponse,
@@ -103,6 +107,24 @@ pub(super) async fn handle_admin_update(
         .await?
         .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
 
+    // Notify users assigned to this coach that their training plan was updated
+    #[cfg(feature = "client-notifications")]
+    if let Some(dispatcher) = &resources.notification_dispatcher {
+        let coach_name = coach.title.clone();
+        if let Ok(assignments) = manager.list_assignments_for_tenant(&id, tenant_id).await {
+            for assignment in assignments {
+                if let Ok(user_uuid) = assignment.user_id.parse::<uuid::Uuid>() {
+                    notification_triggers::trigger_plan_updated(
+                        dispatcher,
+                        user_uuid,
+                        tenant_id,
+                        &coach_name,
+                    );
+                }
+            }
+        }
+    }
+
     let response: CoachResponse = coach.into();
     Ok((StatusCode::OK, Json(response)).into_response())
 }
@@ -143,8 +165,8 @@ pub(super) async fn handle_admin_assign(
 
     let manager = super::get_coaches_manager(&resources)?;
 
-    // Verify the coach exists and is a system coach
-    manager
+    // Verify the coach exists and is a system coach (also used for notification body)
+    let coach: Coach = manager
         .get_system_coach(&id, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
@@ -158,6 +180,22 @@ pub(super) async fn handle_admin_assign(
         &body.user_ids,
     )
     .await?;
+
+    // Notify each assigned user about the new coach assignment
+    #[cfg(feature = "client-notifications")]
+    if let Some(dispatcher) = &resources.notification_dispatcher {
+        let coach_name = coach.title.clone();
+        for user_id_str in &body.user_ids {
+            if let Ok(user_uuid) = user_id_str.parse::<uuid::Uuid>() {
+                notification_triggers::trigger_plan_updated(
+                    dispatcher,
+                    user_uuid,
+                    tenant_id,
+                    &coach_name,
+                );
+            }
+        }
+    }
 
     let response = AssignCoachResponse {
         coach_id: id,
