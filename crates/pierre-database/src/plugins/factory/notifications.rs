@@ -263,6 +263,7 @@ impl PushNotificationRepository for Database {
 
     async fn get_notification_analytics(
         &self,
+        user_id: Uuid,
         tenant_id: TenantId,
         since: Option<DateTime<Utc>>,
         until: Option<DateTime<Utc>>,
@@ -270,7 +271,7 @@ impl PushNotificationRepository for Database {
     ) -> AppResult<NotificationAnalytics> {
         match self {
             Self::SQLite(db) => {
-                db.get_notification_analytics_impl(tenant_id, since, until, category)
+                db.get_notification_analytics_impl(user_id, tenant_id, since, until, category)
                     .await
             }
             #[cfg(feature = "postgresql")]

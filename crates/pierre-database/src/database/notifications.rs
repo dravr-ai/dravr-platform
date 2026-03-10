@@ -8,8 +8,9 @@ use chrono::{DateTime, NaiveTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::notifications::{
     CategoryAnalytics, CreateNotificationParams, CreateScheduledNotificationParams, DevicePlatform,
-    DeviceToken, Notification, NotificationAnalytics, NotificationCategory, NotificationPreference,
-    ScheduledNotification, UpdateScheduledNotificationParams, UpsertNotificationPreferenceParams,
+    DeviceToken, Notification, NotificationAction, NotificationAnalytics, NotificationCategory,
+    NotificationPreference, ScheduledNotification, UpdateScheduledNotificationParams,
+    UpsertNotificationPreferenceParams,
 };
 use pierre_core::models::TenantId;
 use sqlx::sqlite::SqliteRow;
@@ -140,6 +141,7 @@ fn parse_notification_row(row: &SqliteRow) -> AppResult<Notification> {
         .map_err(|e| AppError::database(format!("Missing body: {e}")))?;
     let data_str: Option<String> = row.try_get("data").unwrap_or(None);
     let image_url: Option<String> = row.try_get("image_url").unwrap_or(None);
+    let actions_str: Option<String> = row.try_get("actions").unwrap_or(None);
     let read_at_str: Option<String> = row.try_get("read_at").unwrap_or(None);
     let delivered_at_str: Option<String> = row.try_get("delivered_at").unwrap_or(None);
     let opened_at_str: Option<String> = row.try_get("opened_at").unwrap_or(None);
@@ -169,6 +171,7 @@ fn parse_notification_row(row: &SqliteRow) -> AppResult<Notification> {
         delivered_at: delivered_at_str.as_deref().and_then(parse_dt),
         opened_at: opened_at_str.as_deref().and_then(parse_dt),
         dismissed_at: dismissed_at_str.as_deref().and_then(parse_dt),
+        actions: actions_str.and_then(|s| serde_json::from_str::<Vec<NotificationAction>>(&s).ok()),
         created_at: parse_dt(&created_at_str).unwrap_or_else(Utc::now),
     })
 }
@@ -392,12 +395,16 @@ impl Database {
         let id = Uuid::new_v4();
         let now = Utc::now().to_rfc3339();
         let data_str = params.data.as_ref().map(ToString::to_string);
+        let actions_str = params
+            .actions
+            .as_ref()
+            .and_then(|a| serde_json::to_string(a).ok());
 
         sqlx::query(
             r"
             INSERT INTO notifications
-                (id, user_id, tenant_id, category, notification_type, title, body, data, image_url, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, user_id, tenant_id, category, notification_type, title, body, data, image_url, actions, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ",
         )
         .bind(id.to_string())
@@ -409,6 +416,7 @@ impl Database {
         .bind(&params.body)
         .bind(&data_str)
         .bind(&params.image_url)
+        .bind(&actions_str)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -704,11 +712,14 @@ impl Database {
     /// Returns an error if the database query fails
     pub async fn get_notification_analytics_impl(
         &self,
+        user_id: Uuid,
         tenant_id: TenantId,
         since: Option<DateTime<Utc>>,
         until: Option<DateTime<Utc>>,
         category: Option<&str>,
     ) -> AppResult<NotificationAnalytics> {
+        let user_id_str = user_id.to_string();
+        let tenant_id_str = tenant_id.0.to_string();
         let since_str = since
             .unwrap_or_else(|| Utc::now() - chrono::Duration::days(30))
             .to_rfc3339();
@@ -721,7 +732,7 @@ impl Database {
             ""
         };
 
-        // Aggregate totals
+        // Aggregate totals scoped to user and tenant
         let totals_sql = format!(
             r"
             SELECT
@@ -730,13 +741,14 @@ impl Database {
                 COUNT(opened_at) as total_opened,
                 COUNT(dismissed_at) as total_dismissed
             FROM notifications
-            WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?
+            WHERE user_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
             {category_clause}
             "
         );
 
         let mut query = sqlx::query(&totals_sql)
-            .bind(tenant_id.0.to_string())
+            .bind(&user_id_str)
+            .bind(&tenant_id_str)
             .bind(&since_str)
             .bind(&until_str);
         if let Some(cat) = category {
@@ -778,14 +790,15 @@ impl Database {
                 CAST((julianday(opened_at) - julianday(created_at)) * 86400 AS REAL)
             ) as avg_seconds
             FROM notifications
-            WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?
+            WHERE user_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
             AND opened_at IS NOT NULL
             {category_clause}
             "
         );
 
         let mut avg_query = sqlx::query(&avg_sql)
-            .bind(tenant_id.0.to_string())
+            .bind(&user_id_str)
+            .bind(&tenant_id_str)
             .bind(&since_str)
             .bind(&until_str);
         if let Some(cat) = category {
@@ -799,7 +812,7 @@ impl Database {
 
         let avg_time_to_open_seconds: Option<f64> = avg_row.try_get::<f64, _>("avg_seconds").ok();
 
-        // Category breakdown
+        // Category breakdown scoped to user and tenant
         let breakdown_sql = format!(
             r"
             SELECT
@@ -808,7 +821,7 @@ impl Database {
                 COUNT(opened_at) as opened,
                 COUNT(dismissed_at) as dismissed
             FROM notifications
-            WHERE tenant_id = ? AND created_at >= ? AND created_at <= ?
+            WHERE user_id = ? AND tenant_id = ? AND created_at >= ? AND created_at <= ?
             {category_clause}
             GROUP BY category
             ORDER BY sent DESC
@@ -816,7 +829,8 @@ impl Database {
         );
 
         let mut breakdown_query = sqlx::query(&breakdown_sql)
-            .bind(tenant_id.0.to_string())
+            .bind(&user_id_str)
+            .bind(&tenant_id_str)
             .bind(&since_str)
             .bind(&until_str);
         if let Some(cat) = category {

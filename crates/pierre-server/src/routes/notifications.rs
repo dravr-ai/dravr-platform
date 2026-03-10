@@ -130,6 +130,11 @@ impl NotificationRoutes {
                 "/api/notifications/analytics",
                 get(Self::handle_get_analytics),
             )
+            // Badge sync
+            .route(
+                "/api/notifications/badge-sync",
+                post(Self::handle_badge_sync),
+            )
             // Scheduled notifications
             .route(
                 "/api/notifications/scheduled",
@@ -533,7 +538,13 @@ impl NotificationRoutes {
 
         let analytics = resources
             .database
-            .get_notification_analytics(tenant_id, since, until, query.category.as_deref())
+            .get_notification_analytics(
+                auth.user_id,
+                tenant_id,
+                since,
+                until,
+                query.category.as_deref(),
+            )
             .await?;
 
         Ok((StatusCode::OK, Json(analytics)).into_response())
@@ -707,5 +718,21 @@ impl NotificationRoutes {
         }
 
         Ok((StatusCode::OK, Json(serde_json::json!({"success": true}))).into_response())
+    }
+
+    /// Handle POST /api/notifications/badge-sync - Get unread count for badge display
+    async fn handle_badge_sync(
+        State(resources): State<Arc<ServerResources>>,
+        auth: AuthenticatedUser,
+    ) -> Result<Response, AppError> {
+        let auth = auth.into_inner();
+        let tenant_id = Self::get_tenant_id(&auth)?;
+
+        let count = resources
+            .database
+            .get_unread_count(auth.user_id, tenant_id)
+            .await?;
+
+        Ok((StatusCode::OK, Json(serde_json::json!({"count": count}))).into_response())
     }
 }

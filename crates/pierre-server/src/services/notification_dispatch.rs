@@ -13,7 +13,8 @@
 use chrono::{Duration, NaiveTime, Timelike, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::notifications::{
-    CreateNotificationParams, DeviceToken, NotificationCategory, NotificationPreference,
+    CreateNotificationParams, DeviceToken, NotificationAction, NotificationActionType,
+    NotificationCategory, NotificationPreference,
 };
 use pierre_core::models::TenantId;
 use pierre_database::plugins::factory::Database;
@@ -24,7 +25,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::expo_push::{ExpoPushMessage, ExpoPushService};
+use super::expo_push::{ExpoPushMessage, ExpoPushService, ExpoPushTicket};
 use crate::constants::notifications as notif_constants;
 
 /// Reason a notification was suppressed before delivery
@@ -76,6 +77,8 @@ pub struct DispatchRequest {
     pub data: Option<Value>,
     /// Optional image URL for rich notifications
     pub image_url: Option<String>,
+    /// Action buttons attached to this notification
+    pub actions: Option<Vec<NotificationAction>>,
     /// When true, skip the daily frequency cap check (used for coach notifications)
     /// Quiet hours and category-disabled checks still apply.
     pub bypass_frequency_cap: bool,
@@ -138,10 +141,11 @@ impl NotificationDispatcher {
             body: request.body.clone(),
             data: request.data.clone(),
             image_url: request.image_url.clone(),
+            actions: request.actions.clone(),
         };
         let notification = self.database.create_notification(&params).await?;
 
-        // Step 3: Look up device tokens
+        // Step 3: Look up device tokens and unread count for badge
         let tokens = self
             .database
             .get_device_tokens(request.user_id, request.tenant_id)
@@ -158,9 +162,16 @@ impl NotificationDispatcher {
             });
         }
 
+        let unread_count = self
+            .database
+            .get_unread_count(request.user_id, request.tenant_id)
+            .await
+            .unwrap_or(1);
+
         // Step 4: Send push to all active devices
         let device_count = tokens.len();
-        self.deliver_push(request, &tokens, notification.id).await;
+        self.deliver_push(request, &tokens, notification.id, unread_count)
+            .await;
 
         Ok(DispatchOutcome::Delivered {
             notification_id: notification.id,
@@ -170,12 +181,18 @@ impl NotificationDispatcher {
 
     /// Build push messages from device tokens and send them via Expo.
     /// Failures are logged but never propagated (fire-and-forget delivery).
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     async fn deliver_push(
         &self,
         request: &DispatchRequest,
         tokens: &[DeviceToken],
         notification_id: Uuid,
+        unread_count: i64,
     ) {
+        // Derive iOS category_id from actions if present
+        let category_id = derive_category_id(request);
+        let badge_count = Some(unread_count.max(0) as u32);
+
         let messages: Vec<ExpoPushMessage> = tokens
             .iter()
             .map(|token| ExpoPushMessage {
@@ -184,9 +201,9 @@ impl NotificationDispatcher {
                 body: request.body.clone(),
                 data: request.data.clone(),
                 sound: Some("default".to_owned()),
-                badge: None,
+                badge: badge_count,
                 channel_id: Some(request.category.as_str().to_owned()),
-                category_id: Some(request.category.as_str().to_owned()),
+                category_id: Some(category_id.clone()),
                 priority: Some("high".to_owned()),
             })
             .collect();
@@ -194,20 +211,7 @@ impl NotificationDispatcher {
         let device_count = messages.len();
         match self.expo_push.send_batch(&messages).await {
             Ok(tickets) => {
-                let failure_count = tickets.iter().filter(|t| t.status != "ok").count();
-                if failure_count > 0 {
-                    warn!(
-                        notification_id = %notification_id,
-                        total = device_count,
-                        failed = failure_count,
-                        "Some push deliveries failed"
-                    );
-                }
-                info!(
-                    notification_id = %notification_id,
-                    devices = device_count,
-                    "Push notification delivered"
-                );
+                log_push_delivery_result(notification_id, device_count, &tickets);
             }
             Err(e) => {
                 warn!(
@@ -313,5 +317,51 @@ impl NotificationDispatcher {
             .await?;
 
         Ok(count >= max_per_day)
+    }
+}
+
+/// Log the result of a push delivery batch, warning about any failures
+fn log_push_delivery_result(
+    notification_id: Uuid,
+    device_count: usize,
+    tickets: &[ExpoPushTicket],
+) {
+    let failure_count = tickets.iter().filter(|t| t.status != "ok").count();
+    if failure_count > 0 {
+        warn!(
+            notification_id = %notification_id,
+            total = device_count,
+            failed = failure_count,
+            "Some push deliveries failed"
+        );
+    }
+    info!(
+        notification_id = %notification_id,
+        devices = device_count,
+        "Push notification delivered"
+    );
+}
+
+/// Derive the iOS categoryIdentifier from notification actions.
+/// Uses action-specific identifiers when actions are present, otherwise falls back
+/// to the notification category name.
+fn derive_category_id(request: &DispatchRequest) -> String {
+    let Some(actions) = &request.actions else {
+        return request.category.as_str().to_owned();
+    };
+
+    let has_accept_decline = actions
+        .iter()
+        .any(|a| a.action_type == NotificationActionType::AcceptDecline);
+    let has_quick_reply = actions
+        .iter()
+        .any(|a| a.action_type == NotificationActionType::QuickReply);
+
+    if has_accept_decline {
+        "accept_decline".to_owned()
+    } else if has_quick_reply {
+        "quick_reply".to_owned()
+    } else {
+        request.category.as_str().to_owned()
     }
 }

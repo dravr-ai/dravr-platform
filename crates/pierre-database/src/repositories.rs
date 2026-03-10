@@ -1630,9 +1630,10 @@ pub trait PushNotificationRepository: Send + Sync {
         notification_id: Uuid,
     ) -> AppResult<bool>;
 
-    /// Get aggregated notification analytics for a tenant
+    /// Get notification analytics for a specific user within a tenant
     async fn get_notification_analytics(
         &self,
+        user_id: Uuid,
         tenant_id: TenantId,
         since: Option<DateTime<Utc>>,
         until: Option<DateTime<Utc>>,

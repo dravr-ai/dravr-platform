@@ -31,7 +31,7 @@ import {
   useNotificationActions,
   useUnreadCount,
 } from '../../hooks/useNotifications';
-import type { NotificationCategory, NotificationItem } from '@pierre/shared-types';
+import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 
 const CATEGORY_FILTERS: { key: NotificationCategory | 'all'; label: string; icon: React.ElementType }[] = [
   { key: 'all', label: 'All', icon: Bell },
@@ -127,6 +127,24 @@ function NotificationRow({
         <Text className="text-xs text-zinc-400" numberOfLines={2}>
           {item.body}
         </Text>
+        {/* Action buttons */}
+        {item.actions && item.actions.length > 0 && (
+          <View className="flex-row mt-2 gap-2">
+            {item.actions.map((action: NotificationAction) => (
+              <TouchableOpacity
+                key={action.id}
+                className="px-3 py-1.5 rounded-md"
+                style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}
+                onPress={() => onPress(item)}
+                testID={`action-${action.id}`}
+              >
+                <Text className="text-xs font-medium" style={{ color: '#A78BFA' }}>
+                  {action.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Delete button */}

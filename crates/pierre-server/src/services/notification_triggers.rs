@@ -10,7 +10,9 @@
 //! and spawns an async task to dispatch it. Failures are logged at WARN level but
 //! never block the caller — notification delivery is always fire-and-forget.
 
-use pierre_core::models::notifications::NotificationCategory;
+use pierre_core::models::notifications::{
+    NotificationAction, NotificationActionType, NotificationCategory,
+};
 use pierre_core::models::TenantId;
 use serde_json::json;
 use std::sync::Arc;
@@ -59,6 +61,7 @@ pub fn trigger_activity_synced(
         body: format!("{activity_type} — {distance_display} in {duration_display}"),
         data: Some(json!({ "screen": "activity", "id": activity_id })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -82,6 +85,7 @@ pub fn trigger_training_load_alert(
         body: format!("Your acute training load is {atl_value:.0} — consider a recovery day"),
         data: Some(json!({ "screen": "recovery" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -105,6 +109,7 @@ pub fn trigger_low_recovery_score(
         body: format!("Your recovery score is {score:.0}/100 — easy day recommended"),
         data: Some(json!({ "screen": "recovery" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -125,6 +130,7 @@ pub fn trigger_overtraining_warning(
         body: "Your training stress trend suggests fatigue accumulation".to_owned(),
         data: Some(json!({ "screen": "recovery" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -150,6 +156,7 @@ pub fn trigger_personal_record(
         body: format!("New {distance_label} PR: {time_display}"),
         data: Some(json!({ "screen": "activity", "id": activity_id })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -174,6 +181,7 @@ pub fn trigger_milestone_reached(
         body: format!("You've logged {value_display} {unit} this year"),
         data: Some(json!({ "screen": "activities" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -198,6 +206,7 @@ pub fn trigger_fitness_improvement(
         body: format!("Your {metric_name} increased to {value_display}"),
         data: Some(json!({ "screen": "stats" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -226,6 +235,18 @@ pub fn trigger_friend_request_received(
         body: format!("{sender_name} wants to connect"),
         data: Some(json!({ "screen": "social", "action": "friend_request", "id": request_id })),
         image_url: None,
+        actions: Some(vec![
+            NotificationAction {
+                id: "accept".to_owned(),
+                title: "Accept".to_owned(),
+                action_type: NotificationActionType::AcceptDecline,
+            },
+            NotificationAction {
+                id: "decline".to_owned(),
+                title: "Decline".to_owned(),
+                action_type: NotificationActionType::AcceptDecline,
+            },
+        ]),
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -249,6 +270,7 @@ pub fn trigger_friend_request_accepted(
         body: format!("{accepter_name} accepted your connection"),
         data: Some(json!({ "screen": "social" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -274,6 +296,7 @@ pub fn trigger_activity_kudos(
         body: format!("{reactor_name} gave kudos on your {insight_type}"),
         data: Some(json!({ "screen": "activity", "id": insight_id })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -298,6 +321,7 @@ pub fn trigger_insight_shared(
         body: format!("{sharer_name} shared a coaching insight"),
         data: Some(json!({ "screen": "social", "id": insight_id })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -327,6 +351,11 @@ pub fn trigger_coach_message(
         body: format!("{coach_name} sent you a message"),
         data: Some(json!({ "screen": "coach", "action": "chat", "id": conversation_id })),
         image_url: None,
+        actions: Some(vec![NotificationAction {
+            id: "reply".to_owned(),
+            title: "Reply".to_owned(),
+            action_type: NotificationActionType::QuickReply,
+        }]),
         bypass_frequency_cap: true,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -350,6 +379,7 @@ pub fn trigger_plan_updated(
         body: format!("{coach_name} updated your training plan"),
         data: Some(json!({ "screen": "coach", "action": "plan" })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: true,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
@@ -375,7 +405,43 @@ pub fn trigger_coach_feedback(
         body: format!("{coach_name} left a note on your {activity_type}"),
         data: Some(json!({ "screen": "activity", "id": activity_id })),
         image_url: None,
+        actions: None,
         bypass_frequency_cap: true,
+    };
+    spawn_dispatch(Arc::clone(dispatcher), request);
+}
+
+// ============================================================================
+// Provider / System Triggers
+// ============================================================================
+
+/// Trigger notification when a provider sync fails (OAuth expired, API error, etc.).
+///
+/// Includes a "Reconnect" action button to guide users to re-authorize.
+pub fn trigger_sync_failure(
+    dispatcher: &Arc<NotificationDispatcher>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider_name: &str,
+    error_summary: &str,
+) {
+    let request = DispatchRequest {
+        user_id,
+        tenant_id,
+        category: NotificationCategory::System,
+        notification_type: "sync_failure".to_owned(),
+        title: format!("{provider_name} sync failed"),
+        body: error_summary.to_owned(),
+        data: Some(
+            json!({ "screen": "settings", "action": "reconnect", "provider": provider_name }),
+        ),
+        image_url: None,
+        actions: Some(vec![NotificationAction {
+            id: "reconnect".to_owned(),
+            title: "Reconnect".to_owned(),
+            action_type: NotificationActionType::OpenScreen,
+        }]),
+        bypass_frequency_cap: false,
     };
     spawn_dispatch(Arc::clone(dispatcher), request);
 }

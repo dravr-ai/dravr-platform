@@ -373,6 +373,7 @@ mod notification_scheduling_tests {
             body: format!("Body for {notification_type}"),
             data: None,
             image_url: None,
+            actions: None,
         };
         let notification = resources
             .database
@@ -498,6 +499,7 @@ mod notification_scheduling_tests {
             delivered_at: None,
             opened_at: None,
             created_at: chrono::Utc::now().to_rfc3339(),
+            actions: None,
             collapsed_count: 1,
             collapsed_ids: Vec::new(),
         }

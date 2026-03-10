@@ -24,6 +24,8 @@ mod notification_routes_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
+    use pierre_core::models::notifications::{CreateNotificationParams, NotificationCategory};
+    use pierre_database::repositories::{PushNotificationRepository, TenantRepository};
     use pierre_mcp_server::routes::notifications::NotificationRoutes;
     use serde_json::json;
     use std::sync::Arc;
@@ -420,5 +422,136 @@ mod notification_routes_tests {
             .await;
 
         assert_eq!(response.status_code(), StatusCode::NOT_FOUND);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Analytics authorization tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_analytics_scoped_to_own_user() {
+        let resources = create_test_server_resources().await.unwrap();
+
+        // Create two users with separate tenants
+        let (user_a, token_a) = create_test_tenant(&resources, "analytics_a@example.com")
+            .await
+            .unwrap();
+        let (user_b, token_b) = create_test_tenant(&resources, "analytics_b@example.com")
+            .await
+            .unwrap();
+
+        let tenant_a = resources.database.list_for_user(user_a.id).await.unwrap()[0].id;
+        let tenant_b = resources.database.list_for_user(user_b.id).await.unwrap()[0].id;
+
+        // Create 3 notifications for user A
+        for i in 0..3 {
+            resources
+                .database
+                .create_notification(&CreateNotificationParams {
+                    user_id: user_a.id,
+                    tenant_id: tenant_a,
+                    category: NotificationCategory::Training,
+                    notification_type: format!("training_a_{i}"),
+                    title: format!("User A training {i}"),
+                    body: format!("Body A {i}"),
+                    data: None,
+                    image_url: None,
+                    actions: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        // Create 1 notification for user B
+        resources
+            .database
+            .create_notification(&CreateNotificationParams {
+                user_id: user_b.id,
+                tenant_id: tenant_b,
+                category: NotificationCategory::Training,
+                notification_type: "training_b_0".to_owned(),
+                title: "User B training".to_owned(),
+                body: "Body B".to_owned(),
+                data: None,
+                image_url: None,
+                actions: None,
+            })
+            .await
+            .unwrap();
+
+        let router = NotificationRoutes::routes(Arc::clone(&resources));
+
+        // User A analytics should show only their 3 notifications
+        let response_a = AxumTestRequest::get("/api/notifications/analytics")
+            .header("authorization", &format!("Bearer {token_a}"))
+            .send(router.clone())
+            .await;
+
+        assert_eq!(response_a.status_code(), StatusCode::OK);
+        let body_a: serde_json::Value = response_a.json();
+        assert_eq!(
+            body_a["total_sent"], 3,
+            "User A should see only their 3 notifications"
+        );
+
+        // User B analytics should show only their 1 notification
+        let response_b = AxumTestRequest::get("/api/notifications/analytics")
+            .header("authorization", &format!("Bearer {token_b}"))
+            .send(router)
+            .await;
+
+        assert_eq!(response_b.status_code(), StatusCode::OK);
+        let body_b: serde_json::Value = response_b.json();
+        assert_eq!(
+            body_b["total_sent"], 1,
+            "User B should see only their 1 notification"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Badge sync tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_badge_sync_returns_unread_count() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, token) = create_test_tenant(&resources, "badge_sync@example.com")
+            .await
+            .unwrap();
+
+        let tenant_id = resources.database.list_for_user(user.id).await.unwrap()[0].id;
+
+        // Create 2 unread notifications
+        for i in 0..2 {
+            resources
+                .database
+                .create_notification(&CreateNotificationParams {
+                    user_id: user.id,
+                    tenant_id,
+                    category: NotificationCategory::Training,
+                    notification_type: format!("badge_test_{i}"),
+                    title: format!("Badge test {i}"),
+                    body: format!("Body {i}"),
+                    data: None,
+                    image_url: None,
+                    actions: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        let router = NotificationRoutes::routes(Arc::clone(&resources));
+
+        let response = AxumTestRequest::post("/api/notifications/badge-sync")
+            .header("authorization", &format!("Bearer {token}"))
+            .send(router)
+            .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        let body: serde_json::Value = response.json();
+        assert_eq!(
+            body["count"], 2,
+            "Badge sync should return 2 unread notifications"
+        );
     }
 }
