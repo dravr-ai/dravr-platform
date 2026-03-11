@@ -56,10 +56,7 @@ CREATE TABLE IF NOT EXISTS coaches (
     startup_query TEXT,
 
     -- LLM tool iteration limit per conversation turn
-    max_tool_iterations INTEGER DEFAULT NULL,
-
-    -- Foreign keys
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    max_tool_iterations INTEGER DEFAULT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_coaches_user ON coaches(user_id);
@@ -140,8 +137,8 @@ CREATE TABLE IF NOT EXISTS coach_authors (
     total_install_count INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    UNIQUE(user_id, tenant_id),
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    UNIQUE(user_id, tenant_id)
+    -- tenant_id is TEXT (application-level join to tenants.id UUID — no FK constraint)
 );
 CREATE INDEX IF NOT EXISTS idx_coach_authors_user ON coach_authors(user_id, tenant_id);
 CREATE INDEX IF NOT EXISTS idx_coach_authors_verified ON coach_authors(is_verified, total_install_count DESC) WHERE is_verified = TRUE;

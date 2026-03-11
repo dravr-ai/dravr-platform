@@ -552,12 +552,12 @@ impl SecurityRepository for PostgresDatabase {
         };
 
         // Store in database
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query("INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) VALUES ($1, $2, $3, $4)")
             .bind(secret_type)
             .bind(&secret_value)
-            .bind(&now)
-            .bind(&now)
+            .bind(now)
+            .bind(now)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -580,7 +580,7 @@ impl SecurityRepository for PostgresDatabase {
 
     /// Update or insert system secret (supports both initial storage and rotation)
     async fn update_system_secret(&self, secret_type: &str, new_value: &str) -> AppResult<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query(
             "INSERT INTO system_secrets (secret_type, secret_value, created_at, updated_at) \
              VALUES ($1, $2, $3, $4) \
@@ -588,8 +588,8 @@ impl SecurityRepository for PostgresDatabase {
         )
         .bind(secret_type)
         .bind(new_value)
-        .bind(&now)
-        .bind(&now)
+        .bind(now)
+        .bind(now)
         .execute(&self.pool).await.map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
 
         Ok(())
