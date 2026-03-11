@@ -15,6 +15,7 @@ mod chat;
 mod messaging;
 mod oauth;
 mod security;
+mod seeder;
 mod social;
 mod tenant;
 mod usage;
@@ -220,6 +221,27 @@ impl Database {
         let err_msg = "PostgreSQL support not enabled. Enable the 'postgresql' feature flag.";
         error!("{}", err_msg);
         Err(AppError::config(err_msg))
+    }
+
+    /// Create a database instance for seeder binaries.
+    ///
+    /// Uses a placeholder encryption key since seeders only insert reference data
+    /// and never call encryption operations. Detects database type automatically
+    /// from the connection URL and runs migrations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database connection or migration fails
+    pub async fn init_for_seeding(database_url: &str) -> AppResult<Self> {
+        // Seeders insert reference data only — no encryption needed
+        let encryption_key = vec![0u8; 32];
+        Self::new(
+            database_url,
+            encryption_key,
+            #[cfg(feature = "postgresql")]
+            &PostgresPoolConfig::default(),
+        )
+        .await
     }
 
     /// Create a new database instance based on the connection string (public API)

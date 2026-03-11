@@ -44,6 +44,8 @@ pub mod recipes;
 pub mod repositories;
 /// Security repository: RSA keypairs, key rotation, audit events, system secrets
 pub mod security_repository;
+/// Seeder repository for seed-only database operations
+pub mod seeder;
 /// Social features (friend connections, shared insights)
 pub mod social;
 /// Backend-agnostic social manager dispatch enum

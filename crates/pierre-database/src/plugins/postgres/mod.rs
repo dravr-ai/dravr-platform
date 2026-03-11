@@ -24,6 +24,8 @@ pub mod messaging;
 pub mod oauth;
 /// Security and notification repository implementations
 pub mod security;
+/// Seeder repository for seed-only database operations
+pub mod seeder;
 /// Social insight repository implementation
 pub mod social;
 /// Tenant, tool selection, LLM credential, and fitness config repositories
