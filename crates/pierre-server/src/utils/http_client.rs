@@ -1,10 +1,11 @@
-// ABOUTME: Shared HTTP client utilities with connection pooling and timeout configuration
-// ABOUTME: Provides singleton and configurable HTTP clients to eliminate redundant client creation
+// ABOUTME: Server-level HTTP client utilities extending pierre-core's shared clients
+// ABOUTME: Adds OAuth, middleware, and config-driven initialization on top of core singletons
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::HttpClientConfig;
+use pierre_core::http_client::{api_client as core_api_client, initialize_api_client};
 use reqwest::{Client, ClientBuilder};
 use reqwest_middleware::{ClientBuilder as MiddlewareClientBuilder, ClientWithMiddleware};
 use std::sync::OnceLock;
@@ -12,9 +13,6 @@ use std::time::Duration;
 
 /// Global HTTP client configuration
 static CLIENT_CONFIG: OnceLock<HttpClientConfig> = OnceLock::new();
-
-/// Global shared HTTP client with configured timeouts
-static SHARED_CLIENT: OnceLock<Client> = OnceLock::new();
 
 /// Global shared HTTP client with retry middleware
 static SHARED_CLIENT_WITH_RETRY: OnceLock<ClientWithMiddleware> = OnceLock::new();
@@ -32,11 +30,18 @@ fn get_config() -> &'static HttpClientConfig {
 /// Initialize HTTP client configuration
 ///
 /// Must be called once at server startup before any HTTP clients are created.
-/// This enables proper dependency injection of timeout configuration.
+/// This also initializes the shared API client in pierre-core used by all provider crates.
 ///
 /// # Panics
 /// Panics if called more than once (configuration cannot be changed after initialization)
 pub fn initialize_http_clients(config: HttpClientConfig) {
+    // Propagate API client timeouts to the shared singleton in pierre-core,
+    // so pierre-providers and pierre-llm use the server's configured values.
+    initialize_api_client(
+        config.api_client_timeout_secs,
+        config.api_client_connect_timeout_secs,
+    );
+
     assert!(
         CLIENT_CONFIG.set(config).is_ok(),
         "HTTP client configuration already initialized"
@@ -49,28 +54,14 @@ pub fn initialize_http_clients(config: HttpClientConfig) {
 
 /// Get or create the shared HTTP client with configured timeout settings
 ///
-/// This client uses connection pooling and configurable timeouts.
+/// Delegates to `pierre_core::http_client::api_client()` for the base singleton.
 /// Prefer this over creating new clients for better performance.
-///
-/// Configuration must be initialized via `initialize_http_clients()` at server startup.
 ///
 /// # Returns
 /// A reference to the shared `reqwest::Client`
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
+#[must_use]
 pub fn shared_client() -> &'static Client {
-    SHARED_CLIENT.get_or_init(|| {
-        let config = get_config();
-
-        ClientBuilder::new()
-            .timeout(Duration::from_secs(config.shared_client_timeout_secs))
-            .connect_timeout(Duration::from_secs(
-                config.shared_client_connect_timeout_secs,
-            ))
-            .build()
-            .unwrap_or_else(|_| Client::new())
-    })
+    core_api_client()
 }
 
 /// Get or create the shared HTTP client with middleware support
@@ -78,25 +69,12 @@ pub fn shared_client() -> &'static Client {
 /// This client supports middleware extensions. Use this when you need
 /// request/response middleware capabilities.
 ///
-/// Configuration must be initialized via `initialize_http_clients()` at server startup.
-///
 /// # Returns
 /// A reference to the shared `ClientWithMiddleware`
-///
-/// # Panics
-/// Panics if HTTP client configuration was not initialized at server startup
 pub fn shared_client_with_retry() -> &'static ClientWithMiddleware {
     SHARED_CLIENT_WITH_RETRY.get_or_init(|| {
-        let config = get_config();
-
-        let base_client = ClientBuilder::new()
-            .timeout(Duration::from_secs(config.shared_client_timeout_secs))
-            .connect_timeout(Duration::from_secs(
-                config.shared_client_connect_timeout_secs,
-            ))
-            .build()
-            .unwrap_or_else(|_| Client::new());
-
+        // Wrap the core shared client in middleware
+        let base_client = shared_client().clone();
         // NOTE: Retry middleware removed - add tower-based retry if needed
         MiddlewareClientBuilder::new(base_client).build()
     })

@@ -262,7 +262,7 @@ struct StreamingResponse {
 /// Google Gemini LLM provider
 pub struct GeminiProvider {
     api_key: String,
-    client: Client,
+    client: &'static Client,
     default_model: String,
     /// Fallback model when default fails (rate limits, errors)
     fallback_model: String,

@@ -34,6 +34,9 @@ sqlx-postgres = ["sqlx-types", "sqlx/postgres"]
 # Provider error types (ProviderError with reqwest::Error)
 provider-errors = ["dep:reqwest"]
 
+# Shared HTTP client singletons (api_client, llm_client)
+http-client = ["dep:reqwest"]
+
 # Cryptographic error conversions (ring::error::Unspecified)
 crypto-errors = ["dep:ring"]
 

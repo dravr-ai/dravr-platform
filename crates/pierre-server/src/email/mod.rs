@@ -7,6 +7,7 @@
 mod templates;
 
 use crate::errors::{AppError, AppResult};
+use crate::utils::http_client::shared_client;
 use reqwest::Client;
 use serde::Serialize;
 use tracing::{info, warn};
@@ -26,7 +27,7 @@ struct ResendEmailPayload {
 /// Email service backed by the Resend transactional email API
 pub struct ResendEmailService {
     /// HTTP client for API requests
-    client: Client,
+    client: &'static Client,
     /// Resend API key
     api_key: String,
     /// Sender email address (e.g., "Pierre <noreply@pierre.dev>")
@@ -38,7 +39,7 @@ impl ResendEmailService {
     #[must_use]
     pub fn new(api_key: String, from_email: String) -> Self {
         Self {
-            client: Client::new(),
+            client: shared_client(),
             api_key,
             from_email,
         }

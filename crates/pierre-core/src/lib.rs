@@ -55,3 +55,7 @@ pub mod uuid_utils;
 /// LLM provider trait and shared types for pluggable AI model integration
 #[cfg(feature = "llm")]
 pub mod llm;
+
+/// Shared HTTP client singletons with connection pooling for outbound requests
+#[cfg(feature = "http-client")]
+pub mod http_client;

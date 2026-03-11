@@ -58,6 +58,7 @@ use x509_parser::prelude::*;
 
 use crate::config::environment::FirebaseConfig;
 use crate::errors::{AppError, AppResult};
+use crate::utils::http_client::shared_client;
 
 /// Google's Firebase public key endpoint
 const FIREBASE_CERTS_URL: &str =
@@ -126,7 +127,7 @@ pub struct FirebaseAuth {
     /// Firebase configuration
     config: FirebaseConfig,
     /// HTTP client for fetching public keys
-    http_client: Client,
+    http_client: &'static Client,
     /// Cached public keys (Arc for sharing across threads)
     cached_keys: Arc<RwLock<Option<CachedKeys>>>,
 }
@@ -137,7 +138,7 @@ impl FirebaseAuth {
     pub fn new(config: FirebaseConfig) -> Self {
         Self {
             config,
-            http_client: Client::new(),
+            http_client: shared_client(),
             cached_keys: Arc::new(RwLock::new(None)),
         }
     }
