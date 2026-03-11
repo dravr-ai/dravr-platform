@@ -18,10 +18,14 @@ output "secret_ids" {
   value = {
     db_password          = google_secret_manager_secret.db_password.secret_id
     encryption_key       = google_secret_manager_secret.encryption_key.secret_id
+    strava_client_id     = google_secret_manager_secret.strava_client_id.secret_id
     strava_client_secret = google_secret_manager_secret.strava_client_secret.secret_id
     fitbit_client_secret = google_secret_manager_secret.fitbit_client_secret.secret_id
     garmin_client_secret = google_secret_manager_secret.garmin_client_secret.secret_id
     openweather_api_key  = google_secret_manager_secret.openweather_api_key.secret_id
+    gemini_api_key       = google_secret_manager_secret.gemini_api_key.secret_id
+    usda_api_key         = google_secret_manager_secret.usda_api_key.secret_id
+    resend_api_key       = google_secret_manager_secret.resend_api_key.secret_id
   }
 }
 
@@ -30,9 +34,13 @@ output "secret_names" {
   value = {
     db_password          = google_secret_manager_secret.db_password.name
     encryption_key       = google_secret_manager_secret.encryption_key.name
+    strava_client_id     = google_secret_manager_secret.strava_client_id.name
     strava_client_secret = google_secret_manager_secret.strava_client_secret.name
     fitbit_client_secret = google_secret_manager_secret.fitbit_client_secret.name
     garmin_client_secret = google_secret_manager_secret.garmin_client_secret.name
     openweather_api_key  = google_secret_manager_secret.openweather_api_key.name
+    gemini_api_key       = google_secret_manager_secret.gemini_api_key.name
+    usda_api_key         = google_secret_manager_secret.usda_api_key.name
+    resend_api_key       = google_secret_manager_secret.resend_api_key.name
   }
 }

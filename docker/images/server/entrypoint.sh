@@ -22,6 +22,14 @@ if [ -f "/app/.envrc" ]; then
     echo "Environment variables loaded successfully"
 fi
 
+# Construct DATABASE_URL from Cloud SQL components when deployed on Cloud Run
+# Cloud Run injects DATABASE_HOST, DATABASE_NAME, DATABASE_USER as plain env vars
+# and DB_PASSWORD from Secret Manager. Assemble into a single connection string.
+if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ] && [ -n "$DB_PASSWORD" ]; then
+    export DATABASE_URL="postgresql://${DATABASE_USER}:${DB_PASSWORD}@/${DATABASE_NAME}?host=${DATABASE_HOST}"
+    echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
+fi
+
 # Create data directory if it doesn't exist
 mkdir -p /app/data
 

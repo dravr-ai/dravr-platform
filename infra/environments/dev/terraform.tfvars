@@ -9,7 +9,7 @@ environment  = "development"
 region       = "northamerica-northeast1"
 service_name = "dravr-mcp-server"
 
-enable_database = false
+enable_database = true
 enable_cache    = false
 enable_frontend = true
 

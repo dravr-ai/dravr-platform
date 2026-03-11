@@ -133,3 +133,87 @@ resource "google_secret_manager_secret_version" "openweather_api_key_placeholder
     ignore_changes = [secret_data]
   }
 }
+
+# -----------------------------------------------------------------------------
+# Provider & API Key Secrets (to be filled manually)
+# -----------------------------------------------------------------------------
+
+resource "google_secret_manager_secret" "strava_client_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-strava-client-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "strava_client_id_placeholder" {
+  secret      = google_secret_manager_secret.strava_client_id.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "gemini_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-gemini-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "gemini_api_key_placeholder" {
+  secret      = google_secret_manager_secret.gemini_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "usda_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-usda-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "usda_api_key_placeholder" {
+  secret      = google_secret_manager_secret.usda_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "resend_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-resend-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "resend_api_key_placeholder" {
+  secret      = google_secret_manager_secret.resend_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
