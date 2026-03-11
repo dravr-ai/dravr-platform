@@ -16,6 +16,7 @@
 //! - `groq`: Use Groq for cost-effective open-source models
 //! - `local`/`ollama`/`vllm`/`localai`: Use a local `OpenAI`-compatible endpoint
 //! - `claude_code`/`copilot`/`cursor_agent`/`opencode`/`copilot_headless`/`warp_cli`: Use an embacle runner
+//! - `openai_api`/`openai`: Use an `OpenAI`-compatible HTTP API via embacle
 
 use std::fmt;
 use std::time::Duration;
@@ -150,7 +151,8 @@ impl ChatProvider {
             | LlmProviderType::GooseCli
             | LlmProviderType::ClineCli
             | LlmProviderType::ContinueCli
-            | LlmProviderType::WarpCli => Self::cli().await,
+            | LlmProviderType::WarpCli
+            | LlmProviderType::OpenAiApi => Self::cli().await,
         }
     }
 

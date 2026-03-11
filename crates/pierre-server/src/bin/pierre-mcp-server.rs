@@ -297,6 +297,20 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
             // CLI/ACP providers handle their own auth; no env vars required at startup
             vec![]
         }
+        LlmProviderType::OpenAiApi => vec![
+            EnvValidation {
+                name: "OPENAI_API_BASE_URL",
+                value: env::var("OPENAI_API_BASE_URL").ok(),
+                required,
+                description: "OpenAI-compatible API base URL (e.g., https://api.openai.com/v1)",
+            },
+            EnvValidation {
+                name: "OPENAI_API_KEY",
+                value: env::var("OPENAI_API_KEY").ok(),
+                required,
+                description: "API key for the OpenAI-compatible endpoint",
+            },
+        ],
     }
 }
 

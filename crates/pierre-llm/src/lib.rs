@@ -56,7 +56,9 @@ pub use embacle::{
     WarpCliRunner,
 };
 pub use embacle::{CopilotHeadlessConfig, CopilotHeadlessRunner, HeadlessToolResponse};
-pub use embacle::{McpToolDefinition, McpToolExecutor, QualityGateProvider};
+pub use embacle::{
+    McpToolDefinition, McpToolExecutor, OpenAiApiConfig, OpenAiApiRunner, QualityGateProvider,
+};
 pub use gemini::{
     ChatResponseWithTools, FunctionCall, FunctionDeclaration, FunctionResponse, GeminiProvider,
     Tool,
