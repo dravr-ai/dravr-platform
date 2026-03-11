@@ -28,23 +28,16 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use clap::Parser;
-use sqlx::SqlitePool;
+use pierre_core::errors::AppResult;
+use pierre_core::models::mobility::{
+    ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
+    YogaPose, YogaPoseType,
+};
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::{SeedTable, SeederRepository};
 use std::env;
-use thiserror::Error;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 #[derive(Parser)]
 #[command(
@@ -824,71 +817,68 @@ const ACTIVITY_MAPPINGS: &[ActivityMappingData] = &[
 ];
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
-    // Initialize logging
     let log_level = if args.verbose { "debug" } else { "info" };
     tracing_subscriber::fmt().with_env_filter(log_level).init();
 
     info!("=== Pierre MCP Server Mobility Data Seeder ===");
 
-    // Load database URL
     let database_url = args
         .database_url
         .or_else(|| env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:./data/users.db".into());
 
     info!("Connecting to database: {}", database_url);
-    let connection_url = format!("{database_url}?mode=rwc");
-    let pool = SqlitePool::connect(&connection_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
-    // Check if data already exists
-    let stretch_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM stretching_exercises")
-        .fetch_one(&pool)
+    // Check if data already exists via SeederRepository
+    let stretch_count = db
+        .seed_count_table(SeedTable::StretchingExercises)
         .await
-        .unwrap_or((0,));
-
-    let yoga_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM yoga_poses")
-        .fetch_one(&pool)
+        .unwrap_or(0);
+    let yoga_count = db.seed_count_table(SeedTable::YogaPoses).await.unwrap_or(0);
+    let mapping_count = db
+        .seed_count_table(SeedTable::ActivityMuscleMapping)
         .await
-        .unwrap_or((0,));
+        .unwrap_or(0);
 
-    let mapping_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM activity_muscle_mapping")
-        .fetch_one(&pool)
-        .await
-        .unwrap_or((0,));
-
-    if (stretch_count.0 > 0 || yoga_count.0 > 0 || mapping_count.0 > 0) && !args.force {
+    if (stretch_count > 0 || yoga_count > 0 || mapping_count > 0) && !args.force {
         info!(
             "Mobility data already seeded ({} stretches, {} yoga poses, {} mappings). Use --force to re-seed.",
-            stretch_count.0, yoga_count.0, mapping_count.0
+            stretch_count, yoga_count, mapping_count
         );
         return Ok(());
     }
 
-    // Seed data
-    let now = Utc::now().to_rfc3339();
+    let now = Utc::now();
 
     info!(
         "Seeding {} stretching exercises...",
         STRETCHING_EXERCISES.len()
     );
-    for exercise in STRETCHING_EXERCISES {
-        seed_stretching_exercise(&pool, exercise, &now).await?;
+    for data in STRETCHING_EXERCISES {
+        let exercise = to_stretching_exercise(data, now);
+        db.seed_upsert_stretching_exercise(&exercise).await?;
+        info!("  + {}", data.name);
     }
 
     info!("Seeding {} yoga poses...", YOGA_POSES.len());
-    for pose in YOGA_POSES {
-        seed_yoga_pose(&pool, pose, &now).await?;
+    for data in YOGA_POSES {
+        let pose = to_yoga_pose(data, now);
+        db.seed_upsert_yoga_pose(&pose).await?;
+        info!("  + {}", data.english_name);
     }
 
     info!(
         "Seeding {} activity-muscle mappings...",
         ACTIVITY_MAPPINGS.len()
     );
-    for mapping in ACTIVITY_MAPPINGS {
-        seed_activity_mapping(&pool, mapping, &now).await?;
+    for data in ACTIVITY_MAPPINGS {
+        let mapping = to_activity_mapping(data, now);
+        db.seed_upsert_activity_mapping(&mapping).await?;
+        info!("  + {}", data.activity_type);
     }
 
     info!("");
@@ -906,135 +896,93 @@ async fn main() -> SeedResult<()> {
     Ok(())
 }
 
-async fn seed_stretching_exercise(
-    pool: &SqlitePool,
-    exercise: &StretchingData,
-    now: &str,
-) -> SeedResult<()> {
-    let id = Uuid::new_v4().to_string();
-    let primary_muscles = serde_json::to_string(exercise.primary_muscles)?;
-    let secondary_muscles = serde_json::to_string(exercise.secondary_muscles)?;
-    let recommended_activities = serde_json::to_string(exercise.recommended_for_activities)?;
-    let contraindications = serde_json::to_string(exercise.contraindications)?;
-    let instructions = serde_json::to_string(exercise.instructions)?;
-    let cues = serde_json::to_string(exercise.cues)?;
+// ============================================================================
+// Data → Model Conversion Functions
+// ============================================================================
 
-    sqlx::query(
-        r"
-        INSERT OR REPLACE INTO stretching_exercises (
-            id, name, description, category, difficulty,
-            primary_muscles, secondary_muscles, duration_seconds,
-            repetitions, sets, recommended_for_activities, contraindications,
-            instructions, cues, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
-        ",
-    )
-    .bind(&id)
-    .bind(exercise.name)
-    .bind(exercise.description)
-    .bind(exercise.category)
-    .bind(exercise.difficulty)
-    .bind(&primary_muscles)
-    .bind(&secondary_muscles)
-    .bind(exercise.duration_seconds)
-    .bind(exercise.repetitions)
-    .bind(exercise.sets)
-    .bind(&recommended_activities)
-    .bind(&contraindications)
-    .bind(&instructions)
-    .bind(&cues)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    info!("  ✓ {}", exercise.name);
-    Ok(())
+fn to_str_vec(slice: &[&str]) -> Vec<String> {
+    slice.iter().map(|s| (*s).to_owned()).collect()
 }
 
-async fn seed_yoga_pose(pool: &SqlitePool, pose: &YogaPoseData, now: &str) -> SeedResult<()> {
-    let id = Uuid::new_v4().to_string();
-    let benefits = serde_json::to_string(pose.benefits)?;
-    let primary_muscles = serde_json::to_string(pose.primary_muscles)?;
-    let secondary_muscles = serde_json::to_string(pose.secondary_muscles)?;
-    let recommended_activities = serde_json::to_string(pose.recommended_for_activities)?;
-    let recommended_recovery = serde_json::to_string(pose.recommended_for_recovery)?;
-    let contraindications = serde_json::to_string(pose.contraindications)?;
-    let instructions = serde_json::to_string(pose.instructions)?;
-    let modifications = serde_json::to_string(pose.modifications)?;
-    let cues = serde_json::to_string(pose.cues)?;
-
-    sqlx::query(
-        r"
-        INSERT OR REPLACE INTO yoga_poses (
-            id, english_name, sanskrit_name, description, benefits,
-            category, difficulty, pose_type, primary_muscles, secondary_muscles,
-            hold_duration_seconds, breath_guidance,
-            recommended_for_activities, recommended_for_recovery, contraindications,
-            instructions, modifications, cues, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19)
-        ",
-    )
-    .bind(&id)
-    .bind(pose.english_name)
-    .bind(pose.sanskrit_name)
-    .bind(pose.description)
-    .bind(&benefits)
-    .bind(pose.category)
-    .bind(pose.difficulty)
-    .bind(pose.pose_type)
-    .bind(&primary_muscles)
-    .bind(&secondary_muscles)
-    .bind(pose.hold_duration_seconds)
-    .bind(pose.breath_guidance)
-    .bind(&recommended_activities)
-    .bind(&recommended_recovery)
-    .bind(&contraindications)
-    .bind(&instructions)
-    .bind(&modifications)
-    .bind(&cues)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    info!("  ✓ {}", pose.english_name);
-    Ok(())
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn to_stretching_exercise(data: &StretchingData, now: chrono::DateTime<Utc>) -> StretchingExercise {
+    StretchingExercise {
+        id: Uuid::new_v4().to_string(),
+        name: data.name.to_owned(),
+        description: data.description.to_owned(),
+        category: StretchingCategory::parse(data.category),
+        difficulty: DifficultyLevel::parse(data.difficulty),
+        primary_muscles: to_str_vec(data.primary_muscles),
+        secondary_muscles: to_str_vec(data.secondary_muscles),
+        duration_seconds: data.duration_seconds as u32,
+        repetitions: data.repetitions.map(|r| r as u32),
+        sets: data.sets as u32,
+        recommended_for_activities: to_str_vec(data.recommended_for_activities),
+        contraindications: to_str_vec(data.contraindications),
+        instructions: to_str_vec(data.instructions),
+        cues: to_str_vec(data.cues),
+        image_url: None,
+        video_url: None,
+        created_at: now,
+        updated_at: now,
+    }
 }
 
-async fn seed_activity_mapping(
-    pool: &SqlitePool,
-    mapping: &ActivityMappingData,
-    now: &str,
-) -> SeedResult<()> {
-    let id = Uuid::new_v4().to_string();
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn to_yoga_pose(data: &YogaPoseData, now: chrono::DateTime<Utc>) -> YogaPose {
+    YogaPose {
+        id: Uuid::new_v4().to_string(),
+        english_name: data.english_name.to_owned(),
+        sanskrit_name: data.sanskrit_name.map(str::to_owned),
+        description: data.description.to_owned(),
+        benefits: to_str_vec(data.benefits),
+        category: YogaCategory::parse(data.category),
+        difficulty: DifficultyLevel::parse(data.difficulty),
+        pose_type: YogaPoseType::parse(data.pose_type),
+        primary_muscles: to_str_vec(data.primary_muscles),
+        secondary_muscles: to_str_vec(data.secondary_muscles),
+        chakras: Vec::new(),
+        hold_duration_seconds: data.hold_duration_seconds as u32,
+        breath_guidance: data.breath_guidance.map(str::to_owned),
+        recommended_for_activities: to_str_vec(data.recommended_for_activities),
+        recommended_for_recovery: to_str_vec(data.recommended_for_recovery),
+        contraindications: to_str_vec(data.contraindications),
+        instructions: to_str_vec(data.instructions),
+        modifications: to_str_vec(data.modifications),
+        progressions: Vec::new(),
+        cues: to_str_vec(data.cues),
+        warmup_poses: Vec::new(),
+        followup_poses: Vec::new(),
+        image_url: None,
+        video_url: None,
+        created_at: now,
+        updated_at: now,
+    }
+}
 
-    // Convert muscle arrays to JSON objects
-    let primary: HashMap<&str, u8> = mapping.primary_muscles.iter().copied().collect();
-    let secondary: HashMap<&str, u8> = mapping.secondary_muscles.iter().copied().collect();
+fn to_activity_mapping(
+    data: &ActivityMappingData,
+    now: chrono::DateTime<Utc>,
+) -> ActivityMuscleMapping {
+    let primary_muscles: HashMap<String, u8> = data
+        .primary_muscles
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), *v))
+        .collect();
+    let secondary_muscles: HashMap<String, u8> = data
+        .secondary_muscles
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), *v))
+        .collect();
 
-    let primary_json = serde_json::to_string(&primary)?;
-    let secondary_json = serde_json::to_string(&secondary)?;
-    let stretch_categories = serde_json::to_string(mapping.recommended_stretch_categories)?;
-    let yoga_categories = serde_json::to_string(mapping.recommended_yoga_categories)?;
-
-    sqlx::query(
-        r"
-        INSERT OR REPLACE INTO activity_muscle_mapping (
-            id, activity_type, primary_muscles, secondary_muscles,
-            recommended_stretch_categories, recommended_yoga_categories,
-            created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
-        ",
-    )
-    .bind(&id)
-    .bind(mapping.activity_type)
-    .bind(&primary_json)
-    .bind(&secondary_json)
-    .bind(&stretch_categories)
-    .bind(&yoga_categories)
-    .bind(now)
-    .execute(pool)
-    .await?;
-
-    info!("  ✓ {}", mapping.activity_type);
-    Ok(())
+    ActivityMuscleMapping {
+        id: Uuid::new_v4().to_string(),
+        activity_type: data.activity_type.to_owned(),
+        primary_muscles,
+        secondary_muscles,
+        recommended_stretch_categories: to_str_vec(data.recommended_stretch_categories),
+        recommended_yoga_categories: to_str_vec(data.recommended_yoga_categories),
+        created_at: now,
+        updated_at: now,
+    }
 }

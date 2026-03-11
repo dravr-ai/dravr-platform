@@ -1498,6 +1498,90 @@ pub trait MessagingRepository: Send + Sync {
 }
 
 // ================================
+// Seeder Repository (seed-only database operations)
+// ================================
+
+/// Tables that seeders are allowed to reset (prevent arbitrary table access)
+#[derive(Debug, Clone, Copy)]
+pub enum SeedTable {
+    /// `llm_usage` table
+    LlmUsage,
+    /// `api_key_usage` table
+    ApiKeyUsage,
+    /// `a2a_usage` table
+    A2AUsage,
+    /// `synthetic_activities` table
+    SyntheticActivities,
+    /// `friend_connections` table
+    FriendConnections,
+    /// `user_social_settings` table
+    UserSocialSettings,
+    /// `shared_insights` table
+    SharedInsights,
+    /// `insight_reactions` table
+    InsightReactions,
+    /// `adapted_insights` table
+    AdaptedInsights,
+    /// `stretching_exercises` table
+    StretchingExercises,
+    /// `yoga_poses` table
+    YogaPoses,
+    /// `activity_muscle_mapping` table
+    ActivityMuscleMapping,
+}
+
+impl SeedTable {
+    /// Get the SQL table name
+    #[must_use]
+    pub const fn table_name(&self) -> &'static str {
+        match self {
+            Self::LlmUsage => "llm_usage",
+            Self::ApiKeyUsage => "api_key_usage",
+            Self::A2AUsage => "a2a_usage",
+            Self::SyntheticActivities => "synthetic_activities",
+            Self::FriendConnections => "friend_connections",
+            Self::UserSocialSettings => "user_social_settings",
+            Self::SharedInsights => "shared_insights",
+            Self::InsightReactions => "insight_reactions",
+            Self::AdaptedInsights => "adapted_insights",
+            Self::StretchingExercises => "stretching_exercises",
+            Self::YogaPoses => "yoga_poses",
+            Self::ActivityMuscleMapping => "activity_muscle_mapping",
+        }
+    }
+}
+
+/// Repository trait for seed-only database operations.
+///
+/// Used by seeder binaries to populate demo/test data.
+/// Not used by the main server application. Provides write operations
+/// for tables that only have read-only repository traits in the main app.
+#[async_trait]
+pub trait SeederRepository: Send + Sync {
+    /// Delete all rows from a seed table
+    async fn seed_reset_table(&self, table: SeedTable) -> AppResult<u64>;
+
+    /// Count rows in a seed table
+    async fn seed_count_table(&self, table: SeedTable) -> AppResult<i64>;
+
+    /// Upsert a stretching exercise (insert or replace on conflict)
+    async fn seed_upsert_stretching_exercise(&self, exercise: &StretchingExercise)
+        -> AppResult<()>;
+
+    /// Upsert a yoga pose (insert or replace on conflict)
+    async fn seed_upsert_yoga_pose(&self, pose: &YogaPose) -> AppResult<()>;
+
+    /// Upsert an activity-muscle mapping (insert or replace on conflict)
+    async fn seed_upsert_activity_mapping(&self, mapping: &ActivityMuscleMapping) -> AppResult<()>;
+
+    /// Get the first admin user (`super_admin` or admin role)
+    async fn seed_get_admin_user(&self) -> AppResult<Option<User>>;
+
+    /// Get the `tenant_id` for a user
+    async fn seed_get_user_tenant(&self, user_id: Uuid) -> AppResult<Option<String>>;
+}
+
+// ================================
 // ================================
 // Database lifecycle trait (connection + migration only)
 // ================================
