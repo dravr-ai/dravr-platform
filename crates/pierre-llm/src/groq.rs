@@ -249,7 +249,7 @@ struct GroqErrorDetail {
 /// Provides access to open-source models (Llama, Mixtral) with
 /// extremely fast inference speeds via Groq's Language Processing Units.
 pub struct GroqProvider {
-    client: Client,
+    client: &'static Client,
     api_key: String,
     default_model: String,
     fallback_model: String,

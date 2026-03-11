@@ -35,7 +35,7 @@ use crate::{
     providers::ProviderDescriptor,
     services::oauth_flow as oauth_flow_service,
     types::OAuthCallbackResponse,
-    utils::http_client::get_oauth_callback_notification_timeout_secs,
+    utils::http_client::{get_oauth_callback_notification_timeout_secs, shared_client},
 };
 use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
@@ -674,7 +674,7 @@ impl OAuthService {
         // Best-effort notification with configured timeout - don't fail OAuth flow if bridge notification fails
         // Configuration must be initialized via initialize_http_clients() at server startup
         let timeout_secs = get_oauth_callback_notification_timeout_secs();
-        let result = reqwest::Client::new()
+        let result = shared_client()
             .post(&callback_url)
             .json(&token_data)
             .timeout(StdDuration::from_secs(timeout_secs))

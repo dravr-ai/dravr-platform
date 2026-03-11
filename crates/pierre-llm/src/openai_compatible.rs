@@ -330,7 +330,7 @@ const FALLBACK_MODELS: &[&str] = &[
 
 /// LLM provider for OpenAI-compatible APIs (Ollama, vLLM, LM Studio, etc.)
 pub struct OpenAiCompatibleProvider {
-    client: Client,
+    client: &'static Client,
     config: OpenAiCompatibleConfig,
     available_models: Vec<String>,
 }
