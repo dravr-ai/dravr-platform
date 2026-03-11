@@ -109,21 +109,13 @@ resource "google_cloud_run_v2_service" "service" {
     }
   }
 
+  # Disable IAM-based invoker checks for public access (bypasses org policy restrictions on allUsers)
+  invoker_iam_disabled = var.allow_unauthenticated
+
   # CI/CD deploys update the image outside Terraform; prevent drift
   lifecycle {
     ignore_changes = [
       template[0].containers[0].image,
     ]
   }
-}
-
-# Allow public access when configured
-resource "google_cloud_run_v2_service_iam_member" "public_invoker" {
-  count = var.allow_unauthenticated ? 1 : 0
-
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.service.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
 }

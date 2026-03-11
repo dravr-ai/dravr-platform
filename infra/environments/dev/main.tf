@@ -149,6 +149,7 @@ module "backend" {
   env_vars = merge(
     {
       RUST_LOG    = "info"
+      HOST        = "0.0.0.0"
       MCP_PORT    = "8080"
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
