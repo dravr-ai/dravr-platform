@@ -42,6 +42,8 @@ pub enum LlmProviderType {
     ClineCli,
     /// Continue CLI provider - subprocess-based Continue coding agent
     ContinueCli,
+    /// `OpenAI`-compatible HTTP API provider via embacle (any `OpenAI`-compatible endpoint)
+    OpenAiApi,
 }
 
 impl LlmProviderType {
@@ -65,6 +67,7 @@ impl LlmProviderType {
             "goose_cli" | "goose-cli" | "goose" => Self::GooseCli,
             "cline_cli" | "cline-cli" | "cline" => Self::ClineCli,
             "continue_cli" | "continue-cli" | "continue" => Self::ContinueCli,
+            "openai_api" | "openai-api" | "openai" => Self::OpenAiApi,
             _ => Self::Gemini, // Default fallback (including "gemini", "google")
         }
     }
@@ -161,6 +164,12 @@ impl LlmProviderType {
             Self::GooseCli | Self::ClineCli | Self::ContinueCli | Self::WarpCli => {
                 Some("claude-sonnet-4".to_owned())
             }
+            Self::OpenAiApi => Some(
+                env::var("OPENAI_API_MODEL")
+                    .ok()
+                    .filter(|m| !m.is_empty())
+                    .unwrap_or_else(|| "gpt-5.4".to_owned()),
+            ),
             Self::Gemini | Self::Groq | Self::Local => unreachable!(),
         }
     }
@@ -228,6 +237,7 @@ impl Display for LlmProviderType {
             Self::GooseCli => write!(f, "goose_cli"),
             Self::ClineCli => write!(f, "cline_cli"),
             Self::ContinueCli => write!(f, "continue_cli"),
+            Self::OpenAiApi => write!(f, "openai_api"),
         }
     }
 }

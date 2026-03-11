@@ -1121,12 +1121,13 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.8.0#38e9a7f58a3f59875433bf89d5229a6d939dd105"
+version = "0.10.0"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.10.0#3a55b972aa77e2ca984f7d99690cae8c68312370"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
  "bitflags",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

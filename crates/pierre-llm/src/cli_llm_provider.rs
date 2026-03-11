@@ -15,7 +15,8 @@ use embacle::config::parse_timeout;
 use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
     CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner, CursorAgentRunner,
-    GeminiCliRunner, GooseCliRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
+    GeminiCliRunner, GooseCliRunner, OpenAiApiConfig, OpenAiApiRunner, OpenCodeRunner,
+    RunnerConfig, WarpCliRunner,
 };
 use futures_util::StreamExt;
 use tracing::{debug, info, warn};
@@ -109,6 +110,7 @@ impl CliLlmProvider {
                 let config = build_runner_config(CliRunnerType::WarpCli)?;
                 Ok(Self::build_cli(CliRunnerType::WarpCli, config).await)
             }
+            "openai_api" | "openai-api" | "openai" => Ok(Self::build_openai_api().await?),
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
                 let (runner_type, base_config) = embacle::discover_runner()?;
@@ -118,7 +120,7 @@ impl CliLlmProvider {
             _ => Err(AppError::config(format!(
                 "PIERRE_LLM_PROVIDER={provider_env} is not an embacle runner type; \
                  expected one of: claude_code, copilot, cursor_agent, opencode, copilot_headless, \
-                 gemini_cli, codex_cli, goose_cli, cline_cli, continue_cli, warp_cli, cli"
+                 gemini_cli, codex_cli, goose_cli, cline_cli, continue_cli, warp_cli, openai_api, cli"
             ))),
         }
     }
@@ -192,6 +194,38 @@ impl CliLlmProvider {
         }
     }
 
+    /// Build an `OpenAI`-compatible HTTP API runner (via embacle `OpenAiApiRunner`)
+    ///
+    /// Reads configuration from `OPENAI_API_*` env vars. `PIERRE_LLM_MODEL`
+    /// overrides `OPENAI_API_MODEL` when set.
+    async fn build_openai_api() -> Result<Self, AppError> {
+        let mut config = OpenAiApiConfig::from_env();
+
+        // PIERRE_LLM_MODEL is the unified model override (highest priority)
+        if let Ok(model) = env::var("PIERRE_LLM_MODEL") {
+            if !model.is_empty() {
+                config.model = model;
+            }
+        }
+
+        info!(
+            base_url = %config.base_url,
+            model = %config.model,
+            "Creating OpenAI API runner"
+        );
+
+        let client = super::build_llm_http_client().clone();
+        let runner = OpenAiApiRunner::with_client(config, client).await;
+
+        Ok(Self {
+            runner: Box::new(runner),
+            binary_path: None,
+            readiness: Arc::new(AtomicU8::new(READINESS_READY)),
+            headless_runner: None,
+            cached_display_name: "OpenAI API",
+        })
+    }
+
     /// Get the `LlmProviderType` for this runner
     #[must_use]
     pub fn provider_type(&self) -> LlmProviderType {
@@ -206,6 +240,7 @@ impl CliLlmProvider {
             "cline_cli" => LlmProviderType::ClineCli,
             "continue_cli" => LlmProviderType::ContinueCli,
             "warp_cli" => LlmProviderType::WarpCli,
+            "openai_api" => LlmProviderType::OpenAiApi,
             // "claude_code" and any future runners default here
             _ => LlmProviderType::ClaudeCode,
         }
