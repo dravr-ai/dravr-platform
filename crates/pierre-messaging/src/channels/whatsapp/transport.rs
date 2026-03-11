@@ -14,16 +14,18 @@ use pierre_core::models::messaging::{
 use serde_json::Value;
 use uuid::Uuid;
 
+use pierre_core::http_client::api_client;
+
 use crate::meta_signature::verify_meta_signature;
-use crate::transport::{outbound_http_timeout, TransportAdapter};
+use crate::transport::TransportAdapter;
 
 /// `WhatsApp` Business Cloud API transport adapter
 ///
 /// Verification: HMAC-SHA256 of the request body using the app secret.
 /// Header `x-hub-signature-256` contains `sha256={hex}` — identical to Messenger.
 pub struct WhatsAppTransport {
-    /// HTTP client for outbound Graph API calls
-    client: reqwest::Client,
+    /// Shared HTTP client for outbound Graph API calls
+    client: &'static reqwest::Client,
     /// Facebook/Meta app secret for webhook HMAC verification
     app_secret: String,
 }
@@ -32,11 +34,10 @@ impl WhatsAppTransport {
     /// Create a transport with the given Meta app secret
     #[must_use]
     pub fn new(app_secret: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(outbound_http_timeout())
-            .build()
-            .unwrap_or_default();
-        Self { client, app_secret }
+        Self {
+            client: api_client(),
+            app_secret,
+        }
     }
 }
 

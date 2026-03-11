@@ -17,7 +17,9 @@ use serde_json::Value;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::transport::{outbound_http_timeout, TransportAdapter};
+use pierre_core::http_client::api_client;
+
+use crate::transport::TransportAdapter;
 
 /// Discord Bot API transport adapter
 ///
@@ -28,22 +30,18 @@ pub struct DiscordTransport {
     public_key_hex: String,
     /// Discord application ID for webhook endpoint construction
     application_id: String,
-    /// HTTP client for outbound Discord API calls
-    client: reqwest::Client,
+    /// Shared HTTP client for outbound Discord API calls
+    client: &'static reqwest::Client,
 }
 
 impl DiscordTransport {
     /// Create a transport with the given Ed25519 public key and application ID
     #[must_use]
     pub fn new(public_key_hex: String, application_id: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(outbound_http_timeout())
-            .build()
-            .unwrap_or_default();
         Self {
             public_key_hex,
             application_id,
-            client,
+            client: api_client(),
         }
     }
 }

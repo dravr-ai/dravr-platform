@@ -4,28 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::env;
-use std::time::Duration;
-
 use async_trait::async_trait;
 use http::HeaderMap;
 use pierre_core::errors::messaging::MessagingResult;
 use pierre_core::models::messaging::{ChannelConfig, DeliveryReceipt, IncomingMessage};
 use serde_json::Value;
-
-/// Default timeout in seconds for outbound HTTP requests to channel APIs
-const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
-
-/// Resolve the outbound HTTP timeout from `MESSAGING_HTTP_TIMEOUT_SECS` env var,
-/// falling back to 30 seconds if unset or unparseable
-#[must_use]
-pub fn outbound_http_timeout() -> Duration {
-    let secs = env::var("MESSAGING_HTTP_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_HTTP_TIMEOUT_SECS);
-    Duration::from_secs(secs)
-}
 
 /// Low-level transport adapter for channel wire protocols
 ///

@@ -15,15 +15,17 @@ use serde_json::Value;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::transport::{outbound_http_timeout, TransportAdapter};
+use pierre_core::http_client::api_client;
+
+use crate::transport::TransportAdapter;
 
 /// Telegram Bot API transport adapter
 ///
 /// Verification: `X-Telegram-Bot-Api-Secret-Token` header matched against
 /// the configured webhook secret using constant-time comparison.
 pub struct TelegramTransport {
-    /// HTTP client for outbound Bot API calls
-    client: reqwest::Client,
+    /// Shared HTTP client for outbound Bot API calls
+    client: &'static reqwest::Client,
     /// Expected secret token for webhook verification
     webhook_secret: String,
 }
@@ -32,12 +34,8 @@ impl TelegramTransport {
     /// Create a transport with the given webhook secret
     #[must_use]
     pub fn new(webhook_secret: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(outbound_http_timeout())
-            .build()
-            .unwrap_or_default();
         Self {
-            client,
+            client: api_client(),
             webhook_secret,
         }
     }
