@@ -365,7 +365,7 @@ mod notification_scheduling_tests {
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool).unwrap();
+        let service = NotificationService::from_sqlite(pool);
 
         let params = CreateNotificationParams {
             user_id: user.id,

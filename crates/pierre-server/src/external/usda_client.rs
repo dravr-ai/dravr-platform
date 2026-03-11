@@ -39,6 +39,7 @@
 //! ```
 
 use crate::errors::AppError;
+use crate::utils::http_client::shared_client;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -228,26 +229,21 @@ impl RateLimiter {
 /// USDA `FoodData` Central API Client
 pub struct UsdaClient {
     config: UsdaClientConfig,
-    http_client: reqwest::Client,
+    http_client: &'static Client,
     search_cache: Arc<RwLock<HashMap<String, CacheEntry<FoodSearchPaginatedResponse>>>>,
     details_cache: Arc<RwLock<HashMap<u64, CacheEntry<FoodDetails>>>>,
     rate_limiter: Arc<RwLock<RateLimiter>>,
 }
 
 impl UsdaClient {
-    /// Create a new USDA API client
+    /// Create a new USDA API client using the shared HTTP client
     #[must_use]
     pub fn new(config: UsdaClientConfig) -> Self {
         let rate_limiter = RateLimiter::new(config.rate_limit_per_minute, Duration::from_secs(60));
 
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(config.request_timeout_secs))
-            .build()
-            .unwrap_or_default();
-
         Self {
             config,
-            http_client,
+            http_client: shared_client(),
             search_cache: Arc::new(RwLock::new(HashMap::new())),
             details_cache: Arc::new(RwLock::new(HashMap::new())),
             rate_limiter: Arc::new(RwLock::new(rate_limiter)),

@@ -445,7 +445,7 @@ mod notification_routes_tests {
         let tenant_b = resources.database.list_for_user(user_b.id).await.unwrap()[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool).unwrap();
+        let service = NotificationService::from_sqlite(pool);
 
         // Create 3 notifications for user A
         for i in 0..3 {
@@ -524,7 +524,7 @@ mod notification_routes_tests {
         let tenant_id = resources.database.list_for_user(user.id).await.unwrap()[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
-        let service = NotificationService::from_sqlite(pool).unwrap();
+        let service = NotificationService::from_sqlite(pool);
 
         // Create 2 unread notifications
         for i in 0..2 {

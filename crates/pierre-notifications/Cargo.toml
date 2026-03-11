@@ -16,7 +16,7 @@ sqlite = ["sqlx/sqlite"]
 postgresql = ["sqlx/postgres"]
 
 [dependencies]
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors", "http-client"] }
 
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "chrono", "uuid"], default-features = false }
 serde = { version = "1.0", features = ["derive"] }
