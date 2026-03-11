@@ -11,12 +11,12 @@
 use crate::constants::project::user_agent;
 use crate::errors::{AppError, AppResult};
 use crate::utils::http_client::shared_client;
-use crate::utils::route_timeout::geocoding_timeout_duration;
+use reqwest::header::USER_AGENT;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, instrument, trace};
 
 /// Geographic location data with rich context
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,7 +83,7 @@ struct CacheEntry {
 
 /// Service for geocoding and location data enrichment
 pub struct LocationService {
-    client: Client,
+    client: &'static Client,
     cache: HashMap<String, CacheEntry>,
     cache_duration: Duration,
     base_url: String,
@@ -100,20 +100,8 @@ impl LocationService {
     /// Creates a location service with custom configuration
     #[must_use]
     pub fn with_config(base_url: String, enabled: bool) -> Self {
-        let client = Client::builder()
-            .user_agent(user_agent())
-            .timeout(geocoding_timeout_duration())
-            .build()
-            .unwrap_or_else(|e| {
-                warn!(
-                    "Failed to create HTTP client for location service: {}, using default",
-                    e
-                );
-                shared_client().clone() // Safe: Arc clone for HTTP client sharing
-            });
-
         Self {
-            client,
+            client: shared_client(),
             cache: HashMap::new(),
             cache_duration: Duration::from_secs(24 * 60 * 60), // 24 hours
             base_url,
@@ -166,12 +154,18 @@ impl LocationService {
             self.base_url, latitude, longitude
         );
 
-        let response = self.client.get(&url).send().await.map_err(|e| {
-            AppError::external_service(
-                "Nominatim",
-                format!("Failed to send reverse geocoding request: {e}"),
-            )
-        })?;
+        let response = self
+            .client
+            .get(&url)
+            .header(USER_AGENT, user_agent())
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::external_service(
+                    "Nominatim",
+                    format!("Failed to send reverse geocoding request: {e}"),
+                )
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();

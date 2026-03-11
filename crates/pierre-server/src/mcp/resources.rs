@@ -378,20 +378,13 @@ impl ServerResources {
         }
     }
 
-    /// Create the notification service, logging success or failure
+    /// Create the notification service if a `SQLite` pool is available
     #[cfg(feature = "client-notifications")]
     fn create_notification_service(database: &Arc<Database>) -> Option<Arc<NotificationService>> {
         let pool = database.sqlite_pool()?.clone();
-        match NotificationService::from_sqlite(pool) {
-            Ok(service) => {
-                info!("Notification service initialized");
-                Some(Arc::new(service))
-            }
-            Err(e) => {
-                warn!("Failed to initialize notification service: {e}");
-                None
-            }
-        }
+        let service = NotificationService::from_sqlite(pool);
+        info!("Notification service initialized");
+        Some(Arc::new(service))
     }
 
     /// Create and initialize the tool registry with all built-in tools

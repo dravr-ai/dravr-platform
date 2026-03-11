@@ -10,13 +10,12 @@
 //! Expo routes notifications to APNs (iOS) and FCM (Android) transparently.
 //! Supports batch sending up to 100 notifications per request.
 
-use std::collections::HashMap;
-use std::slice;
-use std::time::Duration;
-
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::http_client::api_client;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::slice;
 use tracing::{info, warn};
 
 /// Expo push API endpoint
@@ -25,9 +24,6 @@ const EXPO_PUSH_URL: &str = "https://exp.host/--/api/v2/push/send";
 const EXPO_RECEIPTS_URL: &str = "https://exp.host/--/api/v2/push/getReceipts";
 /// Maximum notifications per batch request
 const MAX_BATCH_SIZE: usize = 100;
-/// HTTP timeout for Expo API requests
-const EXPO_API_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// Expo push notification message payload
 #[derive(Debug, Clone, Serialize)]
 pub struct ExpoPushMessage {
@@ -97,21 +93,23 @@ pub struct ExpoReceiptResponse {
 
 /// Expo Push Service client
 pub struct ExpoPushService {
-    /// HTTP client for API requests
-    client: Client,
+    /// Shared HTTP client for API requests
+    client: &'static Client,
+}
+
+impl Default for ExpoPushService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExpoPushService {
-    /// Create a new Expo Push Service client with a 10-second timeout
-    ///
-    /// # Errors
-    /// Returns an error if the TLS backend cannot be initialized
-    pub fn new() -> AppResult<Self> {
-        let client = Client::builder()
-            .timeout(EXPO_API_TIMEOUT)
-            .build()
-            .map_err(|e| AppError::internal(format!("Failed to create HTTP client: {e}")))?;
-        Ok(Self { client })
+    /// Create a new Expo Push Service using the shared HTTP client
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            client: api_client(),
+        }
     }
 
     /// Send a single push notification

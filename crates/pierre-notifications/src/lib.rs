@@ -16,10 +16,10 @@
 //! use pierre_notifications::NotificationService;
 //!
 //! // SQLite backend
-//! let service = NotificationService::from_sqlite(pool)?;
+//! let service = NotificationService::from_sqlite(pool);
 //!
 //! // PostgreSQL backend
-//! let service = NotificationService::from_postgres(pool)?;
+//! let service = NotificationService::from_postgres(pool);
 //!
 //! // Start the background scheduler
 //! let abort_handle = service.start_scheduler();

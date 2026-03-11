@@ -42,32 +42,29 @@ pub struct NotificationService {
 impl NotificationService {
     /// Create a `NotificationService` backed by a `SQLite` database pool
     ///
-    /// # Errors
-    /// Returns an error if the Expo push HTTP client cannot be initialized
     #[cfg(feature = "sqlite")]
-    pub fn from_sqlite(pool: sqlx::SqlitePool) -> AppResult<Self> {
+    #[must_use]
+    pub fn from_sqlite(pool: sqlx::SqlitePool) -> Self {
         use crate::repository::sqlite::SqliteNotificationRepository;
 
         let repo: Arc<dyn NotificationRepository> =
             Arc::new(SqliteNotificationRepository::new(pool));
-        let expo_push = Arc::new(ExpoPushService::new()?);
+        let expo_push = Arc::new(ExpoPushService::new());
         let dispatcher = Arc::new(NotificationDispatcher::new(Arc::clone(&repo), expo_push));
-        Ok(Self { repo, dispatcher })
+        Self { repo, dispatcher }
     }
 
     /// Create a `NotificationService` backed by a `PostgreSQL` database pool
-    ///
-    /// # Errors
-    /// Returns an error if the Expo push HTTP client cannot be initialized
     #[cfg(feature = "postgresql")]
-    pub fn from_postgres(pool: sqlx::PgPool) -> AppResult<Self> {
+    #[must_use]
+    pub fn from_postgres(pool: sqlx::PgPool) -> Self {
         use crate::repository::postgres::PostgresNotificationRepository;
 
         let repo: Arc<dyn NotificationRepository> =
             Arc::new(PostgresNotificationRepository::new(pool));
-        let expo_push = Arc::new(ExpoPushService::new()?);
+        let expo_push = Arc::new(ExpoPushService::new());
         let dispatcher = Arc::new(NotificationDispatcher::new(Arc::clone(&repo), expo_push));
-        Ok(Self { repo, dispatcher })
+        Self { repo, dispatcher }
     }
 
     /// Start the background scheduler that polls for due scheduled notifications.
