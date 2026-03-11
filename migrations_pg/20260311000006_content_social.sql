@@ -104,8 +104,8 @@ CREATE TABLE IF NOT EXISTS prompt_suggestions (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    UNIQUE(tenant_id, category_key),
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    UNIQUE(tenant_id, category_key)
+    -- tenant_id is TEXT (application-level join to tenants.id UUID — no FK constraint)
 );
 CREATE INDEX IF NOT EXISTS idx_prompt_suggestions_tenant ON prompt_suggestions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_suggestions_active ON prompt_suggestions(tenant_id, is_active);
@@ -116,7 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_prompt_suggestions_order ON prompt_suggestions(te
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS welcome_prompts (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL UNIQUE, -- application-level join to tenants.id UUID — no FK constraint
     prompt_text TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL,
@@ -129,7 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_welcome_prompts_tenant ON welcome_prompts(tenant_
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS system_prompts (
     id TEXT PRIMARY KEY,
-    tenant_id TEXT NOT NULL UNIQUE REFERENCES tenants(id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL UNIQUE, -- application-level join to tenants.id UUID — no FK constraint
     prompt_text TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL,
@@ -242,8 +242,7 @@ CREATE TABLE IF NOT EXISTS synthetic_activities (
     temperature DOUBLE PRECISION,
     humidity DOUBLE PRECISION,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_synthetic_activities_user_id ON synthetic_activities(user_id);
 CREATE INDEX IF NOT EXISTS idx_synthetic_activities_tenant_id ON synthetic_activities(tenant_id);
