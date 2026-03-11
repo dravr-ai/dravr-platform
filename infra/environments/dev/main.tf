@@ -152,24 +152,37 @@ module "backend" {
       MCP_PORT    = "8080"
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
+
+      # Frontend URL for CORS and OAuth redirects
+      FRONTEND_URL         = var.enable_frontend ? module.frontend[0].service_url : ""
+      CORS_ALLOWED_ORIGINS = var.enable_frontend ? module.frontend[0].service_url : "*"
+
+      # Disable backups in Cloud Run (ephemeral filesystem)
+      BACKUP_ENABLED = "false"
     },
+    # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
       DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
       DATABASE_NAME = module.database[0].database_name
       DATABASE_USER = module.database[0].database_user
-    } : {},
+    } : {
+      # Fallback to ephemeral SQLite when Cloud SQL is disabled
+      DATABASE_URL = "sqlite:./data/users.db"
+    },
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
   )
 
   secret_env_vars = {
-    DB_PASSWORD          = module.secrets.secret_ids["db_password"]
-    ENCRYPTION_KEY       = module.secrets.secret_ids["encryption_key"]
-    STRAVA_CLIENT_SECRET = module.secrets.secret_ids["strava_client_secret"]
-    FITBIT_CLIENT_SECRET = module.secrets.secret_ids["fitbit_client_secret"]
-    GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
-    OPENWEATHER_API_KEY  = module.secrets.secret_ids["openweather_api_key"]
+    DB_PASSWORD                  = module.secrets.secret_ids["db_password"]
+    PIERRE_MASTER_ENCRYPTION_KEY = module.secrets.secret_ids["encryption_key"]
+    STRAVA_CLIENT_ID             = module.secrets.secret_ids["strava_client_id"]
+    STRAVA_CLIENT_SECRET         = module.secrets.secret_ids["strava_client_secret"]
+    USDA_API_KEY                 = module.secrets.secret_ids["usda_api_key"]
+    GEMINI_API_KEY               = module.secrets.secret_ids["gemini_api_key"]
+    OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
+    RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
   }
 
   health_check_path           = "/health"
