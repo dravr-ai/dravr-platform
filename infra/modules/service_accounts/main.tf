@@ -1,6 +1,18 @@
 # ABOUTME: Creates service accounts for Dravr MCP Server
 # ABOUTME: Includes app SA for Cloud Run and deployer SA for GitHub Actions
 
+# Resolve project number for Google-managed service agents
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+# Cloud Run service agent needs cross-project Artifact Registry access to pull images at runtime
+resource "google_project_iam_member" "cloudrun_agent_artifact_reader" {
+  project = var.artifacts_project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:service-${data.google_project.current.number}@serverless-robot-prod.iam.gserviceaccount.com"
+}
+
 # -----------------------------------------------------------------------------
 # App Service Account (used by Cloud Run)
 # -----------------------------------------------------------------------------
@@ -90,6 +102,13 @@ resource "google_project_iam_member" "deployer_cloudsql_client" {
 resource "google_project_iam_member" "deployer_storage_viewer" {
   project = var.project_id
   role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:${google_service_account.deployer.email}"
+}
+
+# Artifact Registry Reader in dravr-artifacts (cross-project: resolve image refs during deploy)
+resource "google_project_iam_member" "deployer_artifact_reader" {
+  project = var.artifacts_project_id
+  role    = "roles/artifactregistry.reader"
   member  = "serviceAccount:${google_service_account.deployer.email}"
 }
 
