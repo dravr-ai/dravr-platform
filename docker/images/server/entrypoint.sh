@@ -22,11 +22,24 @@ if [ -f "/app/.envrc" ]; then
     echo "Environment variables loaded successfully"
 fi
 
+# URL-encode a string (handles special chars like %$@! in passwords)
+urlencode() {
+    local string="$1" i c
+    for (( i = 0; i < ${#string}; i++ )); do
+        c="${string:$i:1}"
+        case "$c" in
+            [a-zA-Z0-9.~_-]) printf '%s' "$c" ;;
+            *) printf '%%%02X' "'$c" ;;
+        esac
+    done
+}
+
 # Construct DATABASE_URL from Cloud SQL components when deployed on Cloud Run
 # Cloud Run injects DATABASE_HOST, DATABASE_NAME, DATABASE_USER as plain env vars
 # and DB_PASSWORD from Secret Manager. Assemble into a single connection string.
 if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ] && [ -n "$DB_PASSWORD" ]; then
-    export DATABASE_URL="postgresql://${DATABASE_USER}:${DB_PASSWORD}@/${DATABASE_NAME}?host=${DATABASE_HOST}"
+    ENCODED_PASSWORD=$(urlencode "$DB_PASSWORD")
+    export DATABASE_URL="postgresql://${DATABASE_USER}:${ENCODED_PASSWORD}@localhost/${DATABASE_NAME}?host=${DATABASE_HOST}"
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
