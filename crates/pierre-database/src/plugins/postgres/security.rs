@@ -623,7 +623,7 @@ impl NotificationRepository for PostgresDatabase {
         expires_at: Option<&str>,
     ) -> AppResult<String> {
         let notification_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query(
             r"
@@ -637,7 +637,7 @@ impl NotificationRepository for PostgresDatabase {
         .bind(success)
         .bind(message)
         .bind(expires_at)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;

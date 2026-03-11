@@ -16,7 +16,7 @@ use uuid::Uuid;
 impl InsightRepository for PostgresDatabase {
     async fn store(&self, user_id: Uuid, insight_data: Value) -> AppResult<String> {
         let insight_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let insight_json = serde_json::to_string(&insight_data)
             .map_err(|e| AppError::database(format!("Failed to serialize insight: {e}")))?;
 
@@ -30,7 +30,7 @@ impl InsightRepository for PostgresDatabase {
         .bind(user_id)
         .bind("general") // Default insight type since it's not provided separately
         .bind(&insight_json)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store insight: {e}")))?;

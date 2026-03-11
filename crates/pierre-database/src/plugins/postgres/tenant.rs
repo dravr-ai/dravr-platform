@@ -194,7 +194,7 @@ impl TenantRepository for PostgresDatabase {
 
         // Convert scopes Vec<String> to PostgreSQL array format
         let scopes_array: Vec<&str> = credentials.scopes.iter().map(String::as_str).collect();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query(
             r"
@@ -219,7 +219,7 @@ impl TenantRepository for PostgresDatabase {
         .bind(&credentials.redirect_uri)
         .bind(&scopes_array)
         .bind(i32::try_from(credentials.rate_limit_per_day).unwrap_or(i32::MAX))
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store OAuth credentials: {e}")))?;
@@ -989,7 +989,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         config: &FitnessConfig,
     ) -> AppResult<String> {
         let config_json = serde_json::to_string(config)?;
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let result = sqlx::query(
             r"
@@ -1005,7 +1005,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         .bind(tenant_id.0)
         .bind(configuration_name)
         .bind(&config_json)
-        .bind(&now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
@@ -1022,7 +1022,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         config: &FitnessConfig,
     ) -> AppResult<String> {
         let config_json = serde_json::to_string(config)?;
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         let result = sqlx::query(
             r"
@@ -1039,7 +1039,7 @@ impl FitnessConfigRepository for PostgresDatabase {
         .bind(user_id)
         .bind(configuration_name)
         .bind(&config_json)
-        .bind(&now)
+        .bind(now)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch record: {e}")))?;
