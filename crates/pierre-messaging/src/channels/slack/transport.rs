@@ -20,15 +20,17 @@ use sha2::Sha256;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::transport::{outbound_http_timeout, TransportAdapter};
+use pierre_core::http_client::api_client;
+
+use crate::transport::TransportAdapter;
 
 /// Slack Events API transport adapter
 ///
 /// Verification: HMAC-SHA256 with Slack's v0 scheme.
 /// `basestring = "v0:{timestamp}:{body}"`, then `v0={hex(HMAC(signing_secret, basestring))}`.
 pub struct SlackTransport {
-    /// HTTP client for outbound Slack API calls
-    client: reqwest::Client,
+    /// Shared HTTP client for outbound Slack API calls
+    client: &'static reqwest::Client,
     /// Slack signing secret for webhook verification
     signing_secret: String,
 }
@@ -37,12 +39,8 @@ impl SlackTransport {
     /// Create a transport with the given Slack signing secret
     #[must_use]
     pub fn new(signing_secret: String) -> Self {
-        let client = reqwest::Client::builder()
-            .timeout(outbound_http_timeout())
-            .build()
-            .unwrap_or_default();
         Self {
-            client,
+            client: api_client(),
             signing_secret,
         }
     }
