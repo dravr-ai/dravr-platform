@@ -288,7 +288,8 @@ mod dispatch_tests {
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool).unwrap();
 
-        // Set quiet hours that cover the entire day (00:00 - 23:59) — always quiet
+        // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
+        // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -296,8 +297,8 @@ mod dispatch_tests {
                 category: "training".to_owned(),
                 enabled: true,
                 sub_preferences: None,
-                quiet_hours_start: Some("00:00".to_owned()),
-                quiet_hours_end: Some("23:59".to_owned()),
+                quiet_hours_start: Some("23:00".to_owned()),
+                quiet_hours_end: Some("22:59".to_owned()),
                 timezone: Some("UTC".to_owned()),
                 max_per_day: None,
             })
@@ -1073,7 +1074,8 @@ mod dispatch_tests {
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool).unwrap();
 
-        // Set quiet hours that cover the entire day (always quiet)
+        // Set quiet hours as overnight window covering nearly 24h (23:00 → 22:59)
+        // Triggers the overnight branch: now >= 23:00 || now < 22:59 → always true
         service
             .upsert_notification_preference(&UpsertNotificationPreferenceParams {
                 user_id: user.id,
@@ -1081,8 +1083,8 @@ mod dispatch_tests {
                 category: "coach".to_owned(),
                 enabled: true,
                 sub_preferences: None,
-                quiet_hours_start: Some("00:00".to_owned()),
-                quiet_hours_end: Some("23:59".to_owned()),
+                quiet_hours_start: Some("23:00".to_owned()),
+                quiet_hours_end: Some("22:59".to_owned()),
                 timezone: Some("UTC".to_owned()),
                 max_per_day: None,
             })
