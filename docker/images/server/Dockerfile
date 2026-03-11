@@ -22,11 +22,11 @@ RUN cargo chef prepare --recipe-path recipe.json
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --features postgresql --recipe-path recipe.json
 
 # Build the actual application (reruns only when source code changes)
 COPY . .
-RUN cargo build --release --bin pierre-mcp-server
+RUN cargo build --release --features postgresql --bin pierre-mcp-server
 
 # Verify the binary was built
 RUN ls -la target/release/pierre-mcp-server
@@ -65,7 +65,6 @@ WORKDIR /app
 
 # Set environment variables with secure defaults
 ENV RUST_LOG=info
-ENV DATABASE_URL=sqlite:./data/users.db
 ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
