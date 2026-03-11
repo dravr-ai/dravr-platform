@@ -1114,7 +1114,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         .bind(tenant_id.0)
         .bind(provider)
         .bind(conn_type_str)
-        .bind(now.to_rfc3339())
+        .bind(now)
         .bind(metadata)
         .execute(&self.pool)
         .await?;
@@ -1231,9 +1231,9 @@ impl PasswordResetRepository for PostgresDatabase {
         .bind(id.to_string())
         .bind(user_id.to_string())
         .bind(token_hash)
-        .bind(expires_at.to_rfc3339())
+        .bind(expires_at)
         .bind(created_by)
-        .bind(now.to_rfc3339())
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
@@ -1242,7 +1242,7 @@ impl PasswordResetRepository for PostgresDatabase {
     }
 
     async fn consume_token(&self, token_hash: &str) -> AppResult<Uuid> {
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
 
         let row = sqlx::query(
             r"
@@ -1254,7 +1254,7 @@ impl PasswordResetRepository for PostgresDatabase {
             RETURNING user_id
             ",
         )
-        .bind(&now)
+        .bind(now)
         .bind(token_hash)
         .fetch_optional(&self.pool)
         .await
@@ -1294,9 +1294,9 @@ impl PasswordResetRepository for PostgresDatabase {
         .bind(id.to_string())
         .bind(user_id.to_string())
         .bind(token_hash)
-        .bind(expires_at.to_rfc3339())
+        .bind(expires_at)
         .bind(created_by)
-        .bind(now.to_rfc3339())
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to store password reset token: {e}")))?;
@@ -1305,7 +1305,7 @@ impl PasswordResetRepository for PostgresDatabase {
     }
 
     async fn invalidate_tokens(&self, user_id: Uuid) -> AppResult<()> {
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
 
         sqlx::query(
             r"
@@ -1315,7 +1315,7 @@ impl PasswordResetRepository for PostgresDatabase {
               AND used_at IS NULL
             ",
         )
-        .bind(&now)
+        .bind(now)
         .bind(user_id.to_string())
         .execute(&self.pool)
         .await
@@ -1334,7 +1334,7 @@ impl PasswordResetRepository for PostgresDatabase {
             ",
         )
         .bind(user_id.to_string())
-        .bind(since.to_rfc3339())
+        .bind(since)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to count recent reset tokens: {e}")))?;

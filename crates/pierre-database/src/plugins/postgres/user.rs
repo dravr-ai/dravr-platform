@@ -706,7 +706,7 @@ impl UserRepository for PostgresDatabase {
 #[async_trait]
 impl ProfileRepository for PostgresDatabase {
     async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         sqlx::query(
             r"
             INSERT INTO user_profiles (user_id, profile_data, created_at, updated_at)
@@ -717,7 +717,7 @@ impl ProfileRepository for PostgresDatabase {
         )
         .bind(user_id)
         .bind(&profile_data)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to upsert user profile: {e}")))?;
@@ -743,7 +743,7 @@ impl ProfileRepository for PostgresDatabase {
 
     async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String> {
         let goal_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
 
         sqlx::query(
             r"
@@ -754,7 +754,7 @@ impl ProfileRepository for PostgresDatabase {
         .bind(&goal_id)
         .bind(user_id)
         .bind(&goal_data)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create goal: {e}")))?;
@@ -860,7 +860,7 @@ impl ProfileRepository for PostgresDatabase {
         })?;
 
         // Insert or update configuration
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = chrono::Utc::now();
         let query = r"
             INSERT INTO user_configurations (user_id, config_data, created_at, updated_at)
             VALUES ($1, $2, $3, $3)
@@ -872,7 +872,7 @@ impl ProfileRepository for PostgresDatabase {
         sqlx::query(query)
             .bind(user_id)
             .bind(config_json)
-            .bind(&now)
+            .bind(now)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to save user configuration: {e}")))?;

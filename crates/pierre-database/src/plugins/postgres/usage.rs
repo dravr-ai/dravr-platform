@@ -422,7 +422,7 @@ impl UsageCounterRepository for PostgresDatabase {
         period: &str,
         amount: i64,
     ) -> AppResult<UsageCounterRecord> {
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
 
         sqlx::query(
             r"
@@ -437,7 +437,7 @@ impl UsageCounterRepository for PostgresDatabase {
         .bind(counter_key)
         .bind(period)
         .bind(amount)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to increment usage counter: {e}")))?;
@@ -509,7 +509,7 @@ impl UsageCounterRepository for PostgresDatabase {
 impl LlmUsageRepository for PostgresDatabase {
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord> {
         let id = Uuid::new_v4().to_string();
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
 
         sqlx::query(
             r"
@@ -529,7 +529,7 @@ impl LlmUsageRepository for PostgresDatabase {
         .bind(params.call_type)
         .bind(params.tool_calls_count)
         .bind(params.execution_time_ms)
-        .bind(&now)
+        .bind(now)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert LLM usage: {e}")))?;
@@ -547,7 +547,7 @@ impl LlmUsageRepository for PostgresDatabase {
             call_type: params.call_type.to_owned(),
             tool_calls_count: params.tool_calls_count,
             execution_time_ms: params.execution_time_ms,
-            created_at: now,
+            created_at: now.to_rfc3339(),
         })
     }
 
