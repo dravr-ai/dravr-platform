@@ -16,9 +16,9 @@ use super::PostgresDatabase;
 use crate::repositories::{SeedTable, SeederRepository};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction, SeedLlmUsageRecord,
-    SeedProviderConnection, SeedSharedInsight, SeedSocialSettings, SeedStoreListing,
-    SeedSyntheticActivity, SeedTenant,
+    SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
+    SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
+    SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 
 #[async_trait]
@@ -1063,12 +1063,46 @@ impl SeederRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn seed_upsert_coach_author(&self, author: &SeedCoachAuthor) -> AppResult<String> {
+        // coach_authors has UNIQUE(user_id, tenant_id) — check first, insert if absent
+        let existing: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM coach_authors WHERE user_id = $1 AND tenant_id = $2",
+        )
+        .bind(author.user_id)
+        .bind(&author.tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to check coach author: {e}")))?;
+
+        if let Some(existing_id) = existing {
+            return Ok(existing_id);
+        }
+
+        sqlx::query(
+            "INSERT INTO coach_authors \
+             (id, user_id, tenant_id, display_name, is_verified, \
+              published_coach_count, total_install_count, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, FALSE, 0, 0, $5, $6)",
+        )
+        .bind(&author.id)
+        .bind(author.user_id)
+        .bind(&author.tenant_id)
+        .bind(&author.display_name)
+        .bind(author.created_at)
+        .bind(author.updated_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to insert coach author: {e}")))?;
+
+        Ok(author.id.clone())
+    }
+
     async fn seed_insert_store_listing_if_absent(
         &self,
         listing: &SeedStoreListing,
     ) -> AppResult<bool> {
         // store_listings.id is TEXT, coach_id is TEXT, tenant_id is TEXT
-        // author_id references coach_authors(id) which is TEXT — bind as string
+        // author_id references coach_authors(id) which is TEXT
         let result = sqlx::query(
             "INSERT INTO store_listings \
              (id, coach_id, tenant_id, publish_status, published_at, install_count, \
@@ -1080,7 +1114,7 @@ impl SeederRepository for PostgresDatabase {
         .bind(&listing.coach_id)
         .bind(listing.tenant_id.to_string())
         .bind(listing.created_at)
-        .bind(listing.author_id.to_string())
+        .bind(&listing.author_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert store listing: {e}")))?;

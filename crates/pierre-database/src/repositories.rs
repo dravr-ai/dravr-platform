@@ -47,9 +47,9 @@ use uuid::Uuid;
 
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction, SeedLlmUsageRecord,
-    SeedProviderConnection, SeedSharedInsight, SeedSocialSettings, SeedStoreListing,
-    SeedSyntheticActivity, SeedTenant,
+    SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
+    SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
+    SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 
 // ================================
@@ -1737,6 +1737,12 @@ pub trait SeederRepository: Send + Sync {
         &self,
         relation: &SeedCoachRelation,
     ) -> AppResult<bool>;
+
+    /// Upsert a coach author profile, returning the author ID
+    ///
+    /// Creates the `coach_authors` row if absent (idempotent by `user_id + tenant_id` unique).
+    /// Returns the `coach_authors.id` for use as `store_listings.author_id`.
+    async fn seed_upsert_coach_author(&self, author: &SeedCoachAuthor) -> AppResult<String>;
 
     /// Insert a store listing if it doesn't already exist, returns true if inserted
     async fn seed_insert_store_listing_if_absent(

@@ -37,7 +37,9 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::plugins::factory::Database;
 use pierre_database::repositories::SeederRepository;
-use pierre_database::seed_models::{SeedCoach, SeedCoachRelation, SeedStoreListing};
+use pierre_database::seed_models::{
+    SeedCoach, SeedCoachAuthor, SeedCoachRelation, SeedStoreListing,
+};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -390,7 +392,7 @@ async fn publish_single_coach(db: &Database, coach_id: &str, admin: &AdminUser) 
         id: Uuid::new_v4().to_string(),
         coach_id: coach_id.to_owned(),
         tenant_id: admin.tenant_id,
-        author_id: admin.id,
+        author_id: admin.coach_author_id.clone(),
         created_at: Utc::now(),
     };
 
@@ -447,9 +449,11 @@ struct AdminUser {
     id: Uuid,
     email: String,
     tenant_id: TenantId,
+    /// Coach author profile ID (from `coach_authors` table, used as `store_listings.author_id`)
+    coach_author_id: String,
 }
 
-/// Find the first admin user and their tenant
+/// Find the first admin user and their tenant, ensuring a `coach_authors` row exists
 async fn find_admin_user(db: &Database) -> AppResult<AdminUser> {
     let user = db.seed_get_admin_user().await?.ok_or_else(|| {
         AppError::config(
@@ -465,10 +469,24 @@ async fn find_admin_user(db: &Database) -> AppResult<AdminUser> {
         .parse::<TenantId>()
         .map_err(|e| AppError::internal(format!("Failed to parse tenant_id: {e}")))?;
 
+    // Ensure a coach_authors row exists for the admin (required by store_listings FK)
+    let now = Utc::now();
+    let coach_author = SeedCoachAuthor {
+        id: Uuid::new_v4().to_string(),
+        user_id: user.id,
+        tenant_id: tenant_id.to_string(),
+        display_name: user.email.clone(),
+        created_at: now,
+        updated_at: now,
+    };
+    let coach_author_id = db.seed_upsert_coach_author(&coach_author).await?;
+    info!("Coach author profile: {coach_author_id}");
+
     Ok(AdminUser {
         id: user.id,
         email: user.email,
         tenant_id,
+        coach_author_id,
     })
 }
 
