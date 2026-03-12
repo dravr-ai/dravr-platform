@@ -18,10 +18,8 @@ RUN bun install --frozen-lockfile --filter frontend
 
 COPY frontend/ frontend/
 
-ARG VITE_API_BASE_URL
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
-
 # Firebase configuration (public keys, baked at build time)
+# VITE_API_BASE_URL is intentionally omitted — frontend uses same-origin (nginx proxy)
 ARG VITE_FIREBASE_API_KEY
 ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG VITE_FIREBASE_PROJECT_ID
@@ -51,9 +49,10 @@ RUN apk upgrade --no-cache && \
 # Copy built assets from the builder stage
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
-# Copy custom nginx configuration
-COPY docker/images/frontend/nginx.conf /etc/nginx/nginx.conf
+# Copy nginx config template (envsubst injects BACKEND_URL at startup)
+COPY docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template
 
 EXPOSE 8080
 
-CMD ["nginx", "-g", "daemon off;"]
+# Substitute BACKEND_URL into nginx config at runtime, then start nginx
+CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
