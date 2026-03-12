@@ -166,7 +166,7 @@ module "backend" {
       DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
       DATABASE_NAME = module.database[0].database_name
       DATABASE_USER = module.database[0].database_user
-    } : {
+      } : {
       # Fallback to ephemeral SQLite when Cloud SQL is disabled
       DATABASE_URL = "sqlite:./data/users.db"
     },
@@ -190,6 +190,145 @@ module "backend" {
   startup_probe_initial_delay = 10
 
   labels = merge(var.labels, { component = "backend" })
+
+  depends_on = [module.networking, module.secrets, module.service_accounts]
+}
+
+# -----------------------------------------------------------------------------
+# Seed Jobs (Cloud Run Jobs for database seeding)
+# -----------------------------------------------------------------------------
+
+locals {
+  seed_env_vars = var.enable_database ? {
+    DATABASE_HOST = "/cloudsql/${module.database[0].connection_name}"
+    DATABASE_NAME = module.database[0].database_name
+    DATABASE_USER = module.database[0].database_user
+    RUST_LOG      = "info"
+  } : {}
+
+  seed_secret_env_vars = {
+    DB_PASSWORD = module.secrets.secret_ids["db_password"]
+  }
+
+  seed_common = {
+    project_id               = var.project_id
+    region                   = var.region
+    container_image          = var.backend_image
+    service_account_email    = module.service_accounts.app_service_account_email
+    vpc_connector_id         = module.networking.vpc_connector_id
+    cloudsql_connection_name = var.enable_database ? module.database[0].connection_name : null
+    cpu                      = "1"
+    memory                   = "512Mi"
+    max_retries              = 1
+    timeout                  = "300s"
+  }
+}
+
+module "seed_bootstrap" {
+  source = "../../modules/cloud_run_jobs"
+
+  project_id               = local.seed_common.project_id
+  region                   = local.seed_common.region
+  job_name                 = "${var.service_name}-seed-bootstrap"
+  container_image          = local.seed_common.container_image
+  service_account_email    = local.seed_common.service_account_email
+  vpc_connector_id         = local.seed_common.vpc_connector_id
+  cloudsql_connection_name = local.seed_common.cloudsql_connection_name
+  cpu                      = local.seed_common.cpu
+  memory                   = local.seed_common.memory
+  max_retries              = local.seed_common.max_retries
+  timeout                  = local.seed_common.timeout
+
+  command = ["/app/seed-entrypoint.sh"]
+  args    = ["seed-bootstrap"]
+
+  env_vars = merge(local.seed_env_vars, {
+    ADMIN_EMAIL = "admin@dravr.ai"
+  })
+
+  secret_env_vars = merge(local.seed_secret_env_vars, {
+    ADMIN_PASSWORD = module.secrets.secret_ids["admin_password"]
+  })
+
+  labels = merge(var.labels, { component = "seed-bootstrap" })
+
+  depends_on = [module.networking, module.secrets, module.service_accounts]
+}
+
+module "seed_coaches" {
+  source = "../../modules/cloud_run_jobs"
+
+  project_id               = local.seed_common.project_id
+  region                   = local.seed_common.region
+  job_name                 = "${var.service_name}-seed-coaches"
+  container_image          = local.seed_common.container_image
+  service_account_email    = local.seed_common.service_account_email
+  vpc_connector_id         = local.seed_common.vpc_connector_id
+  cloudsql_connection_name = local.seed_common.cloudsql_connection_name
+  cpu                      = local.seed_common.cpu
+  memory                   = local.seed_common.memory
+  max_retries              = local.seed_common.max_retries
+  timeout                  = local.seed_common.timeout
+
+  command = ["/app/seed-entrypoint.sh"]
+  args    = ["seed-coaches", "--coaches-dir", "/app/coaches"]
+
+  env_vars        = local.seed_env_vars
+  secret_env_vars = local.seed_secret_env_vars
+
+  labels = merge(var.labels, { component = "seed-coaches" })
+
+  depends_on = [module.networking, module.secrets, module.service_accounts]
+}
+
+module "seed_mobility" {
+  source = "../../modules/cloud_run_jobs"
+
+  project_id               = local.seed_common.project_id
+  region                   = local.seed_common.region
+  job_name                 = "${var.service_name}-seed-mobility"
+  container_image          = local.seed_common.container_image
+  service_account_email    = local.seed_common.service_account_email
+  vpc_connector_id         = local.seed_common.vpc_connector_id
+  cloudsql_connection_name = local.seed_common.cloudsql_connection_name
+  cpu                      = local.seed_common.cpu
+  memory                   = local.seed_common.memory
+  max_retries              = local.seed_common.max_retries
+  timeout                  = local.seed_common.timeout
+
+  command = ["/app/seed-entrypoint.sh"]
+  args    = ["seed-mobility"]
+
+  env_vars        = local.seed_env_vars
+  secret_env_vars = local.seed_secret_env_vars
+
+  labels = merge(var.labels, { component = "seed-mobility" })
+
+  depends_on = [module.networking, module.secrets, module.service_accounts]
+}
+
+module "seed_synthetic_activities" {
+  source = "../../modules/cloud_run_jobs"
+
+  project_id               = local.seed_common.project_id
+  region                   = local.seed_common.region
+  job_name                 = "${var.service_name}-seed-synthetic"
+  container_image          = local.seed_common.container_image
+  service_account_email    = local.seed_common.service_account_email
+  vpc_connector_id         = local.seed_common.vpc_connector_id
+  cloudsql_connection_name = local.seed_common.cloudsql_connection_name
+  cpu                      = local.seed_common.cpu
+  memory                   = local.seed_common.memory
+  max_retries              = local.seed_common.max_retries
+  timeout                  = local.seed_common.timeout
+
+  command = ["/app/seed-entrypoint.sh"]
+  args    = ["seed-synthetic-activities", "--email", "alice@demo.pierre.dev", "--count", "100", "--days", "90"]
+
+  env_vars        = local.seed_env_vars
+  secret_env_vars = local.seed_secret_env_vars
+
+  labels = merge(var.labels, { component = "seed-synthetic" })
 
   depends_on = [module.networking, module.secrets, module.service_accounts]
 }
