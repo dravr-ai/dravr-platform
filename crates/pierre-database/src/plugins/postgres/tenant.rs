@@ -145,11 +145,14 @@ impl TenantRepository for PostgresDatabase {
                 Uuid,
                 DateTime<Utc>,
                 DateTime<Utc>,
+                // tu.joined_at is included in SELECT so PostgreSQL allows
+                // ORDER BY with DISTINCT (not mapped to Tenant)
+                DateTime<Utc>,
             ),
         >(
             r"
             SELECT DISTINCT t.id, t.name, t.slug, t.domain, t.subscription_tier,
-                   owner.user_id, t.created_at, t.updated_at
+                   owner.user_id, t.created_at, t.updated_at, tu.joined_at
             FROM tenants t
             JOIN tenant_users tu ON t.id = tu.tenant_id
             JOIN tenant_users owner ON t.id = owner.tenant_id AND owner.role = 'owner'
@@ -165,7 +168,17 @@ impl TenantRepository for PostgresDatabase {
         let tenants = rows
             .into_iter()
             .map(
-                |(id, name, slug, domain, plan, owner_user_id, created_at, updated_at)| Tenant {
+                |(
+                    id,
+                    name,
+                    slug,
+                    domain,
+                    plan,
+                    owner_user_id,
+                    created_at,
+                    updated_at,
+                    _joined_at,
+                )| Tenant {
                     id,
                     name,
                     slug,
