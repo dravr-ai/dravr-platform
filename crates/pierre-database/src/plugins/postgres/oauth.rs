@@ -1175,9 +1175,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         let mut connections = Vec::with_capacity(rows.len());
         for row in rows {
             let conn_type_str: String = row.get("connection_type");
-            let connected_at_str: String = row.get("connected_at");
-            let connected_at = DateTime::parse_from_rfc3339(&connected_at_str)
-                .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
+            let connected_at: DateTime<Utc> = row.get("connected_at");
 
             let user_id_from_db: String = row.get("user_id");
             let parsed_user_id = Uuid::parse_str(&user_id_from_db).unwrap_or_else(|_| Uuid::nil());
