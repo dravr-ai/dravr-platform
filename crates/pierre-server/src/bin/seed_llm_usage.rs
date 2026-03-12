@@ -21,28 +21,15 @@
 
 use chrono::{Datelike, Duration, Timelike, Utc};
 use clap::Parser;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::SeederRepository;
+use pierre_database::seed_models::SeedLlmUsageRecord;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use sqlx::{Row, SqlitePool};
 use std::env;
-use thiserror::Error;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("UUID parse error: {0}")]
-    Uuid(#[from] uuid::Error),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 #[derive(Parser)]
 #[command(
@@ -177,7 +164,7 @@ fn pick_call_type(rng: &mut impl Rng) -> &'static str {
 }
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
     let log_level = if args.verbose { "debug" } else { "info" };
@@ -191,95 +178,61 @@ async fn main() -> SeedResult<()> {
         .unwrap_or_else(|| "sqlite:./data/users.db".into());
 
     info!("Connecting to database: {}", database_url);
-    let connection_url = format!("{database_url}?mode=rwc");
-    let pool = SqlitePool::connect(&connection_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
     // Find admin user and their tenant
-    let (admin_id, admin_email) = find_admin_user(&pool, args.admin_email.as_deref()).await?;
-    let tenant_id = find_tenant_for_user(&pool, &admin_id).await?;
+    let admin = if let Some(ref email) = args.admin_email {
+        db.seed_find_user_by_email(email).await?
+    } else {
+        db.seed_get_admin_user().await?
+    };
+
+    let Some(admin) = admin else {
+        return Err(AppError::config(
+            "No admin user found. Run setup script first.",
+        ));
+    };
+
+    let tenant_id_str = db.seed_get_user_tenant(admin.id).await?;
+    let Some(tenant_id_str) = tenant_id_str else {
+        return Err(AppError::config(format!(
+            "User {} has no tenant_id",
+            admin.email
+        )));
+    };
+    let tenant_id = Uuid::parse_str(&tenant_id_str)
+        .map_err(|e| AppError::config(format!("Invalid tenant_id UUID: {e}")))?;
+
     info!(
-        "Target: user {} ({}) → tenant {}",
-        admin_email, admin_id, tenant_id
+        "Target: user {} ({}) -> tenant {}",
+        admin.email, admin.id, tenant_id
     );
 
     // Clear existing LLM usage data for idempotent re-runs
-    let deleted = sqlx::query("DELETE FROM llm_usage WHERE tenant_id = ?")
-        .bind(tenant_id.to_string())
-        .execute(&pool)
-        .await?;
-    if deleted.rows_affected() > 0 {
-        info!(
-            "Cleared {} existing llm_usage records for tenant",
-            deleted.rows_affected()
-        );
+    let deleted = db.seed_delete_llm_usage_by_tenant(tenant_id).await?;
+    if deleted > 0 {
+        info!("Cleared {} existing llm_usage records for tenant", deleted);
     }
 
     // Generate usage data
     info!("Generating {} days of LLM usage data...", args.days);
-    let record_count = seed_llm_usage(&pool, &tenant_id, &admin_id, args.days).await?;
+    let record_count = seed_llm_usage(&db, tenant_id, admin.id, args.days).await?;
 
     info!("=== Seeding Complete ===");
     info!("LLM Usage Records: {}", record_count);
-    print_summary(&pool, &tenant_id).await?;
 
     Ok(())
 }
 
-/// Find admin user by email or get first admin
-async fn find_admin_user(pool: &SqlitePool, email: Option<&str>) -> SeedResult<(Uuid, String)> {
-    let row = if let Some(email) = email {
-        sqlx::query("SELECT id, email FROM users WHERE email = ? AND is_admin = 1")
-            .bind(email)
-            .fetch_optional(pool)
-            .await?
-    } else {
-        sqlx::query("SELECT id, email FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1")
-            .fetch_optional(pool)
-            .await?
-    };
-
-    let Some(row) = row else {
-        return Err(SeedError::Validation(
-            "No admin user found. Run setup script first.".to_owned(),
-        ));
-    };
-
-    let id_str: String = row.get("id");
-    let email: String = row.get("email");
-    let id = Uuid::parse_str(&id_str)?;
-
-    Ok((id, email))
-}
-
-/// Look up the `tenant_id` for a given user
-async fn find_tenant_for_user(pool: &SqlitePool, user_id: &Uuid) -> SeedResult<Uuid> {
-    let row = sqlx::query("SELECT tenant_id FROM users WHERE id = ?")
-        .bind(user_id.to_string())
-        .fetch_optional(pool)
-        .await?;
-
-    let Some(row) = row else {
-        return Err(SeedError::Validation(format!(
-            "User {user_id} has no tenant_id"
-        )));
-    };
-
-    let tid_str: String = row.get("tenant_id");
-    let tid = Uuid::parse_str(&tid_str)?;
-    Ok(tid)
-}
-
 /// Generate realistic LLM usage records over the specified number of days
 async fn seed_llm_usage(
-    pool: &SqlitePool,
-    tenant_id: &Uuid,
-    user_id: &Uuid,
+    db: &Database,
+    tenant_id: Uuid,
+    user_id: Uuid,
     days: u32,
-) -> SeedResult<u64> {
+) -> AppResult<u64> {
     let mut rng = StdRng::from_entropy();
     let mut total_records: u64 = 0;
-    let tenant_str = tenant_id.to_string();
-    let user_str = user_id.to_string();
 
     for day_offset in 0..days {
         let day = Utc::now() - Duration::days(i64::from(day_offset));
@@ -312,7 +265,7 @@ async fn seed_llm_usage(
             };
 
             // Execution time: larger models take longer
-            let base_exec_ms: i64 = match model_config.model {
+            let execution_time_ms: i64 = match model_config.model {
                 m if m.contains("pro") => rng.gen_range(800..3000),
                 m if m.contains("70b") => rng.gen_range(600..2500),
                 _ => rng.gen_range(200..1200),
@@ -333,8 +286,7 @@ async fn seed_llm_usage(
                 .with_minute(minute)
                 .unwrap_or(day)
                 .with_second(second)
-                .unwrap_or(day)
-                .to_rfc3339();
+                .unwrap_or(day);
 
             // Some chat calls have a conversation_id
             let conversation_id: Option<String> = if call_type == "chat" && rng.gen_bool(0.7) {
@@ -343,79 +295,27 @@ async fn seed_llm_usage(
                 None
             };
 
-            let id = Uuid::new_v4();
-            let result = sqlx::query(
-                "INSERT INTO llm_usage (\
-                     id, tenant_id, user_id, conversation_id, provider, model, \
-                     prompt_tokens, completion_tokens, total_tokens, call_type, \
-                     tool_calls_count, execution_time_ms, created_at\
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            )
-            .bind(id.to_string())
-            .bind(&tenant_str)
-            .bind(&user_str)
-            .bind(&conversation_id)
-            .bind(model_config.provider)
-            .bind(model_config.model)
-            .bind(prompt_tokens)
-            .bind(completion_tokens)
-            .bind(total_tokens)
-            .bind(call_type)
-            .bind(tool_calls_count)
-            .bind(base_exec_ms)
-            .bind(&timestamp)
-            .execute(pool)
-            .await;
+            let record = SeedLlmUsageRecord {
+                id: Uuid::new_v4(),
+                tenant_id,
+                user_id,
+                conversation_id,
+                provider: model_config.provider.to_owned(),
+                model: model_config.model.to_owned(),
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                call_type: call_type.to_owned(),
+                tool_calls_count,
+                execution_time_ms,
+                created_at: timestamp,
+            };
 
-            if result.is_ok() {
+            if db.seed_insert_llm_usage(&record).await.is_ok() {
                 total_records += 1;
             }
         }
     }
 
     Ok(total_records)
-}
-
-/// Print summary of the seeded data
-async fn print_summary(pool: &SqlitePool, tenant_id: &Uuid) -> SeedResult<()> {
-    let tid = tenant_id.to_string();
-
-    let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM llm_usage WHERE tenant_id = ?")
-        .bind(&tid)
-        .fetch_one(pool)
-        .await?;
-    info!("  Total records: {count}");
-
-    print_provider_breakdown(pool, &tid).await?;
-    print_call_type_breakdown(pool, &tid).await?;
-
-    Ok(())
-}
-
-/// Print per-provider usage breakdown
-async fn print_provider_breakdown(pool: &SqlitePool, tenant_id: &str) -> SeedResult<()> {
-    let rows: Vec<(String, i64, i64)> = sqlx::query_as(
-        "SELECT provider, COUNT(*), SUM(total_tokens) FROM llm_usage WHERE tenant_id = ? GROUP BY provider",
-    )
-    .bind(tenant_id)
-    .fetch_all(pool)
-    .await?;
-    for (provider, calls, tokens) in &rows {
-        info!("  {provider}: {calls} calls, {tokens} tokens");
-    }
-    Ok(())
-}
-
-/// Print per-call-type usage breakdown
-async fn print_call_type_breakdown(pool: &SqlitePool, tenant_id: &str) -> SeedResult<()> {
-    let rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT call_type, COUNT(*) FROM llm_usage WHERE tenant_id = ? GROUP BY call_type",
-    )
-    .bind(tenant_id)
-    .fetch_all(pool)
-    .await?;
-    for (call_type, calls) in &rows {
-        info!("  {call_type}: {calls} calls");
-    }
-    Ok(())
 }

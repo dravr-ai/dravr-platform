@@ -32,28 +32,18 @@
 
 use chrono::{Duration, Utc};
 use clap::Parser;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::SeederRepository;
+use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
-use thiserror::Error;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 #[derive(Parser)]
 #[command(
@@ -136,7 +126,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             weight: 8,
             duration_range: (2400, 10800), // 40 min - 3 hours
             distance_range: Some((5000.0, 30000.0)),
-            elevation_range: Some((200.0, 1500.0)), // More elevation
+            elevation_range: Some((200.0, 1500.0)),
             heart_rate_range: (145, 180),
             names: &[
                 "Trail Adventure",
@@ -152,7 +142,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             display_name: "Ride",
             weight: 20,
             duration_range: (1800, 18000), // 30 min - 5 hours
-            distance_range: Some((15_000.0, 150_000.0)), // 15km - 150km
+            distance_range: Some((15_000.0, 150_000.0)),
             elevation_range: Some((100.0, 2000.0)),
             heart_rate_range: (130, 170),
             names: &[
@@ -167,9 +157,9 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "mountain_bike_ride",
             display_name: "Mountain Bike",
             weight: 8,
-            duration_range: (2400, 14400), // 40 min - 4 hours
+            duration_range: (2400, 14400),
             distance_range: Some((10000.0, 60000.0)),
-            elevation_range: Some((300.0, 2500.0)), // Lots of climbing
+            elevation_range: Some((300.0, 2500.0)),
             heart_rate_range: (140, 180),
             names: &[
                 "MTB Session",
@@ -183,7 +173,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "gravel_ride",
             display_name: "Gravel Ride",
             weight: 5,
-            duration_range: (3600, 21600), // 1 - 6 hours
+            duration_range: (3600, 21600),
             distance_range: Some((30_000.0, 200_000.0)),
             elevation_range: Some((200.0, 3000.0)),
             heart_rate_range: (135, 170),
@@ -198,7 +188,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "virtual_ride",
             display_name: "Virtual Ride",
             weight: 6,
-            duration_range: (1800, 5400), // 30 min - 1.5 hours
+            duration_range: (1800, 5400),
             distance_range: Some((15000.0, 60000.0)),
             elevation_range: Some((100.0, 1000.0)),
             heart_rate_range: (135, 175),
@@ -214,7 +204,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "nordic_ski",
             display_name: "Nordic Ski",
             weight: 6,
-            duration_range: (2400, 10800), // 40 min - 3 hours
+            duration_range: (2400, 10800),
             distance_range: Some((5000.0, 50000.0)),
             elevation_range: Some((100.0, 800.0)),
             heart_rate_range: (140, 180),
@@ -230,9 +220,9 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "backcountry_ski",
             display_name: "Backcountry Ski",
             weight: 3,
-            duration_range: (3600, 18000), // 1 - 5 hours
+            duration_range: (3600, 18000),
             distance_range: Some((3000.0, 20000.0)),
-            elevation_range: Some((500.0, 2500.0)), // Big climbing
+            elevation_range: Some((500.0, 2500.0)),
             heart_rate_range: (130, 170),
             names: &[
                 "Backcountry Tour",
@@ -246,9 +236,9 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "alpine_ski",
             display_name: "Alpine Ski",
             weight: 4,
-            duration_range: (3600, 21600), // 1 - 6 hours
+            duration_range: (3600, 21600),
             distance_range: Some((10000.0, 50000.0)),
-            elevation_range: Some((1000.0, 5000.0)), // Vertical meters
+            elevation_range: Some((1000.0, 5000.0)),
             heart_rate_range: (100, 140),
             names: &[
                 "Ski Day",
@@ -262,7 +252,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "snowshoe",
             display_name: "Snowshoe",
             weight: 2,
-            duration_range: (2400, 10800), // 40 min - 3 hours
+            duration_range: (2400, 10800),
             distance_range: Some((3000.0, 15000.0)),
             elevation_range: Some((100.0, 800.0)),
             heart_rate_range: (120, 155),
@@ -278,7 +268,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "swim",
             display_name: "Swim",
             weight: 6,
-            duration_range: (1200, 5400), // 20 min - 1.5 hours
+            duration_range: (1200, 5400),
             distance_range: Some((500.0, 5000.0)),
             elevation_range: None,
             heart_rate_range: (120, 160),
@@ -294,7 +284,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "open_water_swim",
             display_name: "Open Water Swim",
             weight: 2,
-            duration_range: (1800, 7200), // 30 min - 2 hours
+            duration_range: (1800, 7200),
             distance_range: Some((1000.0, 10000.0)),
             elevation_range: None,
             heart_rate_range: (130, 165),
@@ -310,7 +300,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "walk",
             display_name: "Walk",
             weight: 8,
-            duration_range: (1200, 7200), // 20 min - 2 hours
+            duration_range: (1200, 7200),
             distance_range: Some((2000.0, 15000.0)),
             elevation_range: Some((10.0, 200.0)),
             heart_rate_range: (90, 120),
@@ -325,7 +315,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "hike",
             display_name: "Hike",
             weight: 6,
-            duration_range: (3600, 28800), // 1 - 8 hours
+            duration_range: (3600, 28800),
             distance_range: Some((5000.0, 30000.0)),
             elevation_range: Some((200.0, 2000.0)),
             heart_rate_range: (110, 150),
@@ -342,7 +332,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "weight_training",
             display_name: "Weight Training",
             weight: 8,
-            duration_range: (1800, 5400), // 30 min - 1.5 hours
+            duration_range: (1800, 5400),
             distance_range: None,
             elevation_range: None,
             heart_rate_range: (100, 145),
@@ -358,7 +348,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "yoga",
             display_name: "Yoga",
             weight: 4,
-            duration_range: (1800, 5400), // 30 min - 1.5 hours
+            duration_range: (1800, 5400),
             distance_range: None,
             elevation_range: None,
             heart_rate_range: (70, 110),
@@ -374,7 +364,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "workout",
             display_name: "Workout",
             weight: 5,
-            duration_range: (1200, 3600), // 20 min - 1 hour
+            duration_range: (1200, 3600),
             distance_range: None,
             elevation_range: None,
             heart_rate_range: (130, 170),
@@ -391,7 +381,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "rowing",
             display_name: "Rowing",
             weight: 3,
-            duration_range: (1200, 5400), // 20 min - 1.5 hours
+            duration_range: (1200, 5400),
             distance_range: Some((2000.0, 20000.0)),
             elevation_range: None,
             heart_rate_range: (140, 175),
@@ -407,7 +397,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "kayaking",
             display_name: "Kayaking",
             weight: 2,
-            duration_range: (2400, 14400), // 40 min - 4 hours
+            duration_range: (2400, 14400),
             distance_range: Some((5000.0, 40000.0)),
             elevation_range: None,
             heart_rate_range: (110, 150),
@@ -423,7 +413,7 @@ fn get_sport_configs() -> Vec<SportConfig> {
             sport_type: "stand_up_paddling",
             display_name: "SUP",
             weight: 2,
-            duration_range: (1800, 7200), // 30 min - 2 hours
+            duration_range: (1800, 7200),
             distance_range: Some((2000.0, 15000.0)),
             elevation_range: None,
             heart_rate_range: (100, 140),
@@ -450,14 +440,14 @@ fn build_weighted_sports(configs: &[SportConfig]) -> Vec<usize> {
 }
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
     // Initialize logging
     let log_level = if args.verbose { "debug" } else { "info" };
     tracing_subscriber::fmt().with_env_filter(log_level).init();
 
-    info!("🏃 Pierre Synthetic Activity Seeder");
+    info!("Pierre Synthetic Activity Seeder");
     info!("   Email: {}", args.email);
     info!("   Count: {} activities", args.count);
     info!("   Days: {} days of history", args.days);
@@ -468,34 +458,31 @@ async fn main() -> SeedResult<()> {
         .or_else(|| env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:./data/users.db".to_owned());
 
-    let pool = SqlitePool::connect(&database_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
     // Find user
-    let user_row = sqlx::query("SELECT id, tenant_id FROM users WHERE email = ?")
-        .bind(&args.email)
-        .fetch_optional(&pool)
-        .await?;
-
-    let (user_id, tenant_id): (String, String) = match user_row {
-        Some(row) => (row.get("id"), row.get("tenant_id")),
-        None => {
-            return Err(SeedError::Validation(format!(
-                "User not found: {}. Run ./scripts/complete-user-workflow.sh first.",
-                args.email
-            )));
-        }
+    let user = db.seed_find_user_by_email(&args.email).await?;
+    let Some(user) = user else {
+        return Err(AppError::config(format!(
+            "User not found: {}. Run ./scripts/complete-user-workflow.sh first.",
+            args.email
+        )));
     };
 
-    info!("   User ID: {}", user_id);
+    let tenant_id_str = db
+        .seed_get_user_tenant(user.id)
+        .await?
+        .ok_or_else(|| AppError::config(format!("User {} has no tenant_id", args.email)))?;
+    let tenant_id = Uuid::parse_str(&tenant_id_str)
+        .map_err(|e| AppError::config(format!("Invalid tenant_id UUID: {e}")))?;
+
+    info!("   User ID: {}", user.id);
     info!("   Tenant ID: {}", tenant_id);
 
     // Reset if requested
     if args.reset {
-        info!("🗑️  Resetting synthetic activities...");
-        sqlx::query("DELETE FROM synthetic_activities WHERE user_id = ?")
-            .bind(&user_id)
-            .execute(&pool)
-            .await?;
+        info!("Resetting synthetic activities...");
+        db.seed_delete_synthetic_by_user(user.id).await?;
     }
 
     // Initialize RNG
@@ -514,7 +501,7 @@ async fn main() -> SeedResult<()> {
 
     // Generate activities
     info!(
-        "📊 Generating {} activities over {} days...",
+        "Generating {} activities over {} days...",
         args.count, args.days
     );
 
@@ -557,8 +544,6 @@ async fn main() -> SeedResult<()> {
             i + 1
         );
 
-        let activity_id = Uuid::new_v4().to_string();
-
         // Convert types for database (casts are safe: bounded values)
         #[allow(clippy::cast_possible_wrap)]
         let duration_i64 = duration as i64; // max ~86400 seconds
@@ -566,70 +551,49 @@ async fn main() -> SeedResult<()> {
         let avg_hr_i32 = avg_hr as i32; // heart rate 50-220 bpm
         #[allow(clippy::cast_possible_wrap)]
         let max_hr_i32 = max_hr as i32;
+        let calories_i32 = calories;
 
-        // Insert activity
-        sqlx::query(
-            r"
-            INSERT INTO synthetic_activities (
-                id, user_id, tenant_id,
-                name, sport_type, start_date, duration_seconds,
-                distance_meters, elevation_gain,
-                average_heart_rate, max_heart_rate,
-                average_speed, max_speed, calories,
-                city, region, country,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ",
-        )
-        .bind(&activity_id)
-        .bind(&user_id)
-        .bind(&tenant_id)
-        .bind(&name)
-        .bind(sport.sport_type)
-        .bind(start_date.to_rfc3339())
-        .bind(duration_i64)
-        .bind(distance)
-        .bind(elevation)
-        .bind(avg_hr_i32)
-        .bind(max_hr_i32)
-        .bind(avg_speed)
-        .bind(max_speed)
-        .bind(calories)
-        .bind("Montreal")
-        .bind("Quebec")
-        .bind("Canada")
-        .bind(Utc::now().to_rfc3339())
-        .bind(Utc::now().to_rfc3339())
-        .execute(&pool)
-        .await?;
+        let activity = SeedSyntheticActivity {
+            id: Uuid::new_v4(),
+            user_id: user.id,
+            tenant_id,
+            name,
+            sport_type: sport.sport_type.to_owned(),
+            start_date,
+            duration_seconds: duration_i64,
+            distance_meters: distance,
+            elevation_gain: elevation,
+            average_heart_rate: avg_hr_i32,
+            max_heart_rate: max_hr_i32,
+            average_speed: avg_speed,
+            max_speed,
+            calories: calories_i32,
+            city: "Montreal".to_owned(),
+            region: "Quebec".to_owned(),
+            country: "Canada".to_owned(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
 
+        db.seed_insert_synthetic_activity(&activity).await?;
         *activities_by_type.entry(sport.sport_type).or_insert(0) += 1;
     }
 
     // Register synthetic provider connection
-    let connection_id = Uuid::new_v4().to_string();
-    sqlx::query(
-        r#"
-        INSERT INTO provider_connections (id, user_id, tenant_id, provider, connection_type, connected_at, metadata)
-        VALUES (?, ?, ?, 'synthetic', 'synthetic', ?, '{"source": "seed-synthetic-activities"}')
-        ON CONFLICT(user_id, tenant_id, provider) DO UPDATE SET
-            connected_at = excluded.connected_at,
-            metadata = excluded.metadata
-        "#,
-    )
-    .bind(&connection_id)
-    .bind(&user_id)
-    .bind(&tenant_id)
-    .bind(Utc::now().to_rfc3339())
-    .execute(&pool)
-    .await?;
-
-    info!("✅ Registered synthetic provider connection");
+    let connection = SeedProviderConnection {
+        id: Uuid::new_v4(),
+        user_id: user.id,
+        tenant_id,
+        provider: "synthetic".to_owned(),
+        connection_type: "synthetic".to_owned(),
+        connected_at: Utc::now(),
+        metadata: r#"{"source": "seed-synthetic-activities"}"#.to_owned(),
+    };
+    db.seed_upsert_provider_connection(&connection).await?;
+    info!("Registered synthetic provider connection");
 
     // Print summary
-    info!("✅ Created {} synthetic activities", args.count);
-    info!("");
-    info!("📈 Activity breakdown:");
+    info!("Created {} synthetic activities", args.count);
 
     let mut sorted_types: Vec<_> = activities_by_type.iter().collect();
     sorted_types.sort_by(|a, b| b.1.cmp(a.1));
@@ -637,11 +601,6 @@ async fn main() -> SeedResult<()> {
     for (sport_type, count) in sorted_types {
         info!("   {}: {}", sport_type, count);
     }
-
-    info!("");
-    info!("🎯 Login credentials:");
-    info!("   Email: {}", args.email);
-    info!("   Password: userpass123 (from .envrc)");
 
     Ok(())
 }

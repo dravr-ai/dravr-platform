@@ -30,40 +30,18 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use glob::glob;
-use sqlx::{Row, SqlitePool};
-use thiserror::Error;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantId;
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::SeederRepository;
+use pierre_database::seed_models::{SeedCoach, SeedCoachRelation, SeedStoreListing};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use pierre_mcp_server::coaches::{parse_coach_file, CoachDefinition, RelatedCoach, RelationType};
-use pierre_mcp_server::models::TenantId;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("UUID parse error: {0}")]
-    Uuid(#[from] uuid::Error),
-
-    #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
-
-    #[error("Glob pattern error: {0}")]
-    GlobPattern(#[from] glob::PatternError),
-
-    #[error("Glob error: {0}")]
-    Glob(#[from] glob::GlobError),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 #[derive(Parser)]
 #[command(
@@ -107,7 +85,7 @@ impl SeedStats {
 }
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
     // Initialize logging
@@ -137,30 +115,29 @@ async fn main() -> SeedResult<()> {
 
     // Connect to database
     info!("Connecting to database: {}", database_url);
-    let connection_url = format!("{database_url}?mode=rwc");
-    let pool = SqlitePool::connect(&connection_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
     // Find admin user
-    let admin = find_admin_user(&pool).await?;
+    let admin = find_admin_user(&db).await?;
     info!(
         "Using admin user: {} (tenant: {})",
         admin.email, admin.tenant_id
     );
 
     // Pass 1: Upsert coaches
-    let (mut stats, slug_to_id) = sync_coaches(&pool, &coaches, &admin, args.dry_run).await;
+    let (mut stats, slug_to_id) = sync_coaches(&db, &coaches, &admin, args.dry_run).await;
 
     // Pass 2: Create relations
-    sync_relations(&pool, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
+    sync_relations(&db, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
 
     // Pass 3: Publish system coaches to the store
-    publish_to_store(&pool, &slug_to_id, &admin, &mut stats, args.dry_run).await;
+    publish_to_store(&db, &slug_to_id, &admin, &mut stats, args.dry_run).await;
 
     // Summary
     print_summary(&stats, args.dry_run);
 
     if !stats.errors.is_empty() {
-        return Err(SeedError::Validation(format!(
+        return Err(AppError::config(format!(
             "{} coach(es) failed to seed",
             stats.errors.len()
         )));
@@ -171,7 +148,7 @@ async fn main() -> SeedResult<()> {
 
 /// Sync all coaches to the database (Pass 1)
 async fn sync_coaches(
-    pool: &SqlitePool,
+    db: &Database,
     coaches: &[CoachDefinition],
     admin: &AdminUser,
     dry_run: bool,
@@ -182,7 +159,7 @@ async fn sync_coaches(
     let mut slug_to_id: HashMap<String, String> = HashMap::new();
 
     for coach in coaches {
-        match upsert_coach(pool, coach, admin, dry_run).await {
+        match upsert_coach(db, coach, admin, dry_run).await {
             Ok((coach_id, action)) => {
                 slug_to_id.insert(coach.frontmatter.name.clone(), coach_id);
                 log_upsert_result(&coach.frontmatter.title, &action, &mut stats);
@@ -219,7 +196,7 @@ fn log_upsert_result(title: &str, action: &UpsertAction, stats: &mut SeedStats) 
 
 /// Sync coach relations to the database (Pass 2)
 async fn sync_relations(
-    pool: &SqlitePool,
+    db: &Database,
     coaches: &[CoachDefinition],
     slug_to_id: &HashMap<String, String>,
     stats: &mut SeedStats,
@@ -229,7 +206,7 @@ async fn sync_relations(
     info!("=== Pass 2: Syncing Relations ===");
 
     for coach in coaches {
-        process_coach_relations(pool, coach, slug_to_id, stats, dry_run).await;
+        process_coach_relations(db, coach, slug_to_id, stats, dry_run).await;
     }
 
     log_relations_created(stats.relations_created);
@@ -237,7 +214,7 @@ async fn sync_relations(
 
 /// Process all relations for a single coach
 async fn process_coach_relations(
-    pool: &SqlitePool,
+    db: &Database,
     coach: &CoachDefinition,
     slug_to_id: &HashMap<String, String>,
     stats: &mut SeedStats,
@@ -249,7 +226,7 @@ async fn process_coach_relations(
 
     for relation in &coach.sections.related_coaches {
         process_single_relation(
-            pool,
+            db,
             coach_id,
             &coach.frontmatter.name,
             relation,
@@ -270,7 +247,7 @@ fn log_relations_created(count: u32) {
 
 /// Process a single coach relation
 async fn process_single_relation(
-    pool: &SqlitePool,
+    db: &Database,
     coach_id: &str,
     coach_name: &str,
     relation: &RelatedCoach,
@@ -291,7 +268,7 @@ async fn process_single_relation(
         return;
     }
 
-    let relation_created = create_relation(pool, coach_id, related_id, relation.relation_type)
+    let relation_created = create_relation(db, coach_id, related_id, relation.relation_type)
         .await
         .unwrap_or(false);
     if relation_created {
@@ -355,7 +332,7 @@ fn log_dry_run_status(dry_run: bool) {
 /// System coaches are auto-published so they appear in the Discover tab.
 /// Uses INSERT OR IGNORE to be idempotent on re-runs.
 async fn publish_to_store(
-    pool: &SqlitePool,
+    db: &Database,
     slug_to_id: &HashMap<String, String>,
     admin: &AdminUser,
     stats: &mut SeedStats,
@@ -365,13 +342,13 @@ async fn publish_to_store(
     info!("=== Pass 3: Publishing to Store ===");
 
     for (slug, coach_id) in slug_to_id {
-        publish_or_skip(pool, slug, coach_id, admin, stats, dry_run).await;
+        publish_or_skip(db, slug, coach_id, admin, stats, dry_run).await;
     }
 }
 
 /// Publish one coach or log skip in dry-run mode
 async fn publish_or_skip(
-    pool: &SqlitePool,
+    db: &Database,
     slug: &str,
     coach_id: &str,
     admin: &AdminUser,
@@ -384,12 +361,12 @@ async fn publish_or_skip(
         return;
     }
 
-    let result = publish_single_coach(pool, coach_id, admin).await;
+    let result = publish_single_coach(db, coach_id, admin).await;
     log_publish_result(slug, result, stats);
 }
 
 /// Log and record the result of a store publish attempt
-fn log_publish_result(slug: &str, result: SeedResult<bool>, stats: &mut SeedStats) {
+fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats) {
     match result {
         Ok(true) => {
             info!("  + {slug} (published)");
@@ -408,42 +385,29 @@ fn log_publish_result(slug: &str, result: SeedResult<bool>, stats: &mut SeedStat
 }
 
 /// Publish a single coach to the store, returning true if newly published
-async fn publish_single_coach(
-    pool: &SqlitePool,
-    coach_id: &str,
-    admin: &AdminUser,
-) -> SeedResult<bool> {
-    let listing_id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
+async fn publish_single_coach(db: &Database, coach_id: &str, admin: &AdminUser) -> AppResult<bool> {
+    let listing = SeedStoreListing {
+        id: Uuid::new_v4().to_string(),
+        coach_id: coach_id.to_owned(),
+        tenant_id: admin.tenant_id,
+        author_id: admin.id,
+        created_at: Utc::now(),
+    };
 
-    let result = sqlx::query(
-        r"
-        INSERT OR IGNORE INTO store_listings (
-            id, coach_id, tenant_id, publish_status, published_at,
-            install_count, author_id, created_at, updated_at
-        ) VALUES ($1, $2, $3, 'published', $4, 0, $5, $4, $4)
-        ",
-    )
-    .bind(&listing_id)
-    .bind(coach_id)
-    .bind(admin.tenant_id)
-    .bind(&now)
-    .bind(admin.id.to_string())
-    .execute(pool)
-    .await?;
-
-    Ok(result.rows_affected() > 0)
+    db.seed_insert_store_listing_if_absent(&listing).await
 }
 
 /// Discover and parse all coach markdown files
-fn discover_coaches(coaches_dir: &Path) -> SeedResult<Vec<CoachDefinition>> {
+fn discover_coaches(coaches_dir: &Path) -> AppResult<Vec<CoachDefinition>> {
     let pattern = coaches_dir.join("**/*.md");
     let pattern_str = pattern.to_string_lossy();
 
     let mut coaches = Vec::new();
 
-    for entry in glob(&pattern_str)? {
-        let path = entry?;
+    for entry in
+        glob(&pattern_str).map_err(|e| AppError::internal(format!("Glob pattern error: {e}")))?
+    {
+        let path = entry.map_err(|e| AppError::internal(format!("Glob error: {e}")))?;
 
         // Skip README files
         if path.file_name().is_some_and(|n| n == "README.md") {
@@ -486,38 +450,24 @@ struct AdminUser {
 }
 
 /// Find the first admin user and their tenant
-async fn find_admin_user(pool: &SqlitePool) -> SeedResult<AdminUser> {
-    let row = sqlx::query(
-        "SELECT id, email, tenant_id FROM users WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await?;
+async fn find_admin_user(db: &Database) -> AppResult<AdminUser> {
+    let user = db.seed_get_admin_user().await?.ok_or_else(|| {
+        AppError::config(
+            "No admin user found. Run 'cargo run --bin pierre-cli -- user create' first.",
+        )
+    })?;
 
-    let Some(row) = row else {
-        return Err(SeedError::Validation(
-            "No admin user found. Run 'cargo run --bin pierre-cli -- user create' first."
-                .to_owned(),
-        ));
-    };
+    let tenant_id_str = db.seed_get_user_tenant(user.id).await?.ok_or_else(|| {
+        AppError::config("Admin user has no tenant_id. Please assign a tenant first.")
+    })?;
 
-    let id_str: String = row.get("id");
-    let email: String = row.get("email");
-    let tenant_id_str: Option<String> = row.get("tenant_id");
-
-    let id = Uuid::parse_str(&id_str)?;
     let tenant_id = tenant_id_str
-        .as_ref()
-        .map(|s| Uuid::parse_str(s).map(TenantId::from_uuid))
-        .transpose()?
-        .ok_or_else(|| {
-            SeedError::Validation(
-                "Admin user has no tenant_id. Please assign a tenant first.".to_owned(),
-            )
-        })?;
+        .parse::<TenantId>()
+        .map_err(|e| AppError::internal(format!("Failed to parse tenant_id: {e}")))?;
 
     Ok(AdminUser {
-        id,
-        email,
+        id: user.id,
+        email: user.email,
         tenant_id,
     })
 }
@@ -531,21 +481,18 @@ enum UpsertAction {
 
 /// Upsert a coach into the database
 async fn upsert_coach(
-    pool: &SqlitePool,
+    db: &Database,
     coach: &CoachDefinition,
     admin: &AdminUser,
     dry_run: bool,
-) -> SeedResult<(String, UpsertAction)> {
-    let now = Utc::now().to_rfc3339();
+) -> AppResult<(String, UpsertAction)> {
+    let now = Utc::now();
     let slug = &coach.frontmatter.name;
 
     // Check if coach exists by slug
-    let existing: Option<(String, Option<String>)> =
-        sqlx::query_as("SELECT id, content_hash FROM coaches WHERE slug = $1 AND tenant_id = $2")
-            .bind(slug)
-            .bind(admin.tenant_id)
-            .fetch_optional(pool)
-            .await?;
+    let existing = db
+        .seed_find_coach_by_slug(slug, &admin.tenant_id.to_string())
+        .await?;
 
     let action = if let Some((existing_id, existing_hash)) = existing {
         // Coach exists - check if content changed
@@ -554,7 +501,8 @@ async fn upsert_coach(
         }
 
         if !dry_run {
-            update_coach(pool, &existing_id, coach, &now).await?;
+            let seed_coach = build_seed_coach(&existing_id, coach, admin, now)?;
+            db.seed_update_coach(&seed_coach).await?;
         }
         (existing_id, UpsertAction::Updated)
     } else {
@@ -562,7 +510,8 @@ async fn upsert_coach(
         let new_id = Uuid::new_v4().to_string();
 
         if !dry_run {
-            insert_coach(pool, &new_id, coach, admin, &now).await?;
+            let seed_coach = build_seed_coach(&new_id, coach, admin, now)?;
+            db.seed_insert_coach(&seed_coach).await?;
         }
         (new_id, UpsertAction::Created)
     };
@@ -588,124 +537,54 @@ fn parse_sample_prompts(example_inputs: Option<&String>) -> String {
     )
 }
 
-/// Insert a new coach
-async fn insert_coach(
-    pool: &SqlitePool,
+/// Build a `SeedCoach` from a parsed `CoachDefinition` and admin context
+fn build_seed_coach(
     id: &str,
     coach: &CoachDefinition,
     admin: &AdminUser,
-    now: &str,
-) -> SeedResult<()> {
-    let prerequisites_json = serde_json::to_string(&coach.frontmatter.prerequisites)?;
-    let tags_json = serde_json::to_string(&coach.frontmatter.tags)?;
+    now: DateTime<Utc>,
+) -> AppResult<SeedCoach> {
+    let prerequisites_json = serde_json::to_string(&coach.frontmatter.prerequisites)
+        .map_err(|e| AppError::internal(format!("JSON error: {e}")))?;
+    let tags_json = serde_json::to_string(&coach.frontmatter.tags)
+        .map_err(|e| AppError::internal(format!("JSON error: {e}")))?;
     let sample_prompts_json = parse_sample_prompts(coach.sections.example_inputs.as_ref());
 
-    sqlx::query(
-        r"
-        INSERT INTO coaches (
-            id, user_id, tenant_id, title, description, system_prompt,
-            category, tags, sample_prompts, token_count,
-            created_at, updated_at, is_system, visibility,
-            slug, purpose, when_to_use, instructions, example_inputs, example_outputs,
-            success_criteria, prerequisites, source_file, content_hash, startup_query
-        ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14,
-            $15, $16, $17, $18, $19, $20,
-            $21, $22, $23, $24, $25
-        )
-        ",
-    )
-    .bind(id)
-    .bind(admin.id.to_string())
-    .bind(admin.tenant_id)
-    .bind(&coach.frontmatter.title)
-    .bind(&coach.sections.purpose)
-    .bind(&coach.sections.instructions) // system_prompt = instructions for compatibility
-    .bind(coach.frontmatter.category.as_str())
-    .bind(&tags_json)
-    .bind(&sample_prompts_json)
-    .bind(i64::from(coach.token_count))
-    .bind(now)
-    .bind(now)
-    .bind(1i64) // is_system = true for markdown-defined coaches
-    .bind(coach.frontmatter.visibility.as_str())
-    // Markdown section columns
-    .bind(&coach.frontmatter.name)
-    .bind(&coach.sections.purpose)
-    .bind(&coach.sections.when_to_use)
-    .bind(&coach.sections.instructions)
-    .bind(&coach.sections.example_inputs)
-    .bind(&coach.sections.example_outputs)
-    .bind(&coach.sections.success_criteria)
-    .bind(&prerequisites_json)
-    .bind(&coach.source_file)
-    .bind(&coach.content_hash)
-    .bind(coach.frontmatter.startup.query.as_deref()) // startup_query
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
-
-/// Update an existing coach
-async fn update_coach(
-    pool: &SqlitePool,
-    id: &str,
-    coach: &CoachDefinition,
-    now: &str,
-) -> SeedResult<()> {
-    let prerequisites_json = serde_json::to_string(&coach.frontmatter.prerequisites)?;
-    let tags_json = serde_json::to_string(&coach.frontmatter.tags)?;
-    let sample_prompts_json = parse_sample_prompts(coach.sections.example_inputs.as_ref());
-
-    sqlx::query(
-        r"
-        UPDATE coaches SET
-            title = $1, description = $2, system_prompt = $3, category = $4,
-            tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
-            visibility = $9, purpose = $10, when_to_use = $11, instructions = $12,
-            example_inputs = $13, example_outputs = $14, success_criteria = $15,
-            prerequisites = $16, source_file = $17, content_hash = $18, startup_query = $19
-        WHERE id = $20
-        ",
-    )
-    .bind(&coach.frontmatter.title)
-    .bind(&coach.sections.purpose)
-    .bind(&coach.sections.instructions)
-    .bind(coach.frontmatter.category.as_str())
-    .bind(&tags_json)
-    .bind(&sample_prompts_json)
-    .bind(i64::from(coach.token_count))
-    .bind(now)
-    .bind(coach.frontmatter.visibility.as_str())
-    .bind(&coach.sections.purpose)
-    .bind(&coach.sections.when_to_use)
-    .bind(&coach.sections.instructions)
-    .bind(&coach.sections.example_inputs)
-    .bind(&coach.sections.example_outputs)
-    .bind(&coach.sections.success_criteria)
-    .bind(&prerequisites_json)
-    .bind(&coach.source_file)
-    .bind(&coach.content_hash)
-    .bind(coach.frontmatter.startup.query.as_deref()) // startup_query
-    .bind(id)
-    .execute(pool)
-    .await?;
-
-    Ok(())
+    Ok(SeedCoach {
+        id: id.to_owned(),
+        user_id: admin.id,
+        tenant_id: admin.tenant_id,
+        title: coach.frontmatter.title.clone(),
+        description: coach.sections.purpose.clone(),
+        system_prompt: coach.sections.instructions.clone(),
+        category: coach.frontmatter.category.as_str().to_owned(),
+        tags_json,
+        sample_prompts_json,
+        token_count: i64::from(coach.token_count),
+        visibility: coach.frontmatter.visibility.as_str().to_owned(),
+        slug: coach.frontmatter.name.clone(),
+        purpose: Some(coach.sections.purpose.clone()),
+        when_to_use: coach.sections.when_to_use.clone(),
+        instructions: Some(coach.sections.instructions.clone()),
+        example_inputs: coach.sections.example_inputs.clone(),
+        example_outputs: coach.sections.example_outputs.clone(),
+        success_criteria: coach.sections.success_criteria.clone(),
+        prerequisites_json,
+        source_file: Some(coach.source_file.clone()),
+        content_hash: Some(coach.content_hash.clone()),
+        startup_query: coach.frontmatter.startup.query.clone(),
+        created_at: now,
+        updated_at: now,
+    })
 }
 
 /// Create a relation between two coaches
 async fn create_relation(
-    pool: &SqlitePool,
+    db: &Database,
     coach_id: &str,
     related_id: &str,
     relation_type: RelationType,
-) -> SeedResult<bool> {
-    let id = Uuid::new_v4().to_string();
-    let now = Utc::now().to_rfc3339();
-
+) -> AppResult<bool> {
     let relation_str = match relation_type {
         RelationType::Related => "related",
         RelationType::Alternative => "alternative",
@@ -713,19 +592,13 @@ async fn create_relation(
         RelationType::Sequel => "sequel",
     };
 
-    let result = sqlx::query(
-        r"
-        INSERT OR IGNORE INTO coach_relations (id, coach_id, related_coach_id, relation_type, created_at)
-        VALUES ($1, $2, $3, $4, $5)
-        ",
-    )
-    .bind(&id)
-    .bind(coach_id)
-    .bind(related_id)
-    .bind(relation_str)
-    .bind(&now)
-    .execute(pool)
-    .await?;
+    let relation = SeedCoachRelation {
+        id: Uuid::new_v4().to_string(),
+        coach_id: coach_id.to_owned(),
+        related_coach_id: related_id.to_owned(),
+        relation_type: relation_str.to_owned(),
+        created_at: Utc::now(),
+    };
 
-    Ok(result.rows_affected() > 0)
+    db.seed_insert_coach_relation_if_absent(&relation).await
 }
