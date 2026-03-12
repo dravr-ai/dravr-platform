@@ -116,10 +116,42 @@ impl UsageRoutes {
         let user_id_str = auth.user_id.to_string();
         let tenant_id_str = tenant_id.to_string();
 
-        let admin_config = resources
-            .admin_config
-            .as_ref()
-            .ok_or_else(|| AppError::internal("Admin config service not available"))?;
+        // When admin config is not available (e.g., PostgreSQL deployment where
+        // AdminConfigService is SQLite-only), return default quota values
+        let Some(admin_config) = resources.admin_config.as_ref() else {
+            let default_limit = LimitCheckResult {
+                allowed: true,
+                current: 0,
+                limit: 1000,
+                warning: false,
+                burst_zone: false,
+                resets_at: String::new(),
+            };
+            let conversation_count = resources
+                .database
+                .count_conversations(&user_id_str, tenant_id)
+                .await
+                .unwrap_or(0);
+            let response = UsageStatusResponse {
+                daily: DailyUsageStatus {
+                    messages: default_limit.clone(),
+                    tokens: default_limit.clone(),
+                    tool_calls: default_limit.clone(),
+                },
+                weekly: WeeklyUsageStatus {
+                    messages: default_limit.clone(),
+                    tokens: default_limit.clone(),
+                    tool_calls: default_limit,
+                },
+                resources: ResourceUsageStatus {
+                    conversations: conversation_count,
+                    max_conversations: 50,
+                    coaches: 0,
+                    max_coaches: 20,
+                },
+            };
+            return Ok((StatusCode::OK, Json(response)).into_response());
+        };
 
         let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
 

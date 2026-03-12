@@ -160,6 +160,15 @@ impl NotificationRoutes {
             .ok_or_else(|| AppError::internal("Notification service not initialized"))
     }
 
+    /// Try to get the notification service, returning None if not available
+    ///
+    /// Used by read-only handlers to return empty/default data when the
+    /// notification backend is not available (e.g., `PostgreSQL` deployment
+    /// where notifications are SQLite-only).
+    fn try_get_service(resources: &ServerResources) -> Option<&NotificationService> {
+        resources.notification_service.as_deref()
+    }
+
     /// Handle POST /api/notifications/device - Register a device token
     async fn handle_register_device(
         State(resources): State<Arc<ServerResources>>,
@@ -218,7 +227,10 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            let empty: Vec<DeviceTokenResponse> = vec![];
+            return Ok((StatusCode::OK, Json(empty)).into_response());
+        };
         let tokens = service.get_device_tokens(auth.user_id, tenant_id).await?;
 
         let response: Vec<DeviceTokenResponse> = tokens
@@ -267,7 +279,14 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            let response = NotificationPreferencesResponse {
+                user_id: auth.user_id,
+                tenant_id,
+                preferences: vec![],
+            };
+            return Ok((StatusCode::OK, Json(response)).into_response());
+        };
         let prefs = service
             .get_notification_preferences(auth.user_id, tenant_id)
             .await?;
@@ -354,7 +373,14 @@ impl NotificationRoutes {
             }
         }
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            let response = NotificationFeedResponse {
+                data: vec![],
+                total: 0,
+                unread_count: 0,
+            };
+            return Ok((StatusCode::OK, Json(response)).into_response());
+        };
         let (notifications, total, unread_count) = service
             .list_notifications(
                 auth.user_id,
@@ -391,7 +417,11 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            return Ok(
+                (StatusCode::OK, Json(serde_json::json!({"unread_count": 0}))).into_response(),
+            );
+        };
         let count = service.get_unread_count(auth.user_id, tenant_id).await?;
 
         Ok((
@@ -536,7 +566,19 @@ impl NotificationRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid 'until' date: {e}")))?
             .map(|dt| dt.with_timezone(&Utc));
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            return Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "total_sent": 0,
+                    "total_read": 0,
+                    "total_opened": 0,
+                    "total_dismissed": 0,
+                    "by_category": {}
+                })),
+            )
+                .into_response());
+        };
         let analytics = service
             .get_notification_analytics(
                 auth.user_id,
@@ -558,7 +600,10 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            let empty: Vec<ScheduledNotificationItem> = vec![];
+            return Ok((StatusCode::OK, Json(empty)).into_response());
+        };
         let schedules = service
             .list_scheduled_notifications(auth.user_id, tenant_id)
             .await?;
@@ -725,7 +770,9 @@ impl NotificationRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let service = Self::get_service(&resources)?;
+        let Some(service) = Self::try_get_service(&resources) else {
+            return Ok((StatusCode::OK, Json(serde_json::json!({"count": 0}))).into_response());
+        };
         let count = service.get_unread_count(auth.user_id, tenant_id).await?;
 
         Ok((StatusCode::OK, Json(serde_json::json!({"count": count}))).into_response())

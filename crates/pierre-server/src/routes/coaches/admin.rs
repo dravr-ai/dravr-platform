@@ -38,7 +38,14 @@ pub(super) async fn handle_admin_list(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let Ok(manager) = super::get_coaches_manager(&resources) else {
+        let response = ListCoachesResponse {
+            total: 0,
+            coaches: vec![],
+            metadata: super::build_metadata(),
+        };
+        return Ok((StatusCode::OK, Json(response)).into_response());
+    };
     let coaches = manager.list_system_coaches(tenant_id).await?;
 
     let response = ListCoachesResponse {
