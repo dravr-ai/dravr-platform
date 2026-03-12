@@ -13,6 +13,9 @@ enable_database = true
 enable_cache    = false
 enable_frontend = true
 
+# Backend public URL for OAuth callbacks (stable after initial deploy)
+backend_base_url = "https://dravr-mcp-server-api-ojda26xiwa-nn.a.run.app"
+
 backend_cpu           = "1"
 backend_memory        = "1Gi"
 backend_min_instances = 0

@@ -158,6 +158,21 @@ module "backend" {
       FRONTEND_URL         = var.enable_frontend ? module.frontend[0].service_url : ""
       CORS_ALLOWED_ORIGINS = var.enable_frontend ? module.frontend[0].service_url : "*"
 
+      # OAuth callback base URL (Cloud Run backend URL, set after first deploy)
+      BASE_URL = var.backend_base_url
+
+      # Firebase project for Google Sign-In token validation
+      FIREBASE_PROJECT_ID = "pierre-fitness-intelligence"
+
+      # Email sender configuration
+      RESEND_FROM_EMAIL = "no-reply@dravr.ai"
+
+      # Auto-approve users created via Google Sign-In
+      AUTO_APPROVE_USERS = "true"
+
+      # LLM provider configuration
+      PIERRE_LLM_PROVIDER = "gemini"
+
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
     },
