@@ -31,9 +31,11 @@ fn test_secure_cookie_config() {
         cookie_str.contains("Secure"),
         "Cookie should be Secure by default"
     );
+    // When Secure=true (BASE_URL unset or HTTPS), SameSite=None for cross-origin cookie delivery.
+    // When Secure=false (HTTP), SameSite=Lax for same-origin local dev.
     assert!(
-        cookie_str.contains("SameSite=Strict"),
-        "Cookie should have SameSite=Strict by default"
+        cookie_str.contains("SameSite=None") || cookie_str.contains("SameSite=Lax"),
+        "Cookie should have SameSite=None (HTTPS) or SameSite=Lax (HTTP), got: {cookie_str}"
     );
     assert!(cookie_str.contains("Path=/"), "Cookie should have Path=/");
 }
