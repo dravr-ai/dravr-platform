@@ -26,29 +26,19 @@
 
 use chrono::{Duration, Utc};
 use clap::Parser;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::SeederRepository;
+use pierre_database::seed_models::{
+    SeedAdaptedInsight, SeedFriendConnection, SeedInsightReaction, SeedSharedInsight,
+    SeedSocialSettings,
+};
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use sqlx::{Row, SqlitePool};
 use std::env;
-use thiserror::Error;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("UUID parse error: {0}")]
-    Uuid(#[from] uuid::Error),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 #[derive(Parser)]
 #[command(
@@ -188,7 +178,7 @@ fn get_adaptation_templates() -> Vec<&'static str> {
 }
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
     // Initialize logging
@@ -203,59 +193,52 @@ async fn main() -> SeedResult<()> {
         .or_else(|| env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:./data/users.db".into());
 
-    // Connect directly to SQLite for seeding
     info!("Connecting to database: {}", database_url);
-    let connection_url = format!("{database_url}?mode=rwc");
-    let pool = SqlitePool::connect(&connection_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
     // Verify demo users exist
-    let user_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE is_admin = 0")
-        .fetch_one(&pool)
-        .await?;
-
-    if user_count.0 < 5 {
-        return Err(SeedError::Validation(format!(
-            "Not enough demo users found ({}). Run 'cargo run --bin seed-demo-data' first.",
-            user_count.0
+    let user_count = db.seed_count_non_admin_users().await?;
+    if user_count < 5 {
+        return Err(AppError::config(format!(
+            "Not enough demo users found ({user_count}). Run 'cargo run --bin seed-demo-data' first."
         )));
     }
 
     // Reset if requested
     if args.reset {
         info!("Resetting social data...");
-        reset_social_data(&pool).await?;
+        db.seed_reset_social_data().await?;
     }
 
     // Get demo user IDs (non-admin)
-    let user_ids = get_demo_user_ids(&pool).await?;
+    let user_ids = db.seed_get_non_admin_user_ids().await?;
     info!("Found {} demo users", user_ids.len());
 
     // Get admin user ID for testing
-    let admin_id = get_admin_user_id(&pool).await?;
+    let admin = db.seed_get_admin_user().await?;
+    let admin_id = admin.map(|a| a.id);
     if let Some(ref id) = admin_id {
         info!("Found admin user for social testing: {}", id);
     }
 
     // Seed social settings
     info!("Step 1: Creating user social settings...");
-    let settings_count = seed_social_settings(&pool, &user_ids).await?;
-    // Also create settings for admin user
-    if let Some(ref id) = admin_id {
-        let admin_settings = seed_social_settings(&pool, &[*id]).await?;
-        info!(
-            "  Created {} social settings (+ {} for admin)",
-            settings_count, admin_settings
-        );
+    let settings_count = seed_social_settings(&db, &user_ids).await?;
+    let admin_settings = if let Some(ref id) = admin_id {
+        seed_social_settings(&db, &[*id]).await?
     } else {
-        info!("  Created {} social settings", settings_count);
-    }
+        0
+    };
+    info!(
+        "  Created {} social settings (+ {} for admin)",
+        settings_count, admin_settings
+    );
 
     // Seed friend connections
     info!("Step 2: Creating friend connections...");
-    let friend_count = seed_friend_connections(&pool, &user_ids).await?;
-    // Connect admin to first 5 demo users as friends
+    let friend_count = seed_friend_connections(&db, &user_ids).await?;
     let admin_friend_count = if let Some(ref id) = admin_id {
-        seed_admin_friend_connections(&pool, id, &user_ids).await?
+        seed_admin_friend_connections(&db, id, &user_ids).await?
     } else {
         0
     };
@@ -266,20 +249,19 @@ async fn main() -> SeedResult<()> {
 
     // Seed shared insights
     info!("Step 3: Creating shared insights...");
-    let insight_count = seed_shared_insights(&pool, &user_ids).await?;
+    let insight_count = seed_shared_insights(&db, &user_ids).await?;
     info!("  Created {} shared insights", insight_count);
 
     // Seed reactions
     info!("Step 4: Creating insight reactions...");
-    let reaction_count = seed_reactions(&pool, &user_ids).await?;
+    let reaction_count = seed_reactions(&db, &user_ids).await?;
     info!("  Created {} reactions", reaction_count);
 
     // Seed adapted insights
     info!("Step 5: Creating adapted insights...");
-    let adapted_count = seed_adapted_insights(&pool, &user_ids).await?;
-    // Also create adapted insights for admin user
+    let adapted_count = seed_adapted_insights(&db, &user_ids).await?;
     let admin_adapted_count = if let Some(ref id) = admin_id {
-        seed_admin_adapted_insights(&pool, id).await?
+        seed_admin_adapted_insights(&db, id).await?
     } else {
         0
     };
@@ -288,171 +270,37 @@ async fn main() -> SeedResult<()> {
         adapted_count, admin_adapted_count
     );
 
-    // Print summary
     info!("");
     info!("=== Seeding Complete ===");
-    print_summary(&pool).await?;
+    info!("Done! Social data is ready for testing.");
 
-    Ok(())
-}
-
-/// Get demo user IDs
-async fn get_demo_user_ids(pool: &SqlitePool) -> SeedResult<Vec<Uuid>> {
-    let rows = sqlx::query("SELECT id FROM users WHERE is_admin = 0 ORDER BY created_at")
-        .fetch_all(pool)
-        .await?;
-
-    let mut ids = Vec::with_capacity(rows.len());
-    for row in rows {
-        let id_str: String = row.get("id");
-        ids.push(Uuid::parse_str(&id_str)?);
-    }
-
-    Ok(ids)
-}
-
-/// Get the admin user ID for testing social features
-async fn get_admin_user_id(pool: &SqlitePool) -> SeedResult<Option<Uuid>> {
-    let row = sqlx::query("SELECT id FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1")
-        .fetch_optional(pool)
-        .await?;
-
-    if let Some(row) = row {
-        let id_str: String = row.get("id");
-        Ok(Some(Uuid::parse_str(&id_str)?))
-    } else {
-        Ok(None)
-    }
-}
-
-/// Reset social data tables
-async fn reset_social_data(pool: &SqlitePool) -> SeedResult<()> {
-    // Order matters due to foreign keys
-    sqlx::query("DELETE FROM adapted_insights")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM insight_reactions")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM shared_insights")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM friend_connections")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM user_social_settings")
-        .execute(pool)
-        .await?;
     Ok(())
 }
 
 /// Seed user social settings
-async fn seed_social_settings(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32> {
+async fn seed_social_settings(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
     for user_id in user_ids {
-        // Check if exists
-        let existing: Option<(String,)> =
-            sqlx::query_as("SELECT user_id FROM user_social_settings WHERE user_id = ?")
-                .bind(user_id.to_string())
-                .fetch_optional(pool)
-                .await?;
-
-        if existing.is_some() {
-            continue;
-        }
-
-        let discoverable = i32::from(rng.gen_bool(0.9));
+        let discoverable = rng.gen_bool(0.9);
         let visibility = if rng.gen_bool(0.7) {
             "friends_only"
         } else {
             "public"
         };
-        let share_types = r#"["run", "ride", "swim"]"#;
-        let now = Utc::now().to_rfc3339();
+        let now = Utc::now();
 
-        sqlx::query(
-            "INSERT INTO user_social_settings (user_id, discoverable, default_visibility, share_activity_types, notify_friend_requests, notify_insight_reactions, notify_adapted_insights, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, 1, 1, 1, ?, ?)"
-        )
-        .bind(user_id.to_string())
-        .bind(discoverable)
-        .bind(visibility)
-        .bind(share_types)
-        .bind(&now)
-        .bind(&now)
-        .execute(pool)
-        .await?;
+        let settings = SeedSocialSettings {
+            user_id: *user_id,
+            discoverable,
+            default_visibility: visibility.to_owned(),
+            share_activity_types: r#"["run", "ride", "swim"]"#.to_owned(),
+            created_at: now,
+            updated_at: now,
+        };
 
-        count += 1;
-    }
-
-    Ok(count)
-}
-
-/// Seed friend connections between demo users
-async fn seed_friend_connections(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32> {
-    let mut rng = StdRng::from_entropy();
-    let mut count: u32 = 0;
-
-    // Create connections between adjacent users and some random pairs
-    for (i, initiator_id) in user_ids.iter().enumerate() {
-        // Connect to next 3 users (with some randomness)
-        for offset in 1..=3 {
-            let receiver_idx = (i + offset) % user_ids.len();
-            if receiver_idx == i {
-                continue;
-            }
-
-            let receiver_id = &user_ids[receiver_idx];
-
-            // Check if connection already exists in either direction
-            let existing: Option<(String,)> = sqlx::query_as(
-                "SELECT id FROM friend_connections WHERE \
-                 (initiator_id = ? AND receiver_id = ?) OR (initiator_id = ? AND receiver_id = ?)",
-            )
-            .bind(initiator_id.to_string())
-            .bind(receiver_id.to_string())
-            .bind(receiver_id.to_string())
-            .bind(initiator_id.to_string())
-            .fetch_optional(pool)
-            .await?;
-
-            if existing.is_some() {
-                continue;
-            }
-
-            let id = Uuid::new_v4();
-            let days_ago: i64 = rng.gen_range(1..30);
-            let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
-            let updated_at = created_at.clone();
-
-            // 80% accepted, 15% pending, 5% declined
-            let status_roll: u8 = rng.gen_range(0..100);
-            let (status, accepted_at) = match status_roll {
-                0..=79 => {
-                    let accept_time = (Utc::now() - Duration::days(days_ago - 1)).to_rfc3339();
-                    ("accepted", Some(accept_time))
-                }
-                80..=94 => ("pending", None),
-                _ => ("declined", None),
-            };
-
-            sqlx::query(
-                "INSERT INTO friend_connections (id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(initiator_id.to_string())
-            .bind(receiver_id.to_string())
-            .bind(status)
-            .bind(&created_at)
-            .bind(&updated_at)
-            .bind(&accepted_at)
-            .execute(pool)
-            .await?;
-
+        if db.seed_upsert_social_settings(&settings).await? {
             count += 1;
         }
     }
@@ -460,99 +308,119 @@ async fn seed_friend_connections(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedRe
     Ok(count)
 }
 
-/// Seed friend connections between admin user and demo users for testing
-async fn seed_admin_friend_connections(
-    pool: &SqlitePool,
-    admin_id: &Uuid,
-    user_ids: &[Uuid],
-) -> SeedResult<u32> {
+/// Seed friend connections between demo users
+async fn seed_friend_connections(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
-    // Connect admin to first 8 demo users (more friends = better testing)
+    for (i, initiator_id) in user_ids.iter().enumerate() {
+        for offset in 1..=3 {
+            let receiver_idx = (i + offset) % user_ids.len();
+            if receiver_idx == i {
+                continue;
+            }
+
+            let receiver_id = user_ids[receiver_idx];
+            let days_ago: i64 = rng.gen_range(1..30);
+            let created_at = Utc::now() - Duration::days(days_ago);
+
+            // 80% accepted, 15% pending, 5% declined
+            let status_roll: u8 = rng.gen_range(0..100);
+            let (status, accepted_at) = match status_roll {
+                0..=79 => {
+                    let accept_time = Utc::now() - Duration::days(days_ago - 1);
+                    ("accepted", Some(accept_time))
+                }
+                80..=94 => ("pending", None),
+                _ => ("declined", None),
+            };
+
+            let conn = SeedFriendConnection {
+                id: Uuid::new_v4(),
+                initiator_id: *initiator_id,
+                receiver_id,
+                status: status.to_owned(),
+                created_at,
+                updated_at: created_at,
+                accepted_at,
+            };
+
+            if db.seed_insert_friend_connection_if_absent(&conn).await? {
+                count += 1;
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+/// Seed friend connections between admin user and demo users
+async fn seed_admin_friend_connections(
+    db: &Database,
+    admin_id: &Uuid,
+    user_ids: &[Uuid],
+) -> AppResult<u32> {
+    let mut rng = StdRng::from_entropy();
+    let mut count: u32 = 0;
+
     let friends_to_create = user_ids.len().min(8);
 
     for demo_user_id in user_ids.iter().take(friends_to_create) {
-        // Check if connection already exists in either direction
-        let existing: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM friend_connections WHERE \
-             (initiator_id = ? AND receiver_id = ?) OR (initiator_id = ? AND receiver_id = ?)",
-        )
-        .bind(admin_id.to_string())
-        .bind(demo_user_id.to_string())
-        .bind(demo_user_id.to_string())
-        .bind(admin_id.to_string())
-        .fetch_optional(pool)
-        .await?;
-
-        if existing.is_some() {
-            continue;
-        }
-
-        let id = Uuid::new_v4();
         let days_ago: i64 = rng.gen_range(1..15);
-        let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
-        let accepted_at = (Utc::now() - Duration::days(days_ago - 1)).to_rfc3339();
+        let created_at = Utc::now() - Duration::days(days_ago);
+        let accepted_at = Utc::now() - Duration::days(days_ago - 1);
 
-        // All admin friend connections are accepted for testing
-        sqlx::query(
-            "INSERT INTO friend_connections (id, initiator_id, receiver_id, status, created_at, updated_at, accepted_at) \
-             VALUES (?, ?, ?, 'accepted', ?, ?, ?)"
-        )
-        .bind(id.to_string())
-        .bind(demo_user_id.to_string())
-        .bind(admin_id.to_string())
-        .bind(&created_at)
-        .bind(&created_at)
-        .bind(&accepted_at)
-        .execute(pool)
-        .await?;
+        let conn = SeedFriendConnection {
+            id: Uuid::new_v4(),
+            initiator_id: *demo_user_id,
+            receiver_id: *admin_id,
+            status: "accepted".to_owned(),
+            created_at,
+            updated_at: created_at,
+            accepted_at: Some(accepted_at),
+        };
 
-        count += 1;
+        if db.seed_insert_friend_connection_if_absent(&conn).await? {
+            count += 1;
+        }
     }
 
     Ok(count)
 }
 
 /// Seed shared insights from demo users
-async fn seed_shared_insights(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32> {
+async fn seed_shared_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let insights = get_sample_insights();
     let mut count: u32 = 0;
 
-    // Each user shares 1-3 insights
     for user_id in user_ids {
         let num_insights: u32 = rng.gen_range(1..=3);
 
         for _ in 0..num_insights {
             let insight = &insights[rng.gen_range(0..insights.len())];
-            let id = Uuid::new_v4();
             let days_ago: i64 = rng.gen_range(1..14);
-            let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
+            let created_at = Utc::now() - Duration::days(days_ago);
             let visibility = if rng.gen_bool(0.8) {
                 "friends_only"
             } else {
                 "public"
             };
 
-            let result = sqlx::query(
-                "INSERT INTO shared_insights (id, user_id, visibility, insight_type, sport_type, content, title, training_phase, reaction_count, adapt_count, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(user_id.to_string())
-            .bind(visibility)
-            .bind(insight.insight_type)
-            .bind(insight.sport_type)
-            .bind(insight.content)
-            .bind(insight.title)
-            .bind(insight.training_phase)
-            .bind(&created_at)
-            .bind(&created_at)
-            .execute(pool)
-            .await;
+            let shared = SeedSharedInsight {
+                id: Uuid::new_v4(),
+                user_id: *user_id,
+                visibility: visibility.to_owned(),
+                insight_type: insight.insight_type.to_owned(),
+                sport_type: insight.sport_type.map(ToOwned::to_owned),
+                content: insight.content.to_owned(),
+                title: insight.title.to_owned(),
+                training_phase: insight.training_phase.map(ToOwned::to_owned),
+                created_at,
+                updated_at: created_at,
+            };
 
-            if result.is_ok() {
+            if db.seed_insert_shared_insight(&shared).await.is_ok() {
                 count += 1;
             }
         }
@@ -562,17 +430,13 @@ async fn seed_shared_insights(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResul
 }
 
 /// Seed reactions on shared insights
-async fn seed_reactions(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32> {
+async fn seed_reactions(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
-    // Get all shared insights
-    let insights: Vec<(String,)> = sqlx::query_as("SELECT id FROM shared_insights")
-        .fetch_all(pool)
-        .await?;
+    let insight_ids = db.seed_get_shared_insight_ids().await?;
 
-    for (insight_id,) in &insights {
-        // 50-80% of users react to each insight
+    for insight_id in &insight_ids {
         let react_probability: f64 = rng.gen_range(0.3..0.6);
 
         for user_id in user_ids {
@@ -580,36 +444,15 @@ async fn seed_reactions(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32>
                 continue;
             }
 
-            // Check if reaction already exists
-            let existing: Option<(String,)> = sqlx::query_as(
-                "SELECT id FROM insight_reactions WHERE insight_id = ? AND user_id = ?",
-            )
-            .bind(insight_id)
-            .bind(user_id.to_string())
-            .fetch_optional(pool)
-            .await?;
+            let reaction = SeedInsightReaction {
+                id: Uuid::new_v4(),
+                insight_id: *insight_id,
+                user_id: *user_id,
+                reaction_type: REACTION_TYPES[rng.gen_range(0..REACTION_TYPES.len())].to_owned(),
+                created_at: Utc::now(),
+            };
 
-            if existing.is_some() {
-                continue;
-            }
-
-            let id = Uuid::new_v4();
-            let reaction_type = REACTION_TYPES[rng.gen_range(0..REACTION_TYPES.len())];
-            let created_at = Utc::now().to_rfc3339();
-
-            let result = sqlx::query(
-                "INSERT INTO insight_reactions (id, insight_id, user_id, reaction_type, created_at) \
-                 VALUES (?, ?, ?, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(insight_id)
-            .bind(user_id.to_string())
-            .bind(reaction_type)
-            .bind(&created_at)
-            .execute(pool)
-            .await;
-
-            if result.is_ok() {
+            if db.seed_insert_reaction_if_absent(&reaction).await? {
                 count += 1;
             }
         }
@@ -619,23 +462,18 @@ async fn seed_reactions(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32>
 }
 
 /// Seed adapted insights
-async fn seed_adapted_insights(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResult<u32> {
+async fn seed_adapted_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
-    // Get all shared insights
-    let insights: Vec<(String, String)> = sqlx::query_as("SELECT id, user_id FROM shared_insights")
-        .fetch_all(pool)
-        .await?;
+    let insights = db.seed_get_shared_insights_with_authors().await?;
 
     for (insight_id, author_id) in &insights {
-        // 20-40% of users adapt each insight (not including author)
         let adapt_probability: f64 = rng.gen_range(0.1..0.25);
 
         for user_id in user_ids {
-            // Skip the author
-            if user_id.to_string() == *author_id {
+            if *user_id == *author_id {
                 continue;
             }
 
@@ -643,40 +481,18 @@ async fn seed_adapted_insights(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResu
                 continue;
             }
 
-            // Check if adaptation already exists
-            let existing: Option<(String,)> = sqlx::query_as(
-                "SELECT id FROM adapted_insights WHERE source_insight_id = ? AND user_id = ?",
-            )
-            .bind(insight_id)
-            .bind(user_id.to_string())
-            .fetch_optional(pool)
-            .await?;
+            let adapted = SeedAdaptedInsight {
+                id: Uuid::new_v4(),
+                source_insight_id: *insight_id,
+                user_id: *user_id,
+                adapted_content: templates[rng.gen_range(0..templates.len())].to_owned(),
+                adaptation_context:
+                    r#"{"training_phase": "base", "fitness_level": "intermediate"}"#.to_owned(),
+                was_helpful: rng.gen_bool(0.8),
+                created_at: Utc::now(),
+            };
 
-            if existing.is_some() {
-                continue;
-            }
-
-            let id = Uuid::new_v4();
-            let adapted_content = templates[rng.gen_range(0..templates.len())];
-            let context = r#"{"training_phase": "base", "fitness_level": "intermediate"}"#;
-            let was_helpful = i32::from(rng.gen_bool(0.8));
-            let created_at = Utc::now().to_rfc3339();
-
-            let result = sqlx::query(
-                "INSERT INTO adapted_insights (id, source_insight_id, user_id, adapted_content, adaptation_context, was_helpful, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(insight_id)
-            .bind(user_id.to_string())
-            .bind(adapted_content)
-            .bind(context)
-            .bind(was_helpful)
-            .bind(&created_at)
-            .execute(pool)
-            .await;
-
-            if result.is_ok() {
+            if db.seed_insert_adapted_insight_if_absent(&adapted).await? {
                 count += 1;
             }
         }
@@ -686,113 +502,38 @@ async fn seed_adapted_insights(pool: &SqlitePool, user_ids: &[Uuid]) -> SeedResu
 }
 
 /// Seed adapted insights for admin user from demo users' shared insights
-async fn seed_admin_adapted_insights(pool: &SqlitePool, admin_id: &Uuid) -> SeedResult<u32> {
+async fn seed_admin_adapted_insights(db: &Database, admin_id: &Uuid) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
-    // Get shared insights from demo users (not from admin)
-    let insights: Vec<(String,)> = sqlx::query_as(
-        "SELECT id FROM shared_insights WHERE user_id != ? ORDER BY created_at DESC LIMIT 10",
-    )
-    .bind(admin_id.to_string())
-    .fetch_all(pool)
-    .await?;
-
-    // Adapt 3-5 random insights for the admin user
-    let num_to_adapt = rng.gen_range(3..=5).min(insights.len());
-    let mut adapted_indices: Vec<usize> = (0..insights.len()).collect();
-    adapted_indices.shuffle(&mut rng);
-
-    for idx in adapted_indices.into_iter().take(num_to_adapt) {
-        let (insight_id,) = &insights[idx];
-
-        // Check if adaptation already exists
-        let existing: Option<(String,)> = sqlx::query_as(
-            "SELECT id FROM adapted_insights WHERE source_insight_id = ? AND user_id = ?",
-        )
-        .bind(insight_id)
-        .bind(admin_id.to_string())
-        .fetch_optional(pool)
+    let insight_ids = db
+        .seed_get_shared_insights_not_by_user(*admin_id, 10)
         .await?;
 
-        if existing.is_some() {
-            continue;
-        }
+    let num_to_adapt = rng.gen_range(3..=5).min(insight_ids.len());
+    let mut indices: Vec<usize> = (0..insight_ids.len()).collect();
+    indices.shuffle(&mut rng);
 
-        let id = Uuid::new_v4();
-        let adapted_content = templates[rng.gen_range(0..templates.len())];
-        let context = r#"{"training_phase": "build", "fitness_level": "advanced"}"#;
+    for idx in indices.into_iter().take(num_to_adapt) {
+        let insight_id = insight_ids[idx];
         let days_ago: i64 = rng.gen_range(1..7);
-        let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
 
-        let result = sqlx::query(
-            "INSERT INTO adapted_insights (id, source_insight_id, user_id, adapted_content, adaptation_context, was_helpful, created_at) \
-             VALUES (?, ?, ?, ?, ?, 1, ?)"
-        )
-        .bind(id.to_string())
-        .bind(insight_id)
-        .bind(admin_id.to_string())
-        .bind(adapted_content)
-        .bind(context)
-        .bind(&created_at)
-        .execute(pool)
-        .await;
+        let adapted = SeedAdaptedInsight {
+            id: Uuid::new_v4(),
+            source_insight_id: insight_id,
+            user_id: *admin_id,
+            adapted_content: templates[rng.gen_range(0..templates.len())].to_owned(),
+            adaptation_context: r#"{"training_phase": "build", "fitness_level": "advanced"}"#
+                .to_owned(),
+            was_helpful: true,
+            created_at: Utc::now() - Duration::days(days_ago),
+        };
 
-        if result.is_ok() {
+        if db.seed_insert_adapted_insight_if_absent(&adapted).await? {
             count += 1;
         }
     }
 
     Ok(count)
-}
-
-/// Print summary statistics
-async fn print_summary(pool: &SqlitePool) -> SeedResult<()> {
-    let counts = [
-        (
-            "Friend Connections",
-            "SELECT COUNT(*) FROM friend_connections",
-        ),
-        (
-            "  - Accepted",
-            "SELECT COUNT(*) FROM friend_connections WHERE status = 'accepted'",
-        ),
-        (
-            "  - Pending",
-            "SELECT COUNT(*) FROM friend_connections WHERE status = 'pending'",
-        ),
-        (
-            "User Social Settings",
-            "SELECT COUNT(*) FROM user_social_settings",
-        ),
-        ("Shared Insights", "SELECT COUNT(*) FROM shared_insights"),
-        (
-            "  - Achievements",
-            "SELECT COUNT(*) FROM shared_insights WHERE insight_type = 'achievement'",
-        ),
-        (
-            "  - Milestones",
-            "SELECT COUNT(*) FROM shared_insights WHERE insight_type = 'milestone'",
-        ),
-        (
-            "  - Training Tips",
-            "SELECT COUNT(*) FROM shared_insights WHERE insight_type = 'training_tip'",
-        ),
-        (
-            "Insight Reactions",
-            "SELECT COUNT(*) FROM insight_reactions",
-        ),
-        ("Adapted Insights", "SELECT COUNT(*) FROM adapted_insights"),
-    ];
-
-    for (label, query) in counts {
-        let row: (i64,) = sqlx::query_as(query).fetch_one(pool).await?;
-        info!("{}: {}", label, row.0);
-    }
-
-    info!("");
-    info!("Done! Social data is ready for testing.");
-
-    Ok(())
 }

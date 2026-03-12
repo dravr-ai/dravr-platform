@@ -21,6 +21,9 @@
 /// Repository trait definitions for each database domain.
 pub mod repositories;
 
+/// Data transfer types for seeder binaries
+pub mod seed_models;
+
 /// `SQLite` database implementation (core database operations)
 pub mod database;
 

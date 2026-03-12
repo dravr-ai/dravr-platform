@@ -27,28 +27,17 @@
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use clap::Parser;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_database::plugins::factory::Database;
+use pierre_database::repositories::{SeedTable, SeederRepository};
+use pierre_database::seed_models::{
+    SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant,
+};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use sqlx::{Row, SqlitePool};
 use std::env;
-use thiserror::Error;
 use tracing::info;
 use uuid::Uuid;
-
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
-
-    #[error("UUID parse error: {0}")]
-    Uuid(#[from] uuid::Error),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
 
 /// Default password for all demo users - allows login for testing.
 /// Password: `DemoUser123!`
@@ -551,7 +540,7 @@ fn is_weekend(dt: DateTime<Utc>) -> bool {
 }
 
 #[tokio::main]
-async fn main() -> SeedResult<()> {
+async fn main() -> AppResult<()> {
     let args = SeedArgs::parse();
 
     // Initialize logging
@@ -566,111 +555,88 @@ async fn main() -> SeedResult<()> {
         .or_else(|| env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:./data/users.db".into());
 
-    // Connect directly to SQLite for seeding
+    // Initialize database via factory (handles connection pooling and migrations)
     info!("Connecting to database: {}", database_url);
-    let connection_url = format!("{database_url}?mode=rwc");
-    let pool = SqlitePool::connect(&connection_url).await?;
+    let db = Database::init_for_seeding(&database_url).await?;
 
     // Find admin user
-    let admin_user = find_admin_user(&pool, args.admin_email.as_deref()).await?;
-    info!("Using admin user: {} ({})", admin_user.1, admin_user.0);
+    let (admin_id, admin_email) = find_admin_user(&db, args.admin_email.as_deref()).await?;
+    info!("Using admin user: {} ({})", admin_email, admin_id);
 
     // Reset if requested
     if args.reset {
         info!("Resetting usage data...");
-        reset_usage_data(&pool).await?;
+        db.seed_reset_table(SeedTable::ApiKeyUsage).await?;
+        db.seed_reset_table(SeedTable::A2AUsage).await?;
     }
 
     // Seed demo users with direct DB operations (creates user + tenant)
     info!("Step 1: Creating demo users...");
-    let user_ids = seed_demo_users(&pool).await?;
+    let user_ids = seed_demo_users(&db).await?;
     info!("  Created/found {} demo users", user_ids.len());
 
     // Seed API keys (assign to admin + demo users)
     info!("Step 2: Creating API keys...");
-    let api_key_ids = seed_api_keys(&pool, &admin_user.0, &user_ids).await?;
+    let api_key_ids = seed_api_keys(&db, &admin_id, &user_ids).await?;
     info!("  Created/found {} API keys", api_key_ids.len());
 
     // Seed A2A clients
     info!("Step 3: Creating A2A clients...");
-    let a2a_client_ids = seed_a2a_clients(&pool, &admin_user.0, &user_ids).await?;
+    let a2a_client_ids = seed_a2a_clients(&db, &admin_id, &user_ids).await?;
     info!("  Created/found {} A2A clients", a2a_client_ids.len());
 
     // Generate usage data
     info!("Step 4: Generating API usage data ({} days)...", args.days);
-    let usage_count = seed_api_usage(&pool, &api_key_ids, args.days).await?;
+    let usage_count = seed_api_usage(&db, &api_key_ids, args.days).await?;
     info!("  Generated {} usage records", usage_count);
 
     // Generate A2A usage data
     info!("Step 5: Generating A2A usage data...");
-    let a2a_usage_count = seed_a2a_usage(&pool, &a2a_client_ids, args.days / 2).await?;
+    let a2a_usage_count = seed_a2a_usage(&db, &a2a_client_ids, args.days / 2).await?;
     info!("  Generated {} A2A usage records", a2a_usage_count);
 
     // Summary
     info!("");
     info!("=== Seeding Complete ===");
-    print_summary(&pool).await?;
+    print_summary(&db).await?;
 
     Ok(())
 }
 
 /// Find admin user by email or get first admin
-async fn find_admin_user(pool: &SqlitePool, email: Option<&str>) -> SeedResult<(Uuid, String)> {
-    let row = if let Some(email) = email {
-        sqlx::query("SELECT id, email FROM users WHERE email = ? AND is_admin = 1")
-            .bind(email)
-            .fetch_optional(pool)
-            .await?
+async fn find_admin_user(db: &Database, email: Option<&str>) -> AppResult<(Uuid, String)> {
+    let user = if let Some(email) = email {
+        db.seed_find_user_by_email(email).await?
     } else {
-        sqlx::query("SELECT id, email FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1")
-            .fetch_optional(pool)
-            .await?
+        db.seed_get_admin_user().await?
     };
 
-    let Some(row) = row else {
-        return Err(SeedError::Validation(
-            "No admin user found. Run 'cargo run --bin pierre-cli -- user create' first."
-                .to_owned(),
+    let Some(user) = user else {
+        return Err(AppError::config(
+            "No admin user found. Run 'cargo run --bin pierre-cli -- user create' first.",
         ));
     };
 
-    let id_str: String = row.get("id");
-    let email: String = row.get("email");
-    let id = Uuid::parse_str(&id_str)?;
-
-    Ok((id, email))
-}
-
-/// Reset usage data tables
-async fn reset_usage_data(pool: &SqlitePool) -> SeedResult<()> {
-    sqlx::query("DELETE FROM api_key_usage")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM a2a_usage").execute(pool).await?;
-    Ok(())
+    Ok((user.id, user.email))
 }
 
 /// Seed demo users with direct DB operations (creates user + personal tenant).
 /// Follows the same pattern as pierre-cli user creation: insert user row,
 /// create personal tenant, link via `tenant_users` junction table, and
 /// update the `tenant_id` column on users for backwards compatibility.
-async fn seed_demo_users(pool: &SqlitePool) -> SeedResult<Vec<Uuid>> {
+async fn seed_demo_users(db: &Database) -> AppResult<Vec<Uuid>> {
     let demo_users = get_demo_users();
     let mut user_ids = Vec::new();
 
     for user in &demo_users {
         // Check if user already exists
-        let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?")
-            .bind(user.email)
-            .fetch_optional(pool)
-            .await?;
+        let existing = db.seed_check_user_exists(user.email).await?;
 
-        let user_id = if let Some((id_str,)) = existing {
-            let id = Uuid::parse_str(&id_str)?;
+        let user_id = if let Some(id) = existing {
             info!("  Found existing user: {}", user.email);
             id
         } else {
-            let id = create_demo_user(pool, user).await?;
+            let id = create_demo_user(db, user).await?;
             info!("  Created user: {} ({})", user.email, user.status);
             id
         };
@@ -681,109 +647,66 @@ async fn seed_demo_users(pool: &SqlitePool) -> SeedResult<Vec<Uuid>> {
     Ok(user_ids)
 }
 
-/// Create a single demo user with tenant via direct DB operations
-async fn create_demo_user(pool: &SqlitePool, user: &DemoUser) -> SeedResult<Uuid> {
+/// Create a single demo user with tenant via [`SeederRepository`] operations
+async fn create_demo_user(db: &Database, user: &DemoUser) -> AppResult<Uuid> {
     let user_id = Uuid::new_v4();
     let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
-    let password_hash = hash(password, DEFAULT_COST)
-        .map_err(|e| SeedError::Validation(format!("bcrypt error: {e}")))?;
+    let password_hash =
+        hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
 
-    let now = Utc::now().to_rfc3339();
-    let is_active = i32::from(user.status != "suspended");
-
-    // Set approved_at for active users (they can login)
-    let approved_at: Option<&str> = if user.status == "active" {
-        Some(&now)
-    } else {
-        None
-    };
+    let now = Utc::now();
 
     // Insert user row
-    sqlx::query(
-        "INSERT INTO users (\
-             id, email, display_name, password_hash, tier, \
-             is_active, user_status, is_admin, approved_at, \
-             created_at, last_active, auth_provider\
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 'email')",
-    )
-    .bind(user_id.to_string())
-    .bind(user.email)
-    .bind(user.display_name)
-    .bind(&password_hash)
-    .bind(user.tier)
-    .bind(is_active)
-    .bind(user.status)
-    .bind(approved_at)
-    .bind(&now)
-    .bind(&now)
-    .execute(pool)
-    .await?;
+    let seed_user = SeedDemoUser {
+        id: user_id,
+        email: user.email.to_owned(),
+        display_name: user.display_name.to_owned(),
+        password_hash,
+        tier: user.tier.to_owned(),
+        status: user.status.to_owned(),
+        is_admin: false,
+        created_at: now,
+    };
+    db.seed_insert_demo_user(&seed_user).await?;
 
     // Create personal tenant (plan matches user tier)
     let tenant_id = Uuid::new_v4();
     let tenant_slug = format!("user-{}", user_id.as_simple());
     let tenant_name = format!("{}'s Workspace", user.display_name);
 
-    sqlx::query(
-        "INSERT INTO tenants (\
-             id, name, slug, plan, owner_user_id, \
-             is_active, created_at, updated_at\
-         ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
-    )
-    .bind(tenant_id.to_string())
-    .bind(&tenant_name)
-    .bind(&tenant_slug)
-    .bind(user.tier)
-    .bind(user_id.to_string())
-    .bind(&now)
-    .bind(&now)
-    .execute(pool)
-    .await?;
+    let seed_tenant = SeedTenant {
+        id: tenant_id,
+        name: tenant_name,
+        slug: tenant_slug,
+        plan: user.tier.to_owned(),
+        owner_user_id: user_id,
+        created_at: now,
+        updated_at: now,
+    };
+    db.seed_insert_tenant(&seed_tenant).await?;
 
     // Add user as tenant owner in junction table
     let tenant_user_id = Uuid::new_v4();
-    sqlx::query(
-        "INSERT INTO tenant_users (\
-             id, tenant_id, user_id, role, invited_at, joined_at, is_active\
-         ) VALUES (?, ?, ?, 'owner', ?, ?, 1)",
-    )
-    .bind(tenant_user_id.to_string())
-    .bind(tenant_id.to_string())
-    .bind(user_id.to_string())
-    .bind(&now)
-    .bind(&now)
-    .execute(pool)
-    .await?;
+    db.seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
+        .await?;
 
     // Update tenant_id column on user for backwards compatibility
-    sqlx::query("UPDATE users SET tenant_id = ? WHERE id = ?")
-        .bind(tenant_id.to_string())
-        .bind(user_id.to_string())
-        .execute(pool)
-        .await?;
+    db.seed_update_user_tenant(user_id, tenant_id).await?;
 
     Ok(user_id)
 }
 
 /// Seed API keys
-async fn seed_api_keys(
-    pool: &SqlitePool,
-    admin_id: &Uuid,
-    user_ids: &[Uuid],
-) -> SeedResult<Vec<Uuid>> {
+async fn seed_api_keys(db: &Database, admin_id: &Uuid, user_ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
     let api_keys = get_demo_api_keys();
     let mut key_ids = Vec::new();
     let mut rng = StdRng::from_entropy();
 
     for (i, key) in api_keys.iter().enumerate() {
         // Check if exists
-        let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM api_keys WHERE name = ?")
-            .bind(key.name)
-            .fetch_optional(pool)
-            .await?;
+        let existing = db.seed_check_api_key_by_name(key.name).await?;
 
-        let key_id = if let Some((id_str,)) = existing {
-            let id = Uuid::parse_str(&id_str)?;
+        let key_id = if let Some(id) = existing {
             info!("  Found existing API key: {}", key.name);
             id
         } else {
@@ -799,30 +722,27 @@ async fn seed_api_keys(
             let key_prefix = format!("pk_{:08x}", rng.gen::<u32>());
             let key_hash = format!("{:064x}", rng.gen::<u128>());
             let days_ago: i64 = rng.gen_range(5..30);
-            let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
+            let created_at = Utc::now() - Duration::days(days_ago);
 
             let expires_at = if key.tier == "trial" {
-                Some((Utc::now() + Duration::days(14)).to_rfc3339())
+                Some(Utc::now() + Duration::days(14))
             } else {
                 None
             };
 
-            sqlx::query(
-                "INSERT INTO api_keys (id, user_id, name, description, key_hash, key_prefix, tier, rate_limit_requests, rate_limit_window_seconds, is_active, expires_at, created_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 3600, 1, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(user_id.to_string())
-            .bind(key.name)
-            .bind(key.description)
-            .bind(&key_hash)
-            .bind(&key_prefix)
-            .bind(key.tier)
-            .bind(key.rate_limit)
-            .bind(&expires_at)
-            .bind(&created_at)
-            .execute(pool)
-            .await?;
+            let seed_key = SeedApiKey {
+                id,
+                user_id,
+                name: key.name.to_owned(),
+                description: key.description.to_owned(),
+                key_hash,
+                key_prefix,
+                tier: key.tier.to_owned(),
+                rate_limit: key.rate_limit,
+                expires_at,
+                created_at,
+            };
+            db.seed_insert_api_key(&seed_key).await?;
 
             info!("  Created API key: {} ({})", key.name, key.tier);
             id
@@ -836,23 +756,18 @@ async fn seed_api_keys(
 
 /// Seed A2A clients
 async fn seed_a2a_clients(
-    pool: &SqlitePool,
+    db: &Database,
     admin_id: &Uuid,
     user_ids: &[Uuid],
-) -> SeedResult<Vec<Uuid>> {
+) -> AppResult<Vec<Uuid>> {
     let clients = get_demo_a2a_clients();
     let mut client_ids = Vec::new();
     let mut rng = StdRng::from_entropy();
 
     for (i, client) in clients.iter().enumerate() {
-        let existing: Option<(String,)> =
-            sqlx::query_as("SELECT id FROM a2a_clients WHERE name = ?")
-                .bind(client.name)
-                .fetch_optional(pool)
-                .await?;
+        let existing = db.seed_check_a2a_client_by_name(client.name).await?;
 
-        let client_id = if let Some((id_str,)) = existing {
-            let id = Uuid::parse_str(&id_str)?;
+        let client_id = if let Some(id) = existing {
             info!("  Found existing A2A client: {}", client.name);
             id
         } else {
@@ -864,27 +779,24 @@ async fn seed_a2a_clients(
             };
             let public_key = format!("pk_a2a_{:016x}", rng.gen::<u64>());
             let client_secret = format!("{:064x}", rng.gen::<u128>());
-            let permissions = r#"["read", "write"]"#;
+            let permissions = r#"["read", "write"]"#.to_owned();
             let days_ago: i64 = rng.gen_range(10..45);
-            let created_at = (Utc::now() - Duration::days(days_ago)).to_rfc3339();
-            let updated_at = Utc::now().to_rfc3339();
+            let created_at = Utc::now() - Duration::days(days_ago);
+            let updated_at = Utc::now();
 
-            sqlx::query(
-                "INSERT INTO a2a_clients (id, user_id, name, description, public_key, client_secret, permissions, capabilities, rate_limit_requests, rate_limit_window_seconds, is_active, created_at, updated_at) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1000, 3600, 1, ?, ?)"
-            )
-            .bind(id.to_string())
-            .bind(user_id.to_string())
-            .bind(client.name)
-            .bind(client.description)
-            .bind(&public_key)
-            .bind(&client_secret)
-            .bind(permissions)
-            .bind(client.capabilities)
-            .bind(&created_at)
-            .bind(&updated_at)
-            .execute(pool)
-            .await?;
+            let seed_client = SeedA2AClient {
+                id,
+                user_id,
+                name: client.name.to_owned(),
+                description: client.description.to_owned(),
+                public_key,
+                client_secret,
+                permissions,
+                capabilities: client.capabilities.to_owned(),
+                created_at,
+                updated_at,
+            };
+            db.seed_insert_a2a_client(&seed_client).await?;
 
             info!("  Created A2A client: {}", client.name);
             id
@@ -897,7 +809,7 @@ async fn seed_a2a_clients(
 }
 
 /// Seed API usage data with realistic patterns
-async fn seed_api_usage(pool: &SqlitePool, api_key_ids: &[Uuid], days: u32) -> SeedResult<u64> {
+async fn seed_api_usage(db: &Database, api_key_ids: &[Uuid], days: u32) -> AppResult<u64> {
     let mut rng = StdRng::from_entropy();
     let mut total_records: u64 = 0;
 
@@ -944,24 +856,18 @@ async fn seed_api_usage(pool: &SqlitePool, api_key_ids: &[Uuid], days: u32) -> S
                     .with_minute(minute)
                     .unwrap_or(day)
                     .with_second(second)
-                    .unwrap_or(day)
-                    .to_rfc3339();
+                    .unwrap_or(day);
 
                 // Ignore errors for duplicate inserts
-                let result = sqlx::query(
-                    "INSERT INTO api_key_usage (id, api_key_id, timestamp, tool_name, status_code, response_time_ms) \
-                     VALUES (?, ?, ?, ?, ?, ?)"
-                )
-                .bind(id.to_string())
-                .bind(key_id.to_string())
-                .bind(&timestamp)
-                .bind(tool)
-                .bind(status_code)
-                .bind(response_time)
-                .execute(pool)
-                .await;
-
-                if result.is_ok() {
+                let usage = SeedApiKeyUsage {
+                    id,
+                    api_key_id: *key_id,
+                    timestamp,
+                    tool_name: tool.to_owned(),
+                    status_code,
+                    response_time_ms: response_time,
+                };
+                if db.seed_insert_api_key_usage(&usage).await.is_ok() {
                     total_records += 1;
                 }
             }
@@ -973,7 +879,7 @@ async fn seed_api_usage(pool: &SqlitePool, api_key_ids: &[Uuid], days: u32) -> S
 }
 
 /// Seed A2A usage data
-async fn seed_a2a_usage(pool: &SqlitePool, client_ids: &[Uuid], days: u32) -> SeedResult<u64> {
+async fn seed_a2a_usage(db: &Database, client_ids: &[Uuid], days: u32) -> AppResult<u64> {
     let mut rng = StdRng::from_entropy();
     let mut total_records: u64 = 0;
 
@@ -997,23 +903,18 @@ async fn seed_a2a_usage(pool: &SqlitePool, client_ids: &[Uuid], days: u32) -> Se
                     .with_hour(hour)
                     .unwrap_or(day)
                     .with_minute(minute)
-                    .unwrap_or(day)
-                    .to_rfc3339();
+                    .unwrap_or(day);
 
-                let result = sqlx::query(
-                    "INSERT INTO a2a_usage (id, client_id, timestamp, tool_name, status_code, response_time_ms, protocol_version) \
-                     VALUES (?, ?, ?, ?, ?, ?, '1.0')"
-                )
-                .bind(id.to_string())
-                .bind(client_id.to_string())
-                .bind(&timestamp)
-                .bind(tool)
-                .bind(status_code)
-                .bind(response_time)
-                .execute(pool)
-                .await;
-
-                if result.is_ok() {
+                // Ignore errors for duplicate inserts
+                let usage = SeedA2AUsage {
+                    id,
+                    client_id: *client_id,
+                    timestamp,
+                    tool_name: tool.to_owned(),
+                    status_code,
+                    response_time_ms: response_time,
+                };
+                if db.seed_insert_a2a_usage(&usage).await.is_ok() {
                     total_records += 1;
                 }
             }
@@ -1037,31 +938,20 @@ fn print_test_credentials() {
 }
 
 /// Print summary statistics
-async fn print_summary(pool: &SqlitePool) -> SeedResult<()> {
-    print_count(pool, "Users", "SELECT COUNT(*) FROM users").await?;
-    print_count(pool, "API Keys", "SELECT COUNT(*) FROM api_keys").await?;
-    print_count(
-        pool,
-        "API Usage Records",
-        "SELECT COUNT(*) FROM api_key_usage",
-    )
-    .await?;
-    print_count(pool, "A2A Clients", "SELECT COUNT(*) FROM a2a_clients").await?;
-    print_count(pool, "A2A Usage Records", "SELECT COUNT(*) FROM a2a_usage").await?;
-    print_count(
-        pool,
-        "Pending Users",
-        "SELECT COUNT(*) FROM users WHERE user_status = 'pending'",
-    )
-    .await?;
+async fn print_summary(db: &Database) -> AppResult<()> {
+    let tables: &[(&str, SeedTable)] = &[
+        ("Users", SeedTable::Users),
+        ("API Keys", SeedTable::ApiKeys),
+        ("API Usage Records", SeedTable::ApiKeyUsage),
+        ("A2A Clients", SeedTable::A2AClients),
+        ("A2A Usage Records", SeedTable::A2AUsage),
+    ];
+
+    for (label, table) in tables {
+        let count = db.seed_count_table(*table).await?;
+        info!("{label}: {count}");
+    }
 
     print_test_credentials();
-    Ok(())
-}
-
-/// Helper to print a single count query result
-async fn print_count(pool: &SqlitePool, label: &str, query: &str) -> SeedResult<()> {
-    let row: (i64,) = sqlx::query_as(query).fetch_one(pool).await?;
-    info!("{}: {}", label, row.0);
     Ok(())
 }
