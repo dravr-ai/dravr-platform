@@ -41,7 +41,14 @@ pub(super) async fn handle_list(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let Ok(manager) = super::get_coaches_manager(&resources) else {
+        let response = ListCoachesResponse {
+            coaches: vec![],
+            total: 0,
+            metadata: super::build_metadata(),
+        };
+        return Ok((StatusCode::OK, Json(response)).into_response());
+    };
 
     let filter = ListCoachesFilter {
         category: query.category.map(|c| CoachCategory::parse(&c)),
@@ -173,7 +180,14 @@ pub(super) async fn handle_search(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let Ok(manager) = super::get_coaches_manager(&resources) else {
+        let response = ListCoachesResponse {
+            total: 0,
+            coaches: vec![],
+            metadata: super::build_metadata(),
+        };
+        return Ok((StatusCode::OK, Json(response)).into_response());
+    };
     let coaches = manager
         .search(auth.user_id, tenant_id, &query.q, query.limit, query.offset)
         .await?;
@@ -532,7 +546,14 @@ pub(super) async fn handle_list_hidden(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let Ok(manager) = super::get_coaches_manager(&resources) else {
+        let response = ListCoachesResponse {
+            total: 0,
+            coaches: vec![],
+            metadata: super::build_metadata(),
+        };
+        return Ok((StatusCode::OK, Json(response)).into_response());
+    };
     let coaches = manager.list_hidden_coaches(auth.user_id, tenant_id).await?;
 
     let response = ListCoachesResponse {
