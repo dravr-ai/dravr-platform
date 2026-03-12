@@ -8,9 +8,9 @@ use super::Database;
 use crate::repositories::{SeedTable, SeederRepository};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction, SeedLlmUsageRecord,
-    SeedProviderConnection, SeedSharedInsight, SeedSocialSettings, SeedStoreListing,
-    SeedSyntheticActivity, SeedTenant,
+    SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
+    SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
+    SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -238,6 +238,10 @@ impl SeederRepository for Database {
         relation: &SeedCoachRelation,
     ) -> AppResult<bool> {
         dispatch!(self, seed_insert_coach_relation_if_absent(relation))
+    }
+
+    async fn seed_upsert_coach_author(&self, author: &SeedCoachAuthor) -> AppResult<String> {
+        dispatch!(self, seed_upsert_coach_author(author))
     }
 
     async fn seed_insert_store_listing_if_absent(

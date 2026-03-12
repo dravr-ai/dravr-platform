@@ -398,6 +398,22 @@ pub struct SeedCoachRelation {
     pub created_at: DateTime<Utc>,
 }
 
+/// Coach author profile for seeding (Store creator profiles)
+pub struct SeedCoachAuthor {
+    /// Author profile ID (TEXT PK in `coach_authors`)
+    pub id: String,
+    /// User who is the author
+    pub user_id: Uuid,
+    /// Tenant scope
+    pub tenant_id: String,
+    /// Display name in Store
+    pub display_name: String,
+    /// Record creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Record update timestamp
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Store listing for seeding
 pub struct SeedStoreListing {
     /// Listing ID
@@ -406,8 +422,8 @@ pub struct SeedStoreListing {
     pub coach_id: String,
     /// Tenant scope
     pub tenant_id: TenantId,
-    /// Author user ID
-    pub author_id: Uuid,
+    /// Coach author ID (references `coach_authors.id`, not `users.id`)
+    pub author_id: String,
     /// Record creation timestamp
     pub created_at: DateTime<Utc>,
 }
