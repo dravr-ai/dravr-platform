@@ -2,7 +2,7 @@
 # ABOUTME: Uses cargo-chef for workspace-aware dependency caching; runtime stage uses debian-slim with non-root user
 
 # Stage 0: base image with build dependencies and cargo-chef installed
-FROM --platform=linux/amd64 rust:1.92-slim AS chef
+FROM --platform=linux/amd64 rust:1.94-slim AS chef
 
 RUN apt-get update && apt-get install -y \
     pkg-config \

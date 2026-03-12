@@ -51,7 +51,7 @@ jobs:
           swap-storage: true
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.92.0
+        uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: rustfmt
 
@@ -67,7 +67,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-coverage-1.92.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
+          key: ${{ runner.os }}-cargo-coverage-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
 
       - name: Setup Bun (for SDK build)
         uses: oven-sh/setup-bun@v2

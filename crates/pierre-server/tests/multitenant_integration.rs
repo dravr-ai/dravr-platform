@@ -61,7 +61,7 @@
     clippy::bool_to_int_with_if,
     clippy::checked_conversions,
     clippy::copy_iterator,
-    clippy::empty_enum,
+    clippy::empty_enums,
     clippy::enum_variant_names,
     clippy::expl_impl_clone_on_copy,
     clippy::fallible_impl_from,
