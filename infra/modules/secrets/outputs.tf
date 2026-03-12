@@ -18,6 +18,7 @@ output "secret_ids" {
   value = {
     db_password          = google_secret_manager_secret.db_password.secret_id
     encryption_key       = google_secret_manager_secret.encryption_key.secret_id
+    admin_password       = google_secret_manager_secret.admin_password.secret_id
     strava_client_id     = google_secret_manager_secret.strava_client_id.secret_id
     strava_client_secret = google_secret_manager_secret.strava_client_secret.secret_id
     fitbit_client_secret = google_secret_manager_secret.fitbit_client_secret.secret_id
@@ -34,6 +35,7 @@ output "secret_names" {
   value = {
     db_password          = google_secret_manager_secret.db_password.name
     encryption_key       = google_secret_manager_secret.encryption_key.name
+    admin_password       = google_secret_manager_secret.admin_password.name
     strava_client_id     = google_secret_manager_secret.strava_client_id.name
     strava_client_secret = google_secret_manager_secret.strava_client_secret.name
     fitbit_client_secret = google_secret_manager_secret.fitbit_client_secret.name

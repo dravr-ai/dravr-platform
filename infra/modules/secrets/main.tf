@@ -135,6 +135,30 @@ resource "google_secret_manager_secret_version" "openweather_api_key_placeholder
 }
 
 # -----------------------------------------------------------------------------
+# Admin Password (to be filled manually for seed-bootstrap)
+# -----------------------------------------------------------------------------
+
+resource "google_secret_manager_secret" "admin_password" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-admin-password"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "admin_password_placeholder" {
+  secret      = google_secret_manager_secret.admin_password.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Provider & API Key Secrets (to be filled manually)
 # -----------------------------------------------------------------------------
 

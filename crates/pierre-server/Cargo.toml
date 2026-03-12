@@ -63,6 +63,11 @@ name = "seed-llm-usage"
 path = "src/bin/seed_llm_usage.rs"
 bench = false
 
+[[bin]]
+name = "seed-bootstrap"
+path = "src/bin/seed_bootstrap.rs"
+bench = false
+
 # [[bin]]
 # name = "serve-docs"
 # path = "src/bin/serve_docs.rs"
@@ -234,7 +239,7 @@ chrono-tz = "0.10"
 base64 = "0.22"
 bytes = "1.11"
 url = "2.5"
-clap = { version = "4.5", features = ["derive", "std"], default-features = false }
+clap = { version = "4.5", features = ["derive", "std", "env"], default-features = false }
 dirs = "5.0"
 uuid = { version = "1.22", features = ["v4", "v5", "serde"] }
 dashmap = "5.5"
