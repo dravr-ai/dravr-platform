@@ -40,10 +40,10 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 /// ```
 pub fn setup_cors(config: &ServerConfig) -> CorsLayer {
     // Parse allowed origins from configuration
-    let allow_origin =
+    let (allow_origin, credentials_required) =
         if config.cors.allowed_origins.is_empty() || config.cors.allowed_origins == "*" {
-            // Development mode: allow any origin
-            AllowOrigin::any()
+            // Development mode: allow any origin (credentials not supported with wildcard)
+            (AllowOrigin::any(), false)
         } else {
             // Production mode: parse comma-separated origin list
             let origins: Vec<HeaderValue> = config
@@ -62,13 +62,14 @@ pub fn setup_cors(config: &ServerConfig) -> CorsLayer {
 
             if origins.is_empty() {
                 // Fallback to any if parsing failed
-                AllowOrigin::any()
+                (AllowOrigin::any(), false)
             } else {
-                AllowOrigin::list(origins)
+                // Specific origins: enable credentials for cross-origin cookie auth
+                (AllowOrigin::list(origins), true)
             }
         };
 
-    CorsLayer::new()
+    let cors = CorsLayer::new()
         .allow_origin(allow_origin)
         .allow_headers([
             HeaderName::from_static("content-type"),
@@ -93,5 +94,11 @@ pub fn setup_cors(config: &ServerConfig) -> CorsLayer {
             Method::DELETE,
             Method::OPTIONS,
             Method::PATCH,
-        ])
+        ]);
+
+    if credentials_required {
+        cors.allow_credentials(true)
+    } else {
+        cors
+    }
 }
