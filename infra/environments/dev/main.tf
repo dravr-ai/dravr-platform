@@ -171,7 +171,9 @@ module "backend" {
       AUTO_APPROVE_USERS = "true"
 
       # LLM provider configuration
-      PIERRE_LLM_PROVIDER = "gemini"
+      PIERRE_LLM_PROVIDER       = "gemini"
+      PIERRE_LLM_DEFAULT_MODEL  = "gemini-2.0-flash"
+      PIERRE_LLM_FALLBACK_MODEL = "gemini-2.0-flash-lite"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
