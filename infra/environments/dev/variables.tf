@@ -188,6 +188,12 @@ variable "backend_image" {
   type        = string
 }
 
+variable "backend_base_url" {
+  description = "Public URL of the backend Cloud Run service (for OAuth callbacks and external access)"
+  type        = string
+  default     = ""
+}
+
 variable "backend_cpu" {
   description = "CPU allocation for backend instances"
   type        = string
