@@ -83,6 +83,7 @@ pub fn setup_cors(config: &ServerConfig) -> CorsLayer {
             HeaderName::from_static("x-strava-client-secret"),
             HeaderName::from_static("x-fitbit-client-id"),
             HeaderName::from_static("x-fitbit-client-secret"),
+            HeaderName::from_static("x-csrf-token"),
             HeaderName::from_static("x-pierre-api-key"),
             HeaderName::from_static("x-tenant-name"),
             HeaderName::from_static("x-tenant-id"),
