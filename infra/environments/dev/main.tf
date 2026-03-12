@@ -141,7 +141,7 @@ module "backend" {
   min_instances     = var.backend_min_instances
   max_instances     = var.backend_max_instances
 
-  ingress                  = "INGRESS_TRAFFIC_ALL"
+  ingress                  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
   allow_unauthenticated    = true
   vpc_connector_id         = module.networking.vpc_connector_id
   cloudsql_connection_name = var.enable_database ? module.database[0].connection_name : null
@@ -375,6 +375,7 @@ module "frontend" {
 
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
+  vpc_connector_id      = module.networking.vpc_connector_id
 
   env_vars = {
     # Backend URL for nginx reverse proxy (injected via envsubst at container start)
@@ -386,7 +387,7 @@ module "frontend" {
 
   labels = merge(var.labels, { component = "frontend" })
 
-  depends_on = [module.service_accounts, module.backend]
+  depends_on = [module.networking, module.service_accounts, module.backend]
 }
 
 # -----------------------------------------------------------------------------
