@@ -189,7 +189,13 @@ variable "backend_image" {
 }
 
 variable "backend_base_url" {
-  description = "Public URL of the backend Cloud Run service (for OAuth callbacks and external access)"
+  description = "Deprecated — use frontend_base_url instead (backend is behind nginx proxy)"
+  type        = string
+  default     = ""
+}
+
+variable "frontend_base_url" {
+  description = "Public URL of the frontend (nginx proxies API traffic to backend; used for OAuth callbacks)"
   type        = string
   default     = ""
 }

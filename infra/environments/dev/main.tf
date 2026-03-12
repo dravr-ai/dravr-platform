@@ -154,12 +154,13 @@ module "backend" {
       HTTP_PORT   = "8081"
       ENVIRONMENT = var.environment
 
-      # Frontend URL for CORS and OAuth redirects
-      FRONTEND_URL         = var.enable_frontend ? module.frontend[0].service_url : ""
-      CORS_ALLOWED_ORIGINS = var.enable_frontend ? module.frontend[0].service_url : "*"
+      # Frontend proxies all traffic to backend (same origin), so CORS is only
+      # needed for mobile clients which don't enforce it. Wildcard is safe here.
+      CORS_ALLOWED_ORIGINS = "*"
 
-      # OAuth callback base URL (Cloud Run backend URL, set after first deploy)
-      BASE_URL = var.backend_base_url
+      # Public URL for OAuth callbacks (frontend URL, since nginx proxies to backend)
+      FRONTEND_URL = var.frontend_base_url
+      BASE_URL     = var.frontend_base_url
 
       # Firebase project for Google Sign-In token validation
       FIREBASE_PROJECT_ID = "pierre-fitness-intelligence"
@@ -375,12 +376,17 @@ module "frontend" {
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
 
+  env_vars = {
+    # Backend URL for nginx reverse proxy (injected via envsubst at container start)
+    BACKEND_URL = module.backend.service_url
+  }
+
   health_check_path           = "/health"
   startup_probe_initial_delay = 3
 
   labels = merge(var.labels, { component = "frontend" })
 
-  depends_on = [module.service_accounts]
+  depends_on = [module.service_accounts, module.backend]
 }
 
 # -----------------------------------------------------------------------------
