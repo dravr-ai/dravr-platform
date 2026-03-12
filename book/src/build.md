@@ -8,7 +8,7 @@ Technical documentation for build system configuration, linting enforcement, and
 ## Rust Toolchain Management
 
 **File**: `rust-toolchain`
-**Current version**: `1.92.0`
+**Current version**: `1.94.0`
 
 ### Version Pinning Strategy
 

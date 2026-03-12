@@ -1,6 +1,6 @@
 [package]
 name = "pierre_mcp_server"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Pierre Fitness API - Multi-protocol fitness data API for LLMs (MCP + A2A)"
@@ -199,15 +199,15 @@ openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui"]
 [dependencies]
 # Workspace crates (sibling crates under crates/)
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon", "http-client"] }
-pierre-database = { version = "0.1.0", path = "../pierre-database" }
-pierre-auth = { version = "0.1.0", path = "../pierre-auth" }
-pierre-intelligence = { version = "0.1.0", path = "../pierre-intelligence" }
-pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
-pierre-cache = { version = "0.1.0", path = "../pierre-cache", features = ["redis"] }
-pierre-a2a = { version = "0.1.0", path = "../pierre-a2a", optional = true }
-pierre-messaging = { version = "0.1.0", path = "../pierre-messaging", optional = true }
-pierre-notifications = { version = "0.1.0", path = "../pierre-notifications", optional = true }
-pierre-providers = { version = "0.1.0", path = "../pierre-providers" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
+pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis"] }
+pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
+pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
+pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
+pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"

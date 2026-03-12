@@ -2487,7 +2487,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-a2a"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "pierre-core",
@@ -2499,7 +2499,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-auth"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2536,7 +2536,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-cache"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "glob",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-database"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -2598,7 +2598,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-intelligence"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2613,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-llm"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bitflags",
@@ -2632,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-messaging"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2653,7 +2653,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-notifications"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "pierre-providers"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2697,7 +2697,7 @@ dependencies = [
 
 [[package]]
 name = "pierre_mcp_server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "anyhow",

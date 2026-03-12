@@ -3,7 +3,7 @@
 
 [package]
 name = "pierre-auth"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Auth layer for Pierre platform - JWT, OAuth2, security, tenant, crypto"
@@ -17,8 +17,8 @@ testing = []
 [dependencies]
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
-pierre-database = { version = "0.1.0", path = "../pierre-database" }
-pierre-llm = { version = "0.1.0", path = "../pierre-llm" }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 
 # Async runtime and traits
 async-trait = "0.1"
