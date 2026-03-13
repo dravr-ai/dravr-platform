@@ -141,8 +141,14 @@ export default function ProviderConnectionCards({
 
   // Handle provider card click
   const handleConnect = async (provider: ProviderStatus) => {
-    // If already connected or non-OAuth provider, no action needed
-    if (provider.connected || !provider.requires_oauth) return;
+    // If already connected, no action needed
+    if (provider.connected) return;
+
+    // Non-OAuth providers (like synthetic) skip directly to chat
+    if (!provider.requires_oauth) {
+      if (onSkip) onSkip();
+      return;
+    }
 
     // Use callback if provided (for chat-based connection flow)
     if (onConnectProvider) {
@@ -203,7 +209,7 @@ export default function ProviderConnectionCards({
               key={provider.provider}
               type="button"
               onClick={() => handleConnect(provider)}
-              disabled={provider.connected || isConnecting || !!connectingProvider || isNonOAuth}
+              disabled={provider.connected || isConnecting || !!connectingProvider}
               className="text-left focus:outline-none focus:ring-2 focus:ring-pierre-violet/50 rounded-xl disabled:cursor-default group"
               aria-label={
                 provider.connected
