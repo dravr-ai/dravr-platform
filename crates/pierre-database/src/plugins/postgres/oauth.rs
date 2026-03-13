@@ -1094,7 +1094,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
         )
         .bind(&id)
         .bind(user_id.to_string())
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .bind(conn_type_str)
         .bind(now)
@@ -1115,7 +1115,7 @@ impl ProviderConnectionRepository for PostgresDatabase {
             "DELETE FROM provider_connections WHERE user_id = $1 AND tenant_id = $2 AND provider = $3",
         )
         .bind(user_id.to_string())
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(provider)
         .execute(&self.pool)
         .await?;
