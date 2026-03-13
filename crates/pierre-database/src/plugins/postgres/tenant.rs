@@ -840,7 +840,7 @@ impl LlmCredentialRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id = $2 AND provider = $3 AND is_active = TRUE
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(uid)
             .bind(provider)
             .fetch_optional(&self.pool)
@@ -854,7 +854,7 @@ impl LlmCredentialRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2 AND is_active = TRUE
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(provider)
             .fetch_optional(&self.pool)
             .await
@@ -885,7 +885,7 @@ impl LlmCredentialRepository for PostgresDatabase {
             ORDER BY provider, user_id
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list LLM credentials: {e}")))?;
@@ -926,7 +926,7 @@ impl LlmCredentialRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(uid)
             .bind(provider)
             .execute(&self.pool)
@@ -938,7 +938,7 @@ impl LlmCredentialRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id IS NULL AND provider = $2
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(provider)
             .execute(&self.pool)
             .await
@@ -1015,7 +1015,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             RETURNING id
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(configuration_name)
         .bind(&config_json)
         .bind(now)
@@ -1048,7 +1048,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             RETURNING id
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(user_id)
         .bind(configuration_name)
         .bind(&config_json)
@@ -1072,7 +1072,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(configuration_name)
         .fetch_optional(&self.pool)
         .await
@@ -1101,7 +1101,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(user_id)
         .bind(configuration_name)
         .fetch_optional(&self.pool)
@@ -1121,7 +1121,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(configuration_name)
         .fetch_optional(&self.pool)
         .await
@@ -1145,7 +1145,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             ORDER BY configuration_name
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
@@ -1171,7 +1171,7 @@ impl FitnessConfigRepository for PostgresDatabase {
             ORDER BY configuration_name
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(user_id)
         .fetch_all(&self.pool)
         .await
@@ -1199,7 +1199,7 @@ impl FitnessConfigRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id = $2 AND configuration_name = $3
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(uid)
             .bind(configuration_name)
             .execute(&self.pool)
@@ -1212,7 +1212,7 @@ impl FitnessConfigRepository for PostgresDatabase {
                 WHERE tenant_id = $1 AND user_id IS NULL AND configuration_name = $2
                 ",
             )
-            .bind(tenant_id.0)
+            .bind(tenant_id.to_string())
             .bind(configuration_name)
             .execute(&self.pool)
             .await

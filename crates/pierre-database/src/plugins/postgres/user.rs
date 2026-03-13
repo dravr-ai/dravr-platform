@@ -616,7 +616,7 @@ impl UserRepository for PostgresDatabase {
             WHERE id = $2
             ",
         )
-        .bind(tenant_id.0)
+        .bind(tenant_id.to_string())
         .bind(user_id)
         .execute(&self.pool)
         .await
