@@ -54,7 +54,6 @@
     "expo-device": "^55.0.9",
     "expo-haptics": "~55.0.8",
     "expo-linear-gradient": "~55.0.8",
-    "expo-notifications": "^55.0.11",
     "expo-router": "~55.0.3",
     "expo-secure-store": "~55.0.8",
     "expo-speech-recognition": "~3.1.1",
