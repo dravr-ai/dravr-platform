@@ -632,7 +632,7 @@ impl NotificationRepository for PostgresDatabase {
             ",
         )
         .bind(&notification_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(provider)
         .bind(success)
         .bind(message)
@@ -654,22 +654,25 @@ impl NotificationRepository for PostgresDatabase {
             ORDER BY created_at DESC
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
 
         let mut notifications = Vec::new();
         for row in rows {
+            let uid: Uuid = row.get("user_id");
+            let created: DateTime<Utc> = row.get("created_at");
+            let read: Option<DateTime<Utc>> = row.get("read_at");
             notifications.push(OAuthNotification {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
+                user_id: uid.to_string(),
                 provider: row.get("provider"),
                 success: row.get("success"),
                 message: row.get("message"),
                 expires_at: row.get("expires_at"),
-                created_at: row.get("created_at"),
-                read_at: row.get("read_at"),
+                created_at: created.to_rfc3339(),
+                read_at: read.map(|r| r.to_rfc3339()),
             });
         }
 
@@ -685,7 +688,7 @@ impl NotificationRepository for PostgresDatabase {
             ",
         )
         .bind(notification_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -701,7 +704,7 @@ impl NotificationRepository for PostgresDatabase {
             WHERE user_id = $1 AND read_at IS NULL
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
@@ -729,22 +732,25 @@ impl NotificationRepository for PostgresDatabase {
         }
 
         let rows = sqlx::query(&query_str)
-            .bind(user_id.to_string())
+            .bind(user_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to fetch records: {e}")))?;
 
         let mut notifications = Vec::new();
         for row in rows {
+            let uid: Uuid = row.get("user_id");
+            let created: DateTime<Utc> = row.get("created_at");
+            let read: Option<DateTime<Utc>> = row.get("read_at");
             notifications.push(OAuthNotification {
                 id: row.get("id"),
-                user_id: row.get("user_id"),
+                user_id: uid.to_string(),
                 provider: row.get("provider"),
                 success: row.get("success"),
                 message: row.get("message"),
                 expires_at: row.get("expires_at"),
-                created_at: row.get("created_at"),
-                read_at: row.get("read_at"),
+                created_at: created.to_rfc3339(),
+                read_at: read.map(|r| r.to_rfc3339()),
             });
         }
 
