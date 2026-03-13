@@ -152,6 +152,8 @@ impl ChatProvider {
             | LlmProviderType::ClineCli
             | LlmProviderType::ContinueCli
             | LlmProviderType::WarpCli
+            | LlmProviderType::KiroCli
+            | LlmProviderType::KiloCli
             | LlmProviderType::OpenAiApi => Self::cli().await,
         }
     }

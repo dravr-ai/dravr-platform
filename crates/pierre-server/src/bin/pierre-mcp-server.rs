@@ -293,7 +293,9 @@ fn llm_provider_validations(provider: LlmProviderType, required: bool) -> Vec<En
         | LlmProviderType::GooseCli
         | LlmProviderType::ClineCli
         | LlmProviderType::ContinueCli
-        | LlmProviderType::WarpCli => {
+        | LlmProviderType::WarpCli
+        | LlmProviderType::KiroCli
+        | LlmProviderType::KiloCli => {
             // CLI/ACP providers handle their own auth; no env vars required at startup
             vec![]
         }

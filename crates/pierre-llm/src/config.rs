@@ -42,6 +42,10 @@ pub enum LlmProviderType {
     ClineCli,
     /// Continue CLI provider - subprocess-based Continue coding agent
     ContinueCli,
+    /// Kiro CLI provider - subprocess-based AWS Kiro coding agent
+    KiroCli,
+    /// Kilo Code CLI provider - subprocess-based Kilo coding agent
+    KiloCli,
     /// `OpenAI`-compatible HTTP API provider via embacle (any `OpenAI`-compatible endpoint)
     OpenAiApi,
 }
@@ -67,6 +71,8 @@ impl LlmProviderType {
             "goose_cli" | "goose-cli" | "goose" => Self::GooseCli,
             "cline_cli" | "cline-cli" | "cline" => Self::ClineCli,
             "continue_cli" | "continue-cli" | "continue" => Self::ContinueCli,
+            "kiro_cli" | "kiro-cli" | "kiro" => Self::KiroCli,
+            "kilo_cli" | "kilo-cli" | "kilo" => Self::KiloCli,
             "openai_api" | "openai-api" | "openai" => Self::OpenAiApi,
             _ => Self::Gemini, // Default fallback (including "gemini", "google")
         }
@@ -161,9 +167,12 @@ impl LlmProviderType {
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
             Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),
             Self::CodexCli => Some("codex-mini".to_owned()),
-            Self::GooseCli | Self::ClineCli | Self::ContinueCli | Self::WarpCli => {
-                Some("claude-sonnet-4".to_owned())
-            }
+            Self::GooseCli
+            | Self::ClineCli
+            | Self::ContinueCli
+            | Self::WarpCli
+            | Self::KiroCli
+            | Self::KiloCli => Some("claude-sonnet-4".to_owned()),
             Self::OpenAiApi => Some(
                 env::var("OPENAI_API_MODEL")
                     .ok()
@@ -237,6 +246,8 @@ impl Display for LlmProviderType {
             Self::GooseCli => write!(f, "goose_cli"),
             Self::ClineCli => write!(f, "cline_cli"),
             Self::ContinueCli => write!(f, "continue_cli"),
+            Self::KiroCli => write!(f, "kiro_cli"),
+            Self::KiloCli => write!(f, "kilo_cli"),
             Self::OpenAiApi => write!(f, "openai_api"),
         }
     }

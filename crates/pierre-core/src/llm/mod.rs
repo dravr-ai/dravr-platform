@@ -66,6 +66,10 @@ impl From<RunnerError> for AppError {
             ),
             ErrorKind::AuthFailure => Self::auth_invalid(err.message),
             ErrorKind::Config => Self::config(err.message),
+            ErrorKind::Guardrail => Self::new(
+                ErrorCode::InvalidInput,
+                format!("Content blocked by guardrail: {}", err.message),
+            ),
         }
     }
 }
