@@ -66,11 +66,22 @@ where
         .map_err(|e| AppError::database(format!("Failed to get column 'tier': {e}")))?;
     let tier = super::enums::str_to_user_tier(&tier_str);
 
-    // Parse role - default to 'user' if column is missing
-    let role = row
+    // Parse is_admin before role so we can use it for fallback
+    let is_admin: bool = row.try_get("is_admin").unwrap_or_else(|e| {
+        tracing::warn!("is_admin column missing or invalid, defaulting to false: {e}");
+        false
+    });
+
+    // Parse role - default to 'user' if column is missing.
+    // If is_admin is true but role says 'user' (e.g. seeder omitted role column
+    // and PG DEFAULT filled 'user'), upgrade to Admin for consistency.
+    let mut role = row
         .try_get::<String, _>("role")
         .map(|role_str| super::enums::str_to_user_role(&role_str))
         .unwrap_or(UserRole::User);
+    if is_admin && role == UserRole::User {
+        role = UserRole::Admin;
+    }
 
     // NOTE: tenant_id is no longer stored on User - use tenant_users junction table
     Ok(User {
@@ -93,10 +104,7 @@ where
             .try_get("is_active")
             .map_err(|e| AppError::database(format!("Failed to get column 'is_active': {e}")))?,
         user_status,
-        is_admin: row.try_get("is_admin").unwrap_or_else(|e| {
-            tracing::warn!("is_admin column missing or invalid, defaulting to false: {e}");
-            false
-        }),
+        is_admin,
         role,
         approved_by: row
             .try_get("approved_by")
