@@ -5,7 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
-import { providersApi, oauthApi } from '../services/api';
+import { providersApi } from '../services/api';
+import { oauthApi } from '../services/api/oauth';
 import type { ProviderStatus } from '../services/api/oauth';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -145,13 +146,13 @@ export default function ProviderConnectionCards({
 
     // Use callback if provided (for chat-based connection flow)
     if (onConnectProvider) {
-      onConnectProvider(provider.display_name);
+      onConnectProvider(provider.provider);
       return;
     }
 
     // Fallback: Navigate directly to OAuth authorization endpoint
     try {
-      const authUrl = await oauthApi.getAuthorizeUrl(provider.provider);
+      const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider.provider);
       // Open OAuth in new tab with noopener,noreferrer to prevent tabnabbing
       window.open(authUrl, '_blank', 'noopener,noreferrer');
     } catch (error) {
@@ -194,7 +195,7 @@ export default function ProviderConnectionCards({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {providers.map((provider) => {
           const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
-          const isConnecting = connectingProvider === provider.display_name;
+          const isConnecting = connectingProvider === provider.provider;
           const isNonOAuth = !provider.requires_oauth;
 
           return (

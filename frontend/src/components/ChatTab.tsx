@@ -8,6 +8,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
 import { chatApi, providersApi, coachesApi } from '../services/api';
+import { oauthApi } from '../services/api/oauth';
 import { useAuth } from '../hooks/useAuth';
 import PromptSuggestions from './PromptSuggestions';
 import { MessageCircle, Plus, Sparkles } from 'lucide-react';
@@ -477,12 +478,18 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   };
 
-  const handleConnectProvider = (provider: string) => {
+  const handleConnectProvider = async (provider: string) => {
     setConnectingProvider(provider);
     if (selectedConversation) {
       sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
     }
-    window.open(`/api/oauth/${provider}/connect`, '_blank', 'noopener,noreferrer');
+    try {
+      const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider);
+      window.open(authUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error(`Failed to get OAuth URL for ${provider}:`, error);
+      setConnectingProvider(null);
+    }
   };
 
   // Message action handlers
