@@ -485,7 +485,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
     try {
       const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider);
-      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      window.open(authUrl, '_blank');
     } catch (error) {
       console.error(`Failed to get OAuth URL for ${provider}:`, error);
       setConnectingProvider(null);

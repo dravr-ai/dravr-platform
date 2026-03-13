@@ -160,7 +160,7 @@ export default function ProviderConnectionCards({
     try {
       const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider.provider);
       // Open OAuth in new tab with noopener,noreferrer to prevent tabnabbing
-      window.open(authUrl, '_blank', 'noopener,noreferrer');
+      window.open(authUrl, '_blank');
     } catch (error) {
       console.error('Failed to get OAuth authorization URL:', error);
     }

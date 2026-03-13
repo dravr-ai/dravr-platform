@@ -1004,13 +1004,13 @@ impl OAuthClientStateRepository for PostgresDatabase {
         )
         .bind(&state.state)
         .bind(&state.provider)
-        .bind(state.user_id)
+        .bind(state.user_id.map(|u| u.to_string()))
         .bind(&state.tenant_id)
         .bind(&state.redirect_uri)
         .bind(&state.scope)
         .bind(&state.pkce_code_verifier)
-        .bind(state.created_at)
-        .bind(state.expires_at)
+        .bind(state.created_at.to_rfc3339())
+        .bind(state.expires_at.to_rfc3339())
         .bind(state.used)
         .execute(&self.pool)
         .await
@@ -1050,9 +1050,12 @@ impl OAuthClientStateRepository for PostgresDatabase {
                 provider: row.try_get("provider").map_err(|e| {
                     AppError::database(format!("Failed to parse provider column: {e}"))
                 })?,
-                user_id: row.try_get("user_id").map_err(|e| {
-                    AppError::database(format!("Failed to parse user_id column: {e}"))
-                })?,
+                user_id: row
+                    .try_get::<Option<String>, _>("user_id")
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to parse user_id column: {e}"))
+                    })?
+                    .and_then(|s| Uuid::parse_str(&s).ok()),
                 tenant_id: row.try_get("tenant_id").map_err(|e| {
                     AppError::database(format!("Failed to parse tenant_id column: {e}"))
                 })?,
@@ -1065,12 +1068,24 @@ impl OAuthClientStateRepository for PostgresDatabase {
                 pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
                     AppError::database(format!("Failed to parse pkce_code_verifier column: {e}"))
                 })?,
-                created_at: row.try_get("created_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse created_at column: {e}"))
-                })?,
-                expires_at: row.try_get("expires_at").map_err(|e| {
-                    AppError::database(format!("Failed to parse expires_at column: {e}"))
-                })?,
+                created_at: row
+                    .try_get::<String, _>("created_at")
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to parse created_at column: {e}"))
+                    })?
+                    .parse::<DateTime<Utc>>()
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to parse created_at datetime: {e}"))
+                    })?,
+                expires_at: row
+                    .try_get::<String, _>("expires_at")
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to parse expires_at column: {e}"))
+                    })?
+                    .parse::<DateTime<Utc>>()
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to parse expires_at datetime: {e}"))
+                    })?,
                 used: row
                     .try_get("used")
                     .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
