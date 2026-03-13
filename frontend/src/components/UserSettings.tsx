@@ -352,15 +352,15 @@ export default function UserSettings() {
     });
   };
 
-  // Connect to a fitness provider via OAuth popup
+  // Connect to a fitness provider via OAuth in a new tab
   const handleConnectProvider = async (providerId: string) => {
     try {
       setConnectingProvider(providerId);
       setProviderMessage(null);
       const authUrl = await apiService.getOAuthAuthorizeUrlForProvider(providerId);
 
-      // Open OAuth in a popup window with noopener to prevent tabnabbing
-      const popup = window.open(authUrl, `oauth_${providerId}`, 'width=600,height=700,left=200,top=100,noopener,noreferrer');
+      // Open OAuth in a new tab (not a popup window)
+      window.open(authUrl, '_blank');
 
       // Listen for the OAuth callback result stored in localStorage by OAuthCallback
       const checkInterval = setInterval(() => {
@@ -372,7 +372,6 @@ export default function UserSettings() {
             if (result.timestamp && Date.now() - result.timestamp < 30000 && result.provider === providerId) {
               localStorage.removeItem('pierre_oauth_result');
               clearInterval(checkInterval);
-              if (popup && !popup.closed) popup.close();
               setConnectingProvider(null);
 
               if (result.success) {
@@ -382,11 +381,6 @@ export default function UserSettings() {
                 setProviderMessage({ type: 'error', text: `Failed to connect ${providerId}` });
               }
             }
-          }
-          // Also check if popup was closed manually
-          if (popup && popup.closed) {
-            clearInterval(checkInterval);
-            setConnectingProvider(null);
           }
         } catch {
           // Ignore localStorage parse errors
