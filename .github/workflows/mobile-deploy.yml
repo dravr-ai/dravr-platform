@@ -63,6 +63,7 @@ jobs:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: frontend-mobile
