@@ -193,16 +193,13 @@ impl UsageRoutes {
             .and_then(|v| v.as_i64())
             .unwrap_or(50);
 
-        // Coach count is only available for SQLite (coaches are SQLite-only)
-        let coach_count = resources
-            .coaches_manager()
-            .ok()
-            .map(|m| async move { m.count(auth.user_id, tenant_id).await.unwrap_or(0) });
-        let coach_count_val = if let Some(future) = coach_count {
-            i64::from(future.await)
-        } else {
-            0
-        };
+        let coach_count_val = i64::from(
+            resources
+                .coaches_manager()
+                .count(auth.user_id, tenant_id)
+                .await
+                .unwrap_or(0),
+        );
 
         let max_coaches = admin_config
             .get_value("usage_quotas.max_coaches_per_user", Some(&tenant_id_str))

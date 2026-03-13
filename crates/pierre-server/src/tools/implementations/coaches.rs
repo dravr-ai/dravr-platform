@@ -35,14 +35,14 @@ use crate::tools::traits::{McpTool, ToolCapabilities};
 use pierre_core::models::coaches::{
     Coach, CoachCategory, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
-use pierre_database::database::coaches::CoachesManager;
+use pierre_database::database::repositories::CoachesRepository;
 
 // ============================================================================
 // Helper functions
 // ============================================================================
 
-/// Get `CoachesManager` from context resources
-fn get_coaches_manager(ctx: &ToolExecutionContext) -> AppResult<CoachesManager> {
+/// Get coaches repository from context resources
+fn get_coaches_manager(ctx: &ToolExecutionContext) -> &dyn CoachesRepository {
     ctx.resources.coaches_manager()
 }
 
@@ -186,7 +186,7 @@ impl McpTool for ListCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let category = args
@@ -382,7 +382,7 @@ impl McpTool for CreateCoachTool {
             })
             .unwrap_or_default();
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let request = CreateCoachRequest {
@@ -448,11 +448,11 @@ impl McpTool for GetCoachTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let coach = manager
-            .get(coach_id, ctx.user_id, tenant_id)
+            .get_by_id(coach_id, ctx.user_id, tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
 
@@ -580,7 +580,7 @@ impl McpTool for UpdateCoachTool {
                     .collect()
             });
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let request = UpdateCoachRequest {
@@ -649,7 +649,7 @@ impl McpTool for DeleteCoachTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let deleted = manager.delete(coach_id, ctx.user_id, tenant_id).await?;
@@ -709,7 +709,7 @@ impl McpTool for ToggleCoachFavoriteTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let is_favorite = manager
@@ -807,7 +807,7 @@ impl McpTool for SearchCoachesTool {
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let coaches = manager
@@ -876,7 +876,7 @@ impl McpTool for ActivateCoachTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let coach = manager
@@ -922,7 +922,7 @@ impl McpTool for DeactivateCoachTool {
     }
 
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let deactivated = manager.deactivate_coach(ctx.user_id, tenant_id).await?;
@@ -969,7 +969,7 @@ impl McpTool for GetActiveCoachTool {
     }
 
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let active_coach = manager.get_active_coach(ctx.user_id, tenant_id).await?;
@@ -1035,7 +1035,7 @@ impl McpTool for HideCoachTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
 
         manager.hide_coach(coach_id, ctx.user_id).await?;
 
@@ -1092,7 +1092,7 @@ impl McpTool for ShowCoachTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
 
         let shown = manager.show_coach(coach_id, ctx.user_id).await?;
 
@@ -1135,7 +1135,7 @@ impl McpTool for ListHiddenCoachesTool {
     }
 
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let hidden_coaches = manager.list_hidden_coaches(ctx.user_id, tenant_id).await?;

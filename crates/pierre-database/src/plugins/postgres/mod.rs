@@ -16,18 +16,26 @@ pub mod admin;
 pub mod api_key;
 /// Chat repository implementation
 pub mod chat;
+/// Coaches repository implementation
+pub mod coaches;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
 /// Messaging gateway repository implementations
 pub mod messaging;
+/// Mobility repository implementation (stretching exercises and yoga poses)
+pub mod mobility;
 /// OAuth token and authorization repository implementations
 pub mod oauth;
+/// Recipe repository implementation (CRUD with nutrition caching)
+pub mod recipes;
 /// Security and notification repository implementations
 pub mod security;
 /// Seeder repository for seed-only database operations
 pub mod seeder;
 /// Social insight repository implementation
 pub mod social;
+/// Store listings repository implementation (marketplace publishing workflow)
+pub mod store_listings;
 /// Tenant, tool selection, LLM credential, and fitness config repositories
 pub mod tenant;
 /// Usage tracking repository implementations

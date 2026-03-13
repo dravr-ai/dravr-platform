@@ -440,8 +440,7 @@ impl ChatRoutes {
         // Must have a system prompt (indicates coach conversation)
         let prompt = system_prompt?;
 
-        // Only SQLite is supported for coaches - PostgreSQL databases skip startup query
-        let coaches_manager = resources.coaches_manager().ok()?;
+        let coaches_manager = resources.coaches_manager();
 
         match coaches_manager
             .get_startup_query_by_system_prompt(prompt, tenant_id)
@@ -1317,7 +1316,8 @@ impl ChatRoutes {
     ) -> usize {
         // Try coach-level override via system prompt lookup
         if let Some(prompt) = system_prompt {
-            if let Ok(coaches_manager) = resources.coaches_manager() {
+            {
+                let coaches_manager = resources.coaches_manager();
                 if let Ok(Some(iterations)) = coaches_manager
                     .get_max_tool_iterations_by_system_prompt(prompt, tenant_id)
                     .await

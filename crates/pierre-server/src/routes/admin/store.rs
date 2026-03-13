@@ -14,14 +14,13 @@ use axum::{
 };
 use serde_json::json;
 use tracing::info;
-use uuid::Uuid;
 
 use crate::{
     admin::models::{AdminPermission, ValidatedAdminToken},
     errors::{AppError, AppResult},
     models::TenantId,
 };
-use pierre_database::database::StoreListingsManager;
+use pierre_database::plugins::StoreListingsRepository;
 
 use super::api_keys::json_response;
 use super::types::{CoachReviewQuery, ListPendingCoachesQuery, RejectCoachRequest};
@@ -44,17 +43,13 @@ pub(super) async fn handle_list_pending_coaches(
         ));
     }
 
-    let pool = context
-        .database
-        .sqlite_pool()
-        .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let store_manager = StoreListingsManager::new(pool.clone());
+    let repo: &dyn StoreListingsRepository = context.database.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coaches = store_manager
+    let coaches = repo
         .get_pending_review_coaches(tenant_id, query.limit, query.offset)
         .await?;
 
@@ -92,19 +87,13 @@ pub(super) async fn handle_approve_coach(
         ));
     }
 
-    let pool = context
-        .database
-        .sqlite_pool()
-        .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let store_manager = StoreListingsManager::new(pool.clone());
+    let repo: &dyn StoreListingsRepository = context.database.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coach = store_manager
-        .approve_coach(&coach_id, tenant_id, None::<Uuid>)
-        .await?;
+    let coach = repo.approve_coach(&coach_id, tenant_id, None).await?;
 
     info!(
         "Admin {} approved coach {} for Store in tenant {}",
@@ -146,18 +135,14 @@ pub(super) async fn handle_reject_coach(
         ));
     }
 
-    let pool = context
-        .database
-        .sqlite_pool()
-        .ok_or_else(|| AppError::internal("SQLite database required for coach store operations"))?;
-    let store_manager = StoreListingsManager::new(pool.clone());
+    let repo: &dyn StoreListingsRepository = context.database.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
         .map_err(|_| AppError::invalid_input(format!("Invalid tenant ID: {}", query.tenant_id)))?;
 
-    let coach = store_manager
-        .reject_coach(&coach_id, tenant_id, None::<Uuid>, &request.reason)
+    let coach = repo
+        .reject_coach(&coach_id, tenant_id, None, &request.reason)
         .await?;
 
     info!(

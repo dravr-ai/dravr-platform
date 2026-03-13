@@ -76,7 +76,7 @@ bench = false
 [features]
 default = ["sqlite", "server-full", "sqlx/migrate"]
 sqlite = []
-postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql"]
+postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/postgresql", "pierre-notifications/postgresql"]
 testing = []
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]
 toon = ["dep:toon-format"]

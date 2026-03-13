@@ -27,20 +27,7 @@ use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::database::fitness_configurations::FitnessConfigurationManager;
-
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-/// Get fitness configuration manager from context
-fn get_manager(ctx: &ToolExecutionContext) -> AppResult<FitnessConfigurationManager> {
-    let pool =
-        ctx.resources.database.sqlite_pool().ok_or_else(|| {
-            AppError::internal("SQLite database required for fitness configurations")
-        })?;
-    Ok(FitnessConfigurationManager::new(pool.clone()))
-}
+use pierre_database::plugins::FitnessConfigRepository;
 
 /// Get tenant ID (falls back to `user_id` if no tenant)
 fn get_tenant_id(ctx: &ToolExecutionContext) -> TenantId {
@@ -102,11 +89,11 @@ impl McpTool for GetFitnessConfigTool {
             "Getting fitness configuration"
         );
 
-        let manager = get_manager(ctx)?;
+        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
-        let config = manager
+        let config = repo
             .get_user_config(tenant_id, &user_id_str, configuration_name)
             .await?;
 
@@ -217,19 +204,17 @@ impl McpTool for SetFitnessConfigTool {
         let fitness_config: FitnessConfig = serde_json::from_value(config_json.clone())
             .map_err(|e| AppError::invalid_input(format!("Invalid fitness config format: {e}")))?;
 
-        let manager = get_manager(ctx)?;
+        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
         let config_id: String = if user_level {
-            manager
-                .save_user_config(tenant_id, &user_id_str, configuration_name, &fitness_config)
+            repo.save_user_config(tenant_id, &user_id_str, configuration_name, &fitness_config)
                 .await?
         } else {
             // Tenant-level config requires admin privileges
             ctx.require_admin().await?;
-            manager
-                .save_tenant_config(tenant_id, configuration_name, &fitness_config)
+            repo.save_tenant_config(tenant_id, configuration_name, &fitness_config)
                 .await?
         };
 
@@ -294,18 +279,18 @@ impl McpTool for ListFitnessConfigsTool {
             "Listing fitness configurations"
         );
 
-        let manager = get_manager(ctx)?;
+        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
         // Get user-specific configurations
-        let user_configs: Vec<String> = manager
+        let user_configs: Vec<String> = repo
             .list_user_configurations(tenant_id, &user_id_str)
             .await?;
 
         // Get tenant-level configurations if requested
         let tenant_configs: Vec<String> = if include_tenant {
-            manager.list_tenant_configurations(tenant_id).await?
+            repo.list_tenant_configurations(tenant_id).await?
         } else {
             Vec::new()
         };
@@ -395,7 +380,7 @@ impl McpTool for DeleteFitnessConfigTool {
             "Deleting fitness configuration"
         );
 
-        let manager = get_manager(ctx)?;
+        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
@@ -407,7 +392,7 @@ impl McpTool for DeleteFitnessConfigTool {
             None
         };
 
-        let deleted = manager
+        let deleted = repo
             .delete_config(tenant_id, user_id_option, configuration_name)
             .await?;
 

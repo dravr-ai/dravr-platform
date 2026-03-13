@@ -30,7 +30,7 @@ pub(super) async fn handle_list_versions(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let limit = query.limit.unwrap_or(50).clamp(1, 100);
     let versions = manager.get_versions(&id, tenant_id, limit).await?;
     let current_version = manager.get_current_version(&id).await?;
@@ -56,7 +56,7 @@ pub(super) async fn handle_get_version(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let version_data = manager
         .get_version(&id, version, tenant_id)
         .await?
@@ -75,7 +75,7 @@ pub(super) async fn handle_revert_version(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager
         .revert_to_version(&id, version, auth.user_id, tenant_id)
         .await?;
@@ -100,7 +100,7 @@ pub(super) async fn handle_diff_versions(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
 
     let version1 = manager
         .get_version(&id, v1, tenant_id)

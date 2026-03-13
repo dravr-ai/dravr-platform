@@ -56,14 +56,22 @@
 /// Type definitions for admin configuration
 pub mod types;
 
-/// Database operations for configuration management
+/// Database-agnostic repository trait for admin configuration
+pub mod repository;
+
+/// `SQLite` database operations for configuration management
 pub mod manager;
+
+/// `PostgreSQL` database operations for configuration management
+#[cfg(feature = "postgresql")]
+pub mod postgres_manager;
 
 /// Configuration service with caching and hot reload
 pub mod service;
 
 // Re-export main types for convenience
 pub use manager::AdminConfigManager;
+pub use repository::AdminConfigRepository;
 pub use service::{AdminConfigService, ParameterDefinition};
 pub use types::{
     AdminConfigCategory, AdminConfigParameter, ConfigAuditEntry, ConfigAuditFilter,

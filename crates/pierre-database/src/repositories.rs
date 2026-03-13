@@ -16,7 +16,8 @@ use pierre_core::models::a2a::{
     A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
 use pierre_core::models::coaches::{
-    Coach, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
+    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachVersion, CreateCoachRequest,
+    CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
 };
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
@@ -40,11 +41,13 @@ use pierre_core::models::{
     AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, TenantId,
     TenantOAuthCredentials,
 };
-use pierre_core::pagination::{CursorPage, PaginationParams};
+use pierre_core::pagination::{CursorPage, PaginationParams, StoreSortOrder};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use serde_json::Value;
+use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::database::store_listings::{CoachWithListing, StoreListing};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
     SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
@@ -1028,6 +1031,7 @@ pub trait RecipeRepository: Send + Sync {
         tenant_id: TenantId,
         query: &str,
         limit: Option<u32>,
+        offset: Option<u32>,
     ) -> AppResult<Vec<Recipe>>;
     /// Count recipes
     async fn count(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<u32>;
@@ -1092,6 +1096,142 @@ pub trait CoachesRepository: Send + Sync {
     ) -> AppResult<Vec<Coach>>;
     /// Count coachs
     async fn count(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<u32>;
+
+    // --- User methods ---
+
+    /// Fork a coach into a user-owned copy
+    async fn fork_coach(
+        &self,
+        source_coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach>;
+    /// Activate a coach for the user
+    async fn activate_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>>;
+    /// Deactivate the user's currently active coach
+    async fn deactivate_coach(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool>;
+    /// Get the user's currently active coach
+    async fn get_active_coach(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>>;
+
+    // --- Admin methods ---
+
+    /// Create a system-level coach
+    async fn create_system_coach(
+        &self,
+        admin_user_id: Uuid,
+        tenant_id: TenantId,
+        request: &CreateSystemCoachRequest,
+    ) -> AppResult<Coach>;
+    /// List all system coaches for a tenant
+    async fn list_system_coaches(&self, tenant_id: TenantId) -> AppResult<Vec<Coach>>;
+    /// Get a system coach by ID within a tenant
+    async fn get_system_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>>;
+    /// Get a system coach by ID regardless of tenant
+    async fn get_system_coach_any_tenant(&self, coach_id: &str) -> AppResult<Option<Coach>>;
+    /// Update a system coach
+    async fn update_system_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        request: &UpdateCoachRequest,
+    ) -> AppResult<Option<Coach>>;
+    /// Delete a system coach
+    async fn delete_system_coach(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+
+    // --- Assignment methods ---
+
+    /// Get user preferences for a coach (`is_favorite`, `is_hidden`, `usage_count`, `last_used_at`)
+    async fn get_user_preferences(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)>;
+    /// Assign a coach to a user
+    async fn assign_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        assigned_by: Uuid,
+    ) -> AppResult<bool>;
+    /// Unassign a coach from a user
+    async fn unassign_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
+    /// List all assignments for a coach
+    async fn list_assignments(&self, coach_id: &str) -> AppResult<Vec<CoachAssignment>>;
+    /// List assignments for a coach within a tenant
+    async fn list_assignments_for_tenant(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachAssignment>>;
+    /// Hide a coach from the user's view
+    async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
+    /// Show a previously hidden coach
+    async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool>;
+    /// List coaches hidden by a user
+    async fn list_hidden_coaches(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<Coach>>;
+
+    // --- Version methods ---
+
+    /// Create a new version snapshot for a coach
+    async fn create_version(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        change_summary: Option<&str>,
+    ) -> AppResult<i32>;
+    /// Get version history for a coach
+    async fn get_versions(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> AppResult<Vec<CoachVersion>>;
+    /// Get a specific version of a coach
+    async fn get_version(
+        &self,
+        coach_id: &str,
+        version: i32,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<CoachVersion>>;
+    /// Revert a coach to a previous version
+    async fn revert_to_version(
+        &self,
+        coach_id: &str,
+        version: i32,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach>;
+    /// Get the current version number for a coach
+    async fn get_current_version(&self, coach_id: &str) -> AppResult<i32>;
+    /// Look up a startup query by system prompt content
+    async fn get_startup_query_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>>;
+    /// Look up max tool iterations by system prompt content
+    async fn get_max_tool_iterations_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<i32>>;
 }
 
 /// Mobility (stretching exercises and yoga poses) read-only repository
@@ -1752,6 +1892,112 @@ pub trait SeederRepository: Send + Sync {
 }
 
 // ================================
+
+/// Store listings for the coach marketplace (cross-tenant browsing, install/uninstall)
+#[async_trait]
+pub trait StoreListingsRepository: Send + Sync {
+    /// Submit a coach for Store review (creates listing if needed)
+    async fn submit_for_review(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<StoreListing>;
+    /// Get a store listing by coach ID
+    async fn get_listing(&self, coach_id: &str) -> AppResult<Option<StoreListing>>;
+    /// Approve a coach and publish to the Store
+    async fn approve_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        admin_user_id: Option<Uuid>,
+    ) -> AppResult<CoachWithListing>;
+    /// Reject a coach with a reason
+    async fn reject_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        admin_user_id: Option<Uuid>,
+        reason: &str,
+    ) -> AppResult<CoachWithListing>;
+    /// Unpublish a coach (revert from published to draft)
+    async fn unpublish_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<CoachWithListing>;
+    /// Get coaches pending admin review
+    async fn get_pending_review_coaches(
+        &self,
+        tenant_id: TenantId,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>>;
+    /// Get coaches that have been rejected
+    async fn get_rejected_coaches(
+        &self,
+        tenant_id: TenantId,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>>;
+    /// Get store admin statistics
+    async fn get_store_admin_stats(&self, tenant_id: TenantId) -> AppResult<StoreAdminStats>;
+    /// Get author email for a coach
+    async fn get_author_email(&self, user_id: Uuid) -> AppResult<Option<String>>;
+    /// Get published coaches for the Store (cross-tenant)
+    async fn get_published_coaches(
+        &self,
+        category: Option<CoachCategory>,
+        sort_by: Option<&str>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>>;
+    /// Get published coaches with cursor-based pagination
+    async fn get_published_coaches_cursor(
+        &self,
+        category: Option<CoachCategory>,
+        sort_by: StoreSortOrder,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> AppResult<CursorPage<CoachWithListing>>;
+    /// Search published coaches by title/description/tags
+    async fn search_published_coaches(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>>;
+    /// Get a single published coach by ID (cross-tenant)
+    async fn get_published_coach(&self, coach_id: &str) -> AppResult<Option<CoachWithListing>>;
+    /// Get category counts for published coaches
+    async fn get_category_counts(&self) -> AppResult<HashMap<CoachCategory, i64>>;
+    /// Increment install count for a coach's store listing
+    async fn increment_install_count(&self, coach_id: &str) -> AppResult<()>;
+    /// Decrement install count for a coach's store listing
+    async fn decrement_install_count(&self, coach_id: &str) -> AppResult<()>;
+    /// Install a coach from the Store (creates user's copy)
+    async fn install_from_store(
+        &self,
+        source_coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach>;
+    /// Uninstall a coach (deletes user's copy, returns source coach ID)
+    async fn uninstall_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<String>;
+    /// Get user's installed coaches from the Store
+    async fn get_installed_coaches(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<Coach>>;
+    /// Create or ensure a store listing exists for a coach
+    async fn ensure_listing(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<StoreListing>;
+}
+
 // ================================
 // Database lifecycle trait (connection + migration only)
 // ================================

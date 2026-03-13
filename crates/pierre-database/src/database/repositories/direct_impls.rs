@@ -4,16 +4,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::{CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository};
+use super::{
+    CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
+    StoreListingsRepository,
+};
 use crate::database::coaches::CoachesManager;
 use crate::database::mobility::MobilityManager;
 use crate::database::recipes::RecipeManager;
 use crate::database::social::SocialManager;
+use crate::database::store_listings::{CoachWithListing, StoreListing, StoreListingsManager};
 use crate::database::Database;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coaches::{
-    Coach, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
+    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachVersion, CreateCoachRequest,
+    CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
 };
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
@@ -24,6 +30,8 @@ use pierre_core::models::{
     AdaptedInsight, FriendConnection, FriendStatus, InsightReaction, SharedInsight,
     UserSocialSettings,
 };
+use pierre_core::pagination::{CursorPage, StoreSortOrder};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 // ============================================================================
@@ -100,9 +108,10 @@ impl RecipeRepository for Database {
         tenant_id: TenantId,
         query: &str,
         limit: Option<u32>,
+        offset: Option<u32>,
     ) -> AppResult<Vec<Recipe>> {
         let mgr = RecipeManager::new(self.pool().clone());
-        mgr.search_recipes(user_id, tenant_id, query, limit, None)
+        mgr.search_recipes(user_id, tenant_id, query, limit, offset)
             .await
     }
 
@@ -199,6 +208,217 @@ impl CoachesRepository for Database {
     async fn count(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<u32> {
         let mgr = CoachesManager::new(self.pool().clone());
         mgr.count(user_id, tenant_id).await
+    }
+
+    // -- User methods --
+
+    async fn fork_coach(
+        &self,
+        source_coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.fork_coach(source_coach_id, user_id, tenant_id).await
+    }
+
+    async fn activate_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.activate_coach(coach_id, user_id, tenant_id).await
+    }
+
+    async fn deactivate_coach(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.deactivate_coach(user_id, tenant_id).await
+    }
+
+    async fn get_active_coach(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_active_coach(user_id, tenant_id).await
+    }
+
+    // -- Admin methods --
+
+    async fn create_system_coach(
+        &self,
+        admin_user_id: Uuid,
+        tenant_id: TenantId,
+        request: &CreateSystemCoachRequest,
+    ) -> AppResult<Coach> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.create_system_coach(admin_user_id, tenant_id, request)
+            .await
+    }
+
+    async fn list_system_coaches(&self, tenant_id: TenantId) -> AppResult<Vec<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.list_system_coaches(tenant_id).await
+    }
+
+    async fn get_system_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_system_coach(coach_id, tenant_id).await
+    }
+
+    async fn get_system_coach_any_tenant(&self, coach_id: &str) -> AppResult<Option<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_system_coach_any_tenant(coach_id).await
+    }
+
+    async fn update_system_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        request: &UpdateCoachRequest,
+    ) -> AppResult<Option<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.update_system_coach(coach_id, tenant_id, request).await
+    }
+
+    async fn delete_system_coach(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.delete_system_coach(coach_id, tenant_id).await
+    }
+
+    // -- Assignment methods --
+
+    async fn get_user_preferences(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+    ) -> AppResult<(bool, bool, u32, Option<DateTime<Utc>>)> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_user_preferences(coach_id, user_id).await
+    }
+
+    async fn assign_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        assigned_by: Uuid,
+    ) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.assign_coach(coach_id, user_id, assigned_by).await
+    }
+
+    async fn unassign_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.unassign_coach(coach_id, user_id).await
+    }
+
+    async fn list_assignments(&self, coach_id: &str) -> AppResult<Vec<CoachAssignment>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.list_assignments(coach_id).await
+    }
+
+    async fn list_assignments_for_tenant(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachAssignment>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.list_assignments_for_tenant(coach_id, tenant_id).await
+    }
+
+    async fn hide_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.hide_coach(coach_id, user_id).await
+    }
+
+    async fn show_coach(&self, coach_id: &str, user_id: Uuid) -> AppResult<bool> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.show_coach(coach_id, user_id).await
+    }
+
+    async fn list_hidden_coaches(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<Coach>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.list_hidden_coaches(user_id, tenant_id).await
+    }
+
+    // -- Version methods --
+
+    async fn create_version(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        change_summary: Option<&str>,
+    ) -> AppResult<i32> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.create_version(coach_id, user_id, change_summary).await
+    }
+
+    async fn get_versions(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        limit: u32,
+    ) -> AppResult<Vec<CoachVersion>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_versions(coach_id, tenant_id, limit).await
+    }
+
+    async fn get_version(
+        &self,
+        coach_id: &str,
+        version: i32,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<CoachVersion>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_version(coach_id, version, tenant_id).await
+    }
+
+    async fn revert_to_version(
+        &self,
+        coach_id: &str,
+        version: i32,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.revert_to_version(coach_id, version, user_id, tenant_id)
+            .await
+    }
+
+    async fn get_current_version(&self, coach_id: &str) -> AppResult<i32> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_current_version(coach_id).await
+    }
+
+    async fn get_startup_query_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_startup_query_by_system_prompt(system_prompt, tenant_id)
+            .await
+    }
+
+    async fn get_max_tool_iterations_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<i32>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_max_tool_iterations_by_system_prompt(system_prompt, tenant_id)
+            .await
     }
 }
 
@@ -474,5 +694,177 @@ impl SocialRepository for Database {
     async fn get_friend_count(&self, user_id: Uuid) -> AppResult<i64> {
         let mgr = SocialManager::new(self.pool().clone());
         mgr.get_friend_count(user_id).await
+    }
+}
+
+// ============================================================================
+// StoreListingsRepository
+// ============================================================================
+
+#[async_trait]
+impl StoreListingsRepository for Database {
+    async fn submit_for_review(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<StoreListing> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.submit_for_review(coach_id, user_id, tenant_id).await
+    }
+
+    async fn get_listing(&self, coach_id: &str) -> AppResult<Option<StoreListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_listing(coach_id).await
+    }
+
+    async fn approve_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        admin_user_id: Option<Uuid>,
+    ) -> AppResult<CoachWithListing> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.approve_coach(coach_id, tenant_id, admin_user_id).await
+    }
+
+    async fn reject_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+        admin_user_id: Option<Uuid>,
+        reason: &str,
+    ) -> AppResult<CoachWithListing> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.reject_coach(coach_id, tenant_id, admin_user_id, reason)
+            .await
+    }
+
+    async fn unpublish_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<CoachWithListing> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.unpublish_coach(coach_id, tenant_id).await
+    }
+
+    async fn get_pending_review_coaches(
+        &self,
+        tenant_id: TenantId,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_pending_review_coaches(tenant_id, limit, offset)
+            .await
+    }
+
+    async fn get_rejected_coaches(
+        &self,
+        tenant_id: TenantId,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_rejected_coaches(tenant_id, limit, offset).await
+    }
+
+    async fn get_store_admin_stats(&self, tenant_id: TenantId) -> AppResult<StoreAdminStats> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_store_admin_stats(tenant_id).await
+    }
+
+    async fn get_author_email(&self, user_id: Uuid) -> AppResult<Option<String>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_author_email(user_id).await
+    }
+
+    async fn get_published_coaches(
+        &self,
+        category: Option<CoachCategory>,
+        sort_by: Option<&str>,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_published_coaches(category, sort_by, limit, offset)
+            .await
+    }
+
+    async fn get_published_coaches_cursor(
+        &self,
+        category: Option<CoachCategory>,
+        sort_by: StoreSortOrder,
+        limit: u32,
+        cursor: Option<&str>,
+    ) -> AppResult<CursorPage<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_published_coaches_cursor(category, sort_by, limit, cursor)
+            .await
+    }
+
+    async fn search_published_coaches(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> AppResult<Vec<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.search_published_coaches(query, limit).await
+    }
+
+    async fn get_published_coach(&self, coach_id: &str) -> AppResult<Option<CoachWithListing>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_published_coach(coach_id).await
+    }
+
+    async fn get_category_counts(&self) -> AppResult<HashMap<CoachCategory, i64>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_category_counts().await
+    }
+
+    async fn increment_install_count(&self, coach_id: &str) -> AppResult<()> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.increment_install_count(coach_id).await
+    }
+
+    async fn decrement_install_count(&self, coach_id: &str) -> AppResult<()> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.decrement_install_count(coach_id).await
+    }
+
+    async fn install_from_store(
+        &self,
+        source_coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Coach> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.install_from_store(source_coach_id, user_id, tenant_id)
+            .await
+    }
+
+    async fn uninstall_coach(
+        &self,
+        coach_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<String> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.uninstall_coach(coach_id, user_id, tenant_id).await
+    }
+
+    async fn get_installed_coaches(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<Coach>> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.get_installed_coaches(user_id, tenant_id).await
+    }
+
+    async fn ensure_listing(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<StoreListing> {
+        let mgr = StoreListingsManager::new(self.pool().clone());
+        mgr.ensure_listing(coach_id, tenant_id).await
     }
 }

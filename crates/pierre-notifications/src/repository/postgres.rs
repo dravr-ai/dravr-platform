@@ -251,8 +251,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .bind(expo_push_token)
         .bind(platform)
         .bind(device_name)
@@ -268,8 +268,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             WHERE user_id = $1 AND tenant_id = $2 AND expo_push_token = $3
             ",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .bind(expo_push_token)
         .fetch_one(&self.pool)
         .await
@@ -292,8 +292,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ORDER BY updated_at DESC
             ",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get device tokens: {e}")))?;
@@ -317,8 +317,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         )
         .bind(now)
         .bind(token_id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to deactivate device token: {e}")))?;
@@ -338,8 +338,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ORDER BY category
             ",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get notification preferences: {e}")))?;
@@ -381,8 +381,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(params.user_id)
-        .bind(params.tenant_id.0)
+        .bind(params.user_id.to_string())
+        .bind(params.tenant_id.to_string())
         .bind(&params.category)
         .bind(params.enabled)
         .bind(&sub_prefs_json)
@@ -404,8 +404,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             WHERE user_id = $1 AND tenant_id = $2 AND category = $3
             ",
         )
-        .bind(params.user_id)
-        .bind(params.tenant_id.0)
+        .bind(params.user_id.to_string())
+        .bind(params.tenant_id.to_string())
         .bind(&params.category)
         .fetch_one(&self.pool)
         .await
@@ -433,8 +433,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(params.user_id)
-        .bind(params.tenant_id.0)
+        .bind(params.user_id.to_string())
+        .bind(params.tenant_id.to_string())
         .bind(params.category.as_str())
         .bind(&params.notification_type)
         .bind(&params.title)
@@ -481,7 +481,9 @@ impl NotificationRepository for PostgresNotificationRepository {
 
         // Get total count
         let count_query = format!("SELECT COUNT(*) as cnt FROM notifications WHERE {conditions}");
-        let mut count_q = sqlx::query(&count_query).bind(user_id).bind(tenant_id.0);
+        let mut count_q = sqlx::query(&count_query)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string());
         if let Some(cat) = category {
             count_q = count_q.bind(cat);
         }
@@ -495,8 +497,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         let unread_row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = $1 AND tenant_id = $2 AND read_at IS NULL",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to count unread notifications: {e}")))?;
@@ -520,7 +522,9 @@ impl NotificationRepository for PostgresNotificationRepository {
         };
         let _ = param_offset; // used in format string via numbered placeholders
 
-        let mut data_q = sqlx::query(&data_query).bind(user_id).bind(tenant_id.0);
+        let mut data_q = sqlx::query(&data_query)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string());
         if let Some(cat) = category {
             data_q = data_q.bind(cat);
         }
@@ -555,8 +559,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         )
         .bind(now)
         .bind(notification_id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to mark notification read: {e}")))?;
@@ -578,8 +582,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(now)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to mark all notifications read: {e}")))?;
@@ -600,8 +604,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(notification_id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete notification: {e}")))?;
@@ -613,8 +617,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         let row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM notifications WHERE user_id = $1 AND tenant_id = $2 AND read_at IS NULL",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to count unread notifications: {e}")))?;
@@ -635,8 +639,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             WHERE user_id = $1 AND tenant_id = $2 AND category = $3 AND created_at >= $4
             ",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .bind(category)
         .bind(since)
         .fetch_one(&self.pool)
@@ -666,8 +670,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         )
         .bind(now)
         .bind(notification_id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to mark notification opened: {e}")))?;
@@ -691,8 +695,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         )
         .bind(now)
         .bind(notification_id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to mark notification dismissed: {e}")))?;
@@ -732,8 +736,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         );
 
         let mut query = sqlx::query(&totals_sql)
-            .bind(user_id)
-            .bind(tenant_id.0)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
             .bind(since_val)
             .bind(until_val);
         if let Some(cat) = category {
@@ -780,8 +784,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         );
 
         let mut avg_query = sqlx::query(&avg_sql)
-            .bind(user_id)
-            .bind(tenant_id.0)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
             .bind(since_val)
             .bind(until_val);
         if let Some(cat) = category {
@@ -812,8 +816,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         );
 
         let mut breakdown_query = sqlx::query(&breakdown_sql)
-            .bind(user_id)
-            .bind(tenant_id.0)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
             .bind(since_val)
             .bind(until_val);
         if let Some(cat) = category {
@@ -858,8 +862,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
@@ -879,8 +883,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         let row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM scheduled_notifications WHERE user_id = $1 AND tenant_id = $2",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| {
@@ -905,8 +909,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(params.user_id)
-        .bind(params.tenant_id.0)
+        .bind(params.user_id.to_string())
+        .bind(params.tenant_id.to_string())
         .bind(&params.notification_type)
         .bind(&params.schedule_cron)
         .bind(&params.timezone)
@@ -942,8 +946,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ORDER BY created_at DESC
             ",
         )
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list scheduled notifications: {e}")))?;
@@ -964,8 +968,8 @@ impl NotificationRepository for PostgresNotificationRepository {
             ",
         )
         .bind(id)
-        .bind(user_id)
-        .bind(tenant_id.0)
+        .bind(user_id.to_string())
+        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to delete scheduled notification: {e}")))?;
@@ -1027,8 +1031,8 @@ impl NotificationRepository for PostgresNotificationRepository {
         }
         query = query
             .bind(params.id)
-            .bind(params.user_id)
-            .bind(params.tenant_id.0);
+            .bind(params.user_id.to_string())
+            .bind(params.tenant_id.to_string());
 
         let result = query.execute(&self.pool).await.map_err(|e| {
             AppError::database(format!("Failed to update scheduled notification: {e}"))
