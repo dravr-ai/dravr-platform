@@ -1,0 +1,179 @@
+# ABOUTME: Deploys new Docker images to GCP Cloud Run after Publish Images succeeds
+# ABOUTME: Updates backend API, frontend, and seed job images in northamerica-northeast1
+
+name: Deploy to GCP
+
+on:
+  workflow_run:
+    workflows: ["Publish Images"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Resolve image tags from the triggering Publish Images workflow
+  # ---------------------------------------------------------------------------
+  resolve-images:
+    name: Resolve Image Tags
+    runs-on: ubuntu-latest
+    # Only proceed if Publish Images succeeded
+    if: github.event.workflow_run.conclusion == 'success'
+
+    outputs:
+      short_sha: ${{ steps.sha.outputs.short_sha }}
+      registry: ${{ steps.registry.outputs.registry }}
+      gcp_configured: ${{ steps.secrets.outputs.gcp_configured }}
+
+    steps:
+      - name: Resolve commit SHA
+        id: sha
+        run: |
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          SHORT_SHA="${SHA:0:8}"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve registry URL
+        id: registry
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
+          echo "Using registry: ${REGISTRY}"
+
+      - name: Check GCP secrets availability
+        id: secrets
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$DEPLOYER_SA" ]; then
+            echo "gcp_configured=true" >> "$GITHUB_OUTPUT"
+            echo "GCP deployment secrets are configured"
+          else
+            echo "gcp_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::GCP deployment secrets not configured — skipping deployment"
+          fi
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          DEPLOYER_SA: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+  # ---------------------------------------------------------------------------
+  # Deploy backend API service to Cloud Run
+  # ---------------------------------------------------------------------------
+  deploy-api:
+    name: Deploy Backend API
+    runs-on: ubuntu-latest
+    needs: resolve-images
+    if: needs.resolve-images.outputs.gcp_configured == 'true'
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Deploy backend API to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}
+
+      - name: Verify backend API deployment
+        run: |
+          echo "Backend API deployed successfully to ${{ vars.GCP_DEV_SERVICE_NAME }}-api"
+          echo "Image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}"
+
+  # ---------------------------------------------------------------------------
+  # Deploy frontend service to Cloud Run
+  # ---------------------------------------------------------------------------
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: resolve-images
+    if: needs.resolve-images.outputs.gcp_configured == 'true'
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Deploy frontend to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ needs.resolve-images.outputs.registry }}/frontend:${{ needs.resolve-images.outputs.short_sha }}
+
+      - name: Verify frontend deployment
+        run: |
+          echo "Frontend deployed successfully to ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend"
+          echo "Image: ${{ needs.resolve-images.outputs.registry }}/frontend:${{ needs.resolve-images.outputs.short_sha }}"
+
+  # ---------------------------------------------------------------------------
+  # Update seed job images (without executing them)
+  # ---------------------------------------------------------------------------
+  update-seed-jobs:
+    name: Update Seed Job Images
+    runs-on: ubuntu-latest
+    needs: resolve-images
+    if: needs.resolve-images.outputs.gcp_configured == 'true'
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Update seed job images
+        run: |
+          IMAGE="${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}"
+          REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
+          SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}"
+
+          echo "Updating seed job images with: ${IMAGE}"
+
+          for JOB in seed-bootstrap seed-coaches seed-mobility seed-synthetic; do
+            JOB_NAME="${SERVICE}-${JOB}"
+            echo "Updating ${JOB_NAME}..."
+            gcloud run jobs update "${JOB_NAME}" \
+              --image="${IMAGE}" \
+              --region="${REGION}" \
+              --quiet
+          done
+
+          echo "All seed job images updated successfully"
+
+  # ---------------------------------------------------------------------------
+  # Workflow completion summary
+  # ---------------------------------------------------------------------------
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [deploy-api, deploy-frontend, update-seed-jobs]
+    if: always()
+
+    steps:
+      - name: Report deployment status
+        run: |
+          echo "Deployment workflow completed"
+          echo "Backend API deployment: ${{ needs.deploy-api.result }}"
+          echo "Frontend deployment: ${{ needs.deploy-frontend.result }}"
+          echo "Seed job updates: ${{ needs.update-seed-jobs.result }}"
+
+          if [[ "${{ needs.deploy-api.result }}" == "success" && \
+                "${{ needs.deploy-frontend.result }}" == "success" && \
+                "${{ needs.update-seed-jobs.result }}" == "success" ]]; then
+            echo "All deployments completed successfully"
+            exit 0
+          else
+            echo "One or more deployments failed"
+            exit 1
+          fi
