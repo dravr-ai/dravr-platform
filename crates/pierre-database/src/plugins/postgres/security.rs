@@ -671,8 +671,8 @@ impl NotificationRepository for PostgresDatabase {
                 success: row.get("success"),
                 message: row.get("message"),
                 expires_at: row.get("expires_at"),
-                created_at: created.to_rfc3339(),
-                read_at: read.map(|r| r.to_rfc3339()),
+                created_at: created,
+                read_at: read,
             });
         }
 
@@ -749,8 +749,8 @@ impl NotificationRepository for PostgresDatabase {
                 success: row.get("success"),
                 message: row.get("message"),
                 expires_at: row.get("expires_at"),
-                created_at: created.to_rfc3339(),
-                read_at: read.map(|r| r.to_rfc3339()),
+                created_at: created,
+                read_at: read,
             });
         }
 
