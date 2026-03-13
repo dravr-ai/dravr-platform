@@ -35,15 +35,15 @@ use pierre_core::models::coaches::{
     Coach, CoachAssignment, CoachCategory, CoachVisibility, CreateSystemCoachRequest,
     UpdateCoachRequest,
 };
-use pierre_database::database::coaches::CoachesManager;
+use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::plugins::TenantRepository;
 
 // ============================================================================
 // Helper functions
 // ============================================================================
 
-/// Get `CoachesManager` from context resources
-fn get_coaches_manager(ctx: &ToolExecutionContext) -> AppResult<CoachesManager> {
+/// Get coaches repository from context resources
+fn get_coaches_manager(ctx: &ToolExecutionContext) -> &dyn CoachesRepository {
     ctx.resources.coaches_manager()
 }
 
@@ -202,7 +202,7 @@ impl McpTool for AdminListSystemCoachesTool {
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         tracing::debug!(user_id = %ctx.user_id, "Admin listing system coaches");
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let coaches = manager.list_system_coaches(tenant_id).await?;
@@ -369,7 +369,7 @@ impl McpTool for AdminCreateSystemCoachTool {
             visibility,
         };
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let coach = manager
@@ -432,7 +432,7 @@ impl McpTool for AdminGetSystemCoachTool {
 
         tracing::debug!(user_id = %ctx.user_id, coach_id = %coach_id, "Admin getting system coach");
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         manager
@@ -580,7 +580,7 @@ impl McpTool for AdminUpdateSystemCoachTool {
             sample_prompts: None,
         };
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         manager
@@ -652,7 +652,7 @@ impl McpTool for AdminDeleteSystemCoachTool {
 
         tracing::debug!(user_id = %ctx.user_id, coach_id = %coach_id, "Admin deleting system coach");
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         let deleted = manager.delete_system_coach(coach_id, tenant_id).await?;
@@ -743,7 +743,7 @@ impl McpTool for AdminAssignCoachTool {
             "Admin assigning coach to user"
         );
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         // Verify target user belongs to the same tenant as the admin
@@ -849,7 +849,7 @@ impl McpTool for AdminUnassignCoachTool {
             "Admin unassigning coach from user"
         );
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         // Verify target user belongs to the same tenant as the admin
@@ -936,7 +936,7 @@ impl McpTool for AdminListCoachAssignmentsTool {
             "Admin listing coach assignments"
         );
 
-        let manager = get_coaches_manager(ctx)?;
+        let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
 
         // Verify the coach belongs to the admin's tenant

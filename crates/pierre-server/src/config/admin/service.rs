@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::manager::AdminConfigManager;
+use super::repository::AdminConfigRepository;
 use super::types::{
     AdminConfigCategory, AdminConfigParameter, ConfigAuditFilter, ConfigCatalogResponse,
     ConfigDataType, ConfigOverride, ConfigValidationError, ParameterRange, ResetConfigRequest,
@@ -53,7 +54,7 @@ pub struct ParameterDefinition {
 
 /// Admin configuration service for managing runtime configuration
 pub struct AdminConfigService {
-    manager: AdminConfigManager,
+    manager: Box<dyn AdminConfigRepository>,
     /// Cached parameter definitions (loaded at startup)
     definitions: Arc<RwLock<HashMap<String, ParameterDefinition>>>,
     /// Cached effective values (refreshed on changes)
@@ -63,14 +64,32 @@ pub struct AdminConfigService {
 }
 
 impl AdminConfigService {
-    /// Create a new admin config service
+    /// Create an admin config service backed by `SQLite`
     ///
     /// # Errors
     ///
     /// Returns an error if the initial cache refresh fails.
     pub async fn new(pool: SqlitePool) -> AppResult<Self> {
-        let manager = AdminConfigManager::new(pool);
+        Self::from_repository(Box::new(AdminConfigManager::new(pool))).await
+    }
 
+    /// Create an admin config service backed by `PostgreSQL`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initial cache refresh fails.
+    #[cfg(feature = "postgresql")]
+    pub async fn from_postgres(pool: sqlx::PgPool) -> AppResult<Self> {
+        use super::postgres_manager::PostgresAdminConfigManager;
+        Self::from_repository(Box::new(PostgresAdminConfigManager::new(pool))).await
+    }
+
+    /// Create an admin config service from any repository implementation
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initial cache refresh fails.
+    async fn from_repository(manager: Box<dyn AdminConfigRepository>) -> AppResult<Self> {
         // Load categories from database
         let categories = manager.get_categories().await.unwrap_or_default();
 

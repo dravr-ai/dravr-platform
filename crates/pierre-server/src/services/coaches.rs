@@ -11,7 +11,7 @@ use pierre_core::models::coaches::CoachPrerequisites;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use pierre_database::database::coaches::CoachesManager;
+use pierre_database::database::repositories::CoachesRepository;
 use pierre_database::database::repositories::TenantRepository;
 use uuid::Uuid;
 
@@ -95,7 +95,7 @@ pub struct BulkAssignmentResult {
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
 pub async fn bulk_assign_coach<DB: TenantRepository>(
-    manager: &CoachesManager,
+    manager: &dyn CoachesRepository,
     database: &DB,
     coach_id: &str,
     tenant_id: TenantId,
@@ -134,7 +134,7 @@ pub async fn bulk_assign_coach<DB: TenantRepository>(
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
 pub async fn bulk_unassign_coach<DB: TenantRepository>(
-    manager: &CoachesManager,
+    manager: &dyn CoachesRepository,
     database: &DB,
     coach_id: &str,
     tenant_id: TenantId,

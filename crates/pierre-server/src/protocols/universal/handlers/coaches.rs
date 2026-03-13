@@ -13,8 +13,9 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
     ListCoachesFilter, UpdateCoachRequest,
 };
-use pierre_database::database::coaches::CoachesManager;
-use pierre_database::database::repositories::{TenantRepository, UserRepository};
+use pierre_database::database::repositories::{
+    CoachesRepository, TenantRepository, UserRepository,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;
@@ -36,12 +37,9 @@ struct CreateCoachParams {
     sample_prompts: Vec<String>,
 }
 
-/// Get coaches manager from resources
-fn get_coaches_manager(executor: &UniversalToolExecutor) -> Result<CoachesManager, ProtocolError> {
-    executor
-        .resources
-        .coaches_manager()
-        .map_err(|e| ProtocolError::InternalError(e.to_string()))
+/// Get coaches repository from resources
+fn get_coaches_manager(executor: &UniversalToolExecutor) -> &dyn CoachesRepository {
+    executor.resources.coaches_manager()
 }
 
 /// Handle `list_coaches` tool - list user's coaches with optional filtering
@@ -126,7 +124,7 @@ pub fn handle_list_coaches(
             include_hidden,
         };
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coaches = manager
             .list(user_id, tenant_id, &filter)
             .await
@@ -229,7 +227,7 @@ pub fn handle_create_coach(
             sample_prompts: params.sample_prompts,
         };
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .create(user_id, tenant_id, &create_request)
             .await
@@ -292,9 +290,9 @@ pub fn handle_get_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
-            .get(coach_id, user_id, tenant_id)
+            .get_by_id(coach_id, user_id, tenant_id)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to get coach: {e}")))?;
 
@@ -418,7 +416,7 @@ pub fn handle_update_coach(
                 }),
         };
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .update(coach_id, user_id, tenant_id, &update_request)
             .await
@@ -488,7 +486,7 @@ pub fn handle_delete_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let deleted = manager
             .delete(coach_id, user_id, tenant_id)
             .await
@@ -553,7 +551,7 @@ pub fn handle_toggle_coach_favorite(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let is_favorite = manager
             .toggle_favorite(coach_id, user_id, tenant_id)
             .await
@@ -638,7 +636,7 @@ pub fn handle_search_coaches(
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coaches = manager
             .search(user_id, tenant_id, query, limit, offset)
             .await
@@ -722,7 +720,7 @@ pub fn handle_activate_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .activate_coach(coach_id, user_id, tenant_id)
             .await
@@ -780,7 +778,7 @@ pub fn handle_deactivate_coach(
             .parse()
             .map_err(|_| ProtocolError::InvalidRequest("Invalid tenant_id format".to_owned()))?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let deactivated = manager
             .deactivate_coach(user_id, tenant_id)
             .await
@@ -830,7 +828,7 @@ pub fn handle_get_active_coach(
             .parse()
             .map_err(|_| ProtocolError::InvalidRequest("Invalid tenant_id format".to_owned()))?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .get_active_coach(user_id, tenant_id)
             .await
@@ -906,7 +904,7 @@ pub fn handle_hide_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let success = manager
             .hide_coach(coach_id, user_id)
             .await
@@ -962,7 +960,7 @@ pub fn handle_show_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let success = manager
             .show_coach(coach_id, user_id)
             .await
@@ -1012,7 +1010,7 @@ pub fn handle_list_hidden_coaches(
             .parse()
             .map_err(|_| ProtocolError::InvalidRequest("Invalid tenant_id format".to_owned()))?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coaches = manager
             .list_hidden_coaches(user_id, tenant_id)
             .await
@@ -1169,7 +1167,7 @@ pub fn handle_admin_list_system_coaches(
         let tenant_id =
             verify_admin_access(executor, user_id, request.tenant_id.as_deref()).await?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coaches = manager.list_system_coaches(tenant_id).await.map_err(|e| {
             ProtocolError::InternalError(format!("Failed to list system coaches: {e}"))
         })?;
@@ -1276,7 +1274,7 @@ pub fn handle_admin_create_system_coach(
             visibility,
         };
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .create_system_coach(user_id, tenant_id, &create_request)
             .await
@@ -1340,7 +1338,7 @@ pub fn handle_admin_get_system_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .get_system_coach(coach_id, tenant_id)
             .await
@@ -1465,7 +1463,7 @@ pub fn handle_admin_update_system_coach(
                 }),
         };
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let coach = manager
             .update_system_coach(coach_id, tenant_id, &update_request)
             .await
@@ -1536,7 +1534,7 @@ pub fn handle_admin_delete_system_coach(
                 ProtocolError::InvalidRequest("Missing required parameter: coach_id".to_owned())
             })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
         let deleted = manager
             .delete_system_coach(coach_id, tenant_id)
             .await
@@ -1613,7 +1611,7 @@ pub fn handle_admin_assign_coach(
             ProtocolError::InvalidRequest(format!("Invalid user_id: {target_user_id_str}"))
         })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
 
         // First verify the coach exists and is a system coach in this tenant
         let coach = manager
@@ -1696,7 +1694,7 @@ pub fn handle_admin_unassign_coach(
             ProtocolError::InvalidRequest(format!("Invalid user_id: {target_user_id_str}"))
         })?;
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
 
         // Verify target user belongs to the same tenant as the admin
         verify_user_tenant_membership(executor, target_user_id, tenant_id).await?;
@@ -1762,7 +1760,7 @@ pub fn handle_admin_list_coach_assignments(
 
         let coach_id = request.parameters.get("coach_id").and_then(Value::as_str);
 
-        let manager = get_coaches_manager(executor)?;
+        let manager = get_coaches_manager(executor);
 
         // Currently the database method requires a coach_id
         // If no coach_id provided, return error for now

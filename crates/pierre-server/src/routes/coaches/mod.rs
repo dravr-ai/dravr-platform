@@ -26,7 +26,8 @@ use axum::{
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::{coaches::CoachesManager, store_listings::StoreListingsManager};
+use pierre_database::database::repositories::CoachesRepository;
+use pierre_database::plugins::StoreListingsRepository;
 use std::sync::Arc;
 
 pub use types::{
@@ -137,18 +138,14 @@ pub(super) fn get_user_tenant(auth: &AuthResult) -> Result<TenantId, AppError> {
         .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
 }
 
-/// Get coaches manager from server resources
-pub(super) fn get_coaches_manager(
-    resources: &Arc<ServerResources>,
-) -> Result<CoachesManager, AppError> {
+/// Get coaches repository from server resources
+pub(super) fn get_coaches_manager(resources: &Arc<ServerResources>) -> &dyn CoachesRepository {
     resources.coaches_manager()
 }
 
-/// Get store listings manager from server resources
-pub(super) fn get_store_manager(
-    resources: &Arc<ServerResources>,
-) -> Result<StoreListingsManager, AppError> {
-    resources.store_listings_manager()
+/// Get store listings repository from server resources
+pub(super) fn get_store_manager(resources: &Arc<ServerResources>) -> &dyn StoreListingsRepository {
+    resources.store_listings_repository()
 }
 
 /// Build metadata for responses

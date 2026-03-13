@@ -16,7 +16,8 @@ use axum::{
 };
 use pierre_core::models::coaches::Coach;
 use pierre_core::models::coaches::UpdateCoachRequest;
-use pierre_database::database::store_listings::{CoachWithListing, StoreListingsManager};
+use pierre_database::database::store_listings::CoachWithListing;
+use pierre_database::plugins::StoreListingsRepository;
 use std::sync::Arc;
 
 #[cfg(feature = "client-notifications")]
@@ -38,14 +39,7 @@ pub(super) async fn handle_admin_list(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let Ok(manager) = super::get_coaches_manager(&resources) else {
-        let response = ListCoachesResponse {
-            total: 0,
-            coaches: vec![],
-            metadata: super::build_metadata(),
-        };
-        return Ok((StatusCode::OK, Json(response)).into_response());
-    };
+    let manager = super::get_coaches_manager(&resources);
     let coaches = manager.list_system_coaches(tenant_id).await?;
 
     let response = ListCoachesResponse {
@@ -67,7 +61,7 @@ pub(super) async fn handle_admin_create(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager
         .create_system_coach(auth.user_id, tenant_id, &body.into())
         .await?;
@@ -86,7 +80,7 @@ pub(super) async fn handle_admin_get(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager
         .get_system_coach(&id, tenant_id)
         .await?
@@ -107,7 +101,7 @@ pub(super) async fn handle_admin_update(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let request: UpdateCoachRequest = body.into();
     let coach = manager
         .update_system_coach(&id, tenant_id, &request)
@@ -146,7 +140,7 @@ pub(super) async fn handle_admin_delete(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let deleted = manager.delete_system_coach(&id, tenant_id).await?;
 
     if !deleted {
@@ -170,7 +164,7 @@ pub(super) async fn handle_admin_assign(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
 
     // Verify the coach exists and is a system coach (also used for notification body)
     let coach: Coach = manager
@@ -179,7 +173,7 @@ pub(super) async fn handle_admin_assign(
         .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
 
     let result = coaches_service::bulk_assign_coach(
-        &manager,
+        manager,
         resources.database.as_ref(),
         &id,
         tenant_id,
@@ -226,7 +220,7 @@ pub(super) async fn handle_admin_unassign(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
 
     // Verify the coach exists
     manager
@@ -235,7 +229,7 @@ pub(super) async fn handle_admin_unassign(
         .ok_or_else(|| AppError::not_found(format!("System coach {id}")))?;
 
     let result = coaches_service::bulk_unassign_coach(
-        &manager,
+        manager,
         resources.database.as_ref(),
         &id,
         tenant_id,
@@ -261,7 +255,7 @@ pub(super) async fn handle_admin_list_assignments(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
 
     // Verify the coach exists
     manager
@@ -292,7 +286,7 @@ pub(super) async fn handle_admin_store_stats(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     let stats = store_manager.get_store_admin_stats(tenant_id).await?;
 
     let response = StoreAdminStatsResponse {
@@ -316,12 +310,12 @@ pub(super) async fn handle_admin_review_queue(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     let coaches = store_manager
         .get_pending_review_coaches(tenant_id, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(&store_manager, coaches).await?;
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -344,13 +338,13 @@ pub(super) async fn handle_admin_published(
     let auth = super::authenticate(&headers, &resources).await?;
     require_admin(auth.user_id, &resources.database).await?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     let sort_by = params.sort_by.as_deref();
     let coaches = store_manager
         .get_published_coaches(None, sort_by, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(&store_manager, coaches).await?;
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -374,12 +368,12 @@ pub(super) async fn handle_admin_rejected(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     let coaches = store_manager
         .get_rejected_coaches(tenant_id, params.limit, params.offset)
         .await?;
 
-    let coaches_with_email = enrich_coaches_with_email(&store_manager, coaches).await?;
+    let coaches_with_email = enrich_coaches_with_email(store_manager, coaches).await?;
     // Paginated results with limits - count never exceeds u32
     #[allow(clippy::cast_possible_truncation)]
     let total = coaches_with_email.len() as u32;
@@ -403,9 +397,9 @@ pub(super) async fn handle_admin_approve(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     store_manager
-        .approve_coach(&id, tenant_id, auth.user_id)
+        .approve_coach(&id, tenant_id, Some(auth.user_id))
         .await?;
 
     let response = StoreActionResponse {
@@ -431,9 +425,9 @@ pub(super) async fn handle_admin_reject(
     let rejection_reason =
         coaches_service::format_rejection_reason(&body.reason, body.notes.as_deref());
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     store_manager
-        .reject_coach(&id, tenant_id, auth.user_id, &rejection_reason)
+        .reject_coach(&id, tenant_id, Some(auth.user_id), &rejection_reason)
         .await?;
 
     let response = StoreActionResponse {
@@ -455,7 +449,7 @@ pub(super) async fn handle_admin_unpublish(
     require_admin(auth.user_id, &resources.database).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let store_manager = super::get_store_manager(&resources)?;
+    let store_manager = super::get_store_manager(&resources);
     store_manager.unpublish_coach(&id, tenant_id).await?;
 
     let response = StoreActionResponse {
@@ -469,7 +463,7 @@ pub(super) async fn handle_admin_unpublish(
 
 /// Enrich coaches with author email information
 pub(super) async fn enrich_coaches_with_email(
-    store_manager: &StoreListingsManager,
+    store_manager: &dyn StoreListingsRepository,
     coaches: Vec<CoachWithListing>,
 ) -> Result<Vec<StoreCoachResponse>, AppError> {
     let mut result = Vec::with_capacity(coaches.len());

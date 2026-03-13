@@ -28,9 +28,8 @@ use crate::{
     models::TenantId, pagination::StoreSortOrder,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::{
-    CoachCategory, CoachWithListing, PublishStatus, StoreListingsManager,
-};
+use pierre_database::database::{CoachCategory, CoachWithListing, PublishStatus};
+use pierre_database::plugins::StoreListingsRepository;
 
 /// Query parameters for browsing published coaches
 #[derive(Debug, Deserialize)]
@@ -231,11 +230,9 @@ impl StoreRoutes {
             .ok_or_else(|| AppError::auth_invalid("No active tenant in session"))
     }
 
-    /// Get store listings manager from server resources
-    fn get_store_manager(
-        resources: &Arc<ServerResources>,
-    ) -> Result<StoreListingsManager, AppError> {
-        resources.store_listings_manager()
+    /// Get store listings repository from server resources
+    fn get_store_manager(resources: &Arc<ServerResources>) -> &dyn StoreListingsRepository {
+        resources.store_listings_repository()
     }
 
     /// Build response metadata
@@ -254,7 +251,7 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         let category = query.category.as_ref().map(|c| CoachCategory::parse(c));
         let sort_by = query
@@ -297,7 +294,7 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         // Parse coach ID to validate format
         Uuid::parse_str(&coach_id)
@@ -325,7 +322,7 @@ impl StoreRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         // Use optimized single-query category count (replaces 7 queries with 1)
         let counts = manager.get_category_counts().await?;
@@ -387,7 +384,7 @@ impl StoreRoutes {
             return Err(AppError::invalid_input("Search query cannot be empty"));
         }
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         // Search across all tenants (global Store)
         let coaches = manager
@@ -421,7 +418,7 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         // Validate coach ID format
         Uuid::parse_str(&coach_id)
@@ -470,7 +467,7 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         // Validate coach ID format
         Uuid::parse_str(&coach_id)
@@ -503,7 +500,7 @@ impl StoreRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_user_tenant(&auth)?;
 
-        let manager = Self::get_store_manager(&resources)?;
+        let manager = Self::get_store_manager(&resources);
 
         let coaches = manager
             .get_installed_coaches(auth.user_id, tenant_id)

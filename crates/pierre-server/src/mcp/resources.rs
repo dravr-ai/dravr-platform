@@ -48,14 +48,11 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::tenant::{oauth_manager::TenantOAuthManager, TenantOAuthClient};
-use pierre_database::database::coaches::CoachesManager;
-use pierre_database::database::recipes::RecipeManager;
 use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
 };
-use pierre_database::database::store_listings::StoreListingsManager;
 use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::SecurityRepository;
+use pierre_database::plugins::{SecurityRepository, StoreListingsRepository};
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "client-notifications")]
@@ -325,7 +322,7 @@ impl ServerResources {
 
         // Create notification service and start scheduler if notifications feature is enabled
         #[cfg(feature = "client-notifications")]
-        let notification_service = Self::create_notification_service(&database_arc);
+        let notification_service = Some(Self::create_notification_service(&database_arc));
 
         // Start the background notification scheduler if service is available
         #[cfg(feature = "client-notifications")]
@@ -378,13 +375,16 @@ impl ServerResources {
         }
     }
 
-    /// Create the notification service if a `SQLite` pool is available
+    /// Create the notification service, dispatching to the appropriate backend
     #[cfg(feature = "client-notifications")]
-    fn create_notification_service(database: &Arc<Database>) -> Option<Arc<NotificationService>> {
-        let pool = database.sqlite_pool()?.clone();
-        let service = NotificationService::from_sqlite(pool);
+    fn create_notification_service(database: &Arc<Database>) -> Arc<NotificationService> {
+        let service = match database.as_ref() {
+            Database::SQLite(db) => NotificationService::from_sqlite(db.pool().clone()),
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => NotificationService::from_postgres(db.pool().clone()),
+        };
         info!("Notification service initialized");
-        Some(Arc::new(service))
+        Arc::new(service)
     }
 
     /// Create and initialize the tool registry with all built-in tools
@@ -472,14 +472,19 @@ impl ServerResources {
         Ok(())
     }
 
-    /// Initialize admin config service if `SQLite` is available
+    /// Initialize admin config service from the active database backend
     ///
-    /// Returns None if no `SQLite` pool or initialization fails.
+    /// Returns None if initialization fails.
     async fn init_admin_config_service(
         database: &Arc<Database>,
     ) -> Option<Arc<AdminConfigService>> {
-        let pool = database.sqlite_pool()?;
-        match AdminConfigService::new(pool.clone()).await {
+        let result = match database.as_ref() {
+            Database::SQLite(db) => AdminConfigService::new(db.pool().clone()).await,
+            #[cfg(feature = "postgresql")]
+            Database::PostgreSQL(db) => AdminConfigService::from_postgres(db.pool().clone()).await,
+        };
+
+        match result {
             Ok(service) => {
                 info!("Admin configuration service initialized successfully");
                 Some(Arc::new(service))
@@ -653,64 +658,29 @@ impl ServerResources {
         ServerResourcesBuilder::new()
     }
 
-    /// Get a `CoachesManager` backed by the `SQLite` pool.
+    /// Get a coaches repository backed by the active database backend.
     ///
-    /// Routes and tool handlers should use this instead of constructing
-    /// `CoachesManager` directly from `database.sqlite_pool()`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
-    pub fn coaches_manager(&self) -> AppResult<CoachesManager> {
-        let pool = self
-            .database
-            .sqlite_pool()
-            .ok_or_else(|| AppError::internal("SQLite database required for coaches"))?;
-        Ok(CoachesManager::new(pool.clone()))
+    /// The returned trait object dispatches to `SQLite` or `PostgreSQL`
+    /// depending on the database configuration.
+    #[must_use]
+    pub fn coaches_manager(&self) -> &dyn CoachesRepository {
+        self.database.as_ref()
     }
 
-    /// Get a `StoreListingsManager` backed by the `SQLite` pool.
+    /// Get the database as a `StoreListingsRepository` trait object.
     ///
-    /// Routes and tool handlers should use this instead of constructing
-    /// `StoreListingsManager` directly from `database.sqlite_pool()`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
-    pub fn store_listings_manager(&self) -> AppResult<StoreListingsManager> {
-        let pool = self
-            .database
-            .sqlite_pool()
-            .ok_or_else(|| AppError::internal("SQLite database required for store listings"))?;
-        Ok(StoreListingsManager::new(pool.clone()))
+    /// Works on both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    #[must_use]
+    pub fn store_listings_repository(&self) -> &dyn StoreListingsRepository {
+        self.database.as_ref()
     }
 
-    /// Get a `RecipeManager` backed by the `SQLite` pool.
+    /// Get the database as a `RecipeRepository` trait object.
     ///
-    /// Routes and tool handlers should use this instead of constructing
-    /// `RecipeManager` directly from `database.sqlite_pool()`.
-    ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
-    pub fn recipe_manager(&self) -> AppResult<RecipeManager> {
-        let pool = self
-            .database
-            .sqlite_pool()
-            .ok_or_else(|| AppError::internal("SQLite database required for recipes"))?;
-        Ok(RecipeManager::new(pool.clone()))
-    }
-
-    /// Get the `SQLite` database as a `RecipeRepository` trait object.
-    ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
-    pub fn recipe_repository(&self) -> AppResult<&dyn RecipeRepository> {
-        self.database
-            .sqlite_database()
-            .map(|db| db as &dyn RecipeRepository)
-            .ok_or_else(|| AppError::internal("SQLite database required for recipes"))
+    /// Works on both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    #[must_use]
+    pub fn recipe_repository(&self) -> &dyn RecipeRepository {
+        self.database.as_ref()
     }
 
     /// Get the `SQLite` database as a `CoachesRepository` trait object.
@@ -725,16 +695,12 @@ impl ServerResources {
             .ok_or_else(|| AppError::internal("SQLite database required for coaches"))
     }
 
-    /// Get the `SQLite` database as a `MobilityRepository` trait object.
+    /// Get the database as a `MobilityRepository` trait object.
     ///
-    /// # Errors
-    ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
-    pub fn mobility_repository(&self) -> AppResult<&dyn MobilityRepository> {
-        self.database
-            .sqlite_database()
-            .map(|db| db as &dyn MobilityRepository)
-            .ok_or_else(|| AppError::internal("SQLite database required for mobility"))
+    /// Works with both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    #[must_use]
+    pub fn mobility_repository(&self) -> &dyn MobilityRepository {
+        self.database.as_ref()
     }
 
     /// Get the `SQLite` database as a `SocialRepository` trait object.

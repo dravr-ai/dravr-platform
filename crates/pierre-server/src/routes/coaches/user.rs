@@ -41,14 +41,7 @@ pub(super) async fn handle_list(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let Ok(manager) = super::get_coaches_manager(&resources) else {
-        let response = ListCoachesResponse {
-            coaches: vec![],
-            total: 0,
-            metadata: super::build_metadata(),
-        };
-        return Ok((StatusCode::OK, Json(response)).into_response());
-    };
+    let manager = super::get_coaches_manager(&resources);
 
     let filter = ListCoachesFilter {
         category: query.category.map(|c| CoachCategory::parse(&c)),
@@ -138,7 +131,7 @@ pub(super) async fn handle_create(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
 
     // Enforce max_coaches_per_user limit from admin config
     if let Some(ref admin_config) = resources.admin_config {
@@ -180,14 +173,7 @@ pub(super) async fn handle_search(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let Ok(manager) = super::get_coaches_manager(&resources) else {
-        let response = ListCoachesResponse {
-            total: 0,
-            coaches: vec![],
-            metadata: super::build_metadata(),
-        };
-        return Ok((StatusCode::OK, Json(response)).into_response());
-    };
+    let manager = super::get_coaches_manager(&resources);
     let coaches = manager
         .search(auth.user_id, tenant_id, &query.q, query.limit, query.offset)
         .await?;
@@ -210,9 +196,9 @@ pub(super) async fn handle_get(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager
-        .get(&id, auth.user_id, tenant_id)
+        .get_by_id(&id, auth.user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 
@@ -237,9 +223,9 @@ pub(super) async fn handle_export(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager
-        .get(&id, auth.user_id, tenant_id)
+        .get_by_id(&id, auth.user_id, tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Coach {id}")))?;
 
@@ -300,7 +286,7 @@ pub(super) async fn handle_import(
             .unwrap_or_default(),
     };
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let coach = manager.create(auth.user_id, tenant_id, &request).await?;
 
     let response = ImportCoachResponse {
@@ -414,7 +400,7 @@ pub(super) async fn handle_update(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let request: UpdateCoachRequest = body.into();
     let coach = manager
         .update(&id, auth.user_id, tenant_id, &request)
@@ -434,7 +420,7 @@ pub(super) async fn handle_delete(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let deleted = manager.delete(&id, auth.user_id, tenant_id).await?;
 
     if !deleted {
@@ -453,7 +439,7 @@ pub(super) async fn handle_toggle_favorite(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let is_favorite = manager
         .toggle_favorite(&id, auth.user_id, tenant_id)
         .await?
@@ -472,7 +458,7 @@ pub(super) async fn handle_record_usage(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let success = manager.record_usage(&id, auth.user_id, tenant_id).await?;
 
     if !success {
@@ -491,7 +477,7 @@ pub(super) async fn handle_hide_coach(
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let success = manager.hide_coach(&id, auth.user_id).await?;
 
     let response = HideCoachResponse {
@@ -509,7 +495,7 @@ pub(super) async fn handle_show_coach(
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let success = manager.show_coach(&id, auth.user_id).await?;
 
     let response = HideCoachResponse {
@@ -528,7 +514,7 @@ pub(super) async fn handle_fork(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let manager = super::get_coaches_manager(&resources)?;
+    let manager = super::get_coaches_manager(&resources);
     let forked_coach = manager.fork_coach(&id, auth.user_id, tenant_id).await?;
 
     let response = ForkCoachResponse {
@@ -546,14 +532,7 @@ pub(super) async fn handle_list_hidden(
     let auth = super::authenticate(&headers, &resources).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
-    let Ok(manager) = super::get_coaches_manager(&resources) else {
-        let response = ListCoachesResponse {
-            total: 0,
-            coaches: vec![],
-            metadata: super::build_metadata(),
-        };
-        return Ok((StatusCode::OK, Json(response)).into_response());
-    };
+    let manager = super::get_coaches_manager(&resources);
     let coaches = manager.list_hidden_coaches(auth.user_id, tenant_id).await?;
 
     let response = ListCoachesResponse {

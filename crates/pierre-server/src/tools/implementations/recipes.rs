@@ -34,16 +34,11 @@ use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::database::recipes::RecipeManager;
+use pierre_database::plugins::RecipeRepository;
 
 // ============================================================================
 // Helper functions
 // ============================================================================
-
-/// Get `RecipeManager` from context resources
-fn get_recipe_manager(ctx: &ToolExecutionContext) -> AppResult<RecipeManager> {
-    ctx.resources.recipe_manager()
-}
 
 /// Get tenant ID from context
 fn get_tenant_id(ctx: &ToolExecutionContext) -> TenantId {
@@ -744,10 +739,8 @@ impl McpTool for SaveRecipeTool {
         }
         recipe = recipe.with_ingredients(ingredients);
 
-        let manager = get_recipe_manager(ctx)?;
-        let recipe_id = manager
-            .create_recipe(ctx.user_id, tenant_id, &recipe)
-            .await?;
+        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let recipe_id = repo.create(ctx.user_id, tenant_id, &recipe).await?;
 
         Ok(ToolResult::ok(json!({
             "success": true,
@@ -834,9 +827,9 @@ impl McpTool for ListRecipesTool {
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = get_recipe_manager(ctx)?;
-        let recipes = manager
-            .list_recipes(ctx.user_id, tenant_id, meal_timing, Some(limit), offset)
+        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let recipes = repo
+            .list(ctx.user_id, tenant_id, meal_timing, Some(limit), offset)
             .await?;
 
         let recipe_summaries: Vec<Value> = recipes
@@ -915,10 +908,8 @@ impl McpTool for GetRecipeTool {
             .ok_or_else(|| AppError::invalid_input("recipe_id is required"))?;
 
         let tenant_id = get_tenant_id(ctx);
-        let manager = get_recipe_manager(ctx)?;
-        let recipe = manager
-            .get_recipe(recipe_id, ctx.user_id, tenant_id)
-            .await?;
+        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let recipe = repo.get_by_id(recipe_id, ctx.user_id, tenant_id).await?;
 
         match recipe {
             Some(r) => Ok(ToolResult::ok(json!({
@@ -1003,10 +994,8 @@ impl McpTool for DeleteRecipeTool {
             .ok_or_else(|| AppError::invalid_input("recipe_id is required"))?;
 
         let tenant_id = get_tenant_id(ctx);
-        let manager = get_recipe_manager(ctx)?;
-        let deleted = manager
-            .delete_recipe(recipe_id, ctx.user_id, tenant_id)
-            .await?;
+        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let deleted = repo.delete(recipe_id, ctx.user_id, tenant_id).await?;
 
         if deleted {
             Ok(ToolResult::ok(json!({
@@ -1095,9 +1084,9 @@ impl McpTool for SearchRecipesTool {
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = get_recipe_manager(ctx)?;
-        let recipes = manager
-            .search_recipes(ctx.user_id, tenant_id, query, Some(limit), offset)
+        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let recipes = repo
+            .search(ctx.user_id, tenant_id, query, Some(limit), offset)
             .await?;
 
         let results: Vec<Value> = recipes

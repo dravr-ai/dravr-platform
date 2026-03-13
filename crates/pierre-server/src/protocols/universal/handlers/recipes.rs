@@ -15,6 +15,7 @@ use crate::protocols::universal::{UniversalRequest, UniversalResponse, Universal
 use crate::protocols::ProtocolError;
 use crate::utils::uuid::parse_user_id_for_protocol;
 use chrono::Utc;
+use pierre_database::plugins::RecipeRepository;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;
@@ -589,12 +590,9 @@ pub fn handle_save_recipe(
         recipe = recipe.with_ingredients(ingredients);
 
         // Save to database
-        let manager = executor
-            .resources
-            .recipe_manager()
-            .map_err(|e| ProtocolError::InternalError(e.to_string()))?;
-        let recipe_id = manager
-            .create_recipe(user_id, tenant_id, &recipe)
+        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let recipe_id = repo
+            .create(user_id, tenant_id, &recipe)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to save recipe: {e}")))?;
 
@@ -665,12 +663,9 @@ pub fn handle_list_recipes(
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = executor
-            .resources
-            .recipe_manager()
-            .map_err(|e| ProtocolError::InternalError(e.to_string()))?;
-        let recipes = manager
-            .list_recipes(user_id, tenant_id, meal_timing, Some(limit), offset)
+        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let recipes = repo
+            .list(user_id, tenant_id, meal_timing, Some(limit), offset)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to list recipes: {e}")))?;
 
@@ -748,12 +743,9 @@ pub fn handle_get_recipe(
                 ProtocolError::InvalidRequest("Missing required parameter: recipe_id".to_owned())
             })?;
 
-        let manager = executor
-            .resources
-            .recipe_manager()
-            .map_err(|e| ProtocolError::InternalError(e.to_string()))?;
-        let recipe = manager
-            .get_recipe(recipe_id, user_id, tenant_id)
+        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let recipe = repo
+            .get_by_id(recipe_id, user_id, tenant_id)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to get recipe: {e}")))?;
 
@@ -839,12 +831,9 @@ pub fn handle_delete_recipe(
                 ProtocolError::InvalidRequest("Missing required parameter: recipe_id".to_owned())
             })?;
 
-        let manager = executor
-            .resources
-            .recipe_manager()
-            .map_err(|e| ProtocolError::InternalError(e.to_string()))?;
-        let deleted = manager
-            .delete_recipe(recipe_id, user_id, tenant_id)
+        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let deleted = repo
+            .delete(recipe_id, user_id, tenant_id)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to delete recipe: {e}")))?;
 
@@ -919,12 +908,9 @@ pub fn handle_search_recipes(
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let manager = executor
-            .resources
-            .recipe_manager()
-            .map_err(|e| ProtocolError::InternalError(e.to_string()))?;
-        let recipes = manager
-            .search_recipes(user_id, tenant_id, query, Some(limit), offset)
+        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let recipes = repo
+            .search(user_id, tenant_id, query, Some(limit), offset)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Failed to search recipes: {e}")))?;
 
