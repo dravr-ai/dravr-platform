@@ -4,6 +4,7 @@
 name: Deploy to GCP
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ["Publish Images"]
     types: [completed]
@@ -20,8 +21,8 @@ jobs:
   resolve-images:
     name: Resolve Image Tags
     runs-on: ubuntu-latest
-    # Only proceed if Publish Images succeeded
-    if: github.event.workflow_run.conclusion == 'success'
+    # Skip if triggered by a failed Publish Images run
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
 
     outputs:
       short_sha: ${{ steps.sha.outputs.short_sha }}
@@ -32,7 +33,8 @@ jobs:
       - name: Resolve commit SHA
         id: sha
         run: |
-          SHA="${{ github.event.workflow_run.head_sha }}"
+          # workflow_run provides the triggering workflow's SHA; workflow_dispatch uses current SHA
+          SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
           SHORT_SHA="${SHA:0:8}"
           echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
