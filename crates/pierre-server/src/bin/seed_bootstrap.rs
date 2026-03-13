@@ -86,6 +86,35 @@ const DEMO_USERS: &[BootstrapUser] = &[
     },
 ];
 
+/// Update password hash and role for an existing user (upsert via ON CONFLICT)
+async fn upsert_user_credentials(
+    db: &Database,
+    email: &str,
+    display_name: &str,
+    password: &str,
+    tier: &str,
+    is_admin: bool,
+) -> AppResult<()> {
+    let password_hash =
+        hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
+    let now = Utc::now();
+
+    // The ON CONFLICT(email) DO UPDATE in seed_insert_demo_user handles the upsert.
+    // We use a dummy UUID since the INSERT won't execute (user already exists).
+    let seed_user = SeedDemoUser {
+        id: Uuid::new_v4(),
+        email: email.to_owned(),
+        display_name: display_name.to_owned(),
+        password_hash,
+        tier: tier.to_owned(),
+        status: "active".to_owned(),
+        is_admin,
+        created_at: now,
+    };
+    db.seed_insert_demo_user(&seed_user).await?;
+    Ok(())
+}
+
 /// Create a single user with a personal tenant (reuses the `seed_demo_data` pattern)
 async fn create_user(
     db: &Database,
@@ -161,7 +190,17 @@ async fn main() -> AppResult<()> {
     let admin_email = &args.admin_email;
     let existing_admin = db.seed_check_user_exists(admin_email).await?;
     if let Some(id) = existing_admin {
-        info!("Admin user already exists: {admin_email} ({id})");
+        // Update password/role for existing admin (upsert via ON CONFLICT)
+        upsert_user_credentials(
+            &db,
+            admin_email,
+            "Admin",
+            &args.admin_password,
+            "enterprise",
+            true,
+        )
+        .await?;
+        info!("Updated admin user credentials: {admin_email} ({id})");
     } else {
         let id = create_user(
             &db,
@@ -179,7 +218,17 @@ async fn main() -> AppResult<()> {
     for user in DEMO_USERS {
         let existing = db.seed_check_user_exists(user.email).await?;
         if let Some(id) = existing {
-            info!("Demo user already exists: {} ({id})", user.email);
+            // Update password/role for existing demo user (upsert via ON CONFLICT)
+            upsert_user_credentials(
+                &db,
+                user.email,
+                user.display_name,
+                DEMO_USER_PASSWORD,
+                user.tier,
+                user.is_admin,
+            )
+            .await?;
+            info!("Updated demo user credentials: {} ({id})", user.email);
         } else {
             let id = create_user(
                 &db,

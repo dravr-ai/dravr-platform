@@ -674,7 +674,12 @@ impl SeederRepository for Database {
             "INSERT INTO users \
              (id, email, display_name, password_hash, tier, is_active, user_status, \
               is_admin, role, approved_at, created_at, last_active, auth_provider) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'email')",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'email') \
+             ON CONFLICT(email) DO UPDATE SET \
+              password_hash = excluded.password_hash, \
+              role = excluded.role, \
+              is_admin = excluded.is_admin, \
+              display_name = excluded.display_name",
         )
         .bind(user.id.to_string())
         .bind(&user.email)
