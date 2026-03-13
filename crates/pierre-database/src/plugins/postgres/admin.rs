@@ -599,7 +599,7 @@ impl UserMcpTokenRepository for PostgresDatabase {
             ",
         )
         .bind(&id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(&request.name)
         .bind(&token_hash)
         .bind(&token_prefix)
@@ -674,7 +674,7 @@ impl UserMcpTokenRepository for PostgresDatabase {
             ",
         )
         .bind(token_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to revoke user MCP token: {e}")))?;
@@ -696,7 +696,7 @@ impl UserMcpTokenRepository for PostgresDatabase {
             ",
         )
         .bind(token_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user MCP token: {e}")))?;
@@ -717,7 +717,7 @@ impl UserMcpTokenRepository for PostgresDatabase {
             ORDER BY created_at DESC
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list user MCP tokens: {e}")))?;

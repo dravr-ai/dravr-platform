@@ -453,7 +453,7 @@ impl UsageCounterRepository for PostgresDatabase {
         counter_key: &str,
         period: &str,
     ) -> AppResult<UsageCounterRecord> {
-        let row: Option<(String, String, String, String, i64, String)> = sqlx::query_as(
+        let row: Option<(String, String, String, String, i64, DateTime<Utc>)> = sqlx::query_as(
             r"
             SELECT tenant_id, user_id, counter_key, period, value, updated_at
             FROM usage_counters
@@ -475,7 +475,7 @@ impl UsageCounterRepository for PostgresDatabase {
                 counter_key: key,
                 period: per,
                 value: val,
-                updated_at: updated,
+                updated_at: updated.to_rfc3339(),
             }),
             None => Ok(UsageCounterRecord {
                 tenant_id: tenant_id.to_owned(),
