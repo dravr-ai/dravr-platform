@@ -317,31 +317,11 @@ impl OAuthTokenRepository for PostgresDatabase {
         client_secret: &str,
         redirect_uri: &str,
     ) -> AppResult<()> {
-        // Create user_oauth_apps table if it doesn't exist
-        sqlx::query(
-            r"
-            CREATE TABLE IF NOT EXISTS user_oauth_apps (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                provider TEXT NOT NULL,
-                client_id TEXT NOT NULL,
-                client_secret TEXT NOT NULL,
-                redirect_uri TEXT NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                updated_at TIMESTAMPTZ DEFAULT NOW(),
-                UNIQUE(user_id, provider)
-            )
-            ",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Database operation failed: {e}")))?;
-
         // Insert or update OAuth app credentials
         sqlx::query(
             r"
-            INSERT INTO user_oauth_apps (user_id, provider, client_id, client_secret, redirect_uri)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO user_oauth_app_credentials (id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at)
+            VALUES (gen_random_uuid()::TEXT, $1, $2, $3, $4, $5, NOW(), NOW())
             ON CONFLICT (user_id, provider)
             DO UPDATE SET 
                 client_id = EXCLUDED.client_id,
@@ -371,7 +351,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         let row = sqlx::query(
             r"
             SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
-            FROM user_oauth_apps
+            FROM user_oauth_app_credentials
             WHERE user_id = $1 AND provider = $2
             "
         )
@@ -401,7 +381,7 @@ impl OAuthTokenRepository for PostgresDatabase {
         let rows = sqlx::query(
             r"
             SELECT id, user_id, provider, client_id, client_secret, redirect_uri, created_at, updated_at
-            FROM user_oauth_apps
+            FROM user_oauth_app_credentials
             WHERE user_id = $1
             ORDER BY provider
             "
@@ -430,7 +410,7 @@ impl OAuthTokenRepository for PostgresDatabase {
     async fn remove_user_oauth_app(&self, user_id: Uuid, provider: &str) -> AppResult<()> {
         sqlx::query(
             r"
-            DELETE FROM user_oauth_apps
+            DELETE FROM user_oauth_app_credentials
             WHERE user_id = $1 AND provider = $2
             ",
         )
@@ -1009,8 +989,8 @@ impl OAuthClientStateRepository for PostgresDatabase {
         .bind(&state.redirect_uri)
         .bind(&state.scope)
         .bind(&state.pkce_code_verifier)
-        .bind(state.created_at.to_rfc3339())
-        .bind(state.expires_at.to_rfc3339())
+        .bind(state.created_at)
+        .bind(state.expires_at)
         .bind(state.used)
         .execute(&self.pool)
         .await
@@ -1068,24 +1048,12 @@ impl OAuthClientStateRepository for PostgresDatabase {
                 pkce_code_verifier: row.try_get("pkce_code_verifier").map_err(|e| {
                     AppError::database(format!("Failed to parse pkce_code_verifier column: {e}"))
                 })?,
-                created_at: row
-                    .try_get::<String, _>("created_at")
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to parse created_at column: {e}"))
-                    })?
-                    .parse::<DateTime<Utc>>()
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to parse created_at datetime: {e}"))
-                    })?,
-                expires_at: row
-                    .try_get::<String, _>("expires_at")
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to parse expires_at column: {e}"))
-                    })?
-                    .parse::<DateTime<Utc>>()
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to parse expires_at datetime: {e}"))
-                    })?,
+                created_at: row.try_get::<DateTime<Utc>, _>("created_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse created_at column: {e}"))
+                })?,
+                expires_at: row.try_get::<DateTime<Utc>, _>("expires_at").map_err(|e| {
+                    AppError::database(format!("Failed to parse expires_at column: {e}"))
+                })?,
                 used: row
                     .try_get("used")
                     .map_err(|e| AppError::database(format!("Failed to parse used column: {e}")))?,
