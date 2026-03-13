@@ -98,6 +98,12 @@ variable "vpc_connector_id" {
   default     = null
 }
 
+variable "vpc_egress" {
+  description = "VPC egress setting: PRIVATE_RANGES_ONLY or ALL_TRAFFIC"
+  type        = string
+  default     = "PRIVATE_RANGES_ONLY"
+}
+
 variable "cloudsql_connection_name" {
   description = "Cloud SQL connection name for unix socket mounting (null to skip)"
   type        = string

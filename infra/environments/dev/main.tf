@@ -173,7 +173,8 @@ module "backend" {
 
       # LLM provider configuration
       PIERRE_LLM_PROVIDER       = "gemini"
-      PIERRE_LLM_DEFAULT_MODEL  = "gemini-2.0-flash"
+      PIERRE_LLM_MODEL          = "gemini-2.5-flash"
+      PIERRE_LLM_DEFAULT_MODEL  = "gemini-2.5-flash"
       PIERRE_LLM_FALLBACK_MODEL = "gemini-2.0-flash-lite"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
@@ -376,6 +377,7 @@ module "frontend" {
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
   vpc_connector_id      = module.networking.vpc_connector_id
+  vpc_egress            = "ALL_TRAFFIC"
 
   env_vars = {
     # Backend URL for nginx reverse proxy (injected via envsubst at container start)
