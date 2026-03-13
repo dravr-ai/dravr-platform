@@ -722,11 +722,13 @@ impl SeederRepository for PostgresDatabase {
             None
         };
 
+        let role = if user.is_admin { "admin" } else { "user" };
+
         sqlx::query(
             "INSERT INTO users \
              (id, email, display_name, password_hash, tier, is_active, user_status, \
-              is_admin, approved_at, created_at, last_active, auth_provider) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)",
+              is_admin, role, approved_at, created_at, last_active, auth_provider) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12)",
         )
         .bind(user.id)
         .bind(&user.email)
@@ -736,6 +738,7 @@ impl SeederRepository for PostgresDatabase {
         .bind(true)
         .bind(&user.status)
         .bind(user.is_admin)
+        .bind(role)
         .bind(approved_at)
         .bind(user.created_at)
         .bind("email")

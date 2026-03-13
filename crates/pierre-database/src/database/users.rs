@@ -225,8 +225,10 @@ impl Database {
             .ok()
             .unwrap_or_else(|| "email".to_owned());
 
-        // Derive role from explicit role column if present, otherwise from is_admin
-        let role = role_str.map_or_else(
+        // Derive role from explicit role column if present, otherwise from is_admin.
+        // If is_admin is true but role says 'user' (e.g. seeder omitted role column
+        // and DB DEFAULT filled 'user'), upgrade to Admin for consistency.
+        let mut role = role_str.map_or_else(
             || {
                 if is_admin {
                     UserRole::Admin
@@ -236,6 +238,9 @@ impl Database {
             },
             |r| UserRole::from_str_lossy(&r),
         );
+        if is_admin && role == UserRole::User {
+            role = UserRole::Admin;
+        }
 
         Ok(User {
             id: Uuid::parse_str(&id)
