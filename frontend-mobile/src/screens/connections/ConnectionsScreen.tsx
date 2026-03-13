@@ -205,9 +205,15 @@ export function ConnectionsScreen() {
               )}
             </TouchableOpacity>
           ) : (
-            <View className="bg-background-tertiary px-2 py-1 rounded">
-              <Text className="text-sm text-text-tertiary font-medium">Not Available</Text>
-            </View>
+            <TouchableOpacity
+              className="bg-primary-500/20 px-2 py-1 rounded"
+              onPress={() => Alert.alert(
+                provider.display_name,
+                'Demo data is available automatically — just ask your coach about your training and synthetic activities will be used.',
+              )}
+            >
+              <Text className="text-sm text-primary-400 font-medium">Demo</Text>
+            </TouchableOpacity>
           )}
         </View>
       </Card>
