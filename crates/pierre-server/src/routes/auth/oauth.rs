@@ -1197,11 +1197,9 @@ pub(super) async fn handle_providers_status(
             // Determine connection status from the provider_connections table
             let connected = connected_providers.contains(provider_name);
 
-            // Skip non-OAuth providers that aren't connected (no data available)
-            // This prevents showing "Not Available" for synthetic providers without data
-            if !requires_oauth && !connected {
-                continue;
-            }
+            // Always show all providers regardless of connection status.
+            // Non-OAuth providers (like synthetic) appear with connected=false
+            // so users can activate them from the provider modal.
 
             // Build capabilities list from bitflags
             let mut capabilities = Vec::new();
