@@ -1121,8 +1121,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.10.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.10.0#3a55b972aa77e2ca984f7d99690cae8c68312370"
+version = "0.12.0"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.0#850988ade90ba1be212554ee2c968650eb38ecfc"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1741,7 +1741,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2924,7 +2924,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2961,7 +2961,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -4943,7 +4943,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

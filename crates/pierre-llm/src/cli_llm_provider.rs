@@ -15,8 +15,8 @@ use embacle::config::parse_timeout;
 use embacle::{
     ClaudeCodeRunner, CliRunnerType, ClineCliRunner, CodexCliRunner, ContinueCliRunner,
     CopilotHeadlessConfig, CopilotHeadlessRunner, CopilotRunner, CursorAgentRunner,
-    GeminiCliRunner, GooseCliRunner, OpenAiApiConfig, OpenAiApiRunner, OpenCodeRunner,
-    RunnerConfig, WarpCliRunner,
+    GeminiCliRunner, GooseCliRunner, KiloCliRunner, KiroCliRunner, OpenAiApiConfig,
+    OpenAiApiRunner, OpenCodeRunner, RunnerConfig, WarpCliRunner,
 };
 use futures_util::StreamExt;
 use tracing::{debug, info, warn};
@@ -110,6 +110,14 @@ impl CliLlmProvider {
                 let config = build_runner_config(CliRunnerType::WarpCli)?;
                 Ok(Self::build_cli(CliRunnerType::WarpCli, config).await)
             }
+            "kiro_cli" | "kiro-cli" | "kiro" => {
+                let config = build_runner_config(CliRunnerType::KiroCli)?;
+                Ok(Self::build_cli(CliRunnerType::KiroCli, config).await)
+            }
+            "kilo_cli" | "kilo-cli" | "kilo" => {
+                let config = build_runner_config(CliRunnerType::KiloCli)?;
+                Ok(Self::build_cli(CliRunnerType::KiloCli, config).await)
+            }
             "openai_api" | "openai-api" | "openai" => Ok(Self::build_openai_api().await?),
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
@@ -120,7 +128,7 @@ impl CliLlmProvider {
             _ => Err(AppError::config(format!(
                 "PIERRE_LLM_PROVIDER={provider_env} is not an embacle runner type; \
                  expected one of: claude_code, copilot, cursor_agent, opencode, copilot_headless, \
-                 gemini_cli, codex_cli, goose_cli, cline_cli, continue_cli, warp_cli, openai_api, cli"
+                 gemini_cli, codex_cli, goose_cli, cline_cli, continue_cli, warp_cli, kiro_cli, kilo_cli, openai_api, cli"
             ))),
         }
     }
@@ -145,6 +153,11 @@ impl CliLlmProvider {
             CliRunnerType::ClineCli => Box::new(ClineCliRunner::new(config)),
             CliRunnerType::ContinueCli => Box::new(ContinueCliRunner::new(config)),
             CliRunnerType::WarpCli => Box::new(WarpCliRunner::new(config)),
+            CliRunnerType::KiroCli => Box::new(KiroCliRunner::new(config)),
+            CliRunnerType::KiloCli => Box::new(KiloCliRunner::new(config)),
+            CliRunnerType::CopilotHeadless => {
+                return Self::build_headless().await;
+            }
         };
 
         info!(
@@ -240,6 +253,8 @@ impl CliLlmProvider {
             "cline_cli" => LlmProviderType::ClineCli,
             "continue_cli" => LlmProviderType::ContinueCli,
             "warp_cli" => LlmProviderType::WarpCli,
+            "kiro" => LlmProviderType::KiroCli,
+            "kilo" => LlmProviderType::KiloCli,
             "openai_api" => LlmProviderType::OpenAiApi,
             // "claude_code" and any future runners default here
             _ => LlmProviderType::ClaudeCode,
@@ -439,6 +454,9 @@ const fn runner_display_name(runner_type: CliRunnerType) -> &'static str {
         CliRunnerType::ClineCli => "Cline (CLI)",
         CliRunnerType::ContinueCli => "Continue (CLI)",
         CliRunnerType::WarpCli => "Warp (CLI)",
+        CliRunnerType::KiroCli => "Kiro (CLI)",
+        CliRunnerType::KiloCli => "Kilo Code (CLI)",
+        CliRunnerType::CopilotHeadless => "GitHub Copilot (Headless)",
     }
 }
 
