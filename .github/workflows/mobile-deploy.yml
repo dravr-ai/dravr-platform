@@ -57,7 +57,7 @@ jobs:
         run: bun run typecheck
 
       - name: Run unit tests
-        run: bun test
+        run: bun run test
 
   build:
     name: Build ${{ inputs.platform }} (${{ inputs.profile }})
