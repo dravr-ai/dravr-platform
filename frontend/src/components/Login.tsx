@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useAsyncAction } from '@pierre/ui-logic';
 import { useAuth } from '../hooks/useAuth';
-import { signInWithGoogle, subscribeToAuthState, isFirebaseEnabled } from '../firebase/firebase';
+import { signInWithGoogle, isFirebaseEnabled } from '../firebase/firebase';
 import { Button, Input } from './ui';
 
 // Pierre holistic node logo SVG inline for the login page
@@ -80,46 +80,6 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
     successResetDelay: 0,
     errorResetDelay: 0,
   });
-  const processingAuthRef = useRef(false);
-  // Track if the user manually initiated sign-in (vs auto-login from cached Firebase state)
-  const userInitiatedSignInRef = useRef(false);
-
-  // Listen for Firebase auth state changes (handles redirect result)
-  useEffect(() => {
-    const unsubscribe = subscribeToAuthState(async (user) => {
-      if (user && !processingAuthRef.current) {
-        processingAuthRef.current = true;
-        setIsGoogleLoading(true);
-        // Only clear error if this is a user-initiated action
-        if (userInitiatedSignInRef.current) {
-          setError('');
-        }
-
-        try {
-          const idToken = await user.getIdToken();
-          await loginWithFirebase(idToken);
-        } catch (err: unknown) {
-          // Only show error if user manually initiated the sign-in
-          // Auto-login from cached Firebase state should fail silently
-          if (userInitiatedSignInRef.current) {
-            const apiError = err as { response?: { data?: { error?: string } } };
-            if (apiError.response?.data?.error) {
-              setError(apiError.response.data.error);
-            } else {
-              const firebaseError = err as { message?: string };
-              setError(firebaseError.message || 'Google sign-in failed');
-            }
-          }
-          processingAuthRef.current = false;
-          userInitiatedSignInRef.current = false;
-        } finally {
-          setIsGoogleLoading(false);
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, [loginWithFirebase]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,23 +90,26 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
     setError('');
-    // Mark this as a user-initiated sign-in so errors will be displayed
-    userInitiatedSignInRef.current = true;
 
     try {
-      // Initiate Google sign-in redirect (page will redirect to Google)
-      await signInWithGoogle();
-      // Note: signInWithRedirect will redirect the page, so code after this won't execute
+      // Popup flow: returns ID token directly (no page redirect)
+      const idToken = await signInWithGoogle();
+      await loginWithFirebase(idToken);
     } catch (err: unknown) {
       const firebaseError = err as { code?: string; message?: string };
+      const apiError = err as { response?: { data?: { error?: string } } };
 
-      if (firebaseError.code === 'auth/network-request-failed') {
+      if (firebaseError.code === 'auth/popup-closed-by-user') {
+        // User closed the popup — not an error
+      } else if (firebaseError.code === 'auth/network-request-failed') {
         setError('Network error. Please check your connection.');
+      } else if (apiError.response?.data?.error) {
+        setError(apiError.response.data.error);
       } else {
         setError(firebaseError.message || 'Google sign-in failed');
       }
+    } finally {
       setIsGoogleLoading(false);
-      userInitiatedSignInRef.current = false;
     }
   };
 

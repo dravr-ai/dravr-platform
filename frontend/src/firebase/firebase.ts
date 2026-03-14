@@ -7,13 +7,11 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   onAuthStateChanged,
   GoogleAuthProvider,
   signOut,
   type Auth,
-  type UserCredential,
   type User,
 } from 'firebase/auth';
 
@@ -80,12 +78,13 @@ export function getFirebaseAuth(): Auth | null {
 }
 
 /**
- * Initiate Google sign-in via redirect flow
- * After calling this, the page will redirect to Google's login page.
- * On return, call checkGoogleRedirectResult() to get the authentication result.
+ * Initiate Google sign-in via popup flow.
+ * Returns the Firebase ID token directly — no page redirect needed.
+ * Uses popup instead of redirect because Chrome blocks third-party cookies
+ * from firebaseapp.com, breaking the redirect result retrieval.
  * Throws if Firebase is not configured.
  */
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(): Promise<string> {
   const firebaseAuth = getFirebaseAuth();
   if (!firebaseAuth) {
     throw new Error('Google Sign-In is not available. Firebase is not configured.');
@@ -95,35 +94,8 @@ export async function signInWithGoogle(): Promise<void> {
   provider.addScope('email');
   provider.addScope('profile');
 
-  await signInWithRedirect(firebaseAuth, provider);
-}
-
-/**
- * Check for Google sign-in redirect result on page load
- * Returns null if no redirect result is pending or Firebase not configured
- */
-export async function checkGoogleRedirectResult(): Promise<{
-  idToken: string;
-  email: string;
-  displayName: string | null;
-} | null> {
-  const firebaseAuth = getFirebaseAuth();
-  if (!firebaseAuth) {
-    return null;
-  }
-
-  const result: UserCredential | null = await getRedirectResult(firebaseAuth);
-  if (!result) {
-    return null;
-  }
-
-  const idToken = await result.user.getIdToken();
-
-  return {
-    idToken,
-    email: result.user.email || '',
-    displayName: result.user.displayName,
-  };
+  const result = await signInWithPopup(firebaseAuth, provider);
+  return result.user.getIdToken();
 }
 
 /**
