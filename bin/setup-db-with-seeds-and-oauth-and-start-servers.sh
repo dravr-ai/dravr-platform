@@ -72,6 +72,9 @@ WEB_TEST_EMAIL="webtest@pierre.dev"
 WEB_TEST_PASSWORD="WebTest123!"
 MOBILE_TEST_EMAIL="mobiletest@pierre.dev"
 MOBILE_TEST_PASSWORD="MobileTest1234"
+PHIL_TEST_EMAIL="phil_test@dravr.ai"
+JF_TEST_EMAIL="jf_test@dravr.ai"
+DRAVR_TEST_PASSWORD='fougeresEtSapin2017#!$'
 DEMO_PASSWORD="DemoUser123!"
 
 print_step() {
@@ -196,6 +199,8 @@ if [ "$SKIP_SYNTHETIC" != "true" ]; then
     echo "    Seeding synthetic activities for test users..."
     ./target/$TARGET_DIR/seed-synthetic-activities --email "$WEB_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
     ./target/$TARGET_DIR/seed-synthetic-activities --email "$MOBILE_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    ./target/$TARGET_DIR/seed-synthetic-activities --email "$PHIL_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    ./target/$TARGET_DIR/seed-synthetic-activities --email "$JF_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
 else
     echo "    Skipping synthetic activities (--no-synthetic)"
 fi
@@ -369,6 +374,8 @@ printf "%-20s %-30s %-20s\n" "────────────────�
 printf "%-20s %-30s %-20s\n" "Admin" "$ADMIN_EMAIL" "$ADMIN_PASSWORD"
 printf "%-20s %-30s %-20s\n" "Web Test" "$WEB_TEST_EMAIL" "$WEB_TEST_PASSWORD"
 printf "%-20s %-30s %-20s\n" "Mobile Test" "$MOBILE_TEST_EMAIL" "$MOBILE_TEST_PASSWORD"
+printf "%-20s %-30s %-20s\n" "Phil Test" "$PHIL_TEST_EMAIL" "$DRAVR_TEST_PASSWORD"
+printf "%-20s %-30s %-20s\n" "JF Test" "$JF_TEST_EMAIL" "$DRAVR_TEST_PASSWORD"
 printf "%-20s %-30s %-20s\n" "Demo Users" "alice@acme.com, bob@acme.com" "$DEMO_PASSWORD"
 echo ""
 echo -e "${CYAN}=== Admin API Token ===${NC}"
