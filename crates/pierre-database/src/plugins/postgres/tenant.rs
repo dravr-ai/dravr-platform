@@ -861,19 +861,29 @@ impl LlmCredentialRepository for PostgresDatabase {
         }
         .map_err(|e| AppError::database(format!("Failed to get LLM credentials: {e}")))?;
 
-        Ok(row.map(|r| LlmCredentialRecord {
-            id: r.get::<Uuid, _>("id"),
-            tenant_id: TenantId::from(r.get::<Uuid, _>("tenant_id")),
-            user_id: r.get::<Option<Uuid>, _>("user_id"),
-            provider: r.get::<String, _>("provider"),
-            api_key_encrypted: r.get::<String, _>("api_key_encrypted"),
-            base_url: r.get::<Option<String>, _>("base_url"),
-            default_model: r.get::<Option<String>, _>("default_model"),
-            is_active: r.get::<bool, _>("is_active"),
-            created_at: r.get::<String, _>("created_at"),
-            updated_at: r.get::<String, _>("updated_at"),
-            created_by: r.get::<Uuid, _>("created_by"),
-        }))
+        row.map(|r| {
+            let id_str: String = r.get("id");
+            let tid_str: String = r.get("tenant_id");
+            let created: DateTime<Utc> = r.get("created_at");
+            let updated: DateTime<Utc> = r.get("updated_at");
+            Ok(LlmCredentialRecord {
+                id: Uuid::parse_str(&id_str)
+                    .map_err(|e| AppError::internal(format!("Invalid credential UUID: {e}")))?,
+                tenant_id: TenantId::from(Uuid::parse_str(&tid_str).map_err(|e| {
+                    AppError::internal(format!("Invalid tenant UUID: {e}"))
+                })?),
+                user_id: r.get("user_id"),
+                provider: r.get("provider"),
+                api_key_encrypted: r.get("api_key_encrypted"),
+                base_url: r.get("base_url"),
+                default_model: r.get("default_model"),
+                is_active: r.get("is_active"),
+                created_at: created.to_rfc3339(),
+                updated_at: updated.to_rfc3339(),
+                created_by: r.get("created_by"),
+            })
+        })
+        .transpose()
     }
 
     async fn list_credentials(&self, tenant_id: TenantId) -> AppResult<Vec<LlmCredentialSummary>> {
@@ -890,27 +900,30 @@ impl LlmCredentialRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to list LLM credentials: {e}")))?;
 
-        Ok(rows
-            .into_iter()
+        rows.into_iter()
             .map(|r| {
+                let id_str: String = r.get("id");
                 let user_id: Option<Uuid> = r.get("user_id");
-                LlmCredentialSummary {
-                    id: r.get::<Uuid, _>("id"),
+                let created: DateTime<Utc> = r.get("created_at");
+                let updated: DateTime<Utc> = r.get("updated_at");
+                Ok(LlmCredentialSummary {
+                    id: Uuid::parse_str(&id_str)
+                        .map_err(|e| AppError::internal(format!("Invalid credential UUID: {e}")))?,
                     user_id,
-                    provider: r.get::<String, _>("provider"),
+                    provider: r.get("provider"),
                     scope: if user_id.is_some() {
                         "user".to_owned()
                     } else {
                         "tenant".to_owned()
                     },
-                    base_url: r.get::<Option<String>, _>("base_url"),
-                    default_model: r.get::<Option<String>, _>("default_model"),
-                    is_active: r.get::<bool, _>("is_active"),
-                    created_at: r.get::<String, _>("created_at"),
-                    updated_at: r.get::<String, _>("updated_at"),
-                }
+                    base_url: r.get("base_url"),
+                    default_model: r.get("default_model"),
+                    is_active: r.get("is_active"),
+                    created_at: created.to_rfc3339(),
+                    updated_at: updated.to_rfc3339(),
+                })
             })
-            .collect())
+            .collect()
     }
 
     async fn delete_credentials(
