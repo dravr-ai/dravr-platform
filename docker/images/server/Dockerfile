@@ -42,14 +42,14 @@ RUN ls -la target/release/pierre-mcp-server \
 
 FROM --platform=linux/amd64 debian:trixie-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# Upgrade all system packages to patch CVEs, then install runtime dependencies
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
     ca-certificates \
     sqlite3 \
     curl \
     bash \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app user and directories
 RUN useradd -m -u 1001 appuser \
