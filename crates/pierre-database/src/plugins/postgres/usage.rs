@@ -308,7 +308,7 @@ impl UsageRepository for PostgresDatabase {
             sqlx::query(
                 "SELECT COUNT(*) as count FROM users u INNER JOIN tenant_users tu ON u.id = tu.user_id WHERE tu.tenant_id = $1",
             )
-                .bind(tid.to_string())
+                .bind(tid.0)
                 .fetch_one(&self.pool)
                 .await
         } else {
@@ -324,7 +324,7 @@ impl UsageRepository for PostgresDatabase {
             sqlx::query(
                 "SELECT COUNT(*) as count FROM api_keys ak INNER JOIN tenant_users tu ON ak.user_id = tu.user_id WHERE ak.is_active = true AND tu.tenant_id = $1",
             )
-            .bind(tid.to_string())
+            .bind(tid.0)
             .fetch_one(&self.pool)
             .await
         } else {
