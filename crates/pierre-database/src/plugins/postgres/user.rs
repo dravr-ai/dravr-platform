@@ -397,7 +397,7 @@ impl UserRepository for PostgresDatabase {
                 ",
             )
             .bind(status_enum)
-            .bind(tid.to_string())
+            .bind(tid.0)
             .fetch_all(&self.pool)
             .await
         } else {
