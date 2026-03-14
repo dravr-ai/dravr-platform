@@ -574,8 +574,8 @@ impl UserRepository for PostgresDatabase {
         let status_str = shared::enums::user_status_to_str(&new_status);
 
         // Only set approved_by when activating a user and an approver UUID is provided
-        let approved_by_str = if new_status == UserStatus::Active {
-            approved_by.map(|uuid| uuid.to_string())
+        let approved_by_uuid = if new_status == UserStatus::Active {
+            approved_by
         } else {
             None
         };
@@ -587,6 +587,7 @@ impl UserRepository for PostgresDatabase {
         };
 
         // Update user status
+        // approved_by is UUID in PG — bind as Uuid directly
         sqlx::query(
             r"
             UPDATE users
@@ -595,7 +596,7 @@ impl UserRepository for PostgresDatabase {
             ",
         )
         .bind(status_str)
-        .bind(approved_by_str)
+        .bind(approved_by_uuid)
         .bind(approved_at)
         .bind(user_id)
         .execute(&self.pool)
