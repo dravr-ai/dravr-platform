@@ -27,6 +27,8 @@ export interface User {
   status?: UserStatus;
   /** Subscription tier (always present in user listings) */
   tier: UserTier;
+  /** Active tenant identifier for multi-tenant operations */
+  tenant_id?: string;
   /** Account creation timestamp (always present) */
   created_at: string;
   /** Last activity timestamp */
