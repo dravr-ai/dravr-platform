@@ -40,10 +40,11 @@ RUN ls -la target/release/pierre-mcp-server \
     target/release/seed-mobility \
     target/release/seed-synthetic-activities
 
-FROM --platform=linux/amd64 node:22-bookworm-slim
+FROM --platform=linux/amd64 debian:trixie-slim
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
-# git is required by the copilot CLI subprocess (copilot_headless LLM provider)
+# nodejs + npm: needed for copilot CLI (copilot_headless LLM provider via embacle)
+# git: required by copilot CLI subprocess
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -51,6 +52,8 @@ RUN apt-get update && apt-get upgrade -y \
     curl \
     bash \
     git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
