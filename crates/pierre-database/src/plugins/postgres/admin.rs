@@ -424,8 +424,8 @@ impl ImpersonationRepository for PostgresDatabase {
 
         sqlx::query(query)
             .bind(&session.id)
-            .bind(session.impersonator_id.to_string())
-            .bind(session.target_user_id.to_string())
+            .bind(session.impersonator_id)
+            .bind(session.target_user_id)
             .bind(&session.reason)
             .bind(session.started_at)
             .bind(session.ended_at)
@@ -508,7 +508,7 @@ impl ImpersonationRepository for PostgresDatabase {
         let ended_at = chrono::Utc::now();
         let result = sqlx::query(query)
             .bind(ended_at)
-            .bind(impersonator_id.to_string())
+            .bind(impersonator_id)
             .execute(&self.pool)
             .await
             .map_err(|e| {

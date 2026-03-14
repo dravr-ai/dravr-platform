@@ -364,7 +364,7 @@ impl SecurityRepository for PostgresDatabase {
             .bind("security") // source - using generic security source
             .bind(&event.result)
             .bind(event.tenant_id.map(|id| id.to_string()))
-            .bind(event.user_id.map(|id| id.to_string()))
+            .bind(event.user_id)
             .bind(&event.source_ip)
             .bind(&event.user_agent)
             .bind(&metadata_json)

@@ -270,7 +270,7 @@ impl RecipeRepository for PostgresDatabase {
             ",
         )
         .bind(&recipe_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .bind(&recipe.name)
         .bind(&recipe.description)
@@ -343,7 +343,7 @@ impl RecipeRepository for PostgresDatabase {
             ",
         )
         .bind(recipe_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .fetch_optional(self.pool())
         .await
@@ -383,7 +383,7 @@ impl RecipeRepository for PostgresDatabase {
                 LIMIT $4 OFFSET $5
                 ",
             )
-            .bind(user_id.to_string())
+            .bind(user_id)
             .bind(tenant_id)
             .bind(meal_timing_to_string(timing))
             .bind(limit_val)
@@ -405,7 +405,7 @@ impl RecipeRepository for PostgresDatabase {
                 LIMIT $3 OFFSET $4
                 ",
             )
-            .bind(user_id.to_string())
+            .bind(user_id)
             .bind(tenant_id)
             .bind(limit_val)
             .bind(offset_val)
@@ -479,7 +479,7 @@ impl RecipeRepository for PostgresDatabase {
         .bind(recipe.nutrition.as_ref().map(|n| n.validated_at))
         .bind(now)
         .bind(recipe_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .execute(guard.executor()?)
         .await
@@ -537,7 +537,7 @@ impl RecipeRepository for PostgresDatabase {
             ",
         )
         .bind(recipe_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .execute(self.pool())
         .await
@@ -572,7 +572,7 @@ impl RecipeRepository for PostgresDatabase {
         .bind(nutrition.validated_at)
         .bind(Utc::now())
         .bind(recipe_id)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .execute(self.pool())
         .await
@@ -608,7 +608,7 @@ impl RecipeRepository for PostgresDatabase {
             LIMIT $4 OFFSET $5
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .bind(&search_pattern)
         .bind(limit_val)
@@ -638,7 +638,7 @@ impl RecipeRepository for PostgresDatabase {
             WHERE user_id = $1 AND tenant_id = $2
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(tenant_id)
         .fetch_one(self.pool())
         .await
