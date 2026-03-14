@@ -141,6 +141,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
           exit-code: '1'
+          skip-dirs: 'root/.cache/copilot'
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@v4
