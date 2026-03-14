@@ -87,8 +87,13 @@ export interface CreateAdminTokenRequest {
 
 /** Response for creating an admin token (includes JWT) */
 export interface CreateAdminTokenResponse {
-  admin_token: AdminToken;
+  success: boolean;
+  token_id: string;
+  service_name: string;
   jwt_token: string;
+  token_prefix: string;
+  is_super_admin: boolean;
+  expires_at?: string;
 }
 
 /** Audit log entry for admin token usage */

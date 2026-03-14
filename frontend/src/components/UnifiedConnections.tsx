@@ -88,11 +88,11 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-zinc-500">Service:</span>
-              <span className="ml-2 font-medium text-white">{response.admin_token.service_name}</span>
+              <span className="ml-2 font-medium text-white">{response.service_name}</span>
             </div>
             <div>
               <span className="text-zinc-500">Prefix:</span>
-              <span className="ml-2 font-mono text-white">{response.admin_token.token_prefix}...</span>
+              <span className="ml-2 font-mono text-white">{response.token_prefix}...</span>
             </div>
           </div>
 
