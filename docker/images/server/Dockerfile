@@ -54,10 +54,12 @@ RUN apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
+# After install: remove npm and its transitive deps (node-tar CVEs) since npm is not needed at runtime
 RUN npm install -g @github/copilot-linux-x64 \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
-    && copilot --version
+    && copilot --version \
+    && rm -rf "$NPM_PREFIX/lib/node_modules/npm" "$NPM_PREFIX/bin/npm" "$NPM_PREFIX/bin/npx"
 
 # Create app user and directories
 RUN useradd -m -u 1001 appuser \
