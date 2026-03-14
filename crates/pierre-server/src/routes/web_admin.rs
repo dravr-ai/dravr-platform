@@ -12,6 +12,7 @@
 
 use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
+    config::social::SocialInsightsConfig,
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     middleware::{extract_auth_from_headers, require_admin},
@@ -337,6 +338,12 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/settings/auto-approval",
                 get(Self::handle_get_auto_approval).put(Self::handle_set_auto_approval),
+            )
+            .route(
+                "/api/admin/settings/social-insights",
+                get(Self::handle_get_social_insights_config)
+                    .put(Self::handle_set_social_insights_config)
+                    .delete(Self::handle_reset_social_insights_config),
             )
             // Tool selection routes (web admin versions with cookie auth)
             .route(
@@ -1226,6 +1233,115 @@ impl WebAdminRoutes {
                     "enabled": enabled,
                     "description": "When enabled, new user registrations are automatically approved without admin intervention"
                 }
+            })),
+        )
+            .into_response())
+    }
+
+    // =========================================================================
+    // Social Insights Configuration Routes (web admin versions with cookie auth)
+    // =========================================================================
+
+    /// GET `/api/admin/settings/social-insights` - Get social insights configuration
+    async fn handle_get_social_insights_config(
+        headers: HeaderMap,
+        State(resources): State<Arc<ServerResources>>,
+    ) -> Result<impl IntoResponse, AppError> {
+        Self::authenticate_admin(&headers, &resources).await?;
+
+        let config = resources
+            .database
+            .get_social_insights_config()
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to get social insights config");
+                AppError::internal(format!("Failed to get social insights config: {e}"))
+            })?
+            .unwrap_or_default();
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Social insights configuration retrieved",
+                "data": config
+            })),
+        )
+            .into_response())
+    }
+
+    /// PUT `/api/admin/settings/social-insights` - Update social insights configuration
+    async fn handle_set_social_insights_config(
+        headers: HeaderMap,
+        State(resources): State<Arc<ServerResources>>,
+        Json(config): Json<SocialInsightsConfig>,
+    ) -> Result<impl IntoResponse, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        info!(
+            user_id = %auth.user_id,
+            "Updating social insights configuration"
+        );
+
+        resources
+            .database
+            .set_social_insights_config(&config)
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to set social insights config");
+                AppError::internal(format!("Failed to set social insights config: {e}"))
+            })?;
+
+        info!(
+            user_id = %auth.user_id,
+            "Social insights configuration updated"
+        );
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Social insights configuration updated",
+                "data": config
+            })),
+        )
+            .into_response())
+    }
+
+    /// DELETE `/api/admin/settings/social-insights` - Reset social insights to defaults
+    async fn handle_reset_social_insights_config(
+        headers: HeaderMap,
+        State(resources): State<Arc<ServerResources>>,
+    ) -> Result<impl IntoResponse, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        info!(
+            user_id = %auth.user_id,
+            "Resetting social insights configuration to defaults"
+        );
+
+        resources
+            .database
+            .delete_social_insights_config()
+            .await
+            .map_err(|e| {
+                error!(error = %e, "Failed to reset social insights config");
+                AppError::internal(format!("Failed to reset social insights config: {e}"))
+            })?;
+
+        let default_config = SocialInsightsConfig::default();
+
+        info!(
+            user_id = %auth.user_id,
+            "Social insights configuration reset to defaults"
+        );
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Social insights configuration reset to defaults",
+                "data": default_config
             })),
         )
             .into_response())
