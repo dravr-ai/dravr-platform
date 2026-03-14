@@ -61,7 +61,24 @@ fi
 cd "$VAULT_DIR" && git status
 ```
 
-### Step 3: Create claude_docs symlink
+### Step 3: Install plugins
+
+Downloads obsidian-git and Templater binaries and writes pre-configured settings.
+
+```bash
+cd "$VAULT_DIR"
+./scripts/install-plugins.sh
+```
+
+This script:
+- Downloads `main.js` + `manifest.json` for each plugin from GitHub releases
+- Copies pre-configured `data.json` settings from `.obsidian/plugin-configs/`
+- Writes `.obsidian/community-plugins.json` to enable both plugins
+
+Plugin binaries are excluded from git (`.obsidian/plugins/` is in `.gitignore`).
+Re-running the script is safe — it overwrites existing files idempotently.
+
+### Step 4: Create claude_docs symlink
 
 This links `dravr-platform/claude_docs/` to `dravr-vault/Claude Outputs/` so Claude Code
 session outputs land directly in the vault.
@@ -79,30 +96,15 @@ ln -sf "$VAULT_DIR/Claude Outputs" claude_docs
 ls -la claude_docs   # verify symlink resolves
 ```
 
-### Step 4: Open vault in Obsidian
+### Step 5: Open vault in Obsidian
 
 Instruct the user to:
 1. Open Obsidian
 2. Click **Open folder as vault**
 3. Navigate to `$VAULT_DIR` and click **Open**
+4. When prompted "Trust and enable plugins?", click **Trust author and enable plugins**
 
-### Step 5: Install recommended plugins
-
-In Obsidian → Settings → Community Plugins → Browse:
-
-| Plugin | Purpose |
-|--------|---------|
-| **obsidian-git** | Auto-commit and push every 10 minutes |
-| **Templater** | Reusable templates (ADR, Runbook, Plan) |
-
-obsidian-git settings:
-- Auto-commit interval: 10 minutes
-- Auto-push: enabled
-- Commit message: `vault: auto-save {{date}}`
-
-Templater settings:
-- Template folder: `Templates/`
-- Trigger on new file creation: enabled
+Both obsidian-git and Templater will be active immediately — no manual browsing required.
 
 ### Step 6: Verify sync flow
 
