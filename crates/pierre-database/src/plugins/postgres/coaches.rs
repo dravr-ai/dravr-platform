@@ -1263,7 +1263,7 @@ impl CoachesRepository for PostgresDatabase {
             ",
         )
         .bind(coach_id)
-        .bind(tenant_id.to_string())
+        .bind(tenant_id.0)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list assignments: {e}")))?;
