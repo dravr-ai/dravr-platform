@@ -208,7 +208,7 @@ impl UsageRepository for PostgresDatabase {
         // When user_id is provided, join with api_keys to scope by ownership.
         let base_query = if user_id.is_some() {
             r"SELECT
-                uuid_generate_v4()::text as id,
+                gen_random_uuid()::text as id,
                 u.timestamp,
                 u.api_key_id,
                 'Unknown' as api_key_name,
@@ -223,7 +223,7 @@ impl UsageRepository for PostgresDatabase {
               WHERE 1=1"
         } else {
             r"SELECT
-                uuid_generate_v4()::text as id,
+                gen_random_uuid()::text as id,
                 timestamp,
                 api_key_id,
                 'Unknown' as api_key_name,
@@ -564,7 +564,7 @@ impl LlmUsageRepository for PostgresDatabase {
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
                    COUNT(*)::BIGINT as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
+            WHERE tenant_id = $1 AND created_at >= $2::timestamptz
             GROUP BY provider, model, call_type
             ORDER BY total_tokens DESC
             ",
@@ -614,7 +614,7 @@ impl LlmUsageRepository for PostgresDatabase {
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
                    COUNT(*)::BIGINT as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
+            WHERE tenant_id = $1 AND created_at >= $2::timestamptz
             GROUP BY created_at::DATE
             ORDER BY date ASC
             ",

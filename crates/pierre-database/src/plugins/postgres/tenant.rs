@@ -869,9 +869,10 @@ impl LlmCredentialRepository for PostgresDatabase {
             Ok(LlmCredentialRecord {
                 id: Uuid::parse_str(&id_str)
                     .map_err(|e| AppError::internal(format!("Invalid credential UUID: {e}")))?,
-                tenant_id: TenantId::from(Uuid::parse_str(&tid_str).map_err(|e| {
-                    AppError::internal(format!("Invalid tenant UUID: {e}"))
-                })?),
+                tenant_id: TenantId::from(
+                    Uuid::parse_str(&tid_str)
+                        .map_err(|e| AppError::internal(format!("Invalid tenant UUID: {e}")))?,
+                ),
                 user_id: r.get("user_id"),
                 provider: r.get("provider"),
                 api_key_encrypted: r.get("api_key_encrypted"),
