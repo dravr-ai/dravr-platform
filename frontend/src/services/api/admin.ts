@@ -625,11 +625,11 @@ export const adminApi = {
     metadata: { timestamp: string; api_version: string };
   }> {
     const params = new URLSearchParams();
-    params.append('status', 'published');
     if (options?.sort_by) params.append('sort_by', options.sort_by);
     if (options?.limit) params.append('limit', options.limit.toString());
     if (options?.offset) params.append('offset', options.offset.toString());
-    const response = await axios.get(`/api/admin/store/coaches?${params}`);
+    const qs = params.toString();
+    const response = await axios.get(`/api/admin/store/published${qs ? `?${qs}` : ''}`);
     return response.data;
   },
 
@@ -661,10 +661,10 @@ export const adminApi = {
     metadata: { timestamp: string; api_version: string };
   }> {
     const params = new URLSearchParams();
-    params.append('status', 'rejected');
     if (options?.limit) params.append('limit', options.limit.toString());
     if (options?.offset) params.append('offset', options.offset.toString());
-    const response = await axios.get(`/api/admin/store/coaches?${params}`);
+    const qs = params.toString();
+    const response = await axios.get(`/api/admin/store/rejected${qs ? `?${qs}` : ''}`);
     return response.data;
   },
 
