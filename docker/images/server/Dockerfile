@@ -40,16 +40,24 @@ RUN ls -la target/release/pierre-mcp-server \
     target/release/seed-mobility \
     target/release/seed-synthetic-activities
 
-FROM --platform=linux/amd64 debian:trixie-slim
+FROM --platform=linux/amd64 node:22-bookworm-slim
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
+# git is required by the copilot CLI subprocess (copilot_headless LLM provider)
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
     sqlite3 \
     curl \
     bash \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
+RUN npm install -g @github/copilot-linux-x64 \
+    && NPM_PREFIX="$(npm prefix -g)" \
+    && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
+    && copilot --version
 
 # Create app user and directories
 RUN useradd -m -u 1001 appuser \

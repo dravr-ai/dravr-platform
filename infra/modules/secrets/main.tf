@@ -241,3 +241,23 @@ resource "google_secret_manager_secret_version" "resend_api_key_placeholder" {
     ignore_changes = [secret_data]
   }
 }
+
+resource "google_secret_manager_secret" "copilot_github_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-copilot-github-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "copilot_github_token_placeholder" {
+  secret      = google_secret_manager_secret.copilot_github_token.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}

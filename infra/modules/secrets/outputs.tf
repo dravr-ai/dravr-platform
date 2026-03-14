@@ -27,6 +27,7 @@ output "secret_ids" {
     gemini_api_key       = google_secret_manager_secret.gemini_api_key.secret_id
     usda_api_key         = google_secret_manager_secret.usda_api_key.secret_id
     resend_api_key       = google_secret_manager_secret.resend_api_key.secret_id
+    copilot_github_token = google_secret_manager_secret.copilot_github_token.secret_id
   }
 }
 
@@ -44,5 +45,6 @@ output "secret_names" {
     gemini_api_key       = google_secret_manager_secret.gemini_api_key.name
     usda_api_key         = google_secret_manager_secret.usda_api_key.name
     resend_api_key       = google_secret_manager_secret.resend_api_key.name
+    copilot_github_token = google_secret_manager_secret.copilot_github_token.name
   }
 }
