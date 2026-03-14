@@ -534,6 +534,47 @@ test.describe('LLM Settings - Error Handling', () => {
   });
 });
 
+test.describe('LLM Settings - Provider Switching', () => {
+  test('can configure different providers sequentially', async ({ page }) => {
+    await setupLlmSettingsMocks(page);
+    await navigateToAiSettings(page);
+
+    // Click Configure on first provider (Gemini)
+    await page.getByRole('button', { name: 'Configure' }).first().click();
+    await page.waitForTimeout(300);
+
+    // API Key field visible for Gemini
+    await expect(page.getByLabel('API Key')).toBeVisible();
+    await expect(page.getByLabel('Base URL')).not.toBeVisible();
+
+    // Close form
+    await page.locator('button').filter({ has: page.locator('svg path[d*="M6 18L18 6"]') }).click();
+    await page.waitForTimeout(300);
+
+    // Configure Local LLM provider (has Base URL field)
+    const localLlmCard = page.locator('div.p-4').filter({
+      has: page.locator('h3', { hasText: 'Local LLM (Ollama/vLLM)' })
+    });
+    await localLlmCard.getByRole('button', { name: 'Configure' }).click();
+    await page.waitForTimeout(300);
+
+    // Local provider should show Base URL field
+    await expect(page.getByLabel('API Key')).toBeVisible();
+    await expect(page.getByLabel('Base URL')).toBeVisible();
+  });
+
+  test('configured provider shows Update button instead of Configure', async ({ page }) => {
+    await setupLlmSettingsMocks(page, true);
+    await navigateToAiSettings(page);
+
+    // Gemini is configured, should show Update
+    await expect(page.getByRole('button', { name: 'Update' }).first()).toBeVisible();
+
+    // Other providers should still show Configure
+    await expect(page.getByRole('button', { name: 'Configure' }).first()).toBeVisible();
+  });
+});
+
 test.describe('LLM Settings - Documentation Links', () => {
   test('shows documentation link for each provider', async ({ page }) => {
     await setupLlmSettingsMocks(page);
