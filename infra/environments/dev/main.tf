@@ -171,11 +171,11 @@ module "backend" {
       # Auto-approve users created via Google Sign-In
       AUTO_APPROVE_USERS = "true"
 
-      # LLM provider configuration
-      PIERRE_LLM_PROVIDER       = "gemini"
-      PIERRE_LLM_MODEL          = "gemini-2.5-flash"
-      PIERRE_LLM_DEFAULT_MODEL  = "gemini-2.5-flash"
-      PIERRE_LLM_FALLBACK_MODEL = "gemini-2.0-flash-lite"
+      # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI)
+      PIERRE_LLM_PROVIDER       = "copilot_headless"
+      PIERRE_LLM_MODEL          = "claude-opus-4-6"
+      PIERRE_LLM_DEFAULT_MODEL  = "claude-opus-4-6"
+      PIERRE_LLM_FALLBACK_MODEL = "claude-opus-4-6"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
@@ -201,6 +201,7 @@ module "backend" {
     STRAVA_CLIENT_SECRET         = module.secrets.secret_ids["strava_client_secret"]
     USDA_API_KEY                 = module.secrets.secret_ids["usda_api_key"]
     GEMINI_API_KEY               = module.secrets.secret_ids["gemini_api_key"]
+    COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
     OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
     RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
   }

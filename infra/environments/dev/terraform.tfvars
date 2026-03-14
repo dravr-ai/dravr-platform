@@ -17,7 +17,7 @@ enable_frontend = true
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 
 backend_cpu           = "1"
-backend_memory        = "1Gi"
+backend_memory        = "2Gi"
 backend_min_instances = 0
 backend_max_instances = 1
 
