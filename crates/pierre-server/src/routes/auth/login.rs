@@ -189,6 +189,7 @@ impl AuthService {
 
         // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
         let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
+        let tenant_id_for_response = active_tenant_id.clone();
 
         // Generate JWT token using RS256 with active_tenant_id
         let jwt_token = self
@@ -215,6 +216,7 @@ impl AuthService {
                 is_admin: user.is_admin,
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
+                tenant_id: tenant_id_for_response,
             },
         })
     }
@@ -470,6 +472,7 @@ impl AuthService {
     ) -> AppResult<LoginResponse> {
         // Ensure user has a tenant (auto-creates one for users without a tenant)
         let active_tenant_id = self.ensure_user_has_tenant(user).await?;
+        let tenant_id_for_response = active_tenant_id.clone();
 
         let jwt_token = self
             .auth
@@ -494,6 +497,7 @@ impl AuthService {
                 is_admin: user.is_admin,
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
+                tenant_id: tenant_id_for_response,
             },
         })
     }
@@ -531,6 +535,7 @@ impl AuthService {
 
         // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
         let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
+        let tenant_id_for_response = active_tenant_id.clone();
 
         // Generate new JWT token using RS256 with active_tenant_id
         let new_jwt_token = self
@@ -561,6 +566,7 @@ impl AuthService {
                 is_admin: user.is_admin,
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
+                tenant_id: tenant_id_for_response,
             },
         })
     }
@@ -864,6 +870,7 @@ pub(super) async fn handle_session(
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
         tenants.first().map(|t| t.id.to_string())
     };
+    let tenant_id_for_response = active_tenant_id.clone();
 
     // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
     let server_context = ServerContext::from(resources.as_ref());
@@ -899,6 +906,7 @@ pub(super) async fn handle_session(
             is_admin: user.is_admin,
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
+            tenant_id: tenant_id_for_response,
         },
         access_token: jwt_token,
         csrf_token,
@@ -951,6 +959,7 @@ pub(super) async fn handle_update_profile(
             is_admin: updated_user.is_admin,
             role: updated_user.role.to_string(),
             user_status: updated_user.user_status.to_string(),
+            tenant_id: None,
         },
     };
 

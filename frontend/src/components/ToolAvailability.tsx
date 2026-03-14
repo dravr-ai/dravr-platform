@@ -57,8 +57,8 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
   const [bulkAction, setBulkAction] = useState<'enable' | 'disable' | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
 
-  // Use provided tenantId, or fall back to the user's user_id (which is often their tenant_id)
-  const effectiveTenantId = tenantId || user?.user_id || '';
+  // Use provided tenantId, or fall back to the user's tenant_id from login response
+  const effectiveTenantId = tenantId || user?.tenant_id || '';
 
   // Fetch global disabled tools
   const { data: globalDisabled } = useQuery({

@@ -62,6 +62,9 @@ pub struct UserInfo {
     pub role: String,
     /// User account status (`pending`, `active`, `suspended`)
     pub user_status: String,
+    /// Active tenant identifier for multi-tenant operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<String>,
 }
 
 /// User login response
