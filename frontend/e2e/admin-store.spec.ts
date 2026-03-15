@@ -128,7 +128,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock published coaches
-  await page.route('**/api/admin/store/coaches?status=published**', async (route) => {
+  await page.route('**/api/admin/store/published**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -141,7 +141,7 @@ async function setupAdminStoreMocks(page: Page) {
   });
 
   // Mock rejected coaches
-  await page.route('**/api/admin/store/coaches?status=rejected', async (route) => {
+  await page.route('**/api/admin/store/rejected**', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
