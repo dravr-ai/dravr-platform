@@ -299,6 +299,20 @@ test.describe('Coach Store Browse', () => {
     await expect(page.getByText('diet', { exact: true })).toBeVisible();
   });
 
+  test('displays end-of-list indicator when all coaches are shown', async ({ page }) => {
+    await setupStoreMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+
+    await expect(page.getByText('Find AI coaching assistants')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+
+    // Mock returns has_more: false, so end-of-list indicator should appear
+    await expect(page.getByText("You've seen all coaches")).toBeVisible({ timeout: 5000 });
+  });
+
   test('shows empty state when store is empty', async ({ page }) => {
     await setupStoreMocks(page, { emptyStore: true });
     await loginToDashboard(page);
@@ -571,6 +585,38 @@ test.describe('Coach Store Detail View', () => {
     await expect(page.getByText('System Prompt')).toBeVisible();
     await expect(page.getByText('Details')).toBeVisible();
     await expect(page.getByText('Token Count')).toBeVisible();
+  });
+
+  test('displays system prompt preview text', async ({ page }) => {
+    await setupStoreMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+
+    // Click on coach to see detail
+    await page.getByText('Marathon Training Coach').click();
+    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+
+    // Should display the system prompt text preview content
+    await expect(page.getByText('System Prompt')).toBeVisible();
+    await expect(page.getByText(/expert marathon training coach/i)).toBeVisible();
+  });
+
+  test('displays token count value in details section', async ({ page }) => {
+    await setupStoreMocks(page);
+    await loginToDashboard(page);
+    await page.waitForSelector('main', { timeout: 10000 });
+    await page.getByRole('button', { name: 'Discover', exact: true }).click();
+    await expect(page.getByText('Marathon Training Coach')).toBeVisible({ timeout: 10000 });
+
+    // Click on coach to see detail
+    await page.getByText('Marathon Training Coach').click();
+    await expect(page.getByRole('button', { name: 'Add Coach' })).toBeVisible({ timeout: 5000 });
+
+    // Should display token count label and value
+    await expect(page.getByText('Token Count')).toBeVisible();
+    await expect(page.getByText('1,200')).toBeVisible();
   });
 
   test('back button returns to store browse', async ({ page }) => {

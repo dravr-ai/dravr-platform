@@ -375,6 +375,132 @@ test.describe('Settings Page - User Mode', () => {
 
     await expect(page.getByText('Create New Token')).toBeVisible();
   });
+
+  test('data providers tab displays individual provider names', async ({ page }) => {
+    // Mock OAuth status with full provider list before setting up auth mocks
+    await page.route('**/api/oauth/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+          { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+          { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+          { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+        ]),
+      });
+    });
+
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.waitForTimeout(300);
+
+    // Verify provider names are rendered
+    await expect(page.getByText('Strava')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fitbit')).toBeVisible();
+    await expect(page.getByText('Garmin')).toBeVisible();
+    await expect(page.getByText('WHOOP')).toBeVisible();
+    await expect(page.getByText('Terra')).toBeVisible();
+    await expect(page.getByText('Synthetic', { exact: true })).toBeVisible();
+    await expect(page.getByText('Synthetic Sleep')).toBeVisible();
+  });
+
+  test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
+    // Mock providers: 5 OAuth + 2 Manual
+    await page.route('**/api/oauth/status', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+          { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+          { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+        ]),
+      });
+    });
+
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.waitForTimeout(300);
+
+    // OAuth providers should have Connect buttons
+    const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
+    await expect(connectButtons.first()).toBeVisible({ timeout: 5000 });
+    const connectCount = await connectButtons.count();
+    expect(connectCount).toBe(5);
+
+    // Manual providers should show "Manual" badge
+    const manualBadges = page.getByText('Manual', { exact: true });
+    const manualCount = await manualBadges.count();
+    expect(manualCount).toBe(2);
+  });
+
+  test('tokens tab shows setup instructions button for Claude and ChatGPT', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'API Tokens' }).click();
+    await page.waitForTimeout(300);
+
+    // Should show Setup Instructions toggle button with Claude & ChatGPT mention
+    await expect(page.getByText('Setup Instructions')).toBeVisible();
+    await expect(page.getByText('for Claude & ChatGPT')).toBeVisible();
+  });
+
+  test('tokens tab shows Connected Apps section', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'API Tokens' }).click();
+    await page.waitForTimeout(300);
+
+    // Should show Connected Apps heading
+    await expect(page.getByRole('heading', { name: 'Connected Apps' })).toBeVisible();
+  });
+
+  test('account tab displays usage quota values with progress bars', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'Account' }).click();
+    await page.waitForTimeout(300);
+
+    // Should show usage quota labels and values
+    await expect(page.getByText('Daily Messages')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('5 / 50')).toBeVisible();
+    await expect(page.getByText('Daily Tokens')).toBeVisible();
+    await expect(page.getByText('Weekly Messages')).toBeVisible();
+    await expect(page.getByText('15 / 250')).toBeVisible();
+  });
+
+  test('account tab displays daily reset time', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'Account' }).click();
+    await page.waitForTimeout(300);
+
+    // Should show daily reset time
+    await expect(page.getByText(/Daily limits reset at/)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('account tab displays resource counters for coaches and conversations', async ({ page }) => {
+    await loginAndNavigateToSettings(page);
+
+    await page.getByRole('button', { name: 'Account' }).click();
+    await page.waitForTimeout(300);
+
+    // Should show resource counters
+    await expect(page.getByText('Coaches')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('1 / 3')).toBeVisible();
+    await expect(page.getByText('Conversations')).toBeVisible();
+    await expect(page.getByText('2 / 20')).toBeVisible();
+  });
 });
 
 test.describe('Settings Page - User Profile Bar Navigation', () => {
