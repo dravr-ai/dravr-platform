@@ -466,6 +466,14 @@ async fn initialize_jwt_secret(database: &Database, config: &ServerConfig) -> Re
 
     check_admin_status(database, auto_approve).await;
 
+    let domains = &config.app_behavior.auto_approve_domains;
+    if !domains.is_empty() {
+        info!(
+            "Auto-approve domains: {} (users from these domains bypass approval)",
+            domains.join(", ")
+        );
+    }
+
     Ok(jwt_secret_string)
 }
 

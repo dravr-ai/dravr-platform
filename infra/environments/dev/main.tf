@@ -168,8 +168,9 @@ module "backend" {
       # Email sender configuration
       RESEND_FROM_EMAIL = "no-reply@dravr.ai"
 
-      # Auto-approve users created via Google Sign-In
-      AUTO_APPROVE_USERS = "true"
+      # Auto-approve: disabled globally, but dravr.ai emails bypass approval
+      AUTO_APPROVE_USERS  = "false"
+      AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI)
       PIERRE_LLM_PROVIDER       = "copilot_headless"

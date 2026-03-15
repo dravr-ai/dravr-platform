@@ -168,6 +168,7 @@ async fn test_oauth_authorization_url_generation() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -472,6 +473,7 @@ async fn test_oauth_state_validation() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -677,6 +679,7 @@ async fn test_connection_status_no_providers() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -914,6 +917,7 @@ async fn test_invalid_provider_error() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -1115,6 +1119,7 @@ async fn test_disconnect_provider() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -1430,6 +1435,7 @@ async fn test_oauth_urls_contain_required_parameters() {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),

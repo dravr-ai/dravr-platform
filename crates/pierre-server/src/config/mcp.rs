@@ -102,6 +102,10 @@ pub struct AppBehaviorConfig {
     /// Whether `auto_approve_users` was explicitly set via environment variable.
     /// When true, the env var value takes precedence over database settings.
     pub auto_approve_users_from_env: bool,
+    /// Email domains that bypass approval (e.g., `["dravr.ai", "acme.com"]`).
+    /// Users registering with an email from one of these domains are auto-approved
+    /// even when global `auto_approve_users` is false.
+    pub auto_approve_domains: Vec<String>,
     /// Protocol configuration
     pub protocol: ProtocolConfig,
 }
@@ -125,6 +129,14 @@ impl AppBehaviorConfig {
             Err(_) => (false, false),
         };
 
+        // Parse comma-separated list of email domains to auto-approve
+        let auto_approve_domains: Vec<String> = env::var("AUTO_APPROVE_DOMAINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|d| d.trim().to_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect();
+
         Ok(Self {
             max_activities_fetch: env_var_or("MAX_ACTIVITIES_FETCH", "100").parse().map_err(
                 |e| AppError::invalid_input(format!("Invalid MAX_ACTIVITIES_FETCH value: {e}")),
@@ -139,6 +151,7 @@ impl AppBehaviorConfig {
                 .map_err(|e| AppError::invalid_input(format!("Invalid CI value: {e}")))?,
             auto_approve_users,
             auto_approve_users_from_env,
+            auto_approve_domains,
             protocol: ProtocolConfig::from_env(),
         })
     }

@@ -92,12 +92,10 @@ impl AuthService {
         // Create user with default Pending status
         let mut user = User::new(request.email.clone(), password_hash, request.display_name); // Safe: String ownership needed for user model
 
-        // Check if auto-approval is enabled (database setting takes precedence over config)
-        if self.is_auto_approval_enabled().await {
-            user.user_status = UserStatus::Active;
-            user.approved_at = Some(Utc::now());
-            info!("Auto-approving user registration (auto_approval_enabled=true)");
-        }
+        // Check if user should be auto-approved (global setting or domain allow-list)
+        let (status, approved_at) = self.determine_approval_status(&request.email).await;
+        user.user_status = status;
+        user.approved_at = approved_at;
 
         // Save user to database
         let user_id = UserRepository::create(self.data.database().as_ref(), &user)
@@ -368,7 +366,7 @@ impl AuthService {
         Ok(Some(tenant_id.to_string()))
     }
 
-    /// Check if auto-approval is enabled
+    /// Check if global auto-approval is enabled (ignores domain allow-list).
     ///
     /// Precedence order:
     /// 1. Environment variable (if explicitly set via `AUTO_APPROVE_USERS`)
@@ -395,11 +393,42 @@ impl AuthService {
         }
     }
 
-    /// Determine user approval status based on auto-approval setting
-    async fn determine_approval_status(&self) -> (UserStatus, Option<chrono::DateTime<Utc>>) {
-        let now = Utc::now();
+    /// Check if a specific email should be auto-approved.
+    ///
+    /// Returns true when:
+    /// - Global auto-approval is enabled (`AUTO_APPROVE_USERS=true`), OR
+    /// - The email domain is in the `AUTO_APPROVE_DOMAINS` allow-list
+    async fn should_auto_approve_email(&self, email: &str) -> bool {
         if self.is_auto_approval_enabled().await {
-            tracing::debug!("Auto-approval enabled for new user");
+            return true;
+        }
+
+        let domains = &self.config.config().app_behavior.auto_approve_domains;
+        if domains.is_empty() {
+            return false;
+        }
+
+        // Extract domain from email (lowercase for case-insensitive comparison)
+        let email_domain = match email.rsplit_once('@') {
+            Some((_, domain)) => domain.to_lowercase(),
+            None => return false,
+        };
+
+        let approved = domains.iter().any(|d| d == &email_domain);
+        if approved {
+            tracing::debug!(email_domain = %email_domain, "Auto-approving user from allowed domain");
+        }
+        approved
+    }
+
+    /// Determine user approval status based on auto-approval setting and email domain
+    async fn determine_approval_status(
+        &self,
+        email: &str,
+    ) -> (UserStatus, Option<chrono::DateTime<Utc>>) {
+        let now = Utc::now();
+        if self.should_auto_approve_email(email).await {
+            tracing::debug!("Auto-approval granted for new user");
             (UserStatus::Active, Some(now))
         } else {
             (UserStatus::Pending, None)
@@ -410,7 +439,7 @@ impl AuthService {
     async fn create_firebase_user(&self, claims: &FirebaseClaims, email: &str) -> AppResult<User> {
         tracing::info!(firebase_uid = %claims.sub, "Creating new Firebase user");
 
-        let (user_status, approved_at) = self.determine_approval_status().await;
+        let (user_status, approved_at) = self.determine_approval_status(email).await;
         let user_id = uuid::Uuid::new_v4();
         let display_name = claims
             .name
@@ -665,7 +694,7 @@ pub(super) async fn handle_register(
 ///
 /// This endpoint allows users to register themselves without admin authentication.
 /// New users are created in "Pending" status by default and require admin approval,
-/// unless `AUTO_APPROVE_USERS` environment variable is set to true.
+/// unless `AUTO_APPROVE_USERS` is true or the email domain is in `AUTO_APPROVE_DOMAINS`.
 #[tracing::instrument(
     skip(resources, request),
     fields(route = "public_register", user_id = Empty, success = Empty)

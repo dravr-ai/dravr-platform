@@ -193,8 +193,12 @@ export OAUTH_CALLBACK_PORT=35535
 # export FIREBASE_KEY_CACHE_TTL_SECS="3600"  # Public key cache TTL
 
 # Auto-approve new users (Firebase/Google Sign-In)
-# Set to true to automatically approve new users created via Google Sign-In
+# Set to true to automatically approve ALL new users created via Google Sign-In
 # export AUTO_APPROVE_USERS="false"
+
+# Domain allow-list for auto-approval (comma-separated, case-insensitive)
+# Users with emails from these domains are auto-approved even when AUTO_APPROVE_USERS=false
+# export AUTO_APPROVE_DOMAINS="dravr.ai,acme.com"
 
 # Web Frontend Firebase Configuration (Vite uses VITE_ prefix)
 # export VITE_FIREBASE_API_KEY="your-firebase-api-key"
