@@ -17,11 +17,15 @@ import {
 
 // Firebase configuration - all values from environment variables
 // Set these in frontend/.env or frontend/.env.local:
-//   VITE_FIREBASE_API_KEY, VITE_FIREBASE_AUTH_DOMAIN, VITE_FIREBASE_PROJECT_ID,
+//   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
 //   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
+//
+// authDomain uses the current origin (self-hosted auth handler via nginx reverse proxy).
+// This eliminates third-party cookie issues and manual OAuth redirect URI configuration.
+// The nginx proxy routes /__/auth/* to {projectId}.firebaseapp.com transparently.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  authDomain: window.location.host,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
@@ -31,7 +35,6 @@ const firebaseConfig = {
 // Check if Firebase is configured
 const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey &&
-  firebaseConfig.authDomain &&
   firebaseConfig.projectId
 );
 

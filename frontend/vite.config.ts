@@ -49,6 +49,12 @@ export default defineConfig(({ mode }) => {
               ws: true,
               changeOrigin: true,
             },
+            // Firebase auth handler: proxy to firebaseapp.com so authDomain = localhost
+            '/__': {
+              target: `https://${env.VITE_FIREBASE_PROJECT_ID || 'dravr-dev-8d4a3'}.firebaseapp.com`,
+              changeOrigin: true,
+              secure: true,
+            },
           },
         },
     test: {
