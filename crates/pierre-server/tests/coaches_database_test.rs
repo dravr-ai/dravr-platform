@@ -100,6 +100,8 @@ async fn create_test_db() -> SqlitePool {
             icon_url TEXT,
             author_id TEXT,
             max_tool_iterations INTEGER,
+            startup_query TEXT,
+            data_requirements TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
         ",
@@ -238,6 +240,8 @@ async fn test_create_coach() {
         category: CoachCategory::Training,
         tags: vec!["running".to_owned(), "marathon".to_owned()],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -273,6 +277,8 @@ async fn test_create_coach_minimal() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -302,6 +308,8 @@ async fn test_get_coach() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let created = manager
@@ -345,6 +353,8 @@ async fn test_get_coach_wrong_user() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let created = manager
@@ -393,6 +403,8 @@ async fn test_list_coaches() {
             category: CoachCategory::Custom,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -429,6 +441,8 @@ async fn test_list_coaches_by_category() {
             category: *category,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -467,6 +481,8 @@ async fn test_list_coaches_favorites_only() {
             category: CoachCategory::Custom,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         let coach = manager
             .create(test_user_id(), test_tenant(), &request)
@@ -509,6 +525,8 @@ async fn test_list_coaches_with_pagination() {
             category: CoachCategory::Custom,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -566,6 +584,8 @@ async fn test_list_coaches_user_isolation() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &request)
@@ -580,6 +600,8 @@ async fn test_list_coaches_user_isolation() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .create(other_user_id(), test_tenant(), &request)
@@ -620,6 +642,8 @@ async fn test_update_coach() {
         category: CoachCategory::Custom,
         tags: vec!["tag1".to_owned()],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -634,6 +658,8 @@ async fn test_update_coach() {
         category: Some(CoachCategory::Training),
         tags: Some(vec!["tag2".to_owned(), "tag3".to_owned()]),
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     let updated = manager
@@ -667,6 +693,8 @@ async fn test_update_coach_partial() {
         category: CoachCategory::Training,
         tags: vec!["tag1".to_owned()],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -682,6 +710,8 @@ async fn test_update_coach_partial() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     let updated = manager
@@ -713,6 +743,8 @@ async fn test_update_coach_not_found() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     let result = manager
@@ -739,6 +771,8 @@ async fn test_delete_coach() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -786,6 +820,8 @@ async fn test_delete_coach_wrong_user() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -825,6 +861,8 @@ async fn test_toggle_favorite() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -896,6 +934,8 @@ async fn test_activate_coach() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -933,6 +973,8 @@ async fn test_activate_coach_deactivates_others() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     let coach1 = manager
         .create(test_user_id(), test_tenant(), &request1)
@@ -946,6 +988,8 @@ async fn test_activate_coach_deactivates_others() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     let coach2 = manager
         .create(test_user_id(), test_tenant(), &request2)
@@ -993,6 +1037,8 @@ async fn test_deactivate_coach() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1054,6 +1100,8 @@ async fn test_get_active_coach() {
         category: CoachCategory::Training,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1089,6 +1137,8 @@ async fn test_active_coach_user_isolation() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     let coach = manager
         .create(test_user_id(), test_tenant(), &request)
@@ -1130,6 +1180,8 @@ async fn test_record_usage() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1196,6 +1248,8 @@ async fn test_search_coaches() {
             category: CoachCategory::Training,
             tags: vec!["running".to_owned(), "marathon".to_owned()],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         },
         CreateCoachRequest {
             title: "Nutrition Advisor".to_owned(),
@@ -1204,6 +1258,8 @@ async fn test_search_coaches() {
             category: CoachCategory::Nutrition,
             tags: vec!["diet".to_owned(), "nutrition".to_owned()],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         },
         CreateCoachRequest {
             title: "Recovery Coach".to_owned(),
@@ -1212,6 +1268,8 @@ async fn test_search_coaches() {
             category: CoachCategory::Recovery,
             tags: vec!["rest".to_owned(), "recovery".to_owned()],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         },
     ];
 
@@ -1268,6 +1326,8 @@ async fn test_search_coaches_with_limit() {
             category: CoachCategory::Custom,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1305,6 +1365,8 @@ async fn test_count_coaches() {
             category: CoachCategory::Custom,
             tags: vec![],
             sample_prompts: vec![],
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1522,6 +1584,8 @@ async fn test_update_system_coach() {
         category: Some(CoachCategory::Nutrition),
         tags: Some(vec!["updated".to_owned()]),
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     let updated = manager
@@ -1704,6 +1768,8 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
@@ -2203,6 +2269,8 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
