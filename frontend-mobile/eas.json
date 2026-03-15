@@ -13,9 +13,6 @@
     },
     "preview": {
       "distribution": "internal",
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
-      },
       "ios": {
         "resourceClass": "m-medium"
       },
