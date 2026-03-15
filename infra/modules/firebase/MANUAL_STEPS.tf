@@ -18,6 +18,7 @@
 #      - (any custom domain, e.g., https://app.dravr.ai)
 #
 #    Add Authorized redirect URIs:
+#      - https://<firebase-project-id>.firebaseapp.com/__/auth/handler  ← CRITICAL: popup flow uses this
 #      - https://<frontend-cloud-run-url>/__/auth/handler
 #      - https://<frontend-cloud-run-url-new-format>/__/auth/handler
 #
@@ -33,6 +34,7 @@
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app
 #    Authorized Redirect URIs:
+#      - https://dravr-dev-8d4a3.firebaseapp.com/__/auth/handler  ← popup flow redirect
 #      - https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/__/auth/handler
 #      - https://dravr-mcp-server-frontend-865150413606.northamerica-northeast1.run.app/__/auth/handler
 #
