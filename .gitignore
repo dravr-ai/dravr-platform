@@ -10,6 +10,9 @@ target/
 # Environment
 .env
 .envrc
+
+# Terraform secrets (OAuth credentials, passwords)
+secrets.auto.tfvars
 /config.toml
 # Cargo config is developer-specific (linker choice depends on local toolchain)
 .cargo/config.toml

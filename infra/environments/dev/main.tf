@@ -163,7 +163,7 @@ module "backend" {
       BASE_URL     = var.frontend_base_url
 
       # Firebase project for Google Sign-In token validation
-      FIREBASE_PROJECT_ID = "pierre-fitness-intelligence"
+      FIREBASE_PROJECT_ID = var.firebase_project_id
 
       # Email sender configuration
       RESEND_FROM_EMAIL = "no-reply@dravr.ai"
@@ -408,4 +408,24 @@ module "storage" {
   labels                        = var.labels
 
   depends_on = [module.project]
+}
+
+# -----------------------------------------------------------------------------
+# Firebase Identity Platform (authentication)
+# -----------------------------------------------------------------------------
+
+module "firebase" {
+  source = "../../modules/firebase"
+
+  project_id          = var.project_id
+  firebase_project_id = var.firebase_project_id
+
+  authorized_domains = compact([
+    var.enable_frontend ? replace(module.frontend[0].service_url, "https://", "") : "",
+    # Add custom domain here when ready (e.g., "app.dravr.ai")
+  ])
+
+  # OAuth credentials read from Secret Manager (google-oauth-client-id, google-oauth-client-secret)
+
+  depends_on = [module.project, module.secrets]
 }

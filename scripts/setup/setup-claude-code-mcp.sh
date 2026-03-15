@@ -236,7 +236,7 @@ if command -v gcloud &> /dev/null; then
         claude mcp add stitch \
             --transport http https://stitch.googleapis.com/mcp \
             --header "Authorization: Bearer ${STITCH_TOKEN}" \
-            --header "X-Goog-User-Project: pierre-fitness-intelligence" \
+            --header "X-Goog-User-Project: dravr-dev-8d4a3" \
             -s user 2>/dev/null
         echo -e "${GREEN}  Stitch MCP token refreshed (expires in ~1 hour)${NC}"
     else

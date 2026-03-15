@@ -264,3 +264,13 @@ variable "labels" {
     managed_by = "terraform"
   }
 }
+
+# -----------------------------------------------------------------------------
+# Firebase Identity Platform
+# -----------------------------------------------------------------------------
+
+variable "firebase_project_id" {
+  description = "Firebase project ID (linked GCP project with Firebase enabled)"
+  type        = string
+  default     = "dravr-dev-8d4a3"
+}
