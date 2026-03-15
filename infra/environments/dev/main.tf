@@ -379,15 +379,11 @@ module "frontend" {
   ingress               = "INGRESS_TRAFFIC_ALL"
   allow_unauthenticated = true
   vpc_connector_id      = module.networking.vpc_connector_id
-  # PRIVATE_RANGES_ONLY: backend proxy goes through VPC (internal), Firebase proxy goes direct (external)
-  # ALL_TRAFFIC would require Cloud NAT for external egress — firebaseapp.com becomes unreachable without it
-  vpc_egress            = "PRIVATE_RANGES_ONLY"
+  vpc_egress            = "ALL_TRAFFIC"
 
   env_vars = {
     # Backend URL for nginx reverse proxy (injected via envsubst at container start)
     BACKEND_URL = module.backend.service_url
-    # Firebase project ID for nginx auth handler reverse proxy (/__/auth/* → firebaseapp.com)
-    FIREBASE_PROJECT_ID = var.firebase_project_id
   }
 
   health_check_path           = "/health"
