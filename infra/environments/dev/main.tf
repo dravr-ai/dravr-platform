@@ -173,9 +173,9 @@ module "backend" {
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI)
       PIERRE_LLM_PROVIDER       = "copilot_headless"
-      PIERRE_LLM_MODEL          = "claude-opus-4-6"
-      PIERRE_LLM_DEFAULT_MODEL  = "claude-opus-4-6"
-      PIERRE_LLM_FALLBACK_MODEL = "claude-opus-4-6"
+      PIERRE_LLM_MODEL          = "claude-sonnet-4.6"
+      PIERRE_LLM_DEFAULT_MODEL  = "claude-sonnet-4.6"
+      PIERRE_LLM_FALLBACK_MODEL = "claude-sonnet-4.6"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
