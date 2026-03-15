@@ -25,6 +25,10 @@ backend_max_instances = 1
 # database_deletion_protection = false
 # database_backup_enabled      = false
 
+# Firebase Identity Platform (Google Sign-In)
+# OAuth credentials stored in GCP Secret Manager (google-oauth-client-id, google-oauth-client-secret)
+firebase_project_id = "dravr-dev-8d4a3"
+
 labels = {
   app         = "dravr"
   managed_by  = "terraform"
