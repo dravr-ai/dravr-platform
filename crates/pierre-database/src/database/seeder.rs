@@ -893,9 +893,10 @@ impl SeederRepository for Database {
              (id, user_id, tenant_id, title, description, system_prompt, category, tags, \
               sample_prompts, token_count, created_at, updated_at, is_system, visibility, \
               slug, purpose, when_to_use, instructions, example_inputs, example_outputs, \
-              success_criteria, prerequisites, source_file, content_hash, startup_query) \
+              success_criteria, prerequisites, source_file, content_hash, startup_query, \
+              data_requirements) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 1, $13, \
-                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
+                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
         )
         .bind(&coach.id)
         .bind(coach.user_id.to_string())
@@ -921,6 +922,7 @@ impl SeederRepository for Database {
         .bind(&coach.source_file)
         .bind(&coach.content_hash)
         .bind(&coach.startup_query)
+        .bind(&coach.data_requirements)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to insert coach: {e}")))?;
@@ -934,8 +936,9 @@ impl SeederRepository for Database {
                tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8, \
                visibility = $9, purpose = $10, when_to_use = $11, instructions = $12, \
                example_inputs = $13, example_outputs = $14, success_criteria = $15, \
-               prerequisites = $16, source_file = $17, content_hash = $18, startup_query = $19 \
-             WHERE id = $20",
+               prerequisites = $16, source_file = $17, content_hash = $18, startup_query = $19, \
+               data_requirements = $20 \
+             WHERE id = $21",
         )
         .bind(&coach.title)
         .bind(&coach.description)
@@ -956,6 +959,7 @@ impl SeederRepository for Database {
         .bind(&coach.source_file)
         .bind(&coach.content_hash)
         .bind(&coach.startup_query)
+        .bind(&coach.data_requirements)
         .bind(&coach.id)
         .execute(&self.pool)
         .await

@@ -9,7 +9,15 @@ prerequisites:
   activity_types: [Run, Ride, Swim]
 visibility: tenant
 startup:
-  query: "Fetch my last 30 activities. Analyze my training load, identify weekly volume trends, and look for any patterns or areas of concern."
+  query: "Analyze my training load, identify weekly volume trends, and look for any patterns or areas of concern."
+  data_requirements:
+    activities:
+      count: 40
+      sport_types: []
+      time_frame: 12w
+      mode: summary
+      analysis_type: general_overview
+    athlete_profile: true
 ---
 
 ## Purpose

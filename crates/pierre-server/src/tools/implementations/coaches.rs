@@ -392,6 +392,8 @@ impl McpTool for CreateCoachTool {
             category,
             tags,
             sample_prompts,
+            startup_query: None,
+            data_requirements: None,
         };
 
         let coach = manager.create(ctx.user_id, tenant_id, &request).await?;
@@ -590,6 +592,8 @@ impl McpTool for UpdateCoachTool {
             category,
             tags,
             sample_prompts,
+            startup_query: None,
+            data_requirements: None,
         };
 
         let coach = manager

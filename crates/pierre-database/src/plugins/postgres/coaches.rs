@@ -11,8 +11,8 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
     Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
-    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
-    UpdateCoachRequest,
+    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, DataRequirements,
+    ListCoachesFilter, UpdateCoachRequest,
 };
 use pierre_core::models::TenantId;
 use sqlx::postgres::PgRow;
@@ -71,6 +71,10 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
     let prerequisites_json: Option<String> = row.try_get("prerequisites").ok().flatten();
     let forked_from: Option<String> = row.try_get("forked_from").ok().flatten();
     let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
+    let startup_query: Option<String> = row.try_get("startup_query").ok().flatten();
+    let data_requirements_json: Option<String> = row.try_get("data_requirements").ok().flatten();
+    let data_requirements: Option<DataRequirements> =
+        data_requirements_json.and_then(|json| serde_json::from_str(&json).ok());
 
     let tags: Vec<String> = tags_json
         .as_deref()
@@ -108,6 +112,8 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         prerequisites,
         forked_from,
         max_tool_iterations,
+        startup_query,
+        data_requirements,
     })
 }
 
@@ -243,7 +249,7 @@ impl PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches WHERE id = $1
             ",
         )
@@ -330,14 +336,20 @@ impl CoachesRepository for PostgresDatabase {
         let sample_prompts_json = serde_json::to_string(&request.sample_prompts)?;
         let token_count = estimate_tokens(&request.system_prompt);
 
+        // Serialize data_requirements to JSON if present
+        let data_requirements_json = request
+            .data_requirements
+            .as_ref()
+            .and_then(|dr| serde_json::to_string(dr).ok());
+
         sqlx::query(
             r"
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -356,6 +368,8 @@ impl CoachesRepository for PostgresDatabase {
         .bind(Option::<String>::None) // prerequisites
         .bind(Option::<String>::None) // forked_from
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(&request.startup_query)
+        .bind(&data_requirements_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?;
@@ -394,6 +408,8 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            startup_query: request.startup_query.clone(),
+            data_requirements: request.data_requirements.clone(),
         })
     }
 
@@ -408,7 +424,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -461,7 +477,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations,
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
                    CASE WHEN ca.coach_id IS NOT NULL THEN TRUE ELSE FALSE END as is_assigned,
                    COALESCE(ca.is_favorite, FALSE) as is_favorite,
                    COALESCE(ca.is_active, FALSE) as is_active,
@@ -531,11 +547,47 @@ impl CoachesRepository for PostgresDatabase {
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
         let token_count = estimate_tokens(system_prompt);
 
+        // Resolve startup_query: use new value if provided, otherwise keep existing via COALESCE
+        let startup_query: Option<String> = if request.startup_query.is_some() {
+            request
+                .startup_query
+                .as_ref()
+                .filter(|q| !q.is_empty())
+                .cloned()
+        } else {
+            let existing_row: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT startup_query FROM coaches WHERE id = $1")
+                    .bind(coach_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to get startup_query: {e}")))?;
+            existing_row.and_then(|(q,)| q)
+        };
+
+        // Resolve data_requirements
+        let data_requirements_json: Option<String> = if request.data_requirements.is_some() {
+            request
+                .data_requirements
+                .as_ref()
+                .and_then(|dr| serde_json::to_string(dr).ok())
+        } else {
+            let existing_row: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT data_requirements FROM coaches WHERE id = $1")
+                    .bind(coach_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get data_requirements: {e}"))
+                    })?;
+            existing_row.and_then(|(dr,)| dr)
+        };
+
         let result = sqlx::query(
             r"
             UPDATE coaches SET
                 title = $1, description = $2, system_prompt = $3,
-                category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
+                category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
+                startup_query = $12, data_requirements = $13
             WHERE id = $9 AND user_id = $10 AND tenant_id = $11
             ",
         )
@@ -550,6 +602,8 @@ impl CoachesRepository for PostgresDatabase {
         .bind(coach_id)
         .bind(user_id)
         .bind(tenant_id.to_string())
+        .bind(&startup_query)
+        .bind(&data_requirements_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;
@@ -604,14 +658,20 @@ impl CoachesRepository for PostgresDatabase {
         let sample_prompts_json = serde_json::to_string(&source.sample_prompts)?;
         let prerequisites_json = serde_json::to_string(&source.prerequisites)?;
 
+        // Serialize data_requirements from source coach for fork INSERT
+        let source_data_requirements_json = source
+            .data_requirements
+            .as_ref()
+            .and_then(|dr| serde_json::to_string(dr).ok());
+
         sqlx::query(
             r"
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -630,6 +690,8 @@ impl CoachesRepository for PostgresDatabase {
         .bind(&prerequisites_json)
         .bind(source_coach_id) // forked_from
         .bind(source.max_tool_iterations)
+        .bind(&source.startup_query) // startup_query (inherit from source)
+        .bind(&source_data_requirements_json) // data_requirements (inherit from source)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fork coach: {e}")))?;
@@ -668,6 +730,8 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: source.prerequisites,
             forked_from: Some(source_coach_id.to_owned()),
             max_tool_iterations: source.max_tool_iterations,
+            startup_query: source.startup_query,
+            data_requirements: source.data_requirements,
         })
     }
 
@@ -812,7 +876,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (
                 title ILIKE $3 OR description ILIKE $3 OR tags ILIKE $3
@@ -913,7 +977,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
             WHERE ca.is_active = TRUE AND c.tenant_id = $2
@@ -950,8 +1014,8 @@ impl CoachesRepository for PostgresDatabase {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -970,6 +1034,8 @@ impl CoachesRepository for PostgresDatabase {
         .bind(Option::<String>::None) // prerequisites
         .bind(Option::<String>::None) // forked_from
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(Option::<String>::None) // startup_query
+        .bind(Option::<String>::None) // data_requirements
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create system coach: {e}")))?;
@@ -992,6 +1058,8 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            startup_query: None,
+            data_requirements: None,
         })
     }
 
@@ -1001,7 +1069,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE tenant_id = $1 AND is_system = TRUE
             ORDER BY created_at DESC
@@ -1025,7 +1093,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE
             ",
@@ -1045,7 +1113,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND is_system = TRUE
             ",
@@ -1340,7 +1408,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements
             FROM coaches c
             INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id
             WHERE ucp.user_id = $1 AND ucp.is_hidden = TRUE AND c.tenant_id = $2
@@ -1543,7 +1611,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches WHERE id = $1 AND tenant_id = $2
             ",
         )
@@ -1572,17 +1640,17 @@ impl CoachesRepository for PostgresDatabase {
         Ok(row.get("current_version"))
     }
 
-    async fn get_startup_query_by_system_prompt(
+    async fn get_startup_context_by_system_prompt(
         &self,
         system_prompt: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
-        let row: Option<(Option<String>,)> = sqlx::query_as(
+    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
             r"
-            SELECT startup_query
+            SELECT startup_query, data_requirements
             FROM coaches
             WHERE system_prompt = $1
-              AND startup_query IS NOT NULL
+              AND (startup_query IS NOT NULL OR data_requirements IS NOT NULL)
               AND (tenant_id = $2 OR is_system = TRUE)
             LIMIT 1
             ",
@@ -1591,9 +1659,20 @@ impl CoachesRepository for PostgresDatabase {
         .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get startup query: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get startup context: {e}")))?;
 
-        Ok(row.and_then(|(q,)| q))
+        Ok(row)
+    }
+
+    async fn get_startup_query_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>> {
+        let context = self
+            .get_startup_context_by_system_prompt(system_prompt, tenant_id)
+            .await?;
+        Ok(context.and_then(|(q, _)| q))
     }
 
     async fn get_max_tool_iterations_by_system_prompt(

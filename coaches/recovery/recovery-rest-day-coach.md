@@ -9,7 +9,14 @@ prerequisites:
   activity_types: []
 visibility: tenant
 startup:
-  query: "Fetch my last 14 activities. Analyze my recent training load and look for signs of fatigue or overtraining."
+  query: "Analyze my recent training load and look for signs of fatigue or overtraining."
+  data_requirements:
+    activities:
+      count: 14
+      sport_types: []
+      time_frame: 3w
+      mode: summary
+      analysis_type: recovery_assessment
 ---
 
 ## Purpose

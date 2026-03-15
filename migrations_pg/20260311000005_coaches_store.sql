@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS coaches (
     -- Startup query displayed when coach conversation begins
     startup_query TEXT,
 
+    -- Structured data requirements for deterministic pre-fetching (JSON)
+    data_requirements TEXT,
+
     -- LLM tool iteration limit per conversation turn
     max_tool_iterations INTEGER DEFAULT NULL
 );

@@ -35,14 +35,20 @@ impl CoachesManager {
         let sample_prompts_json = serde_json::to_string(&request.sample_prompts)?;
         let token_count = Self::estimate_tokens(&request.system_prompt);
 
+        // Serialize data_requirements to JSON if present
+        let data_requirements_json = request
+            .data_requirements
+            .as_ref()
+            .and_then(|dr| serde_json::to_string(dr).ok());
+
         sqlx::query(
             r"
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -61,6 +67,8 @@ impl CoachesManager {
         .bind(Option::<String>::None) // prerequisites (user-created coaches don't have prerequisites)
         .bind(Option::<String>::None) // forked_from (not a fork)
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(&request.startup_query)
+        .bind(&data_requirements_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?;
@@ -99,6 +107,8 @@ impl CoachesManager {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            startup_query: request.startup_query.clone(),
+            data_requirements: request.data_requirements.clone(),
         })
     }
 
@@ -118,7 +128,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -188,7 +198,7 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations,
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
                    COALESCE(ca.is_active, 0) as is_active,
@@ -284,11 +294,49 @@ impl CoachesManager {
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
         let token_count = Self::estimate_tokens(system_prompt);
 
+        // Resolve startup_query: use new value if provided, otherwise keep existing
+        let startup_query: Option<String> = if request.startup_query.is_some() {
+            // Empty string means clear; non-empty means set
+            request
+                .startup_query
+                .as_ref()
+                .filter(|q| !q.is_empty())
+                .cloned()
+        } else {
+            // Not provided in update — fetch existing from DB
+            let existing_row: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT startup_query FROM coaches WHERE id = $1")
+                    .bind(coach_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to get startup_query: {e}")))?;
+            existing_row.and_then(|(q,)| q)
+        };
+
+        // Resolve data_requirements: serialize new if provided, otherwise keep existing
+        let data_requirements_json: Option<String> = if request.data_requirements.is_some() {
+            request
+                .data_requirements
+                .as_ref()
+                .and_then(|dr| serde_json::to_string(dr).ok())
+        } else {
+            let existing_row: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT data_requirements FROM coaches WHERE id = $1")
+                    .bind(coach_id)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get data_requirements: {e}"))
+                    })?;
+            existing_row.and_then(|(dr,)| dr)
+        };
+
         let result = sqlx::query(
             r"
             UPDATE coaches SET
                 title = $1, description = $2, system_prompt = $3,
-                category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
+                category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
+                startup_query = $12, data_requirements = $13
             WHERE id = $9 AND user_id = $10 AND tenant_id = $11
             ",
         )
@@ -303,6 +351,8 @@ impl CoachesManager {
         .bind(coach_id)
         .bind(user_id.to_string())
         .bind(tenant_id)
+        .bind(&startup_query)
+        .bind(&data_requirements_json)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;
@@ -375,14 +425,20 @@ impl CoachesManager {
         let sample_prompts_json = serde_json::to_string(&source.sample_prompts)?;
         let prerequisites_json = serde_json::to_string(&source.prerequisites)?;
 
+        // Serialize data_requirements from source coach for fork INSERT
+        let source_data_requirements_json = source
+            .data_requirements
+            .as_ref()
+            .and_then(|dr| serde_json::to_string(dr).ok());
+
         sqlx::query(
             r"
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -401,6 +457,8 @@ impl CoachesManager {
         .bind(&prerequisites_json) // prerequisites
         .bind(source_coach_id) // forked_from
         .bind(source.max_tool_iterations) // max_tool_iterations (inherit from source)
+        .bind(&source.startup_query) // startup_query (inherit from source)
+        .bind(&source_data_requirements_json) // data_requirements (inherit from source)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fork coach: {e}")))?;
@@ -439,6 +497,8 @@ impl CoachesManager {
             prerequisites: source.prerequisites,
             forked_from: Some(source_coach_id.to_owned()),
             max_tool_iterations: source.max_tool_iterations,
+            startup_query: source.startup_query,
+            data_requirements: source.data_requirements,
         })
     }
 
@@ -601,7 +661,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (
                 title LIKE $3 OR description LIKE $3 OR tags LIKE $3
@@ -719,7 +779,7 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
             WHERE ca.is_active = 1 AND c.tenant_id = $2

@@ -52,6 +52,13 @@ export interface CoachFormData {
   description: string;
   system_prompt: string;
   category: string;
+  startup_query: string;
+  prefetch_enabled: boolean;
+  activity_count: number;
+  sport_types: string[];
+  time_frame: string;
+  detail_mode: 'summary' | 'detailed';
+  athlete_profile: boolean;
 }
 
 export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
@@ -59,6 +66,13 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   description: '',
   system_prompt: '',
   category: 'Training',
+  startup_query: '',
+  prefetch_enabled: false,
+  activity_count: 20,
+  sport_types: [],
+  time_frame: '12w',
+  detail_mode: 'summary',
+  athlete_profile: false,
 };
 
 // Re-export for convenience

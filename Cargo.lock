@@ -2573,6 +2573,7 @@ dependencies = [
  "tokio-stream",
  "toon-format",
  "tracing",
+ "utoipa",
  "uuid",
 ]
 

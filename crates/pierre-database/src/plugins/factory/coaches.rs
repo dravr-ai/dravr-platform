@@ -390,6 +390,24 @@ impl CoachesRepository for Database {
         }
     }
 
+    async fn get_startup_context_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
+        match self {
+            Self::SQLite(db) => {
+                db.get_startup_context_by_system_prompt(system_prompt, tenant_id)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.get_startup_context_by_system_prompt(system_prompt, tenant_id)
+                    .await
+            }
+        }
+    }
+
     async fn get_startup_query_by_system_prompt(
         &self,
         system_prompt: &str,

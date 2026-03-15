@@ -63,6 +63,13 @@ interface CoachFormData {
   system_prompt: string;
   category: string;
   tags: string;
+  startup_query: string;
+  prefetch_enabled: boolean;
+  activity_count: number;
+  sport_types: string;
+  time_frame: string;
+  detail_mode: string;
+  athlete_profile: boolean;
 }
 
 const defaultFormData: CoachFormData = {
@@ -71,6 +78,13 @@ const defaultFormData: CoachFormData = {
   system_prompt: '',
   category: 'Training',
   tags: '',
+  startup_query: '',
+  prefetch_enabled: false,
+  activity_count: 20,
+  sport_types: '',
+  time_frame: '12w',
+  detail_mode: 'summary',
+  athlete_profile: false,
 };
 
 interface CoachLibraryTabProps {
@@ -114,6 +128,18 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       system_prompt: data.system_prompt,
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
+      startup_query: data.startup_query.trim() || undefined,
+      data_requirements: data.prefetch_enabled ? {
+        activities: {
+          count: data.activity_count,
+          sport_types: data.sport_types.split(',').map(s => s.trim()).filter(Boolean),
+          time_frame: data.time_frame,
+          mode: data.detail_mode as 'summary' | 'detailed',
+          format: 'toon' as const,
+          analysis_type: 'general_overview',
+        },
+        athlete_profile: data.athlete_profile,
+      } : undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
@@ -130,6 +156,18 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       system_prompt: data.system_prompt,
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
+      startup_query: data.startup_query.trim() || undefined,
+      data_requirements: data.prefetch_enabled ? {
+        activities: {
+          count: data.activity_count,
+          sport_types: data.sport_types.split(',').map(s => s.trim()).filter(Boolean),
+          time_frame: data.time_frame,
+          mode: data.detail_mode as 'summary' | 'detailed',
+          format: 'toon' as const,
+          analysis_type: 'general_overview',
+        },
+        athlete_profile: data.athlete_profile,
+      } : undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
@@ -193,6 +231,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         system_prompt: selectedCoach.system_prompt,
         category: selectedCoach.category,
         tags: selectedCoach.tags.join(', '),
+        startup_query: selectedCoach.startup_query || '',
+        prefetch_enabled: !!selectedCoach.data_requirements?.activities,
+        activity_count: selectedCoach.data_requirements?.activities?.count ?? 20,
+        sport_types: (selectedCoach.data_requirements?.activities?.sport_types || []).join(', '),
+        time_frame: selectedCoach.data_requirements?.activities?.time_frame || '12w',
+        detail_mode: selectedCoach.data_requirements?.activities?.mode || 'summary',
+        athlete_profile: selectedCoach.data_requirements?.athlete_profile ?? false,
       });
     }
   }, [isEditing, selectedCoach]);
@@ -911,6 +956,112 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
                 placeholder="marathon, endurance, beginner (comma-separated)"
               />
+            </div>
+
+            {/* Data Context */}
+            <div className="mb-6">
+              <h3 className="text-sm font-semibold text-white/90 mb-3">Data Context</h3>
+
+              <div className="mb-4">
+                <label className="block text-sm text-white/60 mb-1">
+                  Startup Query <span className="text-white/30">(optional)</span>
+                </label>
+                <textarea
+                  className="w-full p-3 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none resize-none"
+                  rows={2}
+                  placeholder="What should the coach analyze on first message?"
+                  value={formData.startup_query}
+                  onChange={(e) => setFormData({ ...formData, startup_query: e.target.value })}
+                />
+              </div>
+
+              <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.prefetch_enabled}
+                  onChange={(e) => setFormData({ ...formData, prefetch_enabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-white/20 text-purple-500 focus:ring-purple-500 bg-white/5"
+                />
+                <span className="text-sm text-white/70">Pre-fetch activity data when conversation starts</span>
+              </label>
+
+              {formData.prefetch_enabled && (
+                <div className="space-y-3 pl-4 border-l-2 border-purple-500/20">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-white/50 mb-1">Activity count</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={formData.activity_count}
+                        onChange={(e) => setFormData({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
+                        className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm focus:border-purple-500/50 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-white/50 mb-1">Time frame</label>
+                      <select
+                        value={formData.time_frame}
+                        onChange={(e) => setFormData({ ...formData, time_frame: e.target.value })}
+                        className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm focus:border-purple-500/50 focus:outline-none"
+                      >
+                        <option value="3w">3 weeks</option>
+                        <option value="8w">8 weeks</option>
+                        <option value="12w">12 weeks</option>
+                        <option value="16w">16 weeks</option>
+                        <option value="6m">6 months</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-white/50 mb-1">
+                      Sport types <span className="text-white/30">(comma-separated, empty = all)</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Run, Ride, Swim"
+                      value={formData.sport_types}
+                      onChange={(e) => setFormData({ ...formData, sport_types: e.target.value })}
+                      className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="detail_mode"
+                        checked={formData.detail_mode === 'summary'}
+                        onChange={() => setFormData({ ...formData, detail_mode: 'summary' })}
+                        className="text-purple-500 focus:ring-purple-500"
+                      />
+                      <span className="text-xs text-white/60">Summary</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="detail_mode"
+                        checked={formData.detail_mode === 'detailed'}
+                        onChange={() => setFormData({ ...formData, detail_mode: 'detailed' })}
+                        className="text-purple-500 focus:ring-purple-500"
+                      />
+                      <span className="text-xs text-white/60">Detailed (laps, splits)</span>
+                    </label>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.athlete_profile}
+                      onChange={(e) => setFormData({ ...formData, athlete_profile: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded border-white/20 text-purple-500 focus:ring-purple-500 bg-white/5"
+                    />
+                    <span className="text-xs text-white/60">Also fetch athlete profile</span>
+                  </label>
+                </div>
+              )}
             </div>
 
             {/* Actions */}

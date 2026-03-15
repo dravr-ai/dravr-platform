@@ -43,6 +43,8 @@ export type {
 
 // Coach types (AI coaching personas, store, versions)
 export type {
+  ActivityDataRequirements,
+  DataRequirements,
   CoachCategory,
   CoachVisibility,
   PublishStatus,

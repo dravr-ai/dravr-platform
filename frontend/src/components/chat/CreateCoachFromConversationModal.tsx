@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { coachesApi } from '../../services/api';
 import type { CoachFormData } from './types';
+import { DEFAULT_COACH_FORM_DATA } from './types';
 import { Sparkles, RefreshCw, AlertCircle, MessageSquareText } from 'lucide-react';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 
@@ -36,9 +37,7 @@ export default function CreateCoachFromConversationModal({
   const [totalMessages, setTotalMessages] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [formData, setFormData] = useState<CoachFormData>({
-    title: '',
-    description: '',
-    system_prompt: '',
+    ...DEFAULT_COACH_FORM_DATA,
     category: 'Custom',
   });
 
@@ -50,6 +49,7 @@ export default function CreateCoachFromConversationModal({
       }),
     onSuccess: (data) => {
       setFormData({
+        ...DEFAULT_COACH_FORM_DATA,
         title: data.title,
         description: data.description,
         system_prompt: data.system_prompt,
@@ -94,9 +94,7 @@ export default function CreateCoachFromConversationModal({
       setAnalysisState('idle');
       setErrorMessage(null);
       setFormData({
-        title: '',
-        description: '',
-        system_prompt: '',
+        ...DEFAULT_COACH_FORM_DATA,
         category: 'Custom',
       });
       setMessagesAnalyzed(0);

@@ -19,7 +19,7 @@ pub use types::*;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::coaches::CoachPrerequisites;
+use pierre_core::models::coaches::{CoachPrerequisites, DataRequirements};
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 use uuid::Uuid;
 
@@ -117,6 +117,10 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         serde_json::from_str(&prerequisites_json).unwrap_or_default();
 
     let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
+    let startup_query: Option<String> = row.try_get("startup_query").ok().flatten();
+    let data_requirements_json: Option<String> = row.try_get("data_requirements").ok().flatten();
+    let data_requirements: Option<DataRequirements> =
+        data_requirements_json.and_then(|json| serde_json::from_str(&json).ok());
 
     Ok(Coach {
         id: Uuid::parse_str(&id_str)
@@ -143,6 +147,8 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         prerequisites,
         forked_from,
         max_tool_iterations,
+        startup_query,
+        data_requirements,
     })
 }
 

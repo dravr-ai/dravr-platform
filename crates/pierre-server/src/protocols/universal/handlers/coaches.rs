@@ -225,6 +225,8 @@ pub fn handle_create_coach(
                 .unwrap_or_default(),
             tags: params.tags,
             sample_prompts: params.sample_prompts,
+            startup_query: None,
+            data_requirements: None,
         };
 
         let manager = get_coaches_manager(executor);
@@ -414,6 +416,8 @@ pub fn handle_update_coach(
                         .map(ToOwned::to_owned)
                         .collect()
                 }),
+            startup_query: None,
+            data_requirements: None,
         };
 
         let manager = get_coaches_manager(executor);
@@ -1461,6 +1465,8 @@ pub fn handle_admin_update_system_coach(
                         .map(ToOwned::to_owned)
                         .collect()
                 }),
+            startup_query: None,
+            data_requirements: None,
         };
 
         let manager = get_coaches_manager(executor);

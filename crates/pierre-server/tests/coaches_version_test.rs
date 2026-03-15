@@ -91,6 +91,7 @@ async fn create_test_db() -> SqlitePool {
             content_hash TEXT,
             forked_from TEXT,
             startup_query TEXT,
+            data_requirements TEXT,
             max_tool_iterations INTEGER DEFAULT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         )
@@ -183,6 +184,8 @@ async fn test_create_version_manually() {
         category: CoachCategory::Training,
         tags: vec!["test".to_owned()],
         sample_prompts: vec!["How can I train?".to_owned()],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -228,6 +231,8 @@ async fn test_auto_version_on_update() {
         category: CoachCategory::Training,
         tags: vec!["original".to_owned()],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -250,6 +255,8 @@ async fn test_auto_version_on_update() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     manager
@@ -277,6 +284,8 @@ async fn test_auto_version_on_update() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
 
     manager
@@ -314,6 +323,8 @@ async fn test_get_versions() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -329,6 +340,8 @@ async fn test_get_versions() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -348,6 +361,8 @@ async fn test_get_versions() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -383,6 +398,8 @@ async fn test_get_versions_with_limit() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -399,6 +416,8 @@ async fn test_get_versions_with_limit() {
             category: None,
             tags: None,
             sample_prompts: None,
+            startup_query: None,
+            data_requirements: None,
         };
         manager
             .update(
@@ -435,6 +454,8 @@ async fn test_get_specific_version() {
         category: CoachCategory::Training,
         tags: vec!["original".to_owned()],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -450,6 +471,8 @@ async fn test_get_specific_version() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -488,6 +511,8 @@ async fn test_get_version_not_found() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -516,6 +541,8 @@ async fn test_get_version_wrong_tenant() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -557,6 +584,8 @@ async fn test_revert_to_version() {
         category: CoachCategory::Training,
         tags: vec!["original".to_owned()],
         sample_prompts: vec!["Original sample".to_owned()],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -572,6 +601,8 @@ async fn test_revert_to_version() {
         category: Some(CoachCategory::Nutrition),
         tags: Some(vec!["updated".to_owned()]),
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -620,6 +651,8 @@ async fn test_revert_creates_new_version() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -635,6 +668,8 @@ async fn test_revert_creates_new_version() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -692,6 +727,8 @@ async fn test_revert_to_nonexistent_version() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -723,6 +760,8 @@ async fn test_version_snapshot_contains_all_fields() {
         category: CoachCategory::Recovery,
         tags: vec!["tag1".to_owned(), "tag2".to_owned()],
         sample_prompts: vec!["Sample 1".to_owned(), "Sample 2".to_owned()],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -769,6 +808,8 @@ async fn test_version_has_content_hash() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -805,6 +846,8 @@ async fn test_different_content_different_hash() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -820,6 +863,8 @@ async fn test_different_content_different_hash() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -839,6 +884,8 @@ async fn test_different_content_different_hash() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update(
@@ -895,6 +942,8 @@ async fn test_system_coach_version_on_update() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update_system_coach(&coach.id.to_string(), test_tenant(), &update)
@@ -934,6 +983,8 @@ async fn test_update_with_change_summary() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -949,6 +1000,8 @@ async fn test_update_with_change_summary() {
         category: None,
         tags: None,
         sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
     };
     manager
         .update_with_summary(
@@ -986,6 +1039,8 @@ async fn test_version_tracks_created_by() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1028,6 +1083,8 @@ async fn test_get_versions_empty() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1056,6 +1113,8 @@ async fn test_get_current_version_no_versions() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager
@@ -1084,6 +1143,8 @@ async fn test_version_deleted_with_coach() {
         category: CoachCategory::Custom,
         tags: vec![],
         sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
     };
 
     let coach = manager

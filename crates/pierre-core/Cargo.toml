@@ -46,6 +46,9 @@ toon = ["dep:toon-format"]
 # Admin JWT utilities (AdminJwtManager with token generation, hashing)
 admin-jwt = ["dep:sha2", "dep:rand", "dep:bcrypt"]
 
+# OpenAPI schema generation for shared types
+openapi = ["dep:utoipa"]
+
 # All error features (convenience for main crate)
 all-errors = ["database-errors", "provider-errors", "crypto-errors"]
 
@@ -84,6 +87,9 @@ tokio-stream = { version = "0.1", optional = true }
 
 # Optional: Embacle CLI LLM runner types (standalone library)
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.12.0", optional = true }
+
+# Optional: OpenAPI schema generation
+utoipa = { version = "5.4", optional = true }
 
 # Optional: Admin JWT utilities
 sha2 = { version = "0.10", optional = true }

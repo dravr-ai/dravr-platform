@@ -401,6 +401,16 @@ impl CoachesRepository for Database {
         mgr.get_current_version(coach_id).await
     }
 
+    async fn get_startup_context_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
+        let mgr = CoachesManager::new(self.pool().clone());
+        mgr.get_startup_context_by_system_prompt(system_prompt, tenant_id)
+            .await
+    }
+
     async fn get_startup_query_by_system_prompt(
         &self,
         system_prompt: &str,

@@ -38,7 +38,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches WHERE id = $1
             ",
         )
@@ -301,7 +301,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches WHERE id = $1 AND tenant_id = $2
             ",
         )
@@ -363,19 +363,25 @@ impl CoachesManager {
     /// # Errors
     ///
     /// Returns an error if database operation fails
-    pub async fn get_startup_query_by_system_prompt(
+    /// Get startup context (query + data requirements) by system prompt.
+    ///
+    /// Returns both the startup query and the JSON-serialized data requirements
+    /// for deterministic activity pre-fetching.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails.
+    pub async fn get_startup_context_by_system_prompt(
         &self,
         system_prompt: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
-        // First try to find a coach matching the tenant (custom coaches)
-        // Then fall back to system coaches (is_system = 1) which are shared across tenants
-        let row: Option<(Option<String>,)> = sqlx::query_as(
+    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
             r"
-            SELECT startup_query
+            SELECT startup_query, data_requirements
             FROM coaches
             WHERE system_prompt = $1
-              AND startup_query IS NOT NULL
+              AND (startup_query IS NOT NULL OR data_requirements IS NOT NULL)
               AND (tenant_id = $2 OR is_system = 1)
             LIMIT 1
             ",
@@ -384,9 +390,26 @@ impl CoachesManager {
         .bind(tenant_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get startup query: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get startup context: {e}")))?;
 
-        Ok(row.and_then(|(q,)| q))
+        Ok(row)
+    }
+
+    /// Convenience method: get startup query only.
+    /// Delegates to `get_startup_context_by_system_prompt` for the query portion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails.
+    pub async fn get_startup_query_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>> {
+        let context = self
+            .get_startup_context_by_system_prompt(system_prompt, tenant_id)
+            .await?;
+        Ok(context.and_then(|(q, _)| q))
     }
 
     /// Get the `max_tool_iterations` override for a coach by matching its system prompt.

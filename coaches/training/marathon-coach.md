@@ -9,7 +9,14 @@ prerequisites:
   activity_types: [Run]
 visibility: tenant
 startup:
-  query: "Fetch my last 25 running activities. Analyze my weekly mileage, long run progression, and identify any patterns in my training."
+  query: "Analyze my weekly mileage, long run progression, and identify any patterns in my training."
+  data_requirements:
+    activities:
+      count: 30
+      sport_types: [Run]
+      time_frame: 16w
+      mode: summary
+      analysis_type: race_preparation
 ---
 
 ## Purpose
