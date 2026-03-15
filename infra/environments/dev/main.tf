@@ -429,3 +429,7 @@ module "firebase" {
 
   depends_on = [module.project, module.secrets]
 }
+
+
+# Secret backup: run `./bin/sync-secrets-to-github.sh` to mirror GCP secrets to GitHub
+# Intentionally NOT in Terraform to avoid secrets in tfstate
