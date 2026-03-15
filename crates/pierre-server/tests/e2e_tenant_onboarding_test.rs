@@ -618,6 +618,7 @@ fn create_test_server_config() -> ServerConfig {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2024-11-05".to_owned(),
                 server_name: "pierre-mcp-server-e2e-test".to_owned(),

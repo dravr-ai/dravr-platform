@@ -182,6 +182,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2024-11-05".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -602,6 +603,7 @@ async fn test_set_goal_tool() -> Result<()> {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2024-11-05".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),
@@ -1352,6 +1354,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2024-11-05".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),

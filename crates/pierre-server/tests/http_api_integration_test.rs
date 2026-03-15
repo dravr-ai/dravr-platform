@@ -242,6 +242,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
             ci_mode: true,
             auto_approve_users: false,
             auto_approve_users_from_env: false,
+            auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2025-06-18".to_owned(),
                 server_name: "pierre-mcp-server-test".to_owned(),

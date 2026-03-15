@@ -1176,6 +1176,8 @@ impl WebAdminRoutes {
             }
         };
 
+        let domains = &resources.config.app_behavior.auto_approve_domains;
+
         Ok((
             StatusCode::OK,
             Json(serde_json::json!({
@@ -1183,7 +1185,9 @@ impl WebAdminRoutes {
                 "message": "Auto-approval setting retrieved",
                 "data": {
                     "enabled": enabled,
-                    "description": "When enabled, new user registrations are automatically approved without admin intervention"
+                    "auto_approve_domains": domains,
+                    "description": "When enabled, all new registrations are auto-approved. \
+                        When disabled, only emails from auto_approve_domains are auto-approved."
                 }
             })),
         )
