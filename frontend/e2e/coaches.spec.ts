@@ -1244,6 +1244,71 @@ test.describe('User Coaches - Chat Interface', () => {
     await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 5000 });
   });
 
+  test('displays all category filter buttons with correct names', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+
+    // Open My Coaches panel
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+
+    // Verify all 7 category filter buttons plus Favorites are present
+    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Training', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Nutrition', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recovery', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recipes', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Mobility', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Custom', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Favorites/i })).toBeVisible();
+  });
+
+  test('displays source filter buttons (All Sources, My Coaches, System)', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+
+    // Open My Coaches panel
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+
+    // Verify source filter buttons
+    await expect(page.getByRole('button', { name: 'All Sources' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'My Coaches' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'System', exact: true })).toBeVisible();
+  });
+
+  test('displays show hidden coaches toggle button', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+
+    // Open My Coaches panel
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+
+    // Verify the show hidden coaches toggle button exists
+    await expect(page.getByRole('button', { name: /hidden coaches/i })).toBeVisible();
+  });
+
+  test('displays Create Coach button in user view', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+
+    // Open My Coaches panel
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+
+    // Verify Create Coach button is rendered
+    await expect(page.getByRole('button', { name: 'Create Coach' })).toBeVisible();
+  });
+
   test('can edit user coach and update category', async ({ page }) => {
     await setupUserCoachesMocks(page);
 
