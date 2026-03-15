@@ -1309,6 +1309,23 @@ test.describe('User Coaches - Chat Interface', () => {
     await expect(page.getByRole('button', { name: 'Create Coach' })).toBeVisible();
   });
 
+  test('displays add to favorites button on each coach card', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('main', { timeout: 10000 });
+
+    // Open My Coaches panel
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
+
+    // Each coach card has a favorite toggle button with title "Add to favorites" or "Remove from favorites"
+    const favoriteButtons = page.locator('button[title="Add to favorites"], button[title="Remove from favorites"]');
+    await expect(favoriteButtons.first()).toBeVisible();
+    const count = await favoriteButtons.count();
+    expect(count).toBeGreaterThanOrEqual(1);
+  });
+
   test('can edit user coach and update category', async ({ page }) => {
     await setupUserCoachesMocks(page);
 
