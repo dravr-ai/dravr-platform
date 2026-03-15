@@ -20,12 +20,11 @@ import {
 //   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
 //   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
 //
-// authDomain uses the current origin (self-hosted auth handler via nginx reverse proxy).
-// This eliminates third-party cookie issues and manual OAuth redirect URI configuration.
-// The nginx proxy routes /__/auth/* to {projectId}.firebaseapp.com transparently.
+// authDomain points to Firebase's hosted auth handler.
+// Self-hosted auth handler (Path A) requires Cloud NAT for VPC egress — deferred.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: window.location.host,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
@@ -35,6 +34,7 @@ const firebaseConfig = {
 // Check if Firebase is configured
 const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey &&
+  firebaseConfig.authDomain &&
   firebaseConfig.projectId
 );
 
