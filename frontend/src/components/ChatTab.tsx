@@ -37,6 +37,64 @@ import type {
   PendingCoachAction,
   CoachFormData,
 } from './chat';
+import type { CreateCoachRequest, UpdateCoachRequest } from '@pierre/shared-types';
+
+/** Convert UI form data to API request, building data_requirements from structured fields */
+function formDataToCreateRequest(data: CoachFormData): CreateCoachRequest {
+  const request: CreateCoachRequest = {
+    title: data.title,
+    description: data.description || undefined,
+    system_prompt: data.system_prompt,
+    category: data.category,
+  };
+
+  if (data.startup_query.trim()) {
+    request.startup_query = data.startup_query.trim();
+  }
+
+  if (data.prefetch_enabled) {
+    request.data_requirements = {
+      activities: {
+        count: data.activity_count,
+        sport_types: data.sport_types,
+        time_frame: data.time_frame,
+        mode: data.detail_mode,
+        format: 'toon',
+        analysis_type: 'general_overview',
+      },
+      athlete_profile: data.athlete_profile,
+    };
+  }
+
+  return request;
+}
+
+/** Convert UI form data to API update request */
+function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest {
+  const request: UpdateCoachRequest = {
+    title: data.title,
+    description: data.description || undefined,
+    system_prompt: data.system_prompt,
+    category: data.category,
+    startup_query: data.startup_query.trim() || undefined,
+  };
+
+  if (data.prefetch_enabled) {
+    request.data_requirements = {
+      activities: {
+        count: data.activity_count,
+        sport_types: data.sport_types,
+        time_frame: data.time_frame,
+        mode: data.detail_mode,
+        format: 'toon',
+        analysis_type: 'general_overview',
+      },
+      athlete_profile: data.athlete_profile,
+    };
+  }
+
+  return request;
+}
 
 interface ChatTabProps {
   selectedConversation: string | null;
@@ -111,7 +169,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   });
 
   const createCoach = useMutation({
-    mutationFn: (data: CoachFormData) => coachesApi.create(data),
+    mutationFn: (data: CoachFormData) => coachesApi.create(formDataToCreateRequest(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setShowCoachModal(false);
@@ -120,7 +178,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   });
 
   const updateCoach = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: CoachFormData }) => coachesApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: CoachFormData }) => coachesApi.update(id, formDataToUpdateRequest(data)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
       setShowCoachModal(false);
@@ -459,11 +517,19 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
   const handleEditCoach = (coach: Coach) => {
     setEditingCoachId(coach.id);
+    const dr = coach.data_requirements;
     setCoachFormData({
       title: coach.title,
       description: coach.description || '',
       system_prompt: coach.system_prompt,
       category: coach.category,
+      startup_query: coach.startup_query || '',
+      prefetch_enabled: !!dr?.activities,
+      activity_count: dr?.activities?.count ?? 20,
+      sport_types: dr?.activities?.sport_types ?? [],
+      time_frame: dr?.activities?.time_frame ?? '12w',
+      detail_mode: (dr?.activities?.mode as 'summary' | 'detailed') ?? 'summary',
+      athlete_profile: dr?.athlete_profile ?? false,
     });
     setShowCoachModal(true);
   };

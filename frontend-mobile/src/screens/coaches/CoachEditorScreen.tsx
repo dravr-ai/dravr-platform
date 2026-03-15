@@ -56,6 +56,15 @@ export function CoachEditorScreen() {
   const [newTag, setNewTag] = useState('');
   const [forkedFrom, setForkedFrom] = useState<string | null>(null);
 
+  // Data context state
+  const [startupQuery, setStartupQuery] = useState('');
+  const [prefetchEnabled, setPrefetchEnabled] = useState(false);
+  const [activityCount, setActivityCount] = useState(20);
+  const [sportTypes, setSportTypes] = useState<string[]>([]);
+  const [timeFrame, setTimeFrame] = useState('12w');
+  const [detailMode, setDetailMode] = useState<'summary' | 'detailed'>('summary');
+  const [athleteProfile, setAthleteProfile] = useState(false);
+
   // UI state
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -83,6 +92,15 @@ export function CoachEditorScreen() {
       setSystemPrompt(coach.system_prompt);
       setTags(coach.tags || []);
       setForkedFrom(coach.forked_from || null);
+      setStartupQuery(coach.startup_query || '');
+      if (coach.data_requirements?.activities) {
+        setPrefetchEnabled(true);
+        setActivityCount(coach.data_requirements.activities.count);
+        setSportTypes(coach.data_requirements.activities.sport_types || []);
+        setTimeFrame(coach.data_requirements.activities.time_frame || '12w');
+        setDetailMode(coach.data_requirements.activities.mode || 'summary');
+        setAthleteProfile(coach.data_requirements?.athlete_profile || false);
+      }
     } catch (error) {
       console.error('Failed to load coach:', error);
       Alert.alert('Error', 'Failed to load coach data');
@@ -154,6 +172,21 @@ export function CoachEditorScreen() {
       setIsSaving(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+      // Build data_requirements from structured fields
+      const dataRequirements = prefetchEnabled
+        ? {
+            activities: {
+              count: activityCount,
+              sport_types: sportTypes,
+              time_frame: timeFrame,
+              mode: detailMode,
+              format: 'toon' as const,
+              analysis_type: 'general_overview',
+            },
+            athlete_profile: athleteProfile,
+          }
+        : undefined;
+
       if (isEditMode && coachId) {
         const updateData: UpdateCoachRequest = {
           title: title.trim(),
@@ -161,6 +194,8 @@ export function CoachEditorScreen() {
           description: description.trim() || undefined,
           system_prompt: systemPrompt.trim(),
           tags,
+          startup_query: startupQuery.trim() || undefined,
+          data_requirements: dataRequirements,
         };
         await coachesApi.update(coachId, updateData);
       } else {
@@ -170,6 +205,8 @@ export function CoachEditorScreen() {
           description: description.trim() || undefined,
           system_prompt: systemPrompt.trim(),
           tags,
+          startup_query: startupQuery.trim() || undefined,
+          data_requirements: dataRequirements,
         };
         await coachesApi.create(createData);
       }
@@ -484,6 +521,164 @@ export function CoachEditorScreen() {
                 </Text>
               )}
             </View>
+          </CollapsibleSection>
+
+          {/* Data Context Section (collapsible) */}
+          <CollapsibleSection title="Data Context" defaultExpanded={false} testID="data-context-section">
+            <View className="mb-4">
+              <Text className="text-text-primary text-sm font-semibold mb-2">Startup Query</Text>
+              <TextInput
+                testID="startup-query-input"
+                className="p-3.5 text-text-primary text-base min-h-[80px]"
+                style={{
+                  ...glassCard,
+                  borderRadius: 12,
+                }}
+                value={startupQuery}
+                onChangeText={setStartupQuery}
+                placeholder="What should the coach analyze first?"
+                placeholderTextColor={colors.text.tertiary}
+                multiline
+                textAlignVertical="top"
+              />
+            </View>
+
+            <TouchableOpacity
+              className="flex-row items-center mb-4"
+              onPress={() => setPrefetchEnabled(!prefetchEnabled)}
+              testID="prefetch-toggle"
+            >
+              <View
+                className="w-5 h-5 rounded mr-3 items-center justify-center"
+                style={{
+                  backgroundColor: prefetchEnabled ? colors.pierre.violet : 'transparent',
+                  borderWidth: prefetchEnabled ? 0 : 1.5,
+                  borderColor: 'rgba(139, 92, 246, 0.4)',
+                }}
+              >
+                {prefetchEnabled && (
+                  <Text className="text-white text-xs font-bold">{'\u2713'}</Text>
+                )}
+              </View>
+              <Text className="text-text-primary text-sm">Pre-fetch activity data</Text>
+            </TouchableOpacity>
+
+            {prefetchEnabled && (
+              <View className="pl-3" style={{ borderLeftWidth: 2, borderLeftColor: 'rgba(139, 92, 246, 0.2)' }}>
+                <View className="flex-row gap-3 mb-3">
+                  <View className="flex-1">
+                    <Text className="text-text-secondary text-xs font-semibold mb-1">Activity count</Text>
+                    <TextInput
+                      testID="activity-count-input"
+                      className="p-2.5 text-text-primary text-sm"
+                      style={{ ...glassCard, borderRadius: 10 }}
+                      value={String(activityCount)}
+                      onChangeText={(v) => setActivityCount(Math.max(1, Math.min(200, Number(v) || 1)))}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+                  <View className="flex-1">
+                    <Text className="text-text-secondary text-xs font-semibold mb-1">Time frame</Text>
+                    <TouchableOpacity
+                      className="p-2.5 flex-row items-center justify-between"
+                      style={{ ...glassCard, borderRadius: 10 }}
+                      onPress={() => {
+                        const frames = ['3w', '8w', '12w', '16w', '6m'];
+                        const idx = frames.indexOf(timeFrame);
+                        setTimeFrame(frames[(idx + 1) % frames.length]);
+                      }}
+                      testID="time-frame-picker"
+                    >
+                      <Text className="text-text-primary text-sm">
+                        {timeFrame === '3w' ? '3 weeks' : timeFrame === '8w' ? '8 weeks' : timeFrame === '12w' ? '12 weeks' : timeFrame === '16w' ? '16 weeks' : '6 months'}
+                      </Text>
+                      <Text className="text-text-tertiary text-xs">{'\u25BC'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <Text className="text-text-secondary text-xs font-semibold mb-2">Sport types</Text>
+                <View className="flex-row flex-wrap gap-2 mb-3">
+                  {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
+                    const selected = sportTypes.includes(sport);
+                    return (
+                      <TouchableOpacity
+                        key={sport}
+                        className="px-3 py-1.5 rounded-full"
+                        style={{
+                          backgroundColor: selected ? colors.pierre.violet : 'transparent',
+                          borderWidth: 1,
+                          borderColor: selected ? colors.pierre.violet : 'rgba(139, 92, 246, 0.3)',
+                        }}
+                        onPress={() => {
+                          setSportTypes(selected
+                            ? sportTypes.filter((s) => s !== sport)
+                            : [...sportTypes, sport]);
+                        }}
+                        testID={`sport-type-${sport.toLowerCase()}`}
+                      >
+                        <Text
+                          className="text-sm"
+                          style={{ color: selected ? '#fff' : colors.text.secondary }}
+                        >
+                          {sport}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View className="flex-row gap-4 mb-3">
+                  <TouchableOpacity
+                    className="flex-row items-center"
+                    onPress={() => setDetailMode('summary')}
+                  >
+                    <View
+                      className="w-4 h-4 rounded-full mr-2 items-center justify-center"
+                      style={{
+                        borderWidth: 1.5,
+                        borderColor: colors.pierre.violet,
+                        backgroundColor: detailMode === 'summary' ? colors.pierre.violet : 'transparent',
+                      }}
+                    />
+                    <Text className="text-text-secondary text-xs">Summary</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="flex-row items-center"
+                    onPress={() => setDetailMode('detailed')}
+                  >
+                    <View
+                      className="w-4 h-4 rounded-full mr-2 items-center justify-center"
+                      style={{
+                        borderWidth: 1.5,
+                        borderColor: colors.pierre.violet,
+                        backgroundColor: detailMode === 'detailed' ? colors.pierre.violet : 'transparent',
+                      }}
+                    />
+                    <Text className="text-text-secondary text-xs">Detailed (laps, splits)</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  className="flex-row items-center"
+                  onPress={() => setAthleteProfile(!athleteProfile)}
+                >
+                  <View
+                    className="w-4 h-4 rounded mr-2 items-center justify-center"
+                    style={{
+                      backgroundColor: athleteProfile ? colors.pierre.violet : 'transparent',
+                      borderWidth: athleteProfile ? 0 : 1.5,
+                      borderColor: 'rgba(139, 92, 246, 0.4)',
+                    }}
+                  >
+                    {athleteProfile && (
+                      <Text className="text-white text-[10px] font-bold">{'\u2713'}</Text>
+                    )}
+                  </View>
+                  <Text className="text-text-secondary text-xs">Also fetch athlete profile</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </CollapsibleSection>
         </ScrollView>
       </KeyboardAvoidingView>

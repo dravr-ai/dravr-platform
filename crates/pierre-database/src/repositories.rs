@@ -1220,7 +1220,14 @@ pub trait CoachesRepository: Send + Sync {
     ) -> AppResult<Coach>;
     /// Get the current version number for a coach
     async fn get_current_version(&self, coach_id: &str) -> AppResult<i32>;
-    /// Look up a startup query by system prompt content
+    /// Look up startup context (query + data requirements) by system prompt content
+    async fn get_startup_context_by_system_prompt(
+        &self,
+        system_prompt: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<(Option<String>, Option<String>)>>;
+
+    /// Look up a startup query by system prompt content (delegates to startup context)
     async fn get_startup_query_by_system_prompt(
         &self,
         system_prompt: &str,

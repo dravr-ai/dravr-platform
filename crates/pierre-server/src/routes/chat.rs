@@ -12,6 +12,7 @@
 use super::chat_tool_loop::{self, ToolLoopParams};
 use crate::models::ConnectionType;
 use crate::models::TenantId;
+use crate::protocols::universal::UniversalResponse;
 use crate::{
     errors::AppError,
     llm::{
@@ -34,6 +35,7 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::auth::AuthResult;
+use pierre_core::models::coaches::DataRequirements;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::{
@@ -133,6 +135,18 @@ fn parse_insight_json_response(raw_content: &str) -> String {
         raw_content.len()
     );
     raw_content.to_owned()
+}
+
+/// Extract text content from a `UniversalResponse` for pre-fetched data injection.
+///
+/// Handles both string results and JSON object results by serializing to
+/// a compact representation suitable for LLM context.
+fn extract_prefetch_content(response: &UniversalResponse) -> String {
+    match &response.result {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(value) => serde_json::to_string(value).unwrap_or_default(),
+        None => String::new(),
+    }
 }
 
 // ============================================================================
@@ -415,23 +429,21 @@ impl ChatRoutes {
         }
     }
 
-    /// Get startup query for a coach conversation if applicable
+    /// Get startup context for a coach conversation if applicable.
     ///
-    /// The `system_prompt` is stored in conversations when a coach is selected.
-    /// This function looks up the coach by `system_prompt` and returns its startup query.
+    /// Returns the startup query and optionally parsed `DataRequirements` for
+    /// deterministic activity pre-fetching.
     ///
-    /// Returns `Some(query)` only if:
+    /// Returns `Some((query, data_requirements))` only if:
     /// - This is the first message in the conversation (`history_len == 1`)
     /// - The conversation has a custom `system_prompt` (indicates a coach)
-    /// - The coach has a `startup_query` configured
-    ///
-    /// The `startup_query` if found, None otherwise.
-    async fn get_startup_query_if_applicable(
+    /// - The coach has a `startup_query` or `data_requirements` configured
+    async fn get_startup_context_if_applicable(
         resources: &Arc<ServerResources>,
         history_len: usize,
         system_prompt: Option<&String>,
         tenant_id: TenantId,
-    ) -> Option<String> {
+    ) -> Option<(Option<String>, Option<DataRequirements>)> {
         // Only inject on first message
         if history_len != 1 {
             return None;
@@ -443,21 +455,149 @@ impl ChatRoutes {
         let coaches_manager = resources.coaches_manager();
 
         match coaches_manager
-            .get_startup_query_by_system_prompt(prompt, tenant_id)
+            .get_startup_context_by_system_prompt(prompt, tenant_id)
             .await
         {
-            Ok(Some(query)) => {
-                info!(
-                    "Found startup query for coach conversation: {}",
-                    &query[..query.len().min(50)]
-                );
-                Some(query)
+            Ok(Some((query, data_reqs_json))) => {
+                if let Some(q) = &query {
+                    info!(
+                        "Found startup query for coach conversation: {}",
+                        &q[..q.len().min(50)]
+                    );
+                }
+
+                // Parse data_requirements JSON if present
+                let data_reqs = data_reqs_json.and_then(|json| {
+                    match serde_json::from_str::<DataRequirements>(&json) {
+                        Ok(dr) => {
+                            info!("Found data_requirements for coach context assembly");
+                            Some(dr)
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse data_requirements JSON: {e}");
+                            None
+                        }
+                    }
+                });
+
+                Some((query, data_reqs))
             }
             Ok(None) => None,
             Err(e) => {
-                warn!("Failed to get startup query: {e}");
+                warn!("Failed to get startup context: {e}");
                 None
             }
+        }
+    }
+
+    /// Pre-fetch activity data based on structured `DataRequirements`.
+    ///
+    /// Calls `get_activities` deterministically with exact parameters from the coach
+    /// definition, bypassing LLM interpretation. Returns the activity data as a
+    /// formatted string for injection into the conversation context.
+    async fn prefetch_activity_context(
+        executor: &Arc<UniversalExecutor>,
+        user_id: &str,
+        tenant_id: TenantId,
+        data_reqs: &DataRequirements,
+    ) -> Option<String> {
+        use crate::protocols::universal::handlers::fitness_api::handle_get_activities;
+        use crate::protocols::universal::UniversalRequest;
+
+        let activities_req = data_reqs.activities.as_ref()?;
+
+        // Build parameters JSON matching what handle_get_activities expects
+        let mut params = serde_json::json!({
+            "limit": activities_req.count,
+            "mode": activities_req.mode,
+            "format": activities_req.format,
+            "analysis_type": activities_req.analysis_type,
+        });
+
+        // Add sport_type filter if specified (single sport type for now)
+        if let Some(sport_type) = activities_req.sport_types.first() {
+            params["sport_type"] = serde_json::Value::String(String::clone(sport_type));
+        }
+
+        // Add time_frame as 'after' timestamp
+        if let Some(seconds) = activities_req.time_frame_seconds() {
+            let after = chrono::Utc::now().timestamp() - seconds;
+            params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
+        }
+
+        let request = UniversalRequest {
+            tool_name: "get_activities".to_owned(),
+            parameters: params,
+            user_id: user_id.to_owned(),
+            protocol: "chat".to_owned(),
+            tenant_id: Some(tenant_id.to_string()),
+            progress_token: None,
+            cancellation_token: None,
+            progress_reporter: None,
+        };
+
+        match handle_get_activities(executor, request).await {
+            Ok(response) => {
+                let content = extract_prefetch_content(&response);
+                info!(
+                    content_len = content.len(),
+                    "Pre-fetched activity context for coach"
+                );
+                Some(content)
+            }
+            Err(e) => {
+                warn!("Failed to pre-fetch activity context: {e}");
+                None
+            }
+        }
+    }
+
+    /// Inject startup context (pre-fetched data + analysis query) into LLM messages.
+    ///
+    /// When a coach has `data_requirements`, activity data is fetched deterministically
+    /// and injected as system context. The startup query becomes the analysis instruction.
+    /// Without `data_requirements`, the startup query is injected as-is for the LLM
+    /// to interpret (tool-calling fallback).
+    async fn inject_startup_context(
+        resources: &Arc<ServerResources>,
+        executor: &Arc<UniversalExecutor>,
+        llm_messages: &mut Vec<ChatMessage>,
+        history: &[MessageRecord],
+        system_prompt: Option<&String>,
+        user_id_str: &str,
+        tenant_id: TenantId,
+    ) {
+        let Some((startup_query, data_reqs)) = Self::get_startup_context_if_applicable(
+            resources,
+            history.len(),
+            system_prompt,
+            tenant_id,
+        )
+        .await
+        else {
+            return;
+        };
+
+        if let Some(data_reqs) = &data_reqs {
+            // Full context assembly: pre-fetch activity data deterministically
+            if let Some(activity_context) =
+                Self::prefetch_activity_context(executor, user_id_str, tenant_id, data_reqs).await
+            {
+                let context_msg = format!(
+                    "The following activity data has been pre-loaded for your analysis:\n\n\
+                     {activity_context}"
+                );
+                llm_messages.insert(1, ChatMessage::system(&context_msg));
+            }
+
+            // Inject the startup query as the analysis instruction (after data context)
+            if let Some(query) = &startup_query {
+                let insert_pos = llm_messages.len().saturating_sub(1);
+                llm_messages.insert(insert_pos, ChatMessage::user(query));
+            }
+        } else if let Some(query) = &startup_query {
+            // No data_requirements: inject startup query for LLM tool-calling
+            llm_messages.insert(1, ChatMessage::user(query));
         }
     }
 
@@ -994,22 +1134,22 @@ impl ChatRoutes {
             Self::build_llm_messages(Some(system_prompt_text.as_str()), &history)
         };
 
-        // Inject startup query if this is the first message in a coach conversation
-        // (only for non-insight requests)
-        // The startup query runs before the user's message to fetch relevant context
+        // Create MCP executor for tool calls (Arc for sharing with SDK tool handler closures)
+        // Created early because prefetch_activity_context needs it
+        let executor = Arc::new(UniversalExecutor::new(resources.clone()));
+
+        // Inject startup context if this is the first message in a coach conversation
         if !is_insight_request {
-            if let Some(startup_query) = Self::get_startup_query_if_applicable(
+            Self::inject_startup_context(
                 &resources,
-                history.len(),
+                &executor,
+                &mut llm_messages,
+                &history,
                 conv.system_prompt.as_ref(),
+                &user_id_str,
                 tenant_id,
             )
-            .await
-            {
-                // Insert startup query as user message right after system prompt
-                // Position 1 is after system message (position 0) and before user's actual message
-                llm_messages.insert(1, ChatMessage::user(&startup_query));
-            }
+            .await;
         }
 
         // Build MCP tools for function calling
@@ -1017,9 +1157,6 @@ impl ChatRoutes {
 
         // Get LLM provider
         let provider = Self::get_llm_provider().await?;
-
-        // Create MCP executor for tool calls (Arc for sharing with SDK tool handler closures)
-        let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 
         // Resolve max tool iterations: coach setting > admin config > default
         let max_iterations =

@@ -9,7 +9,14 @@ prerequisites:
   activity_types: [Run]
 visibility: tenant
 startup:
-  query: "Fetch my last 20 running activities. Summarize my recent training volume, tempo work, and long run distances."
+  query: "Summarize my recent training volume, tempo work, and long run distances."
+  data_requirements:
+    activities:
+      count: 20
+      sport_types: [Run]
+      time_frame: 12w
+      mode: summary
+      analysis_type: race_preparation
 ---
 
 ## Purpose

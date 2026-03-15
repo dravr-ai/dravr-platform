@@ -12,6 +12,32 @@ export type CoachVisibility = 'private' | 'tenant' | 'global';
 /** Publish status for store coaches */
 export type PublishStatus = 'draft' | 'pending_review' | 'published' | 'rejected';
 
+// ========== DATA REQUIREMENTS ==========
+
+/** Activity data requirements for deterministic pre-fetching */
+export interface ActivityDataRequirements {
+  /** Number of activities to fetch */
+  count: number;
+  /** Sport types to filter by (empty = all types) */
+  sport_types: string[];
+  /** Lookback time frame (e.g., "16w", "90d", "3m") */
+  time_frame?: string;
+  /** Data detail level */
+  mode: 'summary' | 'detailed';
+  /** Output format for token efficiency */
+  format: 'toon' | 'json';
+  /** Analysis type for data sufficiency guidance */
+  analysis_type: string;
+}
+
+/** Structured data requirements for coach startup context assembly */
+export interface DataRequirements {
+  /** Activity data to pre-fetch */
+  activities?: ActivityDataRequirements;
+  /** Whether to also fetch the athlete profile */
+  athlete_profile?: boolean;
+}
+
 // ========== COACH TYPES ==========
 
 /** A coach (AI coaching persona) */
@@ -36,6 +62,10 @@ export interface Coach {
   is_hidden?: boolean;
   /** ID of source coach if forked */
   forked_from?: string;
+  /** Query auto-sent on first message to provide analysis context */
+  startup_query?: string;
+  /** Structured data requirements for deterministic activity pre-fetching */
+  data_requirements?: DataRequirements;
 }
 
 /** Response when forking a coach */
@@ -53,6 +83,10 @@ export interface CreateCoachRequest {
   category: string;
   tags?: string[];
   visibility?: string;
+  /** Query auto-sent on first message to provide analysis context */
+  startup_query?: string;
+  /** Structured data requirements for deterministic activity pre-fetching */
+  data_requirements?: DataRequirements;
 }
 
 /** Request to update an existing coach */
@@ -63,6 +97,10 @@ export interface UpdateCoachRequest {
   /** Category - accepts any valid category string */
   category?: string;
   tags?: string[];
+  /** Query auto-sent on first message to provide analysis context */
+  startup_query?: string;
+  /** Structured data requirements for deterministic activity pre-fetching */
+  data_requirements?: DataRequirements;
 }
 
 /** Standard metadata for coach API responses */

@@ -138,6 +138,129 @@ export default function CoachFormModal({
               </select>
             </div>
 
+            {/* Data Context Section */}
+            <div className="border-t border-pierre-gray-100 pt-4">
+              <h3 className="text-sm font-medium text-pierre-gray-700 mb-3">Data Context</h3>
+
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-pierre-gray-700 mb-1">
+                  Startup Query <span className="text-pierre-gray-400">(optional)</span>
+                </label>
+                <textarea
+                  placeholder="What should the coach analyze on first message? e.g., Analyze my training load and identify trends"
+                  value={formData.startup_query}
+                  onChange={(e) => onFormDataChange({ ...formData, startup_query: e.target.value })}
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent resize-none"
+                />
+              </div>
+
+              <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.prefetch_enabled}
+                  onChange={(e) => onFormDataChange({ ...formData, prefetch_enabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-pierre-gray-300 text-pierre-violet focus:ring-pierre-violet"
+                />
+                <span className="text-sm text-pierre-gray-700">Pre-fetch activity data when conversation starts</span>
+              </label>
+
+              {formData.prefetch_enabled && (
+                <div className="space-y-3 pl-6 border-l-2 border-pierre-violet/20">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-pierre-gray-600 mb-1">Activity count</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        value={formData.activity_count}
+                        onChange={(e) => onFormDataChange({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
+                        className="w-full px-2 py-1.5 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-pierre-gray-600 mb-1">Time frame</label>
+                      <select
+                        value={formData.time_frame}
+                        onChange={(e) => onFormDataChange({ ...formData, time_frame: e.target.value })}
+                        className="w-full px-2 py-1.5 text-sm border border-pierre-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:border-transparent bg-white"
+                      >
+                        <option value="3w">3 weeks</option>
+                        <option value="8w">8 weeks</option>
+                        <option value="12w">12 weeks</option>
+                        <option value="16w">16 weeks</option>
+                        <option value="6m">6 months</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-pierre-gray-600 mb-1">
+                      Sport types <span className="text-pierre-gray-400">(none = all types)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {['Run', 'Ride', 'Swim', 'Walk', 'Hike'].map((sport) => {
+                        const isSelected = formData.sport_types.includes(sport);
+                        return (
+                          <button
+                            key={sport}
+                            type="button"
+                            onClick={() => {
+                              const updated = isSelected
+                                ? formData.sport_types.filter((s) => s !== sport)
+                                : [...formData.sport_types, sport];
+                              onFormDataChange({ ...formData, sport_types: updated });
+                            }}
+                            className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                              isSelected
+                                ? 'bg-pierre-violet text-white border-pierre-violet'
+                                : 'bg-white text-pierre-gray-600 border-pierre-gray-200 hover:border-pierre-violet/50'
+                            }`}
+                          >
+                            {sport}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="detail_mode"
+                        checked={formData.detail_mode === 'summary'}
+                        onChange={() => onFormDataChange({ ...formData, detail_mode: 'summary' })}
+                        className="text-pierre-violet focus:ring-pierre-violet"
+                      />
+                      <span className="text-xs text-pierre-gray-600">Summary</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="detail_mode"
+                        checked={formData.detail_mode === 'detailed'}
+                        onChange={() => onFormDataChange({ ...formData, detail_mode: 'detailed' })}
+                        className="text-pierre-violet focus:ring-pierre-violet"
+                      />
+                      <span className="text-xs text-pierre-gray-600">Detailed (laps, splits)</span>
+                    </label>
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.athlete_profile}
+                      onChange={(e) => onFormDataChange({ ...formData, athlete_profile: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded border-pierre-gray-300 text-pierre-violet focus:ring-pierre-violet"
+                    />
+                    <span className="text-xs text-pierre-gray-600">Also fetch athlete profile</span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3 pt-2">
               <button
                 type="button"

@@ -199,7 +199,7 @@ server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-we
 
 # OpenAPI documentation (SwaggerUI) - excluded from production by default
 # Enable with: cargo build --features openapi
-openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui"]
+openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-core/openapi"]
 
 [dependencies]
 # Workspace crates (sibling crates under crates/)

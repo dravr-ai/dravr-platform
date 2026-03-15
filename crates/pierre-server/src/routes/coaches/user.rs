@@ -284,6 +284,8 @@ pub(super) async fn handle_import(
                     .collect()
             })
             .unwrap_or_default(),
+        startup_query: None,
+        data_requirements: None,
     };
 
     let manager = super::get_coaches_manager(&resources);

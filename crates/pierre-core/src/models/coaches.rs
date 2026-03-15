@@ -8,6 +8,96 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Activity data requirements for coach startup context assembly
+///
+/// Specifies exactly what activity data a coach needs pre-fetched
+/// before the first conversation turn, enabling deterministic data
+/// retrieval instead of relying on LLM interpretation of natural language.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct ActivityDataRequirements {
+    /// Number of activities to fetch
+    pub count: u32,
+
+    /// Sport types to filter by (empty = all types)
+    /// Values match Strava sport types: Run, Ride, Swim, etc.
+    #[serde(default)]
+    pub sport_types: Vec<String>,
+
+    /// Lookback time frame (e.g., "16w", "90d", "3m")
+    /// Parsed as: number + unit where unit is w(eeks), d(ays), m(onths)
+    #[serde(default)]
+    pub time_frame: Option<String>,
+
+    /// Data detail level: "summary" (default) or "detailed"
+    /// Detailed mode includes lap splits, GPS data — needed for interval analysis
+    #[serde(default = "ActivityDataRequirements::default_mode")]
+    pub mode: String,
+
+    /// Output format: "toon" (token-efficient, default) or "json"
+    #[serde(default = "ActivityDataRequirements::default_format")]
+    pub format: String,
+
+    /// Analysis type for data sufficiency guidance.
+    /// Values: `general_overview`, `weekly_summary`, `trend_analysis`,
+    /// `race_preparation`, `recovery_assessment`
+    #[serde(default = "ActivityDataRequirements::default_analysis_type")]
+    pub analysis_type: String,
+}
+
+impl ActivityDataRequirements {
+    fn default_mode() -> String {
+        "summary".to_owned()
+    }
+
+    fn default_format() -> String {
+        "toon".to_owned()
+    }
+
+    fn default_analysis_type() -> String {
+        "general_overview".to_owned()
+    }
+
+    /// Parse `time_frame` string into seconds from now
+    ///
+    /// Supports: "16w" (weeks), "90d" (days), "3m" (months, 30 days each)
+    #[must_use]
+    pub fn time_frame_seconds(&self) -> Option<i64> {
+        let tf = self.time_frame.as_ref()?;
+        let tf = tf.trim();
+        if tf.len() < 2 {
+            return None;
+        }
+
+        let (num_str, unit) = tf.split_at(tf.len() - 1);
+        let num: i64 = num_str.parse().ok()?;
+
+        let seconds_per_day: i64 = 86_400;
+        match unit {
+            "d" => Some(num * seconds_per_day),
+            "w" => Some(num * 7 * seconds_per_day),
+            "m" => Some(num * 30 * seconds_per_day),
+            _ => None,
+        }
+    }
+}
+
+/// Structured data requirements for coach startup context assembly
+///
+/// Defines what data should be pre-fetched before the coach conversation starts,
+/// separating deterministic data fetching from creative LLM analysis.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct DataRequirements {
+    /// Activity data to pre-fetch
+    #[serde(default)]
+    pub activities: Option<ActivityDataRequirements>,
+
+    /// Whether to also fetch the athlete profile
+    #[serde(default)]
+    pub athlete_profile: bool,
+}
+
 /// Prerequisites required to use a coach
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CoachPrerequisites {
@@ -212,6 +302,12 @@ pub struct Coach {
     /// Maximum tool call iterations for this coach (overrides global config)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_iterations: Option<i32>,
+    /// Query auto-sent on first message to provide analysis context
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_query: Option<String>,
+    /// Structured data requirements for deterministic activity pre-fetching
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_requirements: Option<DataRequirements>,
 }
 
 /// Coach with computed context-dependent fields for list responses
@@ -253,6 +349,12 @@ pub struct CreateCoachRequest {
     /// Sample prompts for quick-start suggestions
     #[serde(default)]
     pub sample_prompts: Vec<String>,
+    /// Query auto-sent on first message to provide analysis context
+    #[serde(default)]
+    pub startup_query: Option<String>,
+    /// Structured data requirements for deterministic activity pre-fetching
+    #[serde(default)]
+    pub data_requirements: Option<DataRequirements>,
 }
 
 /// Request to update an existing coach
@@ -270,6 +372,10 @@ pub struct UpdateCoachRequest {
     pub tags: Option<Vec<String>>,
     /// New sample prompts (if provided)
     pub sample_prompts: Option<Vec<String>>,
+    /// New startup query (if provided, set to empty string to clear)
+    pub startup_query: Option<String>,
+    /// New data requirements (if provided)
+    pub data_requirements: Option<DataRequirements>,
 }
 
 /// Filter options for listing coaches

@@ -591,6 +591,12 @@ fn build_seed_coach(
         source_file: Some(coach.source_file.clone()),
         content_hash: Some(coach.content_hash.clone()),
         startup_query: coach.frontmatter.startup.query.clone(),
+        data_requirements: coach
+            .frontmatter
+            .startup
+            .data_requirements
+            .as_ref()
+            .and_then(|dr| serde_json::to_string(dr).ok()),
         created_at: now,
         updated_at: now,
     })

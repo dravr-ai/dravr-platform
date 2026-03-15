@@ -9,7 +9,14 @@ prerequisites:
   activity_types: [Run]
 visibility: tenant
 startup:
-  query: "Fetch my last 15 running activities. Look for interval workouts, recent race efforts, and identify my current speed potential."
+  query: "Look for interval workouts, recent race efforts, and identify my current speed potential."
+  data_requirements:
+    activities:
+      count: 15
+      sport_types: [Run]
+      time_frame: 8w
+      mode: detailed
+      analysis_type: trend_analysis
 ---
 
 ## Purpose

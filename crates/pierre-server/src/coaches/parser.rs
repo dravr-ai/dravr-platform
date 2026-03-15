@@ -9,7 +9,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use pierre_core::models::coaches::{CoachCategory, CoachPrerequisites, CoachVisibility};
+use pierre_core::models::coaches::{
+    CoachCategory, CoachPrerequisites, CoachVisibility, DataRequirements,
+};
 
 use crate::errors::{AppError, AppResult, ErrorCode};
 
@@ -20,9 +22,17 @@ const CHARS_PER_TOKEN: usize = 4;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CoachStartup {
     /// Query to automatically send when starting a coach conversation.
-    /// This query is executed before the user's first message to provide context.
+    /// When `data_requirements` is present, this is purely an analysis instruction
+    /// (the system pre-fetches data deterministically). Without `data_requirements`,
+    /// the LLM interprets this as a tool-calling instruction (fallback behavior).
     #[serde(default)]
     pub query: Option<String>,
+
+    /// Structured data requirements for deterministic pre-fetching.
+    /// When present, the system fetches activity data with exact parameters
+    /// and injects it as context before the startup query runs.
+    #[serde(default)]
+    pub data_requirements: Option<DataRequirements>,
 }
 
 /// Type of relationship between coaches
@@ -202,6 +212,47 @@ pub fn parse_frontmatter(content: &str) -> AppResult<CoachFrontmatter> {
                 ErrorCode::InvalidFormat,
                 "startup.query must not be empty if provided",
             ));
+        }
+    }
+
+    // Validate data_requirements if provided
+    if let Some(data_reqs) = &frontmatter.startup.data_requirements {
+        if let Some(activities) = &data_reqs.activities {
+            if activities.count == 0 {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    "data_requirements.activities.count must be greater than 0",
+                ));
+            }
+            if !["summary", "detailed"].contains(&activities.mode.as_str()) {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "data_requirements.activities.mode must be 'summary' or 'detailed', got '{}'",
+                        activities.mode
+                    ),
+                ));
+            }
+            if !["toon", "json"].contains(&activities.format.as_str()) {
+                return Err(AppError::new(
+                    ErrorCode::InvalidFormat,
+                    format!(
+                        "data_requirements.activities.format must be 'toon' or 'json', got '{}'",
+                        activities.format
+                    ),
+                ));
+            }
+            // Validate time_frame format if provided
+            if let Some(tf) = &activities.time_frame {
+                if activities.time_frame_seconds().is_none() {
+                    return Err(AppError::new(
+                        ErrorCode::InvalidFormat,
+                        format!(
+                            "data_requirements.activities.time_frame must be '<number><d|w|m>', got '{tf}'"
+                        ),
+                    ));
+                }
+            }
         }
     }
 
@@ -466,9 +517,40 @@ pub fn to_markdown(definition: &CoachDefinition) -> String {
     }
 
     // Startup configuration
-    if let Some(query) = &definition.frontmatter.startup.query {
+    let has_startup_query = definition.frontmatter.startup.query.is_some();
+    let has_data_reqs = definition.frontmatter.startup.data_requirements.is_some();
+    if has_startup_query || has_data_reqs {
         output.push_str("startup:\n");
-        let _ = writeln!(output, "  query: \"{query}\"");
+        if let Some(query) = &definition.frontmatter.startup.query {
+            let _ = writeln!(output, "  query: \"{query}\"");
+        }
+        if let Some(data_reqs) = &definition.frontmatter.startup.data_requirements {
+            output.push_str("  data_requirements:\n");
+            if let Some(activities) = &data_reqs.activities {
+                output.push_str("    activities:\n");
+                let _ = writeln!(output, "      count: {}", activities.count);
+                if !activities.sport_types.is_empty() {
+                    output.push_str("      sport_types: [");
+                    output.push_str(&activities.sport_types.join(", "));
+                    output.push_str("]\n");
+                }
+                if let Some(tf) = &activities.time_frame {
+                    let _ = writeln!(output, "      time_frame: {tf}");
+                }
+                if activities.mode != "summary" {
+                    let _ = writeln!(output, "      mode: {}", activities.mode);
+                }
+                if activities.format != "toon" {
+                    let _ = writeln!(output, "      format: {}", activities.format);
+                }
+                if activities.analysis_type != "general_overview" {
+                    let _ = writeln!(output, "      analysis_type: {}", activities.analysis_type);
+                }
+            }
+            if data_reqs.athlete_profile {
+                output.push_str("    athlete_profile: true\n");
+            }
+        }
     }
 
     output.push_str("---\n\n");

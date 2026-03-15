@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::models::coaches::DataRequirements;
 use pierre_database::database::{
     coaches::{
         Coach, CoachAssignment as DbCoachAssignment, CoachCategory, CoachListItem, CoachVersion,
@@ -63,6 +64,12 @@ pub struct CoachResponse {
     /// List of missing prerequisites (only present if `check_prerequisites=true`)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub missing_prerequisites: Option<Vec<MissingPrerequisite>>,
+    /// Query auto-sent on first message to provide analysis context
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_query: Option<String>,
+    /// Structured data requirements for deterministic activity pre-fetching
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data_requirements: Option<DataRequirements>,
 }
 
 /// A missing prerequisite for a coach
@@ -98,6 +105,8 @@ impl From<Coach> for CoachResponse {
             forked_from: coach.forked_from,
             prerequisites_met: None,
             missing_prerequisites: None,
+            startup_query: coach.startup_query,
+            data_requirements: coach.data_requirements,
         }
     }
 }
@@ -123,6 +132,8 @@ impl From<CoachListItem> for CoachResponse {
             forked_from: item.coach.forked_from,
             prerequisites_met: None,
             missing_prerequisites: None,
+            startup_query: item.coach.startup_query,
+            data_requirements: item.coach.data_requirements,
         }
     }
 }
@@ -251,6 +262,10 @@ pub struct CreateCoachBody {
     /// Sample prompts for quick-start suggestions
     #[serde(default)]
     pub sample_prompts: Vec<String>,
+    /// Query auto-sent on first message to provide analysis context
+    pub startup_query: Option<String>,
+    /// Structured data requirements for deterministic activity pre-fetching
+    pub data_requirements: Option<DataRequirements>,
 }
 
 impl From<CreateCoachBody> for CreateCoachRequest {
@@ -265,6 +280,8 @@ impl From<CreateCoachBody> for CreateCoachRequest {
                 .unwrap_or_default(),
             tags: body.tags,
             sample_prompts: body.sample_prompts,
+            startup_query: body.startup_query,
+            data_requirements: body.data_requirements,
         }
     }
 }
@@ -285,6 +302,10 @@ pub struct UpdateCoachBody {
     pub tags: Option<Vec<String>>,
     /// New sample prompts (if provided)
     pub sample_prompts: Option<Vec<String>>,
+    /// New startup query (if provided)
+    pub startup_query: Option<String>,
+    /// New data requirements (if provided)
+    pub data_requirements: Option<DataRequirements>,
 }
 
 impl From<UpdateCoachBody> for UpdateCoachRequest {
@@ -296,6 +317,8 @@ impl From<UpdateCoachBody> for UpdateCoachRequest {
             category: body.category.map(|c| CoachCategory::parse(&c)),
             tags: body.tags,
             sample_prompts: body.sample_prompts,
+            startup_query: body.startup_query,
+            data_requirements: body.data_requirements,
         }
     }
 }

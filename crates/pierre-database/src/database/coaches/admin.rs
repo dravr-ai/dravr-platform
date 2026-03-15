@@ -41,8 +41,8 @@ impl CoachesManager {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16)
+                forked_from, max_tool_iterations, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(id.to_string())
@@ -61,6 +61,8 @@ impl CoachesManager {
         .bind(Option::<String>::None) // prerequisites (system coaches may have this set later)
         .bind(Option::<String>::None) // forked_from (system coaches are originals)
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(Option::<String>::None) // startup_query
+        .bind(Option::<String>::None) // data_requirements
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create system coach: {e}")))?;
@@ -83,6 +85,8 @@ impl CoachesManager {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            startup_query: None,
+            data_requirements: None,
         })
     }
 
@@ -97,7 +101,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE tenant_id = $1 AND is_system = 1
             ORDER BY created_at DESC
@@ -126,7 +130,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND tenant_id = $2 AND is_system = 1
             ",
@@ -154,7 +158,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations
+                   forked_from, max_tool_iterations, startup_query, data_requirements
             FROM coaches
             WHERE id = $1 AND is_system = 1
             ",
