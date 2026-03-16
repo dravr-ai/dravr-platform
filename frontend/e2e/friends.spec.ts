@@ -94,8 +94,9 @@ const mockSearchResults = {
 async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean } = {}) {
   const { emptyFriends = false } = options;
 
-  // Register social API mocks BEFORE setupDashboardMocks
-  // (Playwright checks routes in reverse order, but we use specific patterns)
+  // Set up base dashboard mocks FIRST; specific mocks registered AFTER take
+  // priority because Playwright checks routes in LIFO (last registered first).
+  await setupDashboardMocks(page, { role: 'user' });
 
   // Accept friend request: POST /api/social/friends/requests/{id}/accept
   await page.route('**/api/social/friends/requests/*/accept', async (route) => {
@@ -217,8 +218,6 @@ async function setupFriendsMocks(page: Page, options: { emptyFriends?: boolean }
     });
   });
 
-  // Set up base dashboard mocks (auth, usage, etc.)
-  await setupDashboardMocks(page, { role: 'user' });
 }
 
 async function navigateToFriendsTab(page: Page) {

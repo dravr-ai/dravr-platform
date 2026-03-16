@@ -81,7 +81,9 @@ const mockFeedWithInsight = {
 async function setupInsightMocks(page: Page, options: { emptySuggestions?: boolean } = {}) {
   const { emptySuggestions = false } = options;
 
-  // Register specific mocks BEFORE setupDashboardMocks
+  // Set up base dashboard mocks FIRST; specific mocks registered AFTER take
+  // priority because Playwright checks routes in LIFO (last registered first).
+  await setupDashboardMocks(page, { role: 'user' });
 
   // Insight suggestions: GET /api/social/insights/suggestions
   await page.route('**/api/social/insights/suggestions**', async (route) => {
@@ -159,8 +161,6 @@ async function setupInsightMocks(page: Page, options: { emptySuggestions?: boole
     });
   });
 
-  // Set up base dashboard mocks (auth, usage, etc.)
-  await setupDashboardMocks(page, { role: 'user' });
 }
 
 test.describe('Insights - Suggestion Banner', () => {
