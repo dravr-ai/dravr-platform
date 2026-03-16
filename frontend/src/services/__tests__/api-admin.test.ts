@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+// ABOUTME: Tests for admin and dashboard domain APIs
+// ABOUTME: Verifies admin tokens, user management, API key provisioning, and monitoring
+
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { AxiosError } from 'axios';
-import { apiService } from '../api/index';
+import { adminApi, dashboardApi, a2aApi } from '../api/index';
 
 // vi.hoisted runs before vi.mock hoisting, so this variable is available in the factory
 const { mockAxiosInstance } = vi.hoisted(() => ({
@@ -22,99 +25,27 @@ const { mockAxiosInstance } = vi.hoisted(() => ({
 // Mock @pierre/api-client to return our mock axios instance
 vi.mock('@pierre/api-client', () => ({
   createPierreApi: vi.fn(() => ({
-    auth: {
-      login: vi.fn(),
-      loginWithFirebase: vi.fn(),
-      logout: vi.fn(),
-      register: vi.fn(),
-      refreshToken: vi.fn().mockRejectedValue(new Error('No refresh token available')),
-      getSession: vi.fn(),
-    },
-    chat: {
-      getConversations: vi.fn(),
-      createConversation: vi.fn(),
-      getConversation: vi.fn(),
-      updateConversation: vi.fn(),
-      deleteConversation: vi.fn(),
-      getConversationMessages: vi.fn(),
-    },
-    coaches: {
-      list: vi.fn(),
-      toggleFavorite: vi.fn(),
-      recordUsage: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-      hide: vi.fn(),
-      show: vi.fn(),
-      getHidden: vi.fn(),
-      fork: vi.fn(),
-      getVersions: vi.fn(),
-      getVersion: vi.fn(),
-      revertToVersion: vi.fn(),
-      getVersionDiff: vi.fn(),
-      getPromptSuggestions: vi.fn(),
-      generateFromConversation: vi.fn(),
-    },
+    auth: { login: vi.fn(), refreshToken: vi.fn().mockRejectedValue(new Error('No refresh token')) },
+    chat: { getConversations: vi.fn() },
+    coaches: { list: vi.fn() },
     oauth: {
       getStatus: vi.fn(),
       getAuthorizeUrl: vi.fn(),
+      getProvidersStatus: vi.fn(),
+      disconnectProvider: vi.fn(),
+      getAuthorizeUrlForProvider: vi.fn(),
     },
-    social: {
-      listFriends: vi.fn(),
-      searchUsers: vi.fn(),
-      getPendingRequests: vi.fn(),
-      sendFriendRequest: vi.fn(),
-      acceptFriendRequest: vi.fn(),
-      declineFriendRequest: vi.fn(),
-      removeFriend: vi.fn(),
-      blockUser: vi.fn(),
-      getFeed: vi.fn(),
-      shareInsight: vi.fn(),
-      deleteInsight: vi.fn(),
-      addReaction: vi.fn(),
-      removeReaction: vi.fn(),
-      adaptInsight: vi.fn(),
-      getAdaptedInsights: vi.fn(),
-      getSettings: vi.fn(),
-      updateSettings: vi.fn(),
-    },
-    store: {
-      browse: vi.fn(),
-      search: vi.fn(),
-      get: vi.fn(),
-      getCategories: vi.fn(),
-      install: vi.fn(),
-      uninstall: vi.fn(),
-      getInstallations: vi.fn(),
-    },
-    user: {
-      getStats: vi.fn(),
-      updateProfile: vi.fn(),
-      createMcpToken: vi.fn(),
-      getMcpTokens: vi.fn(),
-      revokeMcpToken: vi.fn(),
-      getOAuthApps: vi.fn(),
-      registerOAuthApp: vi.fn(),
-      deleteOAuthApp: vi.fn(),
-      getLlmSettings: vi.fn(),
-      saveLlmCredentials: vi.fn(),
-      validateLlmCredentials: vi.fn(),
-      deleteLlmCredentials: vi.fn(),
-    },
+    social: { listFriends: vi.fn(), getInsightSuggestions: vi.fn(), shareFromActivity: vi.fn() },
+    store: { browse: vi.fn() },
+    user: { getStats: vi.fn(), getLlmSettings: vi.fn(), saveLlmCredentials: vi.fn(), validateLlmCredentials: vi.fn(), deleteLlmCredentials: vi.fn() },
+    notifications: { getNotifications: vi.fn() },
     axios: mockAxiosInstance,
     adapter: {
       authStorage: {
-        setCsrfToken: vi.fn(),
-        getCsrfToken: vi.fn(),
-        setUser: vi.fn(),
-        getUser: vi.fn(),
-        clear: vi.fn(),
-        getToken: vi.fn(),
-        setToken: vi.fn(),
-        removeToken: vi.fn(),
-        getRefreshToken: vi.fn(),
-        setRefreshToken: vi.fn(),
+        setCsrfToken: vi.fn(), getCsrfToken: vi.fn(),
+        setUser: vi.fn(), getUser: vi.fn(), clear: vi.fn(),
+        getToken: vi.fn(), setToken: vi.fn(), removeToken: vi.fn(),
+        getRefreshToken: vi.fn(), setRefreshToken: vi.fn(),
       },
       httpConfig: { baseURL: '' },
       authFailure: { onAuthFailure: vi.fn() },
@@ -125,16 +56,10 @@ vi.mock('@pierre/api-client', () => ({
 vi.mock('@pierre/api-client/adapters/web', () => ({
   createWebAdapter: vi.fn(() => ({
     authStorage: {
-      setCsrfToken: vi.fn(),
-      getCsrfToken: vi.fn(),
-      setUser: vi.fn(),
-      getUser: vi.fn(),
-      clear: vi.fn(),
-      getToken: vi.fn(),
-      setToken: vi.fn(),
-      removeToken: vi.fn(),
-      getRefreshToken: vi.fn(),
-      setRefreshToken: vi.fn(),
+      setCsrfToken: vi.fn(), getCsrfToken: vi.fn(),
+      setUser: vi.fn(), getUser: vi.fn(), clear: vi.fn(),
+      getToken: vi.fn(), setToken: vi.fn(), removeToken: vi.fn(),
+      getRefreshToken: vi.fn(), setRefreshToken: vi.fn(),
     },
     httpConfig: { baseURL: '' },
     authFailure: { onAuthFailure: vi.fn() },
@@ -191,7 +116,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockOverview });
 
-      const result = await apiService.getDashboardOverview();
+      const result = await dashboardApi.getDashboardOverview();
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/overview');
       expect(result).toEqual(mockOverview);
@@ -207,7 +132,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockAnalytics });
 
-      const result = await apiService.getUsageAnalytics(7);
+      const result = await dashboardApi.getUsageAnalytics(7);
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/analytics?days=7');
       expect(result).toEqual(mockAnalytics);
@@ -227,7 +152,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockRateLimits });
 
-      const result = await apiService.getRateLimitOverview();
+      const result = await dashboardApi.getRateLimitOverview();
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/rate-limits');
       expect(result).toEqual(mockRateLimits);
@@ -245,7 +170,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockA2AOverview });
 
-      const result = await apiService.getA2ADashboardOverview();
+      const result = await a2aApi.getA2ADashboardOverview();
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/a2a/dashboard/overview');
       expect(result).toEqual(mockA2AOverview);
@@ -256,7 +181,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockA2AAnalytics });
 
-      const result = await apiService.getA2AUsageAnalytics(14);
+      const result = await a2aApi.getA2AUsageAnalytics(14);
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/a2a/dashboard/analytics?days=14');
       expect(result).toEqual(mockA2AAnalytics);
@@ -280,7 +205,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockTokens });
 
-      const result = await apiService.getAdminTokens({ include_inactive: true });
+      const result = await adminApi.getAdminTokens({ include_inactive: true });
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/tokens?include_inactive=true');
       expect(result).toEqual(mockTokens);
@@ -306,7 +231,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.createAdminToken(tokenRequest);
+      const result = await adminApi.createAdminToken(tokenRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens', tokenRequest);
       expect(result).toEqual(mockResponse);
@@ -323,7 +248,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockTokenDetails });
 
-      const result = await apiService.getAdminTokenDetails('token-1');
+      const result = await adminApi.getAdminTokenDetails('token-1');
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/tokens/token-1');
       expect(result).toEqual(mockTokenDetails);
@@ -334,7 +259,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.revokeAdminToken('token-1');
+      const result = await adminApi.revokeAdminToken('token-1');
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens/token-1/revoke');
       expect(result).toEqual(mockResponse);
@@ -349,7 +274,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.rotateAdminToken('token-1', rotateRequest);
+      const result = await adminApi.rotateAdminToken('token-1', rotateRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/tokens/token-1/rotate', rotateRequest);
       expect(result).toEqual(mockResponse);
@@ -366,7 +291,7 @@ describe('API Service - Admin Functionality', () => {
       // Backend returns { count, users } structure
       mockAxiosInstance.get.mockResolvedValueOnce({ data: { count: 2, users: mockPendingUsers } });
 
-      const result = await apiService.getPendingUsers();
+      const result = await adminApi.getPendingUsers();
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/admin/pending-users');
       // getPendingUsers extracts the users array
@@ -378,7 +303,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.approveUser('user-1', 'Valid business use case');
+      const result = await adminApi.approveUser('user-1', 'Valid business use case');
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/approve-user/user-1', {
         reason: 'Valid business use case'
@@ -391,7 +316,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.suspendUser('user-1', 'Policy violation');
+      const result = await adminApi.suspendUser('user-1', 'Policy violation');
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/api/admin/suspend-user/user-1', {
         reason: 'Policy violation'
@@ -408,7 +333,7 @@ describe('API Service - Admin Functionality', () => {
       // Backend returns { users: [...], total_count: n } structure
       mockAxiosInstance.get.mockResolvedValueOnce({ data: { users: mockUsersList, total_count: 2 } });
 
-      const result = await apiService.getAllUsers({
+      const result = await adminApi.getAllUsers({
         status: 'active',
         limit: 50,
         offset: 0
@@ -439,7 +364,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.provisionApiKey(provisionRequest);
+      const result = await adminApi.provisionApiKey(provisionRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/admin/provision-api-key', provisionRequest);
       expect(result).toEqual(mockResponse);
@@ -451,7 +376,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockResolvedValueOnce({ data: mockResponse });
 
-      const result = await apiService.revokeApiKey(revokeRequest);
+      const result = await adminApi.revokeApiKey(revokeRequest);
 
       expect(mockAxiosInstance.post).toHaveBeenCalledWith('/admin/revoke-api-key', revokeRequest);
       expect(result).toEqual(mockResponse);
@@ -473,7 +398,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockApiKeys });
 
-      const result = await apiService.listApiKeys({
+      const result = await adminApi.listApiKeys({
         user_email: 'user@example.com',
         active_only: true,
         limit: 10
@@ -503,7 +428,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockLogs });
 
-      const result = await apiService.getRequestLogs('key-1', {
+      const result = await dashboardApi.getRequestLogs('key-1', {
         timeRange: '1h',
         status: '200',
         tool: 'get_activities'
@@ -527,7 +452,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockResolvedValueOnce({ data: mockStats });
 
-      const result = await apiService.getRequestStats('key-1', '24h');
+      const result = await dashboardApi.getRequestStats('key-1', '24h');
 
       expect(mockAxiosInstance.get).toHaveBeenCalledWith('/api/dashboard/request-stats?api_key_id=key-1&time_range=24h');
       expect(result).toEqual(mockStats);
@@ -543,7 +468,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockRejectedValueOnce(error);
 
-      await expect(apiService.getAdminTokenDetails('invalid-token')).rejects.toThrow('Not Found');
+      await expect(adminApi.getAdminTokenDetails('invalid-token')).rejects.toThrow('Not Found');
     });
 
     it('should handle network errors', async () => {
@@ -551,7 +476,7 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.get.mockRejectedValueOnce(error);
 
-      await expect(apiService.getDashboardOverview()).rejects.toThrow('Network Error');
+      await expect(dashboardApi.getDashboardOverview()).rejects.toThrow('Network Error');
     });
 
     it('should handle 403 unauthorized errors', async () => {
@@ -562,24 +487,10 @@ describe('API Service - Admin Functionality', () => {
 
       mockAxiosInstance.post.mockRejectedValueOnce(error);
 
-      await expect(apiService.createAdminToken({
+      await expect(adminApi.createAdminToken({
         service_name: 'Test',
         permissions: ['super_admin']
       })).rejects.toThrow('Forbidden');
-    });
-  });
-
-  describe('Token Refresh Integration', () => {
-    it('should reject refresh on web since httpOnly cookies handle session restore', async () => {
-      // Web adapter returns null for getRefreshToken (refresh handled via httpOnly cookie session)
-      // refreshToken() may return undefined if the mock was cleared, so check gracefully
-      const result = apiService.refreshToken();
-      if (result && typeof result.then === 'function') {
-        await expect(result).rejects.toThrow('No refresh token available');
-      } else {
-        // Mock was cleared by clearAllMocks - verify the method exists
-        expect(typeof apiService.refreshToken).toBe('function');
-      }
     });
   });
 });

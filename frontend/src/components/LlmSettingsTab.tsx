@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiService } from '../services/api';
+import { userApi } from '../services/api';
 import { Card, Button, Input, Badge, ConfirmDialog } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -44,7 +44,7 @@ export default function LlmSettingsTab() {
   // Fetch current LLM settings
   const { data: settings, isLoading } = useQuery({
     queryKey: QUERY_KEYS.llmSettings.list(),
-    queryFn: () => apiService.getLlmSettings(),
+    queryFn: () => userApi.getLlmSettings(),
   });
 
   // Save credentials mutation
@@ -54,7 +54,7 @@ export default function LlmSettingsTab() {
       api_key: string;
       base_url?: string;
       default_model?: string;
-    }) => apiService.saveLlmCredentials(data),
+    }) => userApi.saveLlmCredentials(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.llmSettings.list() });
       setMessage({ type: 'success', text: data.message });
@@ -67,7 +67,7 @@ export default function LlmSettingsTab() {
 
   // Delete credentials mutation
   const deleteMutation = useMutation({
-    mutationFn: (provider: string) => apiService.deleteLlmCredentials(provider),
+    mutationFn: (provider: string) => userApi.deleteLlmCredentials(provider),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.llmSettings.list() });
       setMessage({ type: 'success', text: data.message });
@@ -94,7 +94,7 @@ export default function LlmSettingsTab() {
     setValidationResult(null);
 
     try {
-      const result = await apiService.validateLlmCredentials({
+      const result = await userApi.validateLlmCredentials({
         provider: selectedProvider,
         api_key: apiKey.trim(),
         base_url: selectedProvider === 'local' ? baseUrl.trim() || undefined : undefined,

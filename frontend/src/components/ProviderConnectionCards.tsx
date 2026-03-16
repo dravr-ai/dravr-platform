@@ -5,9 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useQuery } from '@tanstack/react-query';
-import { providersApi } from '../services/api';
-import { oauthApi } from '../services/api/oauth';
-import type { ProviderStatus } from '../services/api/oauth';
+import { providersApi, oauthApi } from '../services/api';
+import type { ProviderStatus } from '../services/api';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -158,7 +157,7 @@ export default function ProviderConnectionCards({
 
     // Fallback: Navigate directly to OAuth authorization endpoint
     try {
-      const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider.provider);
+      const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider.provider);
       // Open OAuth in new tab with noopener,noreferrer to prevent tabnabbing
       window.open(authUrl, '_blank');
     } catch (error) {

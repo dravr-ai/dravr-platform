@@ -5,7 +5,7 @@
 // ABOUTME: Handles all administrative functionality for super_admin and admin roles
 
 import { axios } from './client';
-import type { Coach } from './coaches';
+import type { Coach } from '@pierre/shared-types';
 import type { SocialInsightsConfig } from '../../types/api';
 
 export const adminApi = {
