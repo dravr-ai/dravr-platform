@@ -142,12 +142,13 @@ pub async fn verify_webhook(
         )));
     }
 
-    // Check if any config's webhook_secret matches the verify token
+    // Prefer verify_token; fall back to webhook_secret if verify_token is not configured
     let token_matches = configs.iter().any(|config| {
-        config
-            .get("webhook_secret")
-            .and_then(|v| v.as_str())
-            .is_some_and(|secret| secret == query.verify_token)
+        let stored_verify_token = config.get("verify_token").and_then(|v| v.as_str());
+        let stored_webhook_secret = config.get("webhook_secret").and_then(|v| v.as_str());
+        stored_verify_token
+            .or(stored_webhook_secret)
+            .is_some_and(|t| t == query.verify_token)
     });
 
     if !token_matches {

@@ -332,6 +332,7 @@ mod messaging_routes_tests {
             api_key: Some("xoxb-test-token"),
             api_secret: None,
             webhook_secret: Some(signing_secret),
+            verify_token: None,
             account_id: None,
             phone_number: None,
             bot_token: None,
@@ -400,6 +401,7 @@ mod messaging_routes_tests {
             api_key: Some("discord-bot-token"),
             api_secret: None,
             webhook_secret: Some(&public_key_hex),
+            verify_token: None,
             account_id: Some("discord-app-id-123"),
             phone_number: None,
             bot_token: None,
@@ -454,6 +456,7 @@ mod messaging_routes_tests {
             api_key: None,
             api_secret: None,
             webhook_secret: Some(secret),
+            verify_token: None,
             account_id: None,
             phone_number: None,
             bot_token: Some("12345:FAKE_BOT_TOKEN"),
@@ -566,5 +569,152 @@ mod messaging_routes_tests {
             .unwrap();
         assert_eq!(entry["status"].as_str(), Some("pending"));
         assert_eq!(entry["channel_type"].as_str(), Some("whatsapp"));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // verify_token separation tests
+    // ════════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_upsert_with_verify_token_roundtrips() {
+        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenant_id = tenants[0].id;
+
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_api_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_signing_secret"),
+            verify_token: Some("meta_verify_token_abc"),
+            account_id: None,
+            phone_number: Some("+15551234567"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let config = db
+            .get_channel_config(tenant_id, "whatsapp")
+            .await
+            .unwrap()
+            .expect("config should exist");
+
+        assert_eq!(
+            config["webhook_secret"].as_str(),
+            Some("hmac_signing_secret"),
+            "webhook_secret should persist"
+        );
+        assert_eq!(
+            config["verify_token"].as_str(),
+            Some("meta_verify_token_abc"),
+            "verify_token should persist separately from webhook_secret"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_meta_verify_prefers_verify_token_over_webhook_secret() {
+        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Config with both verify_token and webhook_secret set
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "whatsapp",
+            api_key: Some("wa_key"),
+            api_secret: None,
+            webhook_secret: Some("hmac_secret_do_not_leak"),
+            verify_token: Some("my_verify_token"),
+            account_id: None,
+            phone_number: Some("+15550001111"),
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // GET with verify_token that matches => should succeed
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=my_verify_token&hub.challenge=challenge_123",
+        )
+        .send(router.clone())
+        .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "challenge_123");
+
+        // GET with webhook_secret value should fail (verify_token takes precedence)
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=hmac_secret_do_not_leak&hub.challenge=challenge_456",
+        )
+        .send(router)
+        .await;
+
+        assert_ne!(
+            response.status_code(),
+            StatusCode::OK,
+            "webhook_secret must not be accepted when verify_token is set"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_meta_verify_falls_back_to_webhook_secret_when_no_verify_token() {
+        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use uuid::Uuid;
+
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
+        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenant_id = tenants[0].id;
+
+        // Config without verify_token (legacy setup)
+        let config_id = Uuid::new_v4().to_string();
+        let params = UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "messenger",
+            api_key: Some("msg_key"),
+            api_secret: None,
+            webhook_secret: Some("legacy_webhook_secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        };
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // GET with webhook_secret value should succeed (backward compat)
+        let response = AxumTestRequest::get(
+            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=legacy_webhook_secret&hub.challenge=compat_challenge",
+        )
+        .send(router)
+        .await;
+
+        assert_eq!(response.status_code(), StatusCode::OK);
+        assert_eq!(response.text(), "compat_challenge");
     }
 }

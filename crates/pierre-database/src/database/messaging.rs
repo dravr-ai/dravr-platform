@@ -40,12 +40,14 @@ impl Database {
             r"
             INSERT INTO messaging_channel_configs
                 (id, tenant_id, channel_type, api_key, api_secret, webhook_secret,
-                 account_id, phone_number, bot_token, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 verify_token, account_id, phone_number, bot_token, is_active,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(tenant_id, channel_type) DO UPDATE SET
                 api_key = excluded.api_key,
                 api_secret = excluded.api_secret,
                 webhook_secret = excluded.webhook_secret,
+                verify_token = excluded.verify_token,
                 account_id = excluded.account_id,
                 phone_number = excluded.phone_number,
                 bot_token = excluded.bot_token,
@@ -59,6 +61,7 @@ impl Database {
         .bind(params.api_key)
         .bind(params.api_secret)
         .bind(params.webhook_secret)
+        .bind(params.verify_token)
         .bind(params.account_id)
         .bind(params.phone_number)
         .bind(params.bot_token)
@@ -85,7 +88,8 @@ impl Database {
         let row = sqlx::query(
             r"
             SELECT id, tenant_id, channel_type, api_key, api_secret, webhook_secret,
-                   account_id, phone_number, bot_token, is_active, created_at, updated_at
+                   verify_token, account_id, phone_number, bot_token, is_active,
+                   created_at, updated_at
             FROM messaging_channel_configs
             WHERE tenant_id = ? AND channel_type = ?
             ",
@@ -104,6 +108,7 @@ impl Database {
                 "api_key": r.get::<Option<String>, _>("api_key"),
                 "api_secret": r.get::<Option<String>, _>("api_secret"),
                 "webhook_secret": r.get::<Option<String>, _>("webhook_secret"),
+                "verify_token": r.get::<Option<String>, _>("verify_token"),
                 "account_id": r.get::<Option<String>, _>("account_id"),
                 "phone_number": r.get::<Option<String>, _>("phone_number"),
                 "bot_token": r.get::<Option<String>, _>("bot_token"),
@@ -130,7 +135,8 @@ impl Database {
         let rows = sqlx::query(
             r"
             SELECT id, tenant_id, channel_type, api_key, api_secret, webhook_secret,
-                   account_id, phone_number, bot_token, is_active, created_at, updated_at
+                   verify_token, account_id, phone_number, bot_token, is_active,
+                   created_at, updated_at
             FROM messaging_channel_configs
             WHERE channel_type = ? AND is_active = 1
             ",
@@ -150,6 +156,7 @@ impl Database {
                     "api_key": r.get::<Option<String>, _>("api_key"),
                     "api_secret": r.get::<Option<String>, _>("api_secret"),
                     "webhook_secret": r.get::<Option<String>, _>("webhook_secret"),
+                    "verify_token": r.get::<Option<String>, _>("verify_token"),
                     "account_id": r.get::<Option<String>, _>("account_id"),
                     "phone_number": r.get::<Option<String>, _>("phone_number"),
                     "bot_token": r.get::<Option<String>, _>("bot_token"),

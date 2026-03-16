@@ -116,6 +116,7 @@ pub async fn upsert_channel_config(
     let api_key = creds.get("api_key").and_then(|v| v.as_str());
     let api_secret = creds.get("api_secret").and_then(|v| v.as_str());
     let webhook_secret = creds.get("webhook_secret").and_then(|v| v.as_str());
+    let verify_token = creds.get("verify_token").and_then(|v| v.as_str());
     let account_id = creds.get("account_id").and_then(|v| v.as_str());
     let phone_number = creds.get("phone_number").and_then(|v| v.as_str());
     let bot_token = creds.get("bot_token").and_then(|v| v.as_str());
@@ -127,6 +128,7 @@ pub async fn upsert_channel_config(
         api_key,
         api_secret,
         webhook_secret,
+        verify_token,
         account_id,
         phone_number,
         bot_token,

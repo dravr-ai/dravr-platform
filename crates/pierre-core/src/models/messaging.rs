@@ -222,6 +222,8 @@ pub struct ChannelConfig {
     pub api_secret: Option<String>,
     /// Webhook signing secret for signature verification
     pub webhook_secret: Option<String>,
+    /// Meta webhook verify token (distinct from `webhook_secret` to avoid leaking HMAC key)
+    pub verify_token: Option<String>,
     /// Platform-specific account identifier
     pub account_id: Option<String>,
     /// Phone number (for `WhatsApp`/SMS)
