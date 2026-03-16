@@ -7,6 +7,7 @@
 use crate::config::environment::RateLimitConfig;
 use crate::constants::key_prefixes;
 use crate::errors::{AppError, AppResult};
+use crate::models::UserStatus;
 use crate::providers::errors::ProviderError;
 use crate::utils::errors::auth_error;
 use crate::utils::uuid::parse_uuid;
@@ -317,6 +318,25 @@ impl McpAuthMiddleware {
             .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
+
+        // SECURITY: Enforce account status on every API request.
+        // Login endpoints let pending users authenticate (so the frontend can show
+        // the "pending approval" page), but API routes must not serve data.
+        match user.user_status {
+            UserStatus::Active => {}
+            UserStatus::Pending => {
+                warn!(user_id = %user_id, "API access denied: account pending approval");
+                return Err(AppError::account_pending(
+                    "Your account is pending admin approval",
+                ));
+            }
+            UserStatus::Suspended => {
+                warn!(user_id = %user_id, "API access denied: account suspended");
+                return Err(AppError::account_suspended(
+                    "Your account has been suspended",
+                ));
+            }
+        }
 
         // Get current usage for rate limiting
         let current_usage = self.database.get_jwt_current_usage(user_id).await?;
