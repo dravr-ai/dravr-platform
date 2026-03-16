@@ -226,6 +226,241 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     });
   });
 
+  // Mock providers status (needed by ChatTab and ProviderConnectionCards)
+  await page.route('**/api/providers', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ providers: [] }),
+    });
+  });
+
+  // Mock coaches (needed by PromptSuggestions in welcome view)
+  await page.route('**/api/coaches**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+    });
+  });
+
+  // Mock notifications (needed by sidebar NotificationBell)
+  await page.route('**/api/notifications/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('unread-count')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0 }),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ notifications: [], total: 0, unread_count: 0 }),
+      });
+    }
+  });
+
+  // Mock social endpoints (needed by Insights tab)
+  await page.route('**/api/social/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('/friends')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ friends: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    } else if (url.includes('/feed')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ insights: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    } else if (url.includes('/suggestions')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ suggestions: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    } else if (url.includes('/settings')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user_id: 'user-1',
+          discoverable: true,
+          default_visibility: 'friends',
+          share_activity_types: [],
+          notifications: { friend_requests: true, insight_reactions: true, adapted_insights: true },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({}),
+      });
+    }
+  });
+
+  // Mock store endpoints (needed by Discover tab)
+  await page.route('**/api/store/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('/installations')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ coaches: [], metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    } else if (url.includes('/categories')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ categories: [], metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    } else {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ coaches: [], next_cursor: null, has_more: false, metadata: { timestamp: new Date().toISOString(), api_version: 'v1' } }),
+      });
+    }
+  });
+
+  // Mock chat conversations (needed by Chat tab)
+  await page.route('**/api/chat/conversations**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ conversations: [], total: 0, limit: 50, offset: 0 }),
+    });
+  });
+
+  // Mock prompts suggestions (needed by Chat welcome view)
+  await page.route('**/api/prompts/suggestions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        categories: [],
+        welcome_prompt: '',
+        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
+      }),
+    });
+  });
+
+  // Mock user LLM settings (needed by AI Settings tab)
+  await page.route('**/api/user/llm-settings**', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          current_provider: null,
+          providers: [],
+          user_credentials: [],
+          tenant_credentials: [],
+        }),
+      });
+    } else {
+      await route.fallback();
+    }
+  });
+
+  // Mock admin store stats (needed by Coach Store tab badge)
+  await page.route('**/api/admin/store/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        pending_count: 0,
+        published_count: 0,
+        rejected_count: 0,
+        total_installs: 0,
+        rejection_rate: 0,
+      }),
+    });
+  });
+
+  // Mock admin pending users (needed by admin sidebar)
+  await page.route('**/api/admin/pending-users', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, users: [] }),
+    });
+  });
+
+  // Mock admin users list
+  await page.route('**/api/admin/users**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ users: [], total_count: 0 }),
+    });
+  });
+
+  // Mock dashboard analytics
+  await page.route('**/api/dashboard/analytics**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ daily_usage: [] }),
+    });
+  });
+
+  // Mock A2A dashboard overview
+  await page.route('**/a2a/dashboard/overview', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        total_clients: 0,
+        active_clients: 0,
+        requests_today: 0,
+        requests_this_month: 0,
+      }),
+    });
+  });
+
+  // Mock A2A client individual endpoints
+  await page.route('**/a2a/clients/*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({}),
+    });
+  });
+
+  // Mock admin LLM consumption endpoint
+  await page.route('**/admin/usage/llm-consumption**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
+        breakdown: [],
+        daily_series: [],
+      }),
+    });
+  });
+
+  // Mock user LLM consumption endpoint
+  await page.route('**/api/usage/llm-consumption**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: { total_tokens: 0, total_calls: 0, estimated_cost_usd: 0 },
+        breakdown: [],
+        daily_series: [],
+      }),
+    });
+  });
+
   // Mock usage status endpoint (used by UserSettings usage quota card)
   await page.route('**/api/usage/status', async (route) => {
     await route.fulfill({

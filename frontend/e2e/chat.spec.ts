@@ -84,9 +84,9 @@ const mockMessages = {
 async function setupChatMocks(page: Page, options: { emptyConversations?: boolean } = {}) {
   const { emptyConversations = false } = options;
 
-  // Register conversation mocks BEFORE setupDashboardMocks so they take priority
-  // (Playwright checks routes in reverse registration order, but we use a more
-  // specific pattern to ensure correct matching)
+  // Set up base dashboard mocks FIRST; specific mocks registered AFTER take
+  // priority because Playwright checks routes in LIFO (last registered first).
+  await setupDashboardMocks(page, { role: 'user' });
 
   // Conversation messages endpoints (must be before conversations catch-all)
   await page.route('**/api/chat/conversations/*/messages', async (route, request) => {
@@ -283,8 +283,6 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
     }
   });
 
-  // Set up base dashboard mocks AFTER our specific overrides
-  await setupDashboardMocks(page, { role: 'user' });
 }
 
 test.describe('Chat - Welcome and Prompt Suggestions', () => {
@@ -463,7 +461,11 @@ test.describe('Chat - Empty State', () => {
 
 test.describe('Chat - Error Handling', () => {
   test('handles conversation load failure gracefully', async ({ page }) => {
-    // Mock conversations with error BEFORE setupDashboardMocks
+    // Set up base dashboard mocks FIRST so specific overrides registered
+    // AFTER take priority (Playwright uses LIFO route matching).
+    await setupDashboardMocks(page, { role: 'user' });
+
+    // Override conversations with error AFTER setupDashboardMocks
     await page.route('**/api/chat/conversations**', async (route) => {
       await route.fulfill({
         status: 500,
@@ -488,7 +490,6 @@ test.describe('Chat - Error Handling', () => {
       });
     });
 
-    await setupDashboardMocks(page, { role: 'user' });
     await loginToDashboard(page);
 
     // Page should still render without crashing
@@ -499,7 +500,9 @@ test.describe('Chat - Error Handling', () => {
 
 test.describe('Chat - Provider Connection', () => {
   test('shows no-provider description when no provider connected', async ({ page }) => {
-    // Override providers BEFORE setupDashboardMocks
+    await setupChatMocks(page, { emptyConversations: true });
+
+    // Override providers AFTER setupChatMocks so this takes priority (LIFO)
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
@@ -508,7 +511,6 @@ test.describe('Chat - Provider Connection', () => {
       });
     });
 
-    await setupChatMocks(page, { emptyConversations: true });
     await loginToDashboard(page);
 
     // ChatTab shows "No provider connected" when no provider is connected
