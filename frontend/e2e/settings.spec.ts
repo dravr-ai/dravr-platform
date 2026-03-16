@@ -614,7 +614,7 @@ test.describe('Settings Page - User Mode', () => {
   test('data providers tab displays individual provider names', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // Unroute empty providers from setupAuthenticatedMocks, register with test data
+    // Replace providers mock and reload to clear React Query cache
     await page.unroute('**/api/providers');
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
@@ -634,8 +634,14 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
-    await page.getByRole('button', { name: 'Data Providers' }).click();
+    // Reload page to clear React Query cache and refetch with new mock
+    await page.reload();
+    await page.waitForSelector('main', { timeout: 10000 });
+    const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
+    await settingsGear.first().click();
     await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.waitForTimeout(500);
 
     // Verify provider names are rendered
     await expect(page.getByText('Strava')).toBeVisible({ timeout: 5000 });
@@ -669,8 +675,15 @@ test.describe('Settings Page - User Mode', () => {
         }),
       });
     });
-    await page.getByRole('button', { name: 'Data Providers' }).click();
+
+    // Reload page to clear React Query cache and refetch with new mock
+    await page.reload();
+    await page.waitForSelector('main', { timeout: 10000 });
+    const settingsGear2 = page.getByRole('button', { name: 'Settings', exact: true });
+    await settingsGear2.first().click();
     await page.waitForTimeout(300);
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.waitForTimeout(500);
 
     // OAuth providers should have Connect buttons
     const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
