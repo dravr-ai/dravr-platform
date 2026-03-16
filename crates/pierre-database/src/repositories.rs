@@ -1410,6 +1410,8 @@ pub struct UpsertChannelConfigParams<'a> {
     pub api_secret: Option<&'a str>,
     /// Signing secret for webhook verification
     pub webhook_secret: Option<&'a str>,
+    /// Meta webhook verify token (distinct from `webhook_secret` to avoid leaking HMAC key)
+    pub verify_token: Option<&'a str>,
     /// Platform-specific account identifier
     pub account_id: Option<&'a str>,
     /// Phone number (WhatsApp/SMS)
