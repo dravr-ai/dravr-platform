@@ -66,6 +66,21 @@ export interface Coach {
   startup_query?: string;
   /** Structured data requirements for deterministic activity pre-fetching */
   data_requirements?: DataRequirements;
+
+  // -- Structured sections (populated for system coaches and structured user coaches) --
+
+  /** Coach purpose extracted from ## Purpose section */
+  purpose?: string;
+  /** Usage scenarios extracted from ## When to Use section */
+  when_to_use?: string;
+  /** Core AI instructions extracted from ## Instructions section */
+  instructions?: string;
+  /** Sample questions extracted from ## Example Inputs section */
+  example_inputs?: string;
+  /** Response style guidance extracted from ## Example Outputs section */
+  example_outputs?: string;
+  /** Success definition extracted from ## Success Criteria section */
+  success_criteria?: string;
 }
 
 /** Response when forking a coach */
@@ -87,6 +102,18 @@ export interface CreateCoachRequest {
   startup_query?: string;
   /** Structured data requirements for deterministic activity pre-fetching */
   data_requirements?: DataRequirements;
+  /** Coach purpose (from ## Purpose section) */
+  purpose?: string;
+  /** Usage scenarios (from ## When to Use section) */
+  when_to_use?: string;
+  /** Core AI instructions (from ## Instructions section) */
+  instructions?: string;
+  /** Sample questions (from ## Example Inputs section) */
+  example_inputs?: string;
+  /** Response style guidance (from ## Example Outputs section) */
+  example_outputs?: string;
+  /** Success definition (from ## Success Criteria section) */
+  success_criteria?: string;
 }
 
 /** Request to update an existing coach */
@@ -101,6 +128,18 @@ export interface UpdateCoachRequest {
   startup_query?: string;
   /** Structured data requirements for deterministic activity pre-fetching */
   data_requirements?: DataRequirements;
+  /** New `purpose` (if provided) */
+  purpose?: string;
+  /** New `when_to_use` (if provided) */
+  when_to_use?: string;
+  /** New `instructions` (if provided) */
+  instructions?: string;
+  /** New `example_inputs` (if provided) */
+  example_inputs?: string;
+  /** New `example_outputs` (if provided) */
+  example_outputs?: string;
+  /** New `success_criteria` (if provided) */
+  success_criteria?: string;
 }
 
 /** Standard metadata for coach API responses */
@@ -263,4 +302,45 @@ export interface UnassignCoachResponse {
 export interface ListAssignmentsResponse {
   coach_id: string;
   assignments: CoachAssignment[];
+}
+
+// ========== COACH IMPORT/EXPORT TYPES ==========
+
+/** Parsed fields from a coach markdown preview */
+export interface ParsedCoachFields {
+  name: string;
+  title: string;
+  category: string;
+  tags: string[];
+  purpose: string;
+  has_instructions: boolean;
+  has_example_inputs: boolean;
+  has_example_outputs: boolean;
+  has_success_criteria: boolean;
+}
+
+/** Response for importing a coach from markdown */
+export interface ImportCoachResponse {
+  coach: Coach;
+  parsed_name: string;
+  token_count: number;
+  warnings?: string[];
+}
+
+/** Response for previewing a coach import */
+export interface ImportPreviewResponse {
+  valid: boolean;
+  parsed?: ParsedCoachFields;
+  errors?: string[];
+  warnings?: string[];
+  content_hash?: string;
+  duplicate_exists: boolean;
+  duplicate_coach_id?: string;
+  token_count?: number;
+}
+
+/** Request body for importing a coach from a URL */
+export interface ImportFromUrlRequest {
+  url: string;
+  save?: boolean;
 }

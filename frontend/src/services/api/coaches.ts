@@ -5,7 +5,7 @@
 // ABOUTME: Handles user-created coaches and coach library functionality
 
 import { axios } from './client';
-import type { Coach } from '@pierre/shared-types';
+import type { Coach, ImportCoachResponse, ImportPreviewResponse } from '@pierre/shared-types';
 
 // Re-export Coach type for backward compatibility
 export type { Coach } from '@pierre/shared-types';
@@ -180,6 +180,32 @@ export const coachesApi = {
     };
   }> {
     const response = await axios.get('/api/prompts/suggestions');
+    return response.data;
+  },
+
+  async importFromMarkdown(markdown: string): Promise<ImportCoachResponse> {
+    const response = await axios.post('/api/coaches/import', markdown, {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+    return response.data;
+  },
+
+  async importPreview(markdown: string): Promise<ImportPreviewResponse> {
+    const response = await axios.post('/api/coaches/import/preview', markdown, {
+      headers: { 'Content-Type': 'text/plain' },
+    });
+    return response.data;
+  },
+
+  async importFromUrl(url: string, save = true): Promise<ImportCoachResponse | ImportPreviewResponse> {
+    const response = await axios.post('/api/coaches/import/url', { url, save });
+    return response.data;
+  },
+
+  async exportAsMarkdown(coachId: string): Promise<string> {
+    const response = await axios.get(`/api/coaches/${coachId}/export`, {
+      responseType: 'text',
+    });
     return response.data;
   },
 };

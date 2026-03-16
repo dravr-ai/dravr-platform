@@ -66,6 +66,14 @@ function formDataToCreateRequest(data: CoachFormData): CreateCoachRequest {
     };
   }
 
+  // Pass structured sections when provided
+  if (data.purpose.trim()) request.purpose = data.purpose.trim();
+  if (data.when_to_use.trim()) request.when_to_use = data.when_to_use.trim();
+  if (data.instructions.trim()) request.instructions = data.instructions.trim();
+  if (data.example_inputs.trim()) request.example_inputs = data.example_inputs.trim();
+  if (data.example_outputs.trim()) request.example_outputs = data.example_outputs.trim();
+  if (data.success_criteria.trim()) request.success_criteria = data.success_criteria.trim();
+
   return request;
 }
 
@@ -92,6 +100,14 @@ function formDataToUpdateRequest(data: CoachFormData): UpdateCoachRequest {
       athlete_profile: data.athlete_profile,
     };
   }
+
+  // Pass structured sections when provided
+  if (data.purpose.trim()) request.purpose = data.purpose.trim();
+  if (data.when_to_use.trim()) request.when_to_use = data.when_to_use.trim();
+  if (data.instructions.trim()) request.instructions = data.instructions.trim();
+  if (data.example_inputs.trim()) request.example_inputs = data.example_inputs.trim();
+  if (data.example_outputs.trim()) request.example_outputs = data.example_outputs.trim();
+  if (data.success_criteria.trim()) request.success_criteria = data.success_criteria.trim();
 
   return request;
 }

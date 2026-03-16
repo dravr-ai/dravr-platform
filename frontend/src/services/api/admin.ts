@@ -403,6 +403,12 @@ export const adminApi = {
     category?: string;
     tags?: string[];
     visibility?: string;
+    purpose?: string;
+    when_to_use?: string;
+    instructions?: string;
+    example_inputs?: string;
+    example_outputs?: string;
+    success_criteria?: string;
   }): Promise<Coach> {
     const response = await axios.post('/api/admin/coaches', data);
     return response.data;
@@ -419,6 +425,12 @@ export const adminApi = {
     system_prompt?: string;
     category?: string;
     tags?: string[];
+    purpose?: string;
+    when_to_use?: string;
+    instructions?: string;
+    example_inputs?: string;
+    example_outputs?: string;
+    success_criteria?: string;
   }): Promise<Coach> {
     const response = await axios.put(`/api/admin/coaches/${coachId}`, data);
     return response.data;

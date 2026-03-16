@@ -85,6 +85,17 @@ impl AxumTestRequest {
         self
     }
 
+    /// Add plain text body to the request with `text/plain` content type
+    #[allow(dead_code)]
+    pub fn text(mut self, body: &str) -> Self {
+        self.body = Some(body.to_owned());
+        self.headers.push((
+            header::CONTENT_TYPE.as_str().to_owned(),
+            "text/plain".to_owned(),
+        ));
+        self
+    }
+
     /// Add URL-encoded form body to the request (for `OAuth2` ROPC)
     /// Note: Used by `routes_auth_http_test.rs`, but not all tests use it
     #[allow(dead_code)]

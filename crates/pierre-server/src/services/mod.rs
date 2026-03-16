@@ -13,6 +13,9 @@
 /// Coach lifecycle operations: prerequisites, assignments, and generation
 pub mod coaches;
 
+/// Coach markdown import: URL fetching, security validation, warnings, definition conversion
+pub mod coach_import;
+
 /// OAuth flow orchestration: state validation, redirect URL parsing
 pub mod oauth_flow;
 

@@ -48,6 +48,14 @@ impl CoachesRoutes {
             .route("/api/coaches/search", get(user::handle_search))
             .route("/api/coaches/hidden", get(user::handle_list_hidden))
             .route("/api/coaches/import", post(user::handle_import))
+            .route(
+                "/api/coaches/import/preview",
+                post(user::handle_import_preview),
+            )
+            .route(
+                "/api/coaches/import/url",
+                post(user::handle_import_from_url),
+            )
             .route("/api/coaches/generate", post(user::handle_generate))
             .route("/api/coaches/{id}", get(user::handle_get))
             .route("/api/coaches/{id}", put(user::handle_update))

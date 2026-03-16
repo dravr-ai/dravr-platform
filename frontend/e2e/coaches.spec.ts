@@ -870,6 +870,29 @@ const mockUserCoaches = [
     is_assigned: false,
   },
   {
+    id: 'user-coach-structured',
+    title: 'Structured Marathon Coach',
+    description: 'Coach with structured sections',
+    system_prompt: 'Expert marathon coach instructions here.',
+    category: 'training',
+    tags: ['marathon', 'structured'],
+    token_count: 250,
+    is_favorite: false,
+    use_count: 5,
+    last_used_at: '2025-01-15T10:00:00Z',
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-15T10:00:00Z',
+    is_system: false,
+    visibility: 'private',
+    is_assigned: false,
+    purpose: 'Expert in marathon preparation and race day strategy.',
+    when_to_use: '- Training for your first marathon\n- Preparing to PR at the marathon distance',
+    instructions: 'Expert marathon coach instructions here.',
+    example_inputs: '- "How do I build up to a 20-mile long run safely?"\n- "What should my marathon taper look like?"',
+    example_outputs: 'Provide detailed training progressions with specific pacing.',
+    success_criteria: '- Runner has a clear weekly training structure\n- Advice is personalized to their goal',
+  },
+  {
     id: 'system-coach-1',
     title: 'System Training Coach',
     description: 'Official training guidance',
@@ -1715,5 +1738,272 @@ test.describe('Create Coach from Conversation', () => {
 
     // Should show Try Again button
     await expect(page.getByRole('button', { name: 'Try Again' })).toBeVisible();
+  });
+});
+
+test.describe('Structured Coach Sections', () => {
+  test('displays structured sections in coach detail view', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    // Navigate to Coach Library
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await page.waitForTimeout(300);
+
+    // Click on the structured coach
+    await expect(page.getByText('Structured Marathon Coach')).toBeVisible({ timeout: 10000 });
+    await page.getByText('Structured Marathon Coach').click();
+    await page.waitForTimeout(300);
+
+    // Should display structured sections instead of flat "System Prompt"
+    await expect(page.getByRole('heading', { name: 'Purpose' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Expert in marathon preparation and race day strategy.')).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'When to Use' })).toBeVisible();
+    await expect(page.getByText('Training for your first marathon')).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'Instructions' })).toBeVisible();
+    await expect(page.getByText('Expert marathon coach instructions here.')).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'Example Inputs' })).toBeVisible();
+    await expect(page.getByText('How do I build up to a 20-mile long run safely?')).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'Example Outputs' })).toBeVisible();
+    await expect(page.getByText('Provide detailed training progressions')).toBeVisible();
+
+    await expect(page.getByRole('heading', { name: 'Success Criteria' })).toBeVisible();
+    await expect(page.getByText('Runner has a clear weekly training structure')).toBeVisible();
+
+    // Should NOT show "System Prompt" heading (structured sections take precedence)
+    await expect(page.getByRole('heading', { name: 'System Prompt' })).not.toBeVisible();
+  });
+
+  test('displays flat system prompt when no structured sections available', async ({ page }) => {
+    await setupUserCoachesMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    // Navigate to Coach Library
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await page.waitForTimeout(300);
+
+    // Click on the non-structured coach (My Custom Coach - no structured fields)
+    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
+    await page.getByText('My Custom Coach').click();
+    await page.waitForTimeout(300);
+
+    // Should display flat "System Prompt" heading (no structured sections)
+    await expect(page.getByRole('heading', { name: 'System Prompt' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('You are my personal coach.')).toBeVisible();
+
+    // Should NOT show structured section headings
+    await expect(page.getByRole('heading', { name: 'Purpose' })).not.toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Instructions' })).not.toBeVisible();
+  });
+});
+
+// Phase 2: Import/Export E2E tests
+test.describe('Coach Import and Export', () => {
+  async function setupImportExportMocks(page: Page) {
+    await setupUserCoachesMocks(page);
+
+    // Mock import preview endpoint
+    await page.route('**/api/coaches/import/preview', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          valid: true,
+          parsed: {
+            name: 'imported-coach',
+            title: 'Imported Training Coach',
+            category: 'training',
+            tags: ['import', 'test'],
+            purpose: 'A coach imported from markdown.',
+            has_instructions: true,
+            has_example_inputs: true,
+            has_example_outputs: false,
+            has_success_criteria: false,
+          },
+          warnings: ['Missing optional section: example_outputs'],
+          content_hash: 'abc123',
+          duplicate_exists: false,
+          duplicate_coach_id: null,
+          token_count: 120,
+        }),
+      });
+    });
+
+    // Mock import endpoint
+    await page.route('**/api/coaches/import', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            coach: {
+              id: 'imported-coach-1',
+              title: 'Imported Training Coach',
+              description: 'A coach imported from markdown.',
+              system_prompt: 'You are an imported coach.',
+              category: 'training',
+              tags: ['import', 'test'],
+              token_count: 120,
+              is_favorite: false,
+              use_count: 0,
+              is_system: false,
+              visibility: 'private',
+              is_assigned: false,
+              purpose: 'A coach imported from markdown.',
+              instructions: 'You are an imported coach.',
+            },
+            parsed_name: 'imported-coach',
+            token_count: 120,
+            warnings: ['Missing optional section: example_outputs'],
+          }),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    // Mock export endpoint
+    await page.route('**/api/coaches/*/export', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/markdown',
+        headers: {
+          'Content-Disposition': 'attachment; filename="my-custom-coach.md"',
+        },
+        body: '---\nname: my-custom-coach\ntitle: My Custom Coach\ncategory: training\n---\n\n## Purpose\nPersonal training coach.\n\n## Instructions\nYou are my personal coach.\n',
+      });
+    });
+
+    // Mock URL import endpoint
+    await page.route('**/api/coaches/import/url', async (route) => {
+      const body = route.request().postDataJSON();
+      if (body?.save === false) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            valid: true,
+            parsed: {
+              name: 'url-imported-coach',
+              title: 'URL Imported Coach',
+              category: 'training',
+              tags: ['url'],
+              purpose: 'Imported from URL.',
+              has_instructions: true,
+              has_example_inputs: false,
+              has_example_outputs: false,
+              has_success_criteria: false,
+            },
+            warnings: [],
+            content_hash: 'def456',
+            duplicate_exists: false,
+            token_count: 80,
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            coach: {
+              id: 'url-imported-1',
+              title: 'URL Imported Coach',
+              description: 'Imported from URL.',
+              system_prompt: 'You are a URL imported coach.',
+              category: 'training',
+              tags: ['url'],
+              token_count: 80,
+              is_favorite: false,
+              use_count: 0,
+              is_system: false,
+              visibility: 'private',
+            },
+            parsed_name: 'url-imported-coach',
+            token_count: 80,
+            warnings: [],
+          }),
+        });
+      }
+    });
+  }
+
+  test('import button shows dropdown with file and URL options', async ({ page }) => {
+    await setupImportExportMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await page.waitForTimeout(300);
+
+    // Find and click the Import button
+    await expect(page.getByRole('button', { name: /import/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole('button', { name: /import/i }).click();
+    await page.waitForTimeout(200);
+
+    // Should show dropdown with both options
+    await expect(page.getByText(/from file/i)).toBeVisible({ timeout: 3000 });
+    await expect(page.getByText(/from url/i)).toBeVisible();
+  });
+
+  test('export button triggers markdown download', async ({ page }) => {
+    await setupImportExportMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await page.waitForTimeout(300);
+
+    // Should see export button on coach cards
+    await expect(page.getByText('My Custom Coach')).toBeVisible({ timeout: 10000 });
+
+    // Look for Export button (may be in action area of coach card)
+    const exportButton = page.getByRole('button', { name: /export/i }).first();
+    await expect(exportButton).toBeVisible({ timeout: 5000 });
+
+    // Set up download handler before clicking
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 5000 }),
+      exportButton.click(),
+    ]);
+
+    // Verify the download was triggered
+    expect(download.suggestedFilename()).toContain('.md');
+  });
+
+  test('import from URL shows preview then creates coach', async ({ page }) => {
+    await setupImportExportMocks(page);
+    await loginToDashboard(page);
+
+    await page.waitForSelector('aside', { timeout: 10000 });
+    await page.getByRole('list').getByRole('button', { name: 'Coaches' }).click();
+    await page.waitForTimeout(300);
+
+    // Open import dropdown and click "From URL"
+    await page.getByRole('button', { name: /import/i }).click();
+    await page.waitForTimeout(200);
+    await page.getByText(/from url/i).click();
+    await page.waitForTimeout(200);
+
+    // URL input dialog should appear
+    const urlInput = page.getByPlaceholder(/url/i).or(page.locator('input[type="url"]')).or(page.locator('input[type="text"]').last());
+    await expect(urlInput).toBeVisible({ timeout: 5000 });
+
+    // Enter a URL and submit
+    await urlInput.fill('https://raw.githubusercontent.com/example/coaches/main/training.md');
+
+    // Find and click the submit/import button in the URL dialog
+    const submitButton = page.getByRole('button', { name: /preview|fetch|import/i }).last();
+    await submitButton.click();
+
+    // Preview should show the parsed coach name
+    await expect(page.getByText('URL Imported Coach')).toBeVisible({ timeout: 10000 });
   });
 });

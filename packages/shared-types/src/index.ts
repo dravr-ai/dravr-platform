@@ -73,6 +73,10 @@ export type {
   AssignCoachResponse,
   UnassignCoachResponse,
   ListAssignmentsResponse,
+  ParsedCoachFields,
+  ImportCoachResponse,
+  ImportPreviewResponse,
+  ImportFromUrlRequest,
 } from './coaches.js';
 
 // Auth types (users, login, OAuth)

@@ -1122,6 +1122,14 @@ pub trait CoachesRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<Coach>>;
 
+    /// Find a coach by content hash for import deduplication
+    async fn find_by_content_hash(
+        &self,
+        content_hash: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>>;
+
     // --- Admin methods ---
 
     /// Create a system-level coach

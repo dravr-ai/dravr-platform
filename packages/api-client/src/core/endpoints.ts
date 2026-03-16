@@ -69,6 +69,14 @@ export const ENDPOINTS = {
     ASSIGNMENTS: (id: string) => `/api/coaches/${id}/assignments`,
     /** Generate coach from conversation */
     GENERATE: '/api/coaches/generate',
+    /** Import a coach from markdown content */
+    IMPORT: '/api/coaches/import',
+    /** Preview an import before saving */
+    IMPORT_PREVIEW: '/api/coaches/import/preview',
+    /** Import a coach from a URL */
+    IMPORT_URL: '/api/coaches/import/url',
+    /** Export a coach as markdown */
+    EXPORT: (id: string) => `/api/coaches/${id}/export`,
   },
 
   // ==================== PROMPTS ====================

@@ -308,6 +308,54 @@ pub struct Coach {
     /// Structured data requirements for deterministic activity pre-fetching
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_requirements: Option<DataRequirements>,
+
+    // -- Structured sections (populated for system coaches and structured user coaches) --
+    /// Coach purpose/description extracted from ## Purpose section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// Usage scenarios extracted from ## When to Use section (not counted in tokens)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when_to_use: Option<String>,
+    /// Core AI instructions extracted from ## Instructions section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// Sample questions extracted from ## Example Inputs section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example_inputs: Option<String>,
+    /// Response style guidance extracted from ## Example Outputs section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example_outputs: Option<String>,
+    /// Success definition extracted from ## Success Criteria section
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_criteria: Option<String>,
+}
+
+/// Token estimation constant: average characters per token for system prompts
+const CHARS_PER_TOKEN: usize = 4;
+
+impl Coach {
+    /// Calculate section-aware token count when structured fields are available.
+    ///
+    /// Counted sections: `purpose`, `instructions`, `example_inputs`, `example_outputs`, `success_criteria`.
+    /// Not counted: `when_to_use` (UI-only metadata).
+    /// Falls back to `system_prompt` length when no structured sections are present.
+    #[must_use]
+    pub fn compute_token_count(&self) -> u32 {
+        if self.instructions.is_some() || self.purpose.is_some() {
+            let total_chars = self.purpose.as_ref().map_or(0, String::len)
+                + self.instructions.as_ref().map_or(0, String::len)
+                + self.example_inputs.as_ref().map_or(0, String::len)
+                + self.example_outputs.as_ref().map_or(0, String::len)
+                + self.success_criteria.as_ref().map_or(0, String::len);
+            #[allow(clippy::cast_possible_truncation)]
+            let count = (total_chars / CHARS_PER_TOKEN) as u32;
+            count
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            let count = (self.system_prompt.len() / CHARS_PER_TOKEN) as u32;
+            count
+        }
+    }
 }
 
 /// Coach with computed context-dependent fields for list responses
@@ -338,7 +386,8 @@ pub struct CreateCoachRequest {
     pub title: String,
     /// Optional description explaining the coach's purpose
     pub description: Option<String>,
-    /// System prompt that shapes AI responses
+    /// System prompt that shapes AI responses.
+    /// When `instructions` is provided, `system_prompt` is derived from it at the DB layer.
     pub system_prompt: String,
     /// Category for organization
     #[serde(default)]
@@ -355,6 +404,27 @@ pub struct CreateCoachRequest {
     /// Structured data requirements for deterministic activity pre-fetching
     #[serde(default)]
     pub data_requirements: Option<DataRequirements>,
+
+    // -- Structured sections (optional, for marketplace-quality coaches) --
+    /// Coach purpose (from ## Purpose section)
+    #[serde(default)]
+    pub purpose: Option<String>,
+    /// Usage scenarios (from ## When to Use section)
+    #[serde(default)]
+    pub when_to_use: Option<String>,
+    /// Core AI instructions (from ## Instructions section).
+    /// When provided, this overrides `system_prompt` for runtime use.
+    #[serde(default)]
+    pub instructions: Option<String>,
+    /// Sample questions (from ## Example Inputs section)
+    #[serde(default)]
+    pub example_inputs: Option<String>,
+    /// Response style guidance (from ## Example Outputs section)
+    #[serde(default)]
+    pub example_outputs: Option<String>,
+    /// Success definition (from ## Success Criteria section)
+    #[serde(default)]
+    pub success_criteria: Option<String>,
 }
 
 /// Request to update an existing coach
@@ -376,6 +446,20 @@ pub struct UpdateCoachRequest {
     pub startup_query: Option<String>,
     /// New data requirements (if provided)
     pub data_requirements: Option<DataRequirements>,
+
+    // -- Structured sections (optional) --
+    /// New `purpose` (if provided)
+    pub purpose: Option<String>,
+    /// New `when_to_use` (if provided)
+    pub when_to_use: Option<String>,
+    /// New `instructions` (if provided). When set, also updates `system_prompt`.
+    pub instructions: Option<String>,
+    /// New `example_inputs` (if provided)
+    pub example_inputs: Option<String>,
+    /// New `example_outputs` (if provided)
+    pub example_outputs: Option<String>,
+    /// New `success_criteria` (if provided)
+    pub success_criteria: Option<String>,
 }
 
 /// Filter options for listing coaches
