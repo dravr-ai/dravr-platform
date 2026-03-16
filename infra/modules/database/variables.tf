@@ -85,6 +85,21 @@ variable "backup_start_time" {
   default     = "03:00"
 }
 
+variable "enable_public_ip" {
+  description = "Enable public IP for local debugging via Cloud SQL Auth Proxy (dev only)"
+  type        = bool
+  default     = false
+}
+
+variable "authorized_networks" {
+  description = "List of authorized networks for public IP access (CIDR ranges with names)"
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default = []
+}
+
 variable "labels" {
   description = "Labels to apply to resources"
   type        = map(string)

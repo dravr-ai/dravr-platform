@@ -94,6 +94,21 @@ variable "database_backup_start_time" {
   default     = "03:00"
 }
 
+variable "database_enable_public_ip" {
+  description = "Enable public IP on Cloud SQL for local debugging via Auth Proxy (dev only)"
+  type        = bool
+  default     = false
+}
+
+variable "database_authorized_networks" {
+  description = "Authorized networks for Cloud SQL public IP access (CIDR ranges)"
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default = []
+}
+
 # -----------------------------------------------------------------------------
 # Cache Configuration
 # -----------------------------------------------------------------------------

@@ -64,6 +64,8 @@ module "database" {
   deletion_protection       = var.database_deletion_protection
   backup_enabled            = var.database_backup_enabled
   backup_start_time         = var.database_backup_start_time
+  enable_public_ip          = var.database_enable_public_ip
+  authorized_networks       = var.database_authorized_networks
   labels                    = var.labels
 
   depends_on = [module.networking, module.secrets]

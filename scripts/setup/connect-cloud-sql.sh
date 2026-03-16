@@ -20,6 +20,8 @@ usage() {
     cat <<EOF
 Usage: $0 [proxy|psql|url]
 
+Connects to Cloud SQL dev instance via Auth Proxy (public IP + SSL enforced).
+
 Commands:
   proxy   Start Cloud SQL Auth Proxy on localhost:${LOCAL_PORT} (default)
   psql    Start proxy in background and open psql session
@@ -32,13 +34,14 @@ Environment variables:
   DB_NAME        Database name (default: dravr)
   DB_USER        Database user (default: dravr)
   LOCAL_PORT     Local port for proxy (default: 5432)
+  DB_PASSWORD    Database password (fetched from Secret Manager if not set)
 
 Prerequisites:
-  brew install cloud-sql-proxy   # or: gcloud components install cloud-sql-proxy
+  brew install cloud-sql-proxy
   gcloud auth login
   gcloud auth application-default login
 
-The proxy connects via Cloud SQL Admin API — works with private-IP-only instances.
+Terraform must have database_enable_public_ip = true in dev tfvars.
 EOF
     exit 1
 }
@@ -47,7 +50,6 @@ check_prerequisites() {
     if ! command -v cloud-sql-proxy &>/dev/null; then
         echo "ERROR: cloud-sql-proxy not found"
         echo "Install: brew install cloud-sql-proxy"
-        echo "    or:  gcloud components install cloud-sql-proxy"
         exit 1
     fi
 
@@ -79,23 +81,21 @@ start_proxy() {
     echo ""
     echo "Press Ctrl+C to stop"
     cloud-sql-proxy "${CONNECTION_NAME}" \
-        --port "${LOCAL_PORT}" \
-        --auto-iam-authn
+        --port "${LOCAL_PORT}"
 }
 
 start_psql() {
     check_prerequisites
     fetch_db_password
 
-    # Start proxy in background
+    # Start proxy in background, clean up on exit
     cloud-sql-proxy "${CONNECTION_NAME}" \
-        --port "${LOCAL_PORT}" \
-        --auto-iam-authn &
+        --port "${LOCAL_PORT}" &
     PROXY_PID=$!
+    trap 'kill ${PROXY_PID} 2>/dev/null || true' EXIT
 
-    # Wait for proxy to be ready
     echo "Waiting for proxy to start..."
-    for i in $(seq 1 10); do
+    for _ in $(seq 1 10); do
         if pg_isready -h 127.0.0.1 -p "${LOCAL_PORT}" &>/dev/null 2>&1; then
             break
         fi
@@ -104,9 +104,6 @@ start_psql() {
 
     echo "Connecting to ${DB_NAME} as ${DB_USER}..."
     PGPASSWORD="${DB_PASSWORD}" psql -h 127.0.0.1 -p "${LOCAL_PORT}" -U "${DB_USER}" -d "${DB_NAME}"
-
-    # Clean up proxy on exit
-    kill "${PROXY_PID}" 2>/dev/null || true
 }
 
 print_url() {

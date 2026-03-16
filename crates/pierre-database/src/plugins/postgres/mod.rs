@@ -347,14 +347,16 @@ impl DatabaseProvider for PostgresDatabase {
         // now-renamed file (nullable_user_id → 20260316000003). The version slot
         // is now occupied by verify_token.sql which has a different checksum.
         // Delete the stale entry so the correct migration can be applied cleanly.
-        sqlx::query(
-            "DELETE FROM _sqlx_migrations \
-             WHERE version = 20260316000002 \
-             AND description != 'messaging verify token'",
-        )
-        .execute(&self.pool)
-        .await
-        .ok();
+        let deleted = sqlx::query("DELETE FROM _sqlx_migrations WHERE version = 20260316000002")
+            .execute(&self.pool)
+            .await;
+        match &deleted {
+            Ok(r) => info!(
+                "Migration cleanup: deleted {} stale 20260316000002 entries",
+                r.rows_affected()
+            ),
+            Err(e) => warn!("Migration cleanup failed (non-fatal): {e}"),
+        }
 
         sqlx::migrate!("./migrations_pg")
             .set_ignore_missing(true)

@@ -26,6 +26,11 @@ output "database_user" {
   value       = google_sql_user.user.name
 }
 
+output "public_ip_address" {
+  description = "Public IP address of the Cloud SQL instance (empty if public IP disabled)"
+  value       = var.enable_public_ip ? google_sql_database_instance.postgres.public_ip_address : ""
+}
+
 output "database_url" {
   description = "Database connection URL (without password)"
   value       = "postgresql://${google_sql_user.user.name}@/dravr?host=/cloudsql/${google_sql_database_instance.postgres.connection_name}"
