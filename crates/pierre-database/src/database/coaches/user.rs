@@ -934,6 +934,7 @@ impl CoachesManager {
 ///
 /// Hashes the title, `system_prompt`, tags, and all structured section fields
 /// to produce a deterministic 16-character hex string for deduplication.
+#[must_use]
 pub fn compute_request_hash(request: &CreateCoachRequest) -> String {
     let mut hasher = DefaultHasher::new();
     request.title.hash(&mut hasher);
