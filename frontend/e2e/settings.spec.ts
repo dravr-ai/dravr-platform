@@ -612,9 +612,7 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
-    await loginAndNavigateToSettings(page);
-
-    // Override providers status (Data Providers tab calls /api/providers via oauthApi.getProvidersStatus)
+    // Override providers BEFORE navigation so the mock is active when page loads
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
@@ -633,6 +631,7 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
+    await loginAndNavigateToSettings(page);
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
@@ -647,9 +646,7 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
-    await loginAndNavigateToSettings(page);
-
-    // Override providers status (Data Providers tab calls /api/providers via oauthApi.getProvidersStatus)
+    // Override providers BEFORE navigation so the mock is active when page loads
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
@@ -668,6 +665,7 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
+    await loginAndNavigateToSettings(page);
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
