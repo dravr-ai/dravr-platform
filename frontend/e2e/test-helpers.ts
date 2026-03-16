@@ -52,6 +52,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
           is_admin: role === 'admin' || role === 'super_admin',
           user_status: status,
           tier: role === 'super_admin' ? 'enterprise' : 'professional',
+          tenant_id: 'user-123',
         },
       }),
     });

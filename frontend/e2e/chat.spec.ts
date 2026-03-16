@@ -307,9 +307,9 @@ test.describe('Chat - Welcome and Prompt Suggestions', () => {
 
   test('displays coaches section with category badges', async ({ page }) => {
     // PromptSuggestions renders coaches from /api/coaches below the welcome form
-    // Each coach card shows a category emoji badge
-    await expect(page.getByText('Coaches')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('System Coaches')).toBeVisible();
+    // Each coach card shows a category emoji badge — use h3 to avoid matching sidebar button
+    await expect(page.locator('h3', { hasText: 'Coaches' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('h4', { hasText: 'System Coaches' })).toBeVisible();
   });
 
   test('displays coach titles and descriptions', async ({ page }) => {
@@ -344,9 +344,10 @@ test.describe('Chat - Conversation Sidebar', () => {
     const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
     await conversationItem.hover();
 
-    // Action buttons with aria-labels from ConversationItem.tsx
-    await expect(page.getByLabel('Rename conversation')).toBeVisible();
-    await expect(page.getByLabel('Delete conversation')).toBeVisible();
+    // Action buttons scoped to the hovered conversation item to avoid strict mode violations
+    // (each conversation has its own Rename/Delete buttons)
+    await expect(conversationItem.getByLabel('Rename conversation')).toBeVisible();
+    await expect(conversationItem.getByLabel('Delete conversation')).toBeVisible();
   });
 
   test('rename button enables edit mode with current title', async ({ page }) => {
@@ -355,7 +356,7 @@ test.describe('Chat - Conversation Sidebar', () => {
     const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
     await conversationItem.hover();
 
-    await page.getByLabel('Rename conversation').click();
+    await conversationItem.getByLabel('Rename conversation').click();
 
     // Input field should appear with current title
     const input = page.locator('input[type="text"]').first();
@@ -369,7 +370,7 @@ test.describe('Chat - Conversation Sidebar', () => {
     const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
     await conversationItem.hover();
 
-    await page.getByLabel('Delete conversation').click();
+    await conversationItem.getByLabel('Delete conversation').click();
 
     // ConfirmDialog from ConversationsPanel shows "Delete Conversation" title
     await expect(page.getByText('Delete Conversation')).toBeVisible({ timeout: 5000 });
@@ -396,7 +397,7 @@ test.describe('Chat - Conversation Sidebar', () => {
 
     const conversationItem = page.locator('button:has-text("Marathon Training Plan")');
     await conversationItem.hover();
-    await page.getByLabel('Delete conversation').click();
+    await conversationItem.getByLabel('Delete conversation').click();
 
     // Click Delete in confirmation dialog
     await expect(page.getByText('Delete Conversation')).toBeVisible({ timeout: 5000 });

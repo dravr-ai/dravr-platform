@@ -133,6 +133,32 @@ async function setupToolAvailabilityMocks(page: Page) {
     });
   });
 
+  // Mock admin settings endpoints (required by AdminSettings rendered alongside AdminConfiguration)
+  await page.route("**/api/admin/settings/auto-approval", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: { enabled: false, description: "Auto-approve new users" },
+      }),
+    });
+  });
+
+  await page.route("**/api/admin/settings/social-insights", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        data: {
+          min_activities_for_comparison: 5,
+          comparison_window_days: 90,
+          min_similar_users: 3,
+          max_comparison_users: 50,
+        },
+      }),
+    });
+  });
+
   // Mock global disabled tools endpoint
   await page.route("**/api/admin/tools/global-disabled", async (route) => {
     await route.fulfill({
@@ -692,6 +718,31 @@ test.describe("Tool Availability - Error Handling", () => {
         body: JSON.stringify({
           success: true,
           data: { entries: [], total_count: 0 },
+        }),
+      });
+    });
+
+    // Mock admin settings endpoints (required by AdminSettings)
+    await page.route("**/api/admin/settings/auto-approval", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: { enabled: false, description: "Auto-approve new users" },
+        }),
+      });
+    });
+    await page.route("**/api/admin/settings/social-insights", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          data: {
+            min_activities_for_comparison: 5,
+            comparison_window_days: 90,
+            min_similar_users: 3,
+            max_comparison_users: 50,
+          },
         }),
       });
     });
