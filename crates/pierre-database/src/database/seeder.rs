@@ -700,10 +700,15 @@ impl SeederRepository for Database {
     }
 
     async fn seed_insert_tenant(&self, tenant: &SeedTenant) -> AppResult<()> {
+        // ON CONFLICT(slug) handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenants \
              (id, name, slug, plan, owner_user_id, is_active, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, $5, 1, $6, $7)",
+             VALUES ($1, $2, $3, $4, $5, 1, $6, $7) \
+             ON CONFLICT(slug) DO UPDATE SET \
+              name = excluded.name, \
+              plan = excluded.plan, \
+              updated_at = excluded.updated_at",
         )
         .bind(tenant.id.to_string())
         .bind(&tenant.name)
@@ -726,10 +731,12 @@ impl SeederRepository for Database {
         now: DateTime<Utc>,
     ) -> AppResult<()> {
         let now_str = now.to_rfc3339();
+        // ON CONFLICT handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenant_users \
              (id, tenant_id, user_id, role, invited_at, joined_at, is_active) \
-             VALUES ($1, $2, $3, 'owner', $4, $5, 1)",
+             VALUES ($1, $2, $3, 'owner', $4, $5, 1) \
+             ON CONFLICT(tenant_id, user_id) DO NOTHING",
         )
         .bind(id.to_string())
         .bind(tenant_id.to_string())
