@@ -89,7 +89,7 @@ impl AuthService {
         let password_hash = bcrypt::hash(&request.password, bcrypt::DEFAULT_COST)
             .map_err(|e| AppError::internal(format!("Password hashing failed: {e}")))?;
 
-        // Create user with default Pending status
+        // Create user — determine_approval_status sets Pending or Active below
         let mut user = User::new(request.email.clone(), password_hash, request.display_name); // Safe: String ownership needed for user model
 
         // Check if user should be auto-approved (global setting or domain allow-list)

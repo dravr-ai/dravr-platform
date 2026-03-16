@@ -192,9 +192,9 @@ impl User {
             created_at: now,
             last_active: now,
             is_active: true,
-            user_status: UserStatus::Pending, // New users need admin approval
-            is_admin: false,                  // Regular users are not admins by default
-            role: UserRole::User,             // Default to regular user
+            user_status: UserStatus::Active, // Callers set Pending when needed (register, Firebase)
+            is_admin: false,                 // Regular users are not admins by default
+            role: UserRole::User,            // Default to regular user
             approved_by: None,
             approved_at: None,
             firebase_uid: None, // No Firebase UID for email/password users
