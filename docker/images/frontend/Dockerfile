@@ -54,5 +54,5 @@ COPY docker/images/frontend/nginx.conf /etc/nginx/nginx.conf.template
 
 EXPOSE 8080
 
-# Substitute BACKEND_URL into nginx config at runtime, then start nginx
-CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+# Substitute BACKEND_URL and FIREBASE_PROJECT_ID into nginx config at runtime, then start nginx
+CMD ["/bin/sh", "-c", "envsubst '${BACKEND_URL} ${FIREBASE_PROJECT_ID}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

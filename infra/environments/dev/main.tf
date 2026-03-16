@@ -384,6 +384,8 @@ module "frontend" {
   env_vars = {
     # Backend URL for nginx reverse proxy (injected via envsubst at container start)
     BACKEND_URL = module.backend.service_url
+    # Firebase project ID for self-hosted auth handler (nginx proxies /__/ to firebaseapp.com)
+    FIREBASE_PROJECT_ID = var.firebase_project_id
   }
 
   health_check_path           = "/health"
