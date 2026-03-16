@@ -653,6 +653,9 @@ test.describe('Settings Page - User Mode', () => {
     ];
     await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.waitForTimeout(300);
+
     // OAuth providers should have Connect buttons
     const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
     await expect(connectButtons.first()).toBeVisible({ timeout: 5000 });
