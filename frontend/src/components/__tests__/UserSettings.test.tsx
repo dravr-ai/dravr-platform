@@ -25,6 +25,10 @@ vi.mock('../LlmSettingsTab', () => ({
   default: () => <div data-testid="llm-settings">LLM Settings</div>,
 }));
 
+vi.mock('../MessagingSettingsTab', () => ({
+  default: () => <div data-testid="messaging-settings">Messaging Settings</div>,
+}));
+
 vi.mock('../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
     data: {
@@ -131,6 +135,7 @@ describe('UserSettings Component', () => {
       expect(screen.getByText('Data Providers')).toBeInTheDocument();
       expect(screen.getByText('API Tokens')).toBeInTheDocument();
       expect(screen.getByText('AI Settings')).toBeInTheDocument();
+      expect(screen.getByText('Messaging')).toBeInTheDocument();
       expect(screen.getByText('About')).toBeInTheDocument();
       expect(screen.getByText('Account')).toBeInTheDocument();
     });
