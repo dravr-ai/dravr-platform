@@ -219,9 +219,10 @@ test.describe('Insights - Share Modal Suggestions', () => {
 
     await expect(page.getByText('Coach Suggestions')).toBeVisible({ timeout: 10000 });
 
-    // Suggestion content should be visible
-    await expect(page.getByText(/10K personal best/)).toBeVisible();
-    await expect(page.getByText(/Sleep quality improved/)).toBeVisible();
+    // Suggestion content should be visible (use .first() because the banner behind
+    // the modal also shows the first suggestion preview, causing duplicate matches)
+    await expect(page.getByText(/10K personal best/).first()).toBeVisible();
+    await expect(page.getByText(/Sleep quality improved/).first()).toBeVisible();
   });
 });
 

@@ -612,7 +612,9 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
-    // Mock OAuth status with full provider list before setting up auth mocks
+    await loginAndNavigateToSettings(page);
+
+    // Override OAuth status AFTER setupAuthenticatedMocks (LIFO: last registered wins)
     await page.route('**/api/oauth/status', async (route) => {
       await route.fulfill({
         status: 200,
@@ -629,8 +631,6 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
-    await loginAndNavigateToSettings(page);
-
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
@@ -645,7 +645,9 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
-    // Mock providers: 5 OAuth + 2 Manual
+    await loginAndNavigateToSettings(page);
+
+    // Override OAuth status AFTER setupAuthenticatedMocks (LIFO: last registered wins)
     await page.route('**/api/oauth/status', async (route) => {
       await route.fulfill({
         status: 200,
@@ -661,8 +663,6 @@ test.describe('Settings Page - User Mode', () => {
         ]),
       });
     });
-
-    await loginAndNavigateToSettings(page);
 
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
@@ -696,8 +696,8 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'API Tokens' }).click();
     await page.waitForTimeout(300);
 
-    // Should show Connected Apps heading
-    await expect(page.getByRole('heading', { name: 'Connected Apps' })).toBeVisible();
+    // Should show Connected Apps heading (use .first() in case of duplicate heading elements)
+    await expect(page.getByRole('heading', { name: 'Connected Apps' }).first()).toBeVisible();
   });
 
   test('account tab displays usage quota values with progress bars', async ({ page }) => {
@@ -730,11 +730,12 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'Account' }).click();
     await page.waitForTimeout(300);
 
-    // Should show resource counters
-    await expect(page.getByText('Coaches')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('1 / 3')).toBeVisible();
-    await expect(page.getByText('Conversations')).toBeVisible();
-    await expect(page.getByText('2 / 20')).toBeVisible();
+    // Should show resource counters (scope to main to avoid matching sidebar nav elements)
+    const main = page.getByRole('main');
+    await expect(main.getByText('Coaches')).toBeVisible({ timeout: 5000 });
+    await expect(main.getByText('1 / 3')).toBeVisible();
+    await expect(main.getByText('Conversations')).toBeVisible();
+    await expect(main.getByText('2 / 20')).toBeVisible();
   });
 });
 

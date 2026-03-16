@@ -1278,14 +1278,16 @@ test.describe('User Coaches - Chat Interface', () => {
     await expect(page.getByText('custom AI personas')).toBeVisible({ timeout: 10000 });
 
     // Verify all 7 category filter buttons plus Favorites are present
-    await expect(page.getByRole('button', { name: 'All', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Training', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Nutrition', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recovery', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Recipes', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Mobility', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Custom', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Favorites/i })).toBeVisible();
+    // Scope to main to avoid matching sidebar/chat tab buttons
+    const main = page.getByRole('main');
+    await expect(main.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Training', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Nutrition', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Recovery', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Recipes', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Mobility', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Custom', exact: true })).toBeVisible();
+    await expect(main.getByRole('button', { name: /Favorites/i })).toBeVisible();
   });
 
   test('displays source filter buttons (All Sources, My Coaches, System)', async ({ page }) => {
