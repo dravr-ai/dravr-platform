@@ -7,7 +7,11 @@
 import { test, expect } from '@playwright/test';
 
 // Helper to set up mocks for an authenticated user session
-async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false) {
+interface MockOptions {
+  providers?: Array<{ provider: string; display_name: string; requires_oauth: boolean; connected: boolean; capabilities: string[] }>;
+}
+
+async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false, options: MockOptions = {}) {
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
       status: 200,
@@ -231,7 +235,7 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ providers: [] }),
+      body: JSON.stringify({ providers: options.providers ?? [] }),
     });
   });
 
@@ -485,9 +489,10 @@ async function setupAuthenticatedMocks(page: import('@playwright/test').Page, is
 
 async function loginAndNavigateToSettings(
   page: import('@playwright/test').Page,
-  isAdmin = false
+  isAdmin = false,
+  options: MockOptions = {}
 ) {
-  await setupAuthenticatedMocks(page, isAdmin);
+  await setupAuthenticatedMocks(page, isAdmin, options);
   await page.goto('/');
   await page.waitForSelector('form', { timeout: 10000 });
 
@@ -612,39 +617,22 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab displays individual provider names', async ({ page }) => {
-    await loginAndNavigateToSettings(page);
+    const testProviders = [
+      { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+      { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+      { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
-    // Replace providers mock and reload to clear React Query cache
-    await page.unroute('**/api/providers');
-    await page.route('**/api/providers', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          providers: [
-            { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-            { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-            { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-            { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
-          ],
-        }),
-      });
-    });
-
-    // Navigate away and back to remount Settings with fresh queries using new mock
-    await page.getByRole('button', { name: 'Chat' }).click();
-    await page.waitForTimeout(300);
-    const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
-    await settingsGear.first().click();
-    await page.waitForTimeout(500);
     await page.getByRole('button', { name: 'Data Providers' }).click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(300);
 
     // Verify provider names are rendered
-    await expect(page.getByText('Strava')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Strava')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText('Fitbit')).toBeVisible();
     await expect(page.getByText('Garmin')).toBeVisible();
     await expect(page.getByText('WHOOP')).toBeVisible();
@@ -654,36 +642,16 @@ test.describe('Settings Page - User Mode', () => {
   });
 
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
-    await loginAndNavigateToSettings(page);
-
-    // Unroute empty providers from setupAuthenticatedMocks, register with test data
-    await page.unroute('**/api/providers');
-    await page.route('**/api/providers', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          providers: [
-            { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-            { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-            { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
-          ],
-        }),
-      });
-    });
-
-    // Navigate away and back to remount Settings with fresh queries using new mock
-    await page.getByRole('button', { name: 'Chat' }).click();
-    await page.waitForTimeout(300);
-    const settingsGear2 = page.getByRole('button', { name: 'Settings', exact: true });
-    await settingsGear2.first().click();
-    await page.waitForTimeout(500);
-    await page.getByRole('button', { name: 'Data Providers' }).click();
-    await page.waitForTimeout(500);
+    const testProviders = [
+      { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+      { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+      { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
 
     // OAuth providers should have Connect buttons
     const connectButtons = page.getByRole('button', { name: 'Connect', exact: true });
