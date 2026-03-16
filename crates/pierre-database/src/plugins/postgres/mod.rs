@@ -344,6 +344,7 @@ impl DatabaseProvider for PostgresDatabase {
         info!("Running PostgreSQL database migrations...");
 
         sqlx::migrate!("./migrations_pg")
+            .set_ignore_missing(true)
             .run(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("PostgreSQL migration failed: {e}")))?;

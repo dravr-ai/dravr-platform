@@ -105,7 +105,7 @@ ENV HTTP_PORT=8081
 # Expose ports
 EXPOSE 8080 8081
 
-# Health check
+# Health check (Cloud Run liveness probe)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8081/health || exit 1
 
