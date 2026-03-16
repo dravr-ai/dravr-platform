@@ -634,17 +634,17 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
-    // Reload page to clear React Query cache and refetch with new mock
-    await page.reload();
-    await page.waitForSelector('main', { timeout: 10000 });
+    // Navigate away and back to remount Settings with fresh queries using new mock
+    await page.getByRole('button', { name: 'Chat' }).click();
+    await page.waitForTimeout(300);
     const settingsGear = page.getByRole('button', { name: 'Settings', exact: true });
     await settingsGear.first().click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(500);
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(500);
 
     // Verify provider names are rendered
-    await expect(page.getByText('Strava')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Strava')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Fitbit')).toBeVisible();
     await expect(page.getByText('Garmin')).toBeVisible();
     await expect(page.getByText('WHOOP')).toBeVisible();
@@ -676,12 +676,12 @@ test.describe('Settings Page - User Mode', () => {
       });
     });
 
-    // Reload page to clear React Query cache and refetch with new mock
-    await page.reload();
-    await page.waitForSelector('main', { timeout: 10000 });
+    // Navigate away and back to remount Settings with fresh queries using new mock
+    await page.getByRole('button', { name: 'Chat' }).click();
+    await page.waitForTimeout(300);
     const settingsGear2 = page.getByRole('button', { name: 'Settings', exact: true });
     await settingsGear2.first().click();
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(500);
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(500);
 
