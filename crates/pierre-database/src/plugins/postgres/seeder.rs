@@ -757,10 +757,15 @@ impl SeederRepository for PostgresDatabase {
     async fn seed_insert_tenant(&self, tenant: &SeedTenant) -> AppResult<()> {
         // tenants.id is UUID (native), no plan/owner_user_id columns in PG migration
         // PG tenants table uses: id, name, slug, subscription_tier, is_active, created_at, updated_at
+        // ON CONFLICT(slug) handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenants \
              (id, name, slug, subscription_tier, is_active, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, true, $5, $6)",
+             VALUES ($1, $2, $3, $4, true, $5, $6) \
+             ON CONFLICT(slug) DO UPDATE SET \
+              name = EXCLUDED.name, \
+              subscription_tier = EXCLUDED.subscription_tier, \
+              updated_at = EXCLUDED.updated_at",
         )
         .bind(tenant.id)
         .bind(&tenant.name)
@@ -783,10 +788,12 @@ impl SeederRepository for PostgresDatabase {
         now: DateTime<Utc>,
     ) -> AppResult<()> {
         // tenant_users.id is UUID (native), no is_active column in PG migration
+        // ON CONFLICT handles concurrent seed jobs or retries safely
         sqlx::query(
             "INSERT INTO tenant_users \
              (id, tenant_id, user_id, role, invited_at, joined_at) \
-             VALUES ($1, $2, $3, 'owner', $4, $4)",
+             VALUES ($1, $2, $3, 'owner', $4, $4) \
+             ON CONFLICT(tenant_id, user_id) DO NOTHING",
         )
         .bind(id)
         .bind(tenant_id)
