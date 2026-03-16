@@ -22,11 +22,11 @@ RUN cargo chef prepare --recipe-path recipe.json
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --features postgresql --recipe-path recipe.json
+RUN cargo chef cook --release --features "postgresql,client-messaging" --recipe-path recipe.json
 
 # Build the actual application and seeder binaries (reruns only when source code changes)
 COPY . .
-RUN cargo build --release --features postgresql \
+RUN cargo build --release --features "postgresql,client-messaging" \
     --bin pierre-mcp-server \
     --bin seed-bootstrap \
     --bin seed-coaches \

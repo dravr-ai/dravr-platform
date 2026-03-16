@@ -129,7 +129,7 @@ impl TransportAdapter for WhatsAppTransport {
                     channel: "whatsapp".to_owned(),
                 })?;
 
-        let url = format!("https://graph.facebook.com/v21.0/{phone_number_id}/messages");
+        let url = format!("https://graph.facebook.com/v22.0/{phone_number_id}/messages");
 
         let response = self
             .client
