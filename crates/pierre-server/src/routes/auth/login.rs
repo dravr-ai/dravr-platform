@@ -173,6 +173,10 @@ impl AuthService {
         // The auth middleware enforces status on subsequent API calls.
         Self::reject_if_suspended(&user)?;
 
+        // Retroactively approve pending users whose domain now qualifies
+        let mut user = user;
+        self.auto_approve_if_eligible(&mut user).await?;
+
         // Update last active timestamp
         self.data
             .database()
@@ -238,11 +242,14 @@ impl AuthService {
             .ok_or_else(|| AppError::auth_invalid("Firebase token missing email claim"))?;
 
         // Find or create user from Firebase claims
-        let user = self.find_or_create_firebase_user(&claims, email).await?;
+        let mut user = self.find_or_create_firebase_user(&claims, email).await?;
 
         // Block suspended users; pending users authenticate so the frontend
         // can show the "pending approval" page (user_status is in the response).
         Self::reject_if_suspended(&user)?;
+
+        // Retroactively approve pending users whose domain now qualifies
+        self.auto_approve_if_eligible(&mut user).await?;
 
         // Generate session and return response
         self.complete_firebase_login(&user, &claims.provider).await
@@ -485,6 +492,37 @@ impl AuthService {
                 "Your account has been suspended",
             ));
         }
+        Ok(())
+    }
+
+    /// Re-evaluate domain auto-approval for existing Pending users.
+    ///
+    /// When `AUTO_APPROVE_DOMAINS` is updated after a user registered,
+    /// their account stays Pending forever. This method promotes them to
+    /// Active on their next login if their email domain now qualifies.
+    async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
+        if user.user_status != UserStatus::Pending {
+            return Ok(());
+        }
+
+        if !self.should_auto_approve_email(&user.email).await {
+            return Ok(());
+        }
+
+        tracing::info!(
+            user_id = %user.id,
+            email = %user.email,
+            "Retroactive domain auto-approval for pending user"
+        );
+
+        let updated = self
+            .data
+            .database()
+            .update_status(user.id, UserStatus::Active, None)
+            .await?;
+        user.user_status = updated.user_status;
+        user.approved_at = updated.approved_at;
+
         Ok(())
     }
 
