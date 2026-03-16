@@ -251,7 +251,7 @@ test.describe('Insights - Edit and Share Flow', () => {
 
   test('selecting a suggestion opens editing mode', async ({ page }) => {
     await openEditMode(page);
-    await expect(page.getByLabel('Content')).toBeVisible();
+    await expect(page.locator('textarea')).toBeVisible();
   });
 
   test('editing mode shows suggestion content in textarea', async ({ page }) => {
@@ -288,8 +288,9 @@ test.describe('Insights - Edit and Share Flow', () => {
     const textarea = page.locator('textarea');
     await textarea.fill('Short');
 
-    // Share button should be disabled (min 10 chars required)
-    const submitButton = page.getByRole('button', { name: 'Share Insight' });
+    // Share button inside modal should be disabled (min 10 chars required)
+    const modal = page.locator('[role="dialog"]');
+    const submitButton = modal.getByRole('button', { name: 'Share Insight' });
     await expect(submitButton).toBeDisabled();
   });
 
@@ -313,8 +314,9 @@ test.describe('Insights - Edit and Share Flow', () => {
 
     await openEditMode(page);
 
-    // Content should already be populated, click Share Insight
-    await page.getByRole('button', { name: 'Share Insight' }).click();
+    // Content should already be populated, click Share Insight inside modal
+    const modal = page.locator('[role="dialog"]');
+    await modal.getByRole('button', { name: 'Share Insight' }).click();
     await page.waitForTimeout(500);
 
     expect(shareCalled).toBe(true);
@@ -402,15 +404,16 @@ test.describe('Insights - Error Handling', () => {
     await expect(shareButton).toBeVisible({ timeout: 10000 });
     await shareButton.click();
 
+    const errorModal = page.locator('[role="dialog"]');
     await expect(page.getByText('Coach Suggestions')).toBeVisible({ timeout: 10000 });
 
-    const shareInsightButton = page.getByRole('button', { name: /Share/i }).first();
+    const shareInsightButton = errorModal.getByRole('button', { name: /Share/i }).first();
     await shareInsightButton.click();
 
     await expect(page.getByText('Edit & Share')).toBeVisible({ timeout: 10000 });
 
-    // Submit
-    await page.getByRole('button', { name: 'Share Insight' }).click();
+    // Submit inside modal
+    await errorModal.getByRole('button', { name: 'Share Insight' }).click();
     await page.waitForTimeout(500);
 
     // Should show error message
