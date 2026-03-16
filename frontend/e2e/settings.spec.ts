@@ -631,14 +631,14 @@ test.describe('Settings Page - User Mode', () => {
     await page.getByRole('button', { name: 'Data Providers' }).click();
     await page.waitForTimeout(300);
 
-    // Verify provider names are rendered
-    await expect(page.getByText('Strava')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('Fitbit')).toBeVisible();
-    await expect(page.getByText('Garmin')).toBeVisible();
-    await expect(page.getByText('WHOOP')).toBeVisible();
-    await expect(page.getByText('Terra')).toBeVisible();
+    // Verify provider names are rendered (exact match avoids description text collisions)
+    await expect(page.getByText('Strava', { exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Fitbit', { exact: true })).toBeVisible();
+    await expect(page.getByText('Garmin', { exact: true })).toBeVisible();
+    await expect(page.getByText('WHOOP', { exact: true })).toBeVisible();
+    await expect(page.getByText('Terra', { exact: true })).toBeVisible();
     await expect(page.getByText('Synthetic', { exact: true })).toBeVisible();
-    await expect(page.getByText('Synthetic Sleep')).toBeVisible();
+    await expect(page.getByText('Synthetic Sleep', { exact: true })).toBeVisible();
   });
 
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
