@@ -189,6 +189,12 @@ export const QUERY_KEYS = {
     devices: () => ['notifications-devices'] as const,
   },
 
+  // ==================== MESSAGING ====================
+  messaging: {
+    all: ['messaging'] as const,
+    channels: () => ['messaging-channels'] as const,
+  },
+
   // ==================== USAGE QUOTAS ====================
   usage: {
     all: ['usage'] as const,

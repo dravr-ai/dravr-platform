@@ -15,6 +15,7 @@ import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import LlmSettingsTab from './LlmSettingsTab';
+import MessagingSettingsTab from './MessagingSettingsTab';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import type { LimitCheckResult } from '../services/api/usage';
@@ -81,7 +82,7 @@ function formatResetTime(isoString: string): string {
   }
 }
 
-type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'about' | 'account';
+type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'messaging' | 'about' | 'account';
 
 const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] = [
   {
@@ -117,6 +118,15 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'messaging',
+    name: 'Messaging',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
       </svg>
     ),
   },
@@ -1072,6 +1082,8 @@ Authorization: Bearer <your-token-here>`}
 
         {/* AI Settings Tab */}
         {activeTab === 'llm' && <LlmSettingsTab />}
+
+        {activeTab === 'messaging' && <MessagingSettingsTab />}
 
         {/* About Tab */}
         {activeTab === 'about' && (

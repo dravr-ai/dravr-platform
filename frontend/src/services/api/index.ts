@@ -30,6 +30,7 @@ export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
 export { usageApi } from './usage';
+export { messagingApi } from './messaging';
 
 // Export types from shared package
 export type { Coach, StoreCoach } from '@pierre/shared-types';
