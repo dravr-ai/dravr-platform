@@ -41,7 +41,7 @@ You are a test coach used for integration testing of the import feature.
 "#;
 
 /// Markdown without YAML frontmatter delimiters
-const NO_FRONTMATTER_MARKDOWN: &str = r#"# Just a Title
+const NO_FRONTMATTER_MARKDOWN: &str = r"# Just a Title
 
 Some text without frontmatter.
 
@@ -50,10 +50,10 @@ A purpose section.
 
 ## Instructions
 Some instructions.
-"#;
+";
 
 /// Markdown with valid frontmatter but missing required sections
-const MISSING_SECTIONS_MARKDOWN: &str = r#"---
+const MISSING_SECTIONS_MARKDOWN: &str = r"---
 name: incomplete-coach
 title: Incomplete Coach
 category: training
@@ -61,7 +61,7 @@ tags: [test]
 ---
 
 Some text without any section headers.
-"#;
+";
 
 // ============================================================================
 // Test Helpers
