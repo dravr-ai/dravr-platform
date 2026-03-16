@@ -614,7 +614,8 @@ test.describe('Settings Page - User Mode', () => {
   test('data providers tab displays individual provider names', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // Override providers AFTER setupAuthenticatedMocks (LIFO: last registered wins)
+    // Unroute empty providers from setupAuthenticatedMocks, register with test data
+    await page.unroute('**/api/providers');
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
@@ -649,7 +650,8 @@ test.describe('Settings Page - User Mode', () => {
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // Override providers AFTER setupAuthenticatedMocks (LIFO: last registered wins)
+    // Unroute empty providers from setupAuthenticatedMocks, register with test data
+    await page.unroute('**/api/providers');
     await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
