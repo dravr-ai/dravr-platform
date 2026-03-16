@@ -68,6 +68,33 @@ resource "google_vpc_access_connector" "connector" {
 }
 
 # -----------------------------------------------------------------------------
+# Cloud NAT (enables VPC-connected Cloud Run services to reach external hosts)
+# Without Cloud NAT, services with vpc_egress=ALL_TRAFFIC cannot make outbound
+# connections to the public internet (e.g., firebaseapp.com for auth handler).
+# -----------------------------------------------------------------------------
+
+resource "google_compute_router" "router" {
+  name    = "${var.vpc_name}-router"
+  project = var.project_id
+  region  = var.region
+  network = google_compute_network.vpc.id
+}
+
+resource "google_compute_router_nat" "nat" {
+  name                               = "${var.vpc_name}-nat"
+  project                            = var.project_id
+  region                             = var.region
+  router                             = google_compute_router.router.name
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+
+  log_config {
+    enable = true
+    filter = "ERRORS_ONLY"
+  }
+}
+
+# -----------------------------------------------------------------------------
 # Firewall Rules
 # -----------------------------------------------------------------------------
 
