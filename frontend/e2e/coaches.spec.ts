@@ -1287,7 +1287,7 @@ test.describe('User Coaches - Chat Interface', () => {
     await expect(main.getByRole('button', { name: 'Recipes', exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Mobility', exact: true })).toBeVisible();
     await expect(main.getByRole('button', { name: 'Custom', exact: true })).toBeVisible();
-    await expect(main.getByRole('button', { name: /Favorites/i })).toBeVisible();
+    await expect(main.getByRole('button', { name: /Favorites/i }).first()).toBeVisible();
   });
 
   test('displays source filter buttons (All Sources, My Coaches, System)', async ({ page }) => {

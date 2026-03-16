@@ -147,8 +147,8 @@ async function setupChatMocks(page: Page, options: { emptyConversations?: boolea
     }
   });
 
-  // Conversations list - use trailing ** to match query params like ?limit=50&offset=0
-  await page.route('**/api/chat/conversations**', async (route, request) => {
+  // Conversations list - use regex to match query params but NOT sub-paths like /messages
+  await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route, request) => {
     if (request.method() === 'GET') {
       await route.fulfill({
         status: 200,
@@ -373,9 +373,10 @@ test.describe('Chat - Conversation Sidebar', () => {
     await conversationItem.getByLabel('Delete conversation').click();
 
     // ConfirmDialog from ConversationsPanel shows "Delete Conversation" title
+    const dialog = page.locator('[role="dialog"], .fixed.inset-0').last();
     await expect(page.getByText('Delete Conversation')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Delete' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
   });
 
   test('confirming delete calls the API', async ({ page }) => {
@@ -400,8 +401,9 @@ test.describe('Chat - Conversation Sidebar', () => {
     await conversationItem.getByLabel('Delete conversation').click();
 
     // Click Delete in confirmation dialog
+    const confirmDialog = page.locator('[role="dialog"], .fixed.inset-0').last();
     await expect(page.getByText('Delete Conversation')).toBeVisible({ timeout: 5000 });
-    await page.getByRole('button', { name: 'Delete' }).click();
+    await confirmDialog.getByRole('button', { name: 'Delete' }).click();
     await page.waitForTimeout(500);
 
     expect(deleteCalled).toBe(true);
