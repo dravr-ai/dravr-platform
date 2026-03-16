@@ -59,6 +59,13 @@ export interface CoachFormData {
   time_frame: string;
   detail_mode: 'summary' | 'detailed';
   athlete_profile: boolean;
+  // Structured sections for marketplace-quality coaches
+  purpose: string;
+  when_to_use: string;
+  instructions: string;
+  example_inputs: string;
+  example_outputs: string;
+  success_criteria: string;
 }
 
 export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
@@ -73,6 +80,12 @@ export const DEFAULT_COACH_FORM_DATA: CoachFormData = {
   time_frame: '12w',
   detail_mode: 'summary',
   athlete_profile: false,
+  purpose: '',
+  when_to_use: '',
+  instructions: '',
+  example_inputs: '',
+  example_outputs: '',
+  success_criteria: '',
 };
 
 // Re-export for convenience

@@ -70,6 +70,24 @@ pub struct CoachResponse {
     /// Structured data requirements for deterministic activity pre-fetching
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_requirements: Option<DataRequirements>,
+    /// Coach purpose (from ## Purpose section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+    /// Usage scenarios (from ## When to Use section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when_to_use: Option<String>,
+    /// Core AI instructions (from ## Instructions section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instructions: Option<String>,
+    /// Sample questions (from ## Example Inputs section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example_inputs: Option<String>,
+    /// Response style guidance (from ## Example Outputs section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example_outputs: Option<String>,
+    /// Success definition (from ## Success Criteria section)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_criteria: Option<String>,
 }
 
 /// A missing prerequisite for a coach
@@ -107,6 +125,12 @@ impl From<Coach> for CoachResponse {
             missing_prerequisites: None,
             startup_query: coach.startup_query,
             data_requirements: coach.data_requirements,
+            purpose: coach.purpose,
+            when_to_use: coach.when_to_use,
+            instructions: coach.instructions,
+            example_inputs: coach.example_inputs,
+            example_outputs: coach.example_outputs,
+            success_criteria: coach.success_criteria,
         }
     }
 }
@@ -134,6 +158,12 @@ impl From<CoachListItem> for CoachResponse {
             missing_prerequisites: None,
             startup_query: item.coach.startup_query,
             data_requirements: item.coach.data_requirements,
+            purpose: item.coach.purpose,
+            when_to_use: item.coach.when_to_use,
+            instructions: item.coach.instructions,
+            example_inputs: item.coach.example_inputs,
+            example_outputs: item.coach.example_outputs,
+            success_criteria: item.coach.success_criteria,
         }
     }
 }
@@ -238,6 +268,76 @@ pub struct ImportCoachResponse {
     pub parsed_name: String,
     /// Estimated token count from the markdown
     pub token_count: u32,
+    /// Import warnings (missing optional sections, high token count, etc.)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+}
+
+/// Response for previewing a coach import without saving
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ImportPreviewResponse {
+    /// Whether the markdown parsed successfully
+    pub valid: bool,
+    /// Parsed coach fields (present when valid)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parsed: Option<ParsedCoachFields>,
+    /// Parse errors (present when invalid)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+    /// Warnings about missing optional sections or quality issues
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Content hash for deduplication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    /// Whether a coach with this content already exists for the user
+    pub duplicate_exists: bool,
+    /// ID of the existing duplicate coach (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate_coach_id: Option<String>,
+    /// Estimated token count
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_count: Option<u32>,
+}
+
+/// Parsed coach fields extracted from markdown for preview
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ParsedCoachFields {
+    /// Coach name/slug from frontmatter
+    pub name: String,
+    /// Display title
+    pub title: String,
+    /// Category
+    pub category: String,
+    /// Tags
+    pub tags: Vec<String>,
+    /// Purpose section content
+    pub purpose: String,
+    /// Whether instructions section is present
+    pub has_instructions: bool,
+    /// Whether `example_inputs` section is present
+    pub has_example_inputs: bool,
+    /// Whether `example_outputs` section is present
+    pub has_example_outputs: bool,
+    /// Whether `success_criteria` section is present
+    pub has_success_criteria: bool,
+}
+
+/// Request body for importing a coach from a URL
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct ImportFromUrlBody {
+    /// HTTPS URL pointing to a markdown coach definition
+    pub url: String,
+    /// Whether to save the imported coach (true) or just preview (false)
+    #[serde(default = "default_save_true")]
+    pub save: bool,
+}
+
+const fn default_save_true() -> bool {
+    true
 }
 
 // ============================================
@@ -266,6 +366,18 @@ pub struct CreateCoachBody {
     pub startup_query: Option<String>,
     /// Structured data requirements for deterministic activity pre-fetching
     pub data_requirements: Option<DataRequirements>,
+    /// Coach purpose (from ## Purpose section)
+    pub purpose: Option<String>,
+    /// Usage scenarios (from ## When to Use section)
+    pub when_to_use: Option<String>,
+    /// Core AI instructions (from ## Instructions section)
+    pub instructions: Option<String>,
+    /// Sample questions (from ## Example Inputs section)
+    pub example_inputs: Option<String>,
+    /// Response style guidance (from ## Example Outputs section)
+    pub example_outputs: Option<String>,
+    /// Success definition (from ## Success Criteria section)
+    pub success_criteria: Option<String>,
 }
 
 impl From<CreateCoachBody> for CreateCoachRequest {
@@ -282,6 +394,12 @@ impl From<CreateCoachBody> for CreateCoachRequest {
             sample_prompts: body.sample_prompts,
             startup_query: body.startup_query,
             data_requirements: body.data_requirements,
+            purpose: body.purpose,
+            when_to_use: body.when_to_use,
+            instructions: body.instructions,
+            example_inputs: body.example_inputs,
+            example_outputs: body.example_outputs,
+            success_criteria: body.success_criteria,
         }
     }
 }
@@ -306,6 +424,18 @@ pub struct UpdateCoachBody {
     pub startup_query: Option<String>,
     /// New data requirements (if provided)
     pub data_requirements: Option<DataRequirements>,
+    /// New `purpose` (if provided)
+    pub purpose: Option<String>,
+    /// New `when_to_use` (if provided)
+    pub when_to_use: Option<String>,
+    /// New `instructions` (if provided)
+    pub instructions: Option<String>,
+    /// New `example_inputs` (if provided)
+    pub example_inputs: Option<String>,
+    /// New `example_outputs` (if provided)
+    pub example_outputs: Option<String>,
+    /// New `success_criteria` (if provided)
+    pub success_criteria: Option<String>,
 }
 
 impl From<UpdateCoachBody> for UpdateCoachRequest {
@@ -319,6 +449,12 @@ impl From<UpdateCoachBody> for UpdateCoachRequest {
             sample_prompts: body.sample_prompts,
             startup_query: body.startup_query,
             data_requirements: body.data_requirements,
+            purpose: body.purpose,
+            when_to_use: body.when_to_use,
+            instructions: body.instructions,
+            example_inputs: body.example_inputs,
+            example_outputs: body.example_outputs,
+            success_criteria: body.success_criteria,
         }
     }
 }

@@ -186,6 +186,12 @@ async fn test_create_version_manually() {
         sample_prompts: vec!["How can I train?".to_owned()],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -233,6 +239,12 @@ async fn test_auto_version_on_update() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -257,6 +269,12 @@ async fn test_auto_version_on_update() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     manager
@@ -286,6 +304,12 @@ async fn test_auto_version_on_update() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     manager
@@ -325,6 +349,12 @@ async fn test_get_versions() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -342,6 +372,12 @@ async fn test_get_versions() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -363,6 +399,12 @@ async fn test_get_versions() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -400,6 +442,12 @@ async fn test_get_versions_with_limit() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -418,6 +466,12 @@ async fn test_get_versions_with_limit() {
             sample_prompts: None,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .update(
@@ -456,6 +510,12 @@ async fn test_get_specific_version() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -473,6 +533,12 @@ async fn test_get_specific_version() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -513,6 +579,12 @@ async fn test_get_version_not_found() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -543,6 +615,12 @@ async fn test_get_version_wrong_tenant() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -586,6 +664,12 @@ async fn test_revert_to_version() {
         sample_prompts: vec!["Original sample".to_owned()],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -603,6 +687,12 @@ async fn test_revert_to_version() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -653,6 +743,12 @@ async fn test_revert_creates_new_version() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -670,6 +766,12 @@ async fn test_revert_creates_new_version() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -729,6 +831,12 @@ async fn test_revert_to_nonexistent_version() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -762,6 +870,12 @@ async fn test_version_snapshot_contains_all_fields() {
         sample_prompts: vec!["Sample 1".to_owned(), "Sample 2".to_owned()],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -810,6 +924,12 @@ async fn test_version_has_content_hash() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -848,6 +968,12 @@ async fn test_different_content_different_hash() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -865,6 +991,12 @@ async fn test_different_content_different_hash() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -886,6 +1018,12 @@ async fn test_different_content_different_hash() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update(
@@ -944,6 +1082,12 @@ async fn test_system_coach_version_on_update() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update_system_coach(&coach.id.to_string(), test_tenant(), &update)
@@ -985,6 +1129,12 @@ async fn test_update_with_change_summary() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1002,6 +1152,12 @@ async fn test_update_with_change_summary() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .update_with_summary(
@@ -1041,6 +1197,12 @@ async fn test_version_tracks_created_by() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1085,6 +1247,12 @@ async fn test_get_versions_empty() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1115,6 +1283,12 @@ async fn test_get_current_version_no_versions() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1145,6 +1319,12 @@ async fn test_version_deleted_with_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager

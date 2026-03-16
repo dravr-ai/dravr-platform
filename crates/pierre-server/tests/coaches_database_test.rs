@@ -242,6 +242,12 @@ async fn test_create_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -279,6 +285,12 @@ async fn test_create_coach_minimal() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -310,6 +322,12 @@ async fn test_get_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let created = manager
@@ -355,6 +373,12 @@ async fn test_get_coach_wrong_user() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let created = manager
@@ -405,6 +429,12 @@ async fn test_list_coaches() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -443,6 +473,12 @@ async fn test_list_coaches_by_category() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -483,6 +519,12 @@ async fn test_list_coaches_favorites_only() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         let coach = manager
             .create(test_user_id(), test_tenant(), &request)
@@ -527,6 +569,12 @@ async fn test_list_coaches_with_pagination() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -586,6 +634,12 @@ async fn test_list_coaches_user_isolation() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &request)
@@ -602,6 +656,12 @@ async fn test_list_coaches_user_isolation() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .create(other_user_id(), test_tenant(), &request)
@@ -644,6 +704,12 @@ async fn test_update_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -660,6 +726,12 @@ async fn test_update_coach() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let updated = manager
@@ -695,6 +767,12 @@ async fn test_update_coach_partial() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -712,6 +790,12 @@ async fn test_update_coach_partial() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let updated = manager
@@ -745,6 +829,12 @@ async fn test_update_coach_not_found() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let result = manager
@@ -773,6 +863,12 @@ async fn test_delete_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -822,6 +918,12 @@ async fn test_delete_coach_wrong_user() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -863,6 +965,12 @@ async fn test_toggle_favorite() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -936,6 +1044,12 @@ async fn test_activate_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -975,6 +1089,12 @@ async fn test_activate_coach_deactivates_others() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     let coach1 = manager
         .create(test_user_id(), test_tenant(), &request1)
@@ -990,6 +1110,12 @@ async fn test_activate_coach_deactivates_others() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     let coach2 = manager
         .create(test_user_id(), test_tenant(), &request2)
@@ -1039,6 +1165,12 @@ async fn test_deactivate_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1102,6 +1234,12 @@ async fn test_get_active_coach() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1139,6 +1277,12 @@ async fn test_active_coach_user_isolation() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     let coach = manager
         .create(test_user_id(), test_tenant(), &request)
@@ -1182,6 +1326,12 @@ async fn test_record_usage() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let coach = manager
@@ -1250,6 +1400,12 @@ async fn test_search_coaches() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         },
         CreateCoachRequest {
             title: "Nutrition Advisor".to_owned(),
@@ -1260,6 +1416,12 @@ async fn test_search_coaches() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         },
         CreateCoachRequest {
             title: "Recovery Coach".to_owned(),
@@ -1270,6 +1432,12 @@ async fn test_search_coaches() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         },
     ];
 
@@ -1328,6 +1496,12 @@ async fn test_search_coaches_with_limit() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1367,6 +1541,12 @@ async fn test_count_coaches() {
             sample_prompts: vec![],
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
         manager
             .create(test_user_id(), test_tenant(), &request)
@@ -1586,6 +1766,12 @@ async fn test_update_system_coach() {
         sample_prompts: None,
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
 
     let updated = manager
@@ -1770,6 +1956,12 @@ async fn test_list_coaches_includes_assigned_system_coaches() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
@@ -2271,6 +2463,12 @@ async fn test_personal_coaches_remain_isolated_with_system_coaches() {
         sample_prompts: vec![],
         startup_query: None,
         data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
     };
     manager
         .create(test_user_id(), test_tenant(), &personal_request)
@@ -2434,4 +2632,395 @@ async fn test_show_system_coach_cross_tenant() {
 
     assert_eq!(coaches.len(), 1);
     assert_eq!(coaches[0].coach.title, "Global System Coach");
+}
+
+// ============================================================================
+// Structured Coach Section Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_coach_with_structured_fields() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Structured Coach".to_owned(),
+        description: Some("A coach with all structured sections".to_owned()),
+        system_prompt: "Fallback prompt for legacy clients".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec!["structured".to_owned()],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: Some("Help athletes build a periodized marathon training plan.".to_owned()),
+        when_to_use: Some("Use when preparing for a marathon 12+ weeks out.".to_owned()),
+        instructions: Some("You are an expert marathon coach. Build a plan based on the athlete's current fitness level, goal time, and available training days.".to_owned()),
+        example_inputs: Some("I want to run a sub-3:30 marathon in 16 weeks. I can train 5 days/week.".to_owned()),
+        example_outputs: Some("Provide a week-by-week breakdown with daily workouts, paces, and recovery notes.".to_owned()),
+        success_criteria: Some("The plan should be progressive, include tapering, and respect rest days.".to_owned()),
+    };
+
+    let coach = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    // Verify structured fields are stored
+    assert_eq!(
+        coach.purpose,
+        Some("Help athletes build a periodized marathon training plan.".to_owned())
+    );
+    assert_eq!(
+        coach.when_to_use,
+        Some("Use when preparing for a marathon 12+ weeks out.".to_owned())
+    );
+    assert_eq!(
+        coach.instructions,
+        Some("You are an expert marathon coach. Build a plan based on the athlete's current fitness level, goal time, and available training days.".to_owned())
+    );
+    assert_eq!(
+        coach.example_inputs,
+        Some("I want to run a sub-3:30 marathon in 16 weeks. I can train 5 days/week.".to_owned())
+    );
+    assert_eq!(
+        coach.example_outputs,
+        Some(
+            "Provide a week-by-week breakdown with daily workouts, paces, and recovery notes."
+                .to_owned()
+        )
+    );
+    assert_eq!(
+        coach.success_criteria,
+        Some("The plan should be progressive, include tapering, and respect rest days.".to_owned())
+    );
+
+    // When `instructions` is provided, system_prompt should be derived from instructions
+    assert_eq!(
+        coach.system_prompt,
+        "You are an expert marathon coach. Build a plan based on the athlete's current fitness level, goal time, and available training days."
+    );
+
+    // Verify round-trip through get
+    let fetched = manager
+        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(fetched.purpose, coach.purpose);
+    assert_eq!(fetched.when_to_use, coach.when_to_use);
+    assert_eq!(fetched.instructions, coach.instructions);
+    assert_eq!(fetched.example_inputs, coach.example_inputs);
+    assert_eq!(fetched.example_outputs, coach.example_outputs);
+    assert_eq!(fetched.success_criteria, coach.success_criteria);
+    assert_eq!(fetched.system_prompt, coach.system_prompt);
+}
+
+#[tokio::test]
+async fn test_create_coach_without_structured_fields() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let request = CreateCoachRequest {
+        title: "Flat Coach".to_owned(),
+        description: Some("A coach with only system_prompt".to_owned()),
+        system_prompt: "You are a helpful running coach.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+    };
+
+    let coach = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    // Structured fields should be None
+    assert!(coach.purpose.is_none());
+    assert!(coach.when_to_use.is_none());
+    assert!(coach.instructions.is_none());
+    assert!(coach.example_inputs.is_none());
+    assert!(coach.example_outputs.is_none());
+    assert!(coach.success_criteria.is_none());
+
+    // system_prompt should be the original value (no instructions to override)
+    assert_eq!(coach.system_prompt, "You are a helpful running coach.");
+
+    // Verify round-trip through get
+    let fetched = manager
+        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(fetched.purpose.is_none());
+    assert!(fetched.when_to_use.is_none());
+    assert!(fetched.instructions.is_none());
+    assert!(fetched.example_inputs.is_none());
+    assert!(fetched.example_outputs.is_none());
+    assert!(fetched.success_criteria.is_none());
+}
+
+#[tokio::test]
+async fn test_update_coach_adds_structured_fields() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    // Create a flat coach (no structured fields)
+    let request = CreateCoachRequest {
+        title: "Soon Structured".to_owned(),
+        description: None,
+        system_prompt: "Basic prompt".to_owned(),
+        category: CoachCategory::Custom,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: None,
+        when_to_use: None,
+        instructions: None,
+        example_inputs: None,
+        example_outputs: None,
+        success_criteria: None,
+    };
+
+    let coach = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    // Verify structured fields start as None
+    assert!(coach.purpose.is_none());
+    assert!(coach.instructions.is_none());
+
+    // Update to add structured fields
+    let update = UpdateCoachRequest {
+        title: None,
+        description: None,
+        system_prompt: None,
+        category: None,
+        tags: None,
+        sample_prompts: None,
+        startup_query: None,
+        data_requirements: None,
+        purpose: Some("Analyze weekly training volume.".to_owned()),
+        when_to_use: Some("After completing a training week.".to_owned()),
+        instructions: Some(
+            "Review the athlete's weekly mileage and intensity distribution.".to_owned(),
+        ),
+        example_inputs: Some("Show me my training summary for this week.".to_owned()),
+        example_outputs: Some("A breakdown by zone with weekly totals.".to_owned()),
+        success_criteria: Some("Identify overtraining risks and recovery needs.".to_owned()),
+    };
+
+    let updated = manager
+        .update(
+            &coach.id.to_string(),
+            test_user_id(),
+            test_tenant(),
+            &update,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Verify structured fields are now populated
+    assert_eq!(
+        updated.purpose,
+        Some("Analyze weekly training volume.".to_owned())
+    );
+    assert_eq!(
+        updated.when_to_use,
+        Some("After completing a training week.".to_owned())
+    );
+    assert_eq!(
+        updated.instructions,
+        Some("Review the athlete's weekly mileage and intensity distribution.".to_owned())
+    );
+    assert_eq!(
+        updated.example_inputs,
+        Some("Show me my training summary for this week.".to_owned())
+    );
+    assert_eq!(
+        updated.example_outputs,
+        Some("A breakdown by zone with weekly totals.".to_owned())
+    );
+    assert_eq!(
+        updated.success_criteria,
+        Some("Identify overtraining risks and recovery needs.".to_owned())
+    );
+
+    // Verify persistence through a fresh get
+    let fetched = manager
+        .get(&coach.id.to_string(), test_user_id(), test_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(fetched.purpose, updated.purpose);
+    assert_eq!(fetched.when_to_use, updated.when_to_use);
+    assert_eq!(fetched.instructions, updated.instructions);
+    assert_eq!(fetched.example_inputs, updated.example_inputs);
+    assert_eq!(fetched.example_outputs, updated.example_outputs);
+    assert_eq!(fetched.success_criteria, updated.success_criteria);
+}
+
+#[tokio::test]
+async fn test_fork_preserves_structured_fields() {
+    let pool = create_test_db().await;
+    let raw_pool = pool.clone();
+    let manager = CoachesManager::new(pool);
+
+    // Create a system coach via the admin API
+    let system_request = CreateSystemCoachRequest {
+        title: "System Structured Coach".to_owned(),
+        description: Some("A system coach with structured sections".to_owned()),
+        system_prompt: "You analyze race performance.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec!["race".to_owned(), "analysis".to_owned()],
+        sample_prompts: vec![],
+        visibility: CoachVisibility::Tenant,
+    };
+
+    let system_coach = manager
+        .create_system_coach(test_user_id(), test_tenant(), &system_request)
+        .await
+        .unwrap();
+
+    // The admin API does not insert structured fields, so set them via raw SQL
+    sqlx::query(
+        r"
+        UPDATE coaches SET
+            purpose = $1, when_to_use = $2, instructions = $3,
+            example_inputs = $4, example_outputs = $5, success_criteria = $6
+        WHERE id = $7
+        ",
+    )
+    .bind("Analyze post-race data to identify strengths and weaknesses.")
+    .bind("After completing a race or time trial.")
+    .bind("Compare splits, heart rate zones, and pacing strategy against the goal.")
+    .bind("Here is my 10K race from last weekend.")
+    .bind("Provide split analysis, HR zone time, and pacing recommendations.")
+    .bind("Identify at least two actionable improvements for the next race.")
+    .bind(system_coach.id.to_string())
+    .execute(&raw_pool)
+    .await
+    .unwrap();
+
+    // Fork the system coach as a different user in a different tenant
+    let forked = manager
+        .fork_coach(
+            &system_coach.id.to_string(),
+            other_user_id(),
+            other_tenant(),
+        )
+        .await
+        .unwrap();
+
+    // Verify the fork preserved all structured fields
+    assert_eq!(
+        forked.purpose,
+        Some("Analyze post-race data to identify strengths and weaknesses.".to_owned())
+    );
+    assert_eq!(
+        forked.when_to_use,
+        Some("After completing a race or time trial.".to_owned())
+    );
+    assert_eq!(
+        forked.instructions,
+        Some("Compare splits, heart rate zones, and pacing strategy against the goal.".to_owned())
+    );
+    assert_eq!(
+        forked.example_inputs,
+        Some("Here is my 10K race from last weekend.".to_owned())
+    );
+    assert_eq!(
+        forked.example_outputs,
+        Some("Provide split analysis, HR zone time, and pacing recommendations.".to_owned())
+    );
+    assert_eq!(
+        forked.success_criteria,
+        Some("Identify at least two actionable improvements for the next race.".to_owned())
+    );
+
+    // Fork should not be a system coach
+    assert!(!forked.is_system);
+    assert_eq!(forked.forked_from, Some(system_coach.id.to_string()));
+
+    // Verify persistence through a fresh get
+    let fetched = manager
+        .get(&forked.id.to_string(), other_user_id(), other_tenant())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(fetched.purpose, forked.purpose);
+    assert_eq!(fetched.instructions, forked.instructions);
+    assert_eq!(fetched.example_inputs, forked.example_inputs);
+    assert_eq!(fetched.example_outputs, forked.example_outputs);
+    assert_eq!(fetched.success_criteria, forked.success_criteria);
+}
+
+#[tokio::test]
+async fn test_token_count_with_structured_fields() {
+    let pool = create_test_db().await;
+    let manager = CoachesManager::new(pool);
+
+    let purpose = "Help athletes build a training plan.";
+    let instructions = "You are an expert coach who builds periodized plans.";
+    let example_inputs = "I want to run a sub-3:30 marathon.";
+    let example_outputs = "Week-by-week breakdown with paces.";
+    let success_criteria = "Progressive load with proper taper.";
+
+    let request = CreateCoachRequest {
+        title: "Token Count Coach".to_owned(),
+        description: None,
+        system_prompt: "This fallback prompt should not be used for token counting.".to_owned(),
+        category: CoachCategory::Training,
+        tags: vec![],
+        sample_prompts: vec![],
+        startup_query: None,
+        data_requirements: None,
+        purpose: Some(purpose.to_owned()),
+        when_to_use: Some("When preparing for a race.".to_owned()),
+        instructions: Some(instructions.to_owned()),
+        example_inputs: Some(example_inputs.to_owned()),
+        example_outputs: Some(example_outputs.to_owned()),
+        success_criteria: Some(success_criteria.to_owned()),
+    };
+
+    let coach = manager
+        .create(test_user_id(), test_tenant(), &request)
+        .await
+        .unwrap();
+
+    // Token count should be computed from sections (purpose + instructions +
+    // example_inputs + example_outputs + success_criteria) / 4.
+    // when_to_use is NOT counted.
+    let total_chars = purpose.len()
+        + instructions.len()
+        + example_inputs.len()
+        + example_outputs.len()
+        + success_criteria.len();
+    #[allow(clippy::cast_possible_truncation)]
+    let expected_token_count = (total_chars / 4) as u32;
+
+    assert_eq!(coach.token_count, expected_token_count);
+
+    // Also verify it does NOT equal system_prompt-based count
+    #[allow(clippy::cast_possible_truncation)]
+    let system_prompt_token_count =
+        ("This fallback prompt should not be used for token counting.".len() / 4) as u32;
+    assert_ne!(
+        coach.token_count, system_prompt_token_count,
+        "Token count should come from structured sections, not system_prompt"
+    );
 }

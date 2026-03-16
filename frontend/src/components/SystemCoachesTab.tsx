@@ -38,6 +38,12 @@ interface CoachFormData {
   category: string;
   tags: string;
   visibility: string;
+  purpose: string;
+  when_to_use: string;
+  instructions: string;
+  example_inputs: string;
+  example_outputs: string;
+  success_criteria: string;
 }
 
 const defaultFormData: CoachFormData = {
@@ -47,6 +53,12 @@ const defaultFormData: CoachFormData = {
   category: 'Training',
   tags: '',
   visibility: 'tenant',
+  purpose: '',
+  when_to_use: '',
+  instructions: '',
+  example_inputs: '',
+  example_outputs: '',
+  success_criteria: '',
 };
 
 export default function SystemCoachesTab() {
@@ -87,6 +99,12 @@ export default function SystemCoachesTab() {
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
       visibility: data.visibility,
+      purpose: data.purpose.trim() || undefined,
+      when_to_use: data.when_to_use.trim() || undefined,
+      instructions: data.instructions.trim() || undefined,
+      example_inputs: data.example_inputs.trim() || undefined,
+      example_outputs: data.example_outputs.trim() || undefined,
+      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoaches.system() });
@@ -103,6 +121,12 @@ export default function SystemCoachesTab() {
       system_prompt: data.system_prompt,
       category: data.category,
       tags: data.tags.split(',').map(t => t.trim()).filter(Boolean),
+      purpose: data.purpose.trim() || undefined,
+      when_to_use: data.when_to_use.trim() || undefined,
+      instructions: data.instructions.trim() || undefined,
+      example_inputs: data.example_inputs.trim() || undefined,
+      example_outputs: data.example_outputs.trim() || undefined,
+      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminCoaches.system() });
@@ -152,6 +176,12 @@ export default function SystemCoachesTab() {
         category: selectedCoach.category,
         tags: selectedCoach.tags.join(', '),
         visibility: selectedCoach.visibility || 'private',
+        purpose: selectedCoach.purpose || '',
+        when_to_use: selectedCoach.when_to_use || '',
+        instructions: selectedCoach.instructions || '',
+        example_inputs: selectedCoach.example_inputs || '',
+        example_outputs: selectedCoach.example_outputs || '',
+        success_criteria: selectedCoach.success_criteria || '',
       });
     }
   }, [isEditing, selectedCoach]);

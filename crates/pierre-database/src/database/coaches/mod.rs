@@ -16,6 +16,7 @@ mod user;
 mod versions;
 
 pub use types::*;
+pub use user::compute_request_hash;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -122,6 +123,14 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
     let data_requirements: Option<DataRequirements> =
         data_requirements_json.and_then(|json| serde_json::from_str(&json).ok());
 
+    // Structured sections (nullable columns populated by seeder or structured API)
+    let purpose: Option<String> = row.try_get("purpose").ok().flatten();
+    let when_to_use: Option<String> = row.try_get("when_to_use").ok().flatten();
+    let instructions: Option<String> = row.try_get("instructions").ok().flatten();
+    let example_inputs: Option<String> = row.try_get("example_inputs").ok().flatten();
+    let example_outputs: Option<String> = row.try_get("example_outputs").ok().flatten();
+    let success_criteria: Option<String> = row.try_get("success_criteria").ok().flatten();
+
     Ok(Coach {
         id: Uuid::parse_str(&id_str)
             .map_err(|e| AppError::internal(format!("Invalid UUID: {e}")))?,
@@ -149,6 +158,12 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         max_tool_iterations,
         startup_query,
         data_requirements,
+        purpose,
+        when_to_use,
+        instructions,
+        example_inputs,
+        example_outputs,
+        success_criteria,
     })
 }
 

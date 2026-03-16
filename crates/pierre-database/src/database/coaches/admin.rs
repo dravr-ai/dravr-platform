@@ -87,6 +87,12 @@ impl CoachesManager {
             max_tool_iterations: None,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         })
     }
 
@@ -101,7 +107,8 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE tenant_id = $1 AND is_system = 1
             ORDER BY created_at DESC
@@ -130,7 +137,8 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND tenant_id = $2 AND is_system = 1
             ",
@@ -158,7 +166,8 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND is_system = 1
             ",

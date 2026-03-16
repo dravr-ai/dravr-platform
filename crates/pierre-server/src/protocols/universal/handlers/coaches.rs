@@ -227,6 +227,12 @@ pub fn handle_create_coach(
             sample_prompts: params.sample_prompts,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let manager = get_coaches_manager(executor);
@@ -418,6 +424,12 @@ pub fn handle_update_coach(
                 }),
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let manager = get_coaches_manager(executor);
@@ -1467,6 +1479,12 @@ pub fn handle_admin_update_system_coach(
                 }),
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let manager = get_coaches_manager(executor);

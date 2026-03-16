@@ -22,6 +22,12 @@ interface Coach {
   last_used_at: string | null;
   is_system: boolean;
   is_assigned: boolean;
+  purpose?: string;
+  when_to_use?: string;
+  instructions?: string;
+  example_inputs?: string;
+  example_outputs?: string;
+  success_criteria?: string;
 }
 
 interface CoachFormData {
@@ -29,6 +35,12 @@ interface CoachFormData {
   description: string;
   system_prompt: string;
   category: string;
+  purpose: string;
+  when_to_use: string;
+  instructions: string;
+  example_inputs: string;
+  example_outputs: string;
+  success_criteria: string;
 }
 
 const DEFAULT_FORM_DATA: CoachFormData = {
@@ -36,6 +48,12 @@ const DEFAULT_FORM_DATA: CoachFormData = {
   description: '',
   system_prompt: '',
   category: 'Training',
+  purpose: '',
+  when_to_use: '',
+  instructions: '',
+  example_inputs: '',
+  example_outputs: '',
+  success_criteria: '',
 };
 
 export function useCoachManagement(enabled: boolean = true) {
@@ -145,6 +163,12 @@ export function useCoachManagement(enabled: boolean = true) {
         description: coach.description || '',
         system_prompt: coach.system_prompt,
         category: coach.category,
+        purpose: coach.purpose || '',
+        when_to_use: coach.when_to_use || '',
+        instructions: coach.instructions || '',
+        example_inputs: coach.example_inputs || '',
+        example_outputs: coach.example_outputs || '',
+        success_criteria: coach.success_criteria || '',
       });
     } else {
       setEditingCoachId(null);

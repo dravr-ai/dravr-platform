@@ -239,23 +239,100 @@ export function CoachDetailScreen() {
           </View>
         )}
 
-        {/* System Prompt */}
-        <View className="px-5 py-3">
-          <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">System Prompt</Text>
-          <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
-            <LinearGradient
-              colors={[categoryColor, `${categoryColor}40`] as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 2, width: '100%' }}
-            />
-            <View className="p-4">
-              <Text className="text-sm text-text-secondary leading-5 font-mono">
-                {coach.system_prompt}
-              </Text>
+        {/* Structured Sections (when available) or flat System Prompt */}
+        {coach.purpose || coach.instructions ? (
+          <>
+            {coach.purpose && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Purpose</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <LinearGradient
+                    colors={[categoryColor, `${categoryColor}40`] as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ height: 2, width: '100%' }}
+                  />
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5">{coach.purpose}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            {coach.when_to_use && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">When to Use</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5">{coach.when_to_use}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            {coach.instructions && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Instructions</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <LinearGradient
+                    colors={[categoryColor, `${categoryColor}40`] as [string, string]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ height: 2, width: '100%' }}
+                  />
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5 font-mono">{coach.instructions}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            {coach.example_inputs && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Example Inputs</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5">{coach.example_inputs}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            {coach.example_outputs && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Example Outputs</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5">{coach.example_outputs}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            {coach.success_criteria && (
+              <View className="px-5 py-3">
+                <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Success Criteria</Text>
+                <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+                  <View className="p-4">
+                    <Text className="text-sm text-text-secondary leading-5">{coach.success_criteria}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+          </>
+        ) : (
+          <View className="px-5 py-3">
+            <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">System Prompt</Text>
+            <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
+              <LinearGradient
+                colors={[categoryColor, `${categoryColor}40`] as [string, string]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ height: 2, width: '100%' }}
+              />
+              <View className="p-4">
+                <Text className="text-sm text-text-secondary leading-5 font-mono">
+                  {coach.system_prompt}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Metadata */}
         <View className="px-5 py-3">

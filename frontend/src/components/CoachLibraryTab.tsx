@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
 import { coachesApi } from '../services/api';
 import type { Coach } from '../types/api';
+import type { ImportPreviewResponse } from '@pierre/shared-types';
 import { Card, Button, TabHeader } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -70,6 +71,12 @@ interface CoachFormData {
   time_frame: string;
   detail_mode: string;
   athlete_profile: boolean;
+  purpose: string;
+  when_to_use: string;
+  instructions: string;
+  example_inputs: string;
+  example_outputs: string;
+  success_criteria: string;
 }
 
 const defaultFormData: CoachFormData = {
@@ -85,6 +92,12 @@ const defaultFormData: CoachFormData = {
   time_frame: '12w',
   detail_mode: 'summary',
   athlete_profile: false,
+  purpose: '',
+  when_to_use: '',
+  instructions: '',
+  example_inputs: '',
+  example_outputs: '',
+  success_criteria: '',
 };
 
 interface CoachLibraryTabProps {
@@ -105,6 +118,14 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   const [actionMenuCoach, setActionMenuCoach] = useState<Coach | null>(null);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [renameValue, setRenameValue] = useState('');
+  const [showImportMenu, setShowImportMenu] = useState(false);
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importPreviewData, setImportPreviewData] = useState<ImportPreviewResponse | null>(null);
+  const [pendingImportSource, setPendingImportSource] = useState<{ type: 'file'; content: string } | { type: 'url'; url: string } | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const importMenuRef = useRef<HTMLDivElement>(null);
 
   // Fetch all coaches (including hidden) for client-side filtering
   const { data: coachesData, isLoading: coachesLoading } = useQuery({
@@ -140,6 +161,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         },
         athlete_profile: data.athlete_profile,
       } : undefined,
+      purpose: data.purpose.trim() || undefined,
+      when_to_use: data.when_to_use.trim() || undefined,
+      instructions: data.instructions.trim() || undefined,
+      example_inputs: data.example_inputs.trim() || undefined,
+      example_outputs: data.example_outputs.trim() || undefined,
+      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
@@ -168,6 +195,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         },
         athlete_profile: data.athlete_profile,
       } : undefined,
+      purpose: data.purpose.trim() || undefined,
+      when_to_use: data.when_to_use.trim() || undefined,
+      instructions: data.instructions.trim() || undefined,
+      example_inputs: data.example_inputs.trim() || undefined,
+      example_outputs: data.example_outputs.trim() || undefined,
+      success_criteria: data.success_criteria.trim() || undefined,
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
@@ -222,6 +255,130 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
     },
   });
 
+  // Import preview mutation (validates markdown before saving)
+  const importPreviewMutation = useMutation({
+    mutationFn: (markdown: string) => coachesApi.importPreview(markdown),
+    onSuccess: (data) => {
+      setImportPreviewData(data);
+      setImportError(null);
+    },
+    onError: (error: Error) => {
+      setImportError(error.message || 'Failed to preview import');
+      setImportPreviewData(null);
+    },
+  });
+
+  // Import from markdown mutation (saves the coach)
+  const importMarkdownMutation = useMutation({
+    mutationFn: (markdown: string) => coachesApi.importFromMarkdown(markdown),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setImportPreviewData(null);
+      setPendingImportSource(null);
+      setImportError(null);
+    },
+    onError: (error: Error) => {
+      setImportError(error.message || 'Failed to import coach');
+    },
+  });
+
+  // Import from URL preview mutation
+  const importUrlPreviewMutation = useMutation({
+    mutationFn: (url: string) => coachesApi.importFromUrl(url, false),
+    onSuccess: (data) => {
+      setImportPreviewData(data as ImportPreviewResponse);
+      setShowUrlDialog(false);
+      setImportError(null);
+    },
+    onError: (error: Error) => {
+      setImportError(error.message || 'Failed to fetch URL');
+    },
+  });
+
+  // Import from URL save mutation
+  const importUrlSaveMutation = useMutation({
+    mutationFn: (url: string) => coachesApi.importFromUrl(url, true),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.coaches.all });
+      setImportPreviewData(null);
+      setPendingImportSource(null);
+      setImportError(null);
+    },
+    onError: (error: Error) => {
+      setImportError(error.message || 'Failed to import coach from URL');
+    },
+  });
+
+  // Export coach mutation
+  const exportMutation = useMutation({
+    mutationFn: (coachId: string) => coachesApi.exportAsMarkdown(coachId),
+    onSuccess: (markdown, coachId) => {
+      const coach = (coachesData?.coaches || []).find(c => c.id === coachId);
+      const filename = (coach?.title || 'coach').toLowerCase().replace(/\s+/g, '-') + '.md';
+      const blob = new Blob([markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    },
+  });
+
+  // Close import menu when clicking outside
+  useEffect(() => {
+    if (!showImportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (importMenuRef.current && !importMenuRef.current.contains(e.target as Node)) {
+        setShowImportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showImportMenu]);
+
+  // Handle file selection for import
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setPendingImportSource({ type: 'file', content });
+      importPreviewMutation.mutate(content);
+    };
+    reader.readAsText(file);
+    // Reset file input so the same file can be selected again
+    e.target.value = '';
+  }, [importPreviewMutation]);
+
+  // Handle URL import submission
+  const handleUrlImportSubmit = useCallback(() => {
+    const trimmed = importUrl.trim();
+    if (!trimmed) return;
+    setPendingImportSource({ type: 'url', url: trimmed });
+    importUrlPreviewMutation.mutate(trimmed);
+  }, [importUrl, importUrlPreviewMutation]);
+
+  // Confirm import after preview
+  const handleConfirmImport = useCallback(() => {
+    if (!pendingImportSource) return;
+    if (pendingImportSource.type === 'file') {
+      importMarkdownMutation.mutate(pendingImportSource.content);
+    } else {
+      importUrlSaveMutation.mutate(pendingImportSource.url);
+    }
+  }, [pendingImportSource, importMarkdownMutation, importUrlSaveMutation]);
+
+  // Cancel import preview
+  const handleCancelImport = useCallback(() => {
+    setImportPreviewData(null);
+    setPendingImportSource(null);
+    setImportError(null);
+  }, []);
+
   // Load form data when editing
   useEffect(() => {
     if (isEditing && selectedCoach) {
@@ -238,6 +395,12 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         time_frame: selectedCoach.data_requirements?.activities?.time_frame || '12w',
         detail_mode: selectedCoach.data_requirements?.activities?.mode || 'summary',
         athlete_profile: selectedCoach.data_requirements?.athlete_profile ?? false,
+        purpose: selectedCoach.purpose || '',
+        when_to_use: selectedCoach.when_to_use || '',
+        instructions: selectedCoach.instructions || '',
+        example_inputs: selectedCoach.example_inputs || '',
+        example_outputs: selectedCoach.example_outputs || '',
+        success_criteria: selectedCoach.success_criteria || '',
       });
     }
   }, [isEditing, selectedCoach]);
@@ -388,6 +551,58 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   )}
                 </svg>
               </button>
+              {/* Import button with dropdown */}
+              <div className="relative" ref={importMenuRef}>
+                <button
+                  onClick={() => setShowImportMenu(!showImportMenu)}
+                  className="p-2 rounded-lg text-zinc-400 hover:text-pierre-violet hover:bg-white/5 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  title="Import Coach"
+                  aria-label="Import Coach"
+                >
+                  <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                </button>
+                {showImportMenu && (
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-[#1E1B2D] rounded-lg border border-white/10 shadow-xl z-50 py-1">
+                    <button
+                      onClick={() => {
+                        setShowImportMenu(false);
+                        fileInputRef.current?.click();
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                    >
+                      <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      Import from File
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowImportMenu(false);
+                        setImportUrl('');
+                        setImportError(null);
+                        setShowUrlDialog(true);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                    >
+                      <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                      </svg>
+                      Import from URL
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Hidden file input for markdown import */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,text/markdown"
+                className="hidden"
+                onChange={handleFileImport}
+                aria-hidden="true"
+              />
               <button
                 onClick={() => {
                   setFormData(defaultFormData);
@@ -638,58 +853,70 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                     </button>
                   </div>
 
-                  {/* Action row for system coaches and hidden coaches */}
-                  {(coach.is_system || isHidden) && (
-                    <div className="flex items-center justify-end mt-3 pt-2 border-t border-white/5 gap-2">
-                      {/* Fork button for system coaches */}
-                      {coach.is_system && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleForkCoach(coach);
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                          <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                          </svg>
-                          Fork
-                        </button>
-                      )}
-                      {/* Hide/Show button */}
-                      {coach.is_system && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (isHidden) {
-                              handleShowCoach(coach);
-                            } else {
-                              handleHideCoach(coach);
-                            }
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                          <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {isHidden ? (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            ) : (
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                            )}
-                          </svg>
-                          {isHidden ? 'Show' : 'Hide'}
-                        </button>
-                      )}
-                      {/* Hidden indicator for non-system coaches */}
-                      {isHidden && !coach.is_system && (
-                        <span className="flex items-center gap-1 text-xs text-zinc-500">
-                          <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {/* Action row with export (always) and system/hidden actions */}
+                  <div className="flex items-center justify-end mt-3 pt-2 border-t border-white/5 gap-2">
+                    {/* Export button (available for all coaches) */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        exportMutation.mutate(coach.id);
+                      }}
+                      disabled={exportMutation.isPending}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                    >
+                      <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      {exportMutation.isPending ? 'Exporting...' : 'Export'}
+                    </button>
+                    {/* Fork button for system coaches */}
+                    {coach.is_system && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleForkCoach(coach);
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Fork
+                      </button>
+                    )}
+                    {/* Hide/Show button */}
+                    {coach.is_system && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isHidden) {
+                            handleShowCoach(coach);
+                          } else {
+                            handleHideCoach(coach);
+                          }
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          {isHidden ? (
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          ) : (
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                          </svg>
-                          Hidden
-                        </span>
-                      )}
-                    </div>
-                  )}
+                          )}
+                        </svg>
+                        {isHidden ? 'Show' : 'Hide'}
+                      </button>
+                    )}
+                    {/* Hidden indicator for non-system coaches */}
+                    {isHidden && !coach.is_system && (
+                      <span className="flex items-center gap-1 text-xs text-zinc-500">
+                        <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                        </svg>
+                        Hidden
+                      </span>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -836,6 +1063,175 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 </Button>
                 <Button onClick={handleRenameSubmit}>Save</Button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import from URL Dialog */}
+        {showUrlDialog && (
+          <div
+            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
+            onClick={() => {
+              setShowUrlDialog(false);
+              setImportError(null);
+            }}
+          >
+            <div
+              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-md shadow-xl border border-white/10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold text-white mb-2">Import from URL</h3>
+              <p className="text-sm text-zinc-400 mb-4">Enter the URL of a markdown coach file.</p>
+              <input
+                type="url"
+                value={importUrl}
+                onChange={(e) => setImportUrl(e.target.value)}
+                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-3"
+                placeholder="https://example.com/coach.md"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleUrlImportSubmit();
+                  }
+                }}
+              />
+              {importError && (
+                <p className="text-sm text-pierre-red-500 mb-3">{importError}</p>
+              )}
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShowUrlDialog(false);
+                    setImportError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleUrlImportSubmit}
+                  disabled={!importUrl.trim() || importUrlPreviewMutation.isPending}
+                >
+                  {importUrlPreviewMutation.isPending ? (
+                    <span className="flex items-center gap-2">
+                      <div className="pierre-spinner w-4 h-4"></div>
+                      Fetching...
+                    </span>
+                  ) : (
+                    'Preview'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Import Preview Dialog */}
+        {importPreviewData && (
+          <div
+            className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
+            onClick={handleCancelImport}
+          >
+            <div
+              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-lg shadow-xl border border-white/10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold text-white mb-4">Import Preview</h3>
+
+              {!importPreviewData.valid ? (
+                <div>
+                  <p className="text-sm text-pierre-red-500 mb-3">This file cannot be imported:</p>
+                  {importPreviewData.errors && importPreviewData.errors.length > 0 && (
+                    <ul className="list-disc list-inside text-sm text-pierre-red-400 mb-4 space-y-1">
+                      {importPreviewData.errors.map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="flex justify-end">
+                    <Button variant="secondary" onClick={handleCancelImport}>Close</Button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {importPreviewData.parsed && (
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-zinc-400">Name:</span>
+                        <span className="text-sm text-white font-medium">{importPreviewData.parsed.title}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-zinc-400">Category:</span>
+                        <span className={clsx(
+                          'px-2 py-0.5 text-xs font-medium rounded-full border',
+                          CATEGORY_COLORS[importPreviewData.parsed.category] || CATEGORY_COLORS.Custom
+                        )}>
+                          {importPreviewData.parsed.category}
+                        </span>
+                      </div>
+                      {importPreviewData.parsed.tags.length > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm text-zinc-400">Tags:</span>
+                          {importPreviewData.parsed.tags.map((tag) => (
+                            <span key={tag} className="px-2 py-0.5 text-xs bg-white/5 text-zinc-300 rounded-full">{tag}</span>
+                          ))}
+                        </div>
+                      )}
+                      {importPreviewData.token_count !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-zinc-400">Tokens:</span>
+                          <span className="text-sm text-zinc-300">~{importPreviewData.token_count.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 text-xs text-zinc-500">
+                        <span>Purpose: {importPreviewData.parsed.purpose ? 'Yes' : 'No'}</span>
+                        <span>Instructions: {importPreviewData.parsed.has_instructions ? 'Yes' : 'No'}</span>
+                        <span>Examples: {importPreviewData.parsed.has_example_inputs ? 'Yes' : 'No'}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {importPreviewData.duplicate_exists && (
+                    <div className="p-3 rounded-lg bg-pierre-yellow-500/10 border border-pierre-yellow-500/20 mb-4">
+                      <p className="text-sm text-pierre-yellow-400">
+                        A coach with matching content already exists. Importing will create a duplicate.
+                      </p>
+                    </div>
+                  )}
+
+                  {importPreviewData.warnings && importPreviewData.warnings.length > 0 && (
+                    <div className="p-3 rounded-lg bg-pierre-yellow-500/10 border border-pierre-yellow-500/20 mb-4">
+                      <p className="text-sm font-medium text-pierre-yellow-400 mb-1">Warnings:</p>
+                      <ul className="list-disc list-inside text-sm text-pierre-yellow-300 space-y-1">
+                        {importPreviewData.warnings.map((warn, i) => (
+                          <li key={i}>{warn}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {importError && (
+                    <p className="text-sm text-pierre-red-500 mb-3">{importError}</p>
+                  )}
+
+                  <div className="flex justify-end gap-3">
+                    <Button variant="secondary" onClick={handleCancelImport}>Cancel</Button>
+                    <Button
+                      onClick={handleConfirmImport}
+                      disabled={importMarkdownMutation.isPending || importUrlSaveMutation.isPending}
+                    >
+                      {(importMarkdownMutation.isPending || importUrlSaveMutation.isPending) ? (
+                        <span className="flex items-center gap-2">
+                          <div className="pierre-spinner w-4 h-4"></div>
+                          Importing...
+                        </span>
+                      ) : (
+                        'Import'
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1196,13 +1592,66 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </div>
         </div>
 
-        {/* System Prompt */}
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-zinc-300 mb-2">System Prompt</h3>
-          <div className="p-4 bg-white/5 rounded-lg font-mono text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
-            {selectedCoach.system_prompt}
+        {/* Structured Sections (when available) or flat System Prompt */}
+        {selectedCoach.purpose || selectedCoach.instructions ? (
+          <div className="space-y-4 mb-6">
+            {selectedCoach.purpose && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">Purpose</h3>
+                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                  {selectedCoach.purpose}
+                </div>
+              </div>
+            )}
+            {selectedCoach.when_to_use && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">When to Use</h3>
+                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                  {selectedCoach.when_to_use}
+                </div>
+              </div>
+            )}
+            {selectedCoach.instructions && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">Instructions</h3>
+                <div className="p-4 bg-white/5 rounded-lg font-mono text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {selectedCoach.instructions}
+                </div>
+              </div>
+            )}
+            {selectedCoach.example_inputs && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">Example Inputs</h3>
+                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                  {selectedCoach.example_inputs}
+                </div>
+              </div>
+            )}
+            {selectedCoach.example_outputs && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">Example Outputs</h3>
+                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                  {selectedCoach.example_outputs}
+                </div>
+              </div>
+            )}
+            {selectedCoach.success_criteria && (
+              <div>
+                <h3 className="text-sm font-medium text-zinc-300 mb-2">Success Criteria</h3>
+                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                  {selectedCoach.success_criteria}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-zinc-300 mb-2">System Prompt</h3>
+            <div className="p-4 bg-white/5 rounded-lg font-mono text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+              {selectedCoach.system_prompt}
+            </div>
+          </div>
+        )}
 
         {/* Tags */}
         {selectedCoach.tags.length > 0 && (

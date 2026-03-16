@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::CoachPrerequisites;
@@ -33,7 +36,43 @@ impl CoachesManager {
         let id = Uuid::new_v4();
         let tags_json = serde_json::to_string(&request.tags)?;
         let sample_prompts_json = serde_json::to_string(&request.sample_prompts)?;
-        let token_count = Self::estimate_tokens(&request.system_prompt);
+
+        // When structured `instructions` is provided, use it as the runtime system_prompt
+        let effective_system_prompt = request
+            .instructions
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&request.system_prompt);
+
+        // Build a temporary Coach to compute section-aware token count
+        let coach_for_tokens = Coach {
+            id,
+            user_id,
+            tenant_id: tenant_id.to_string(),
+            title: request.title.clone(),
+            description: request.description.clone(),
+            system_prompt: effective_system_prompt.to_owned(),
+            category: request.category,
+            tags: request.tags.clone(),
+            sample_prompts: request.sample_prompts.clone(),
+            token_count: 0,
+            created_at: now,
+            updated_at: now,
+            is_system: false,
+            visibility: CoachVisibility::Private,
+            prerequisites: CoachPrerequisites::default(),
+            forked_from: None,
+            max_tool_iterations: None,
+            startup_query: request.startup_query.clone(),
+            data_requirements: request.data_requirements.clone(),
+            purpose: request.purpose.clone(),
+            when_to_use: request.when_to_use.clone(),
+            instructions: request.instructions.clone(),
+            example_inputs: request.example_inputs.clone(),
+            example_outputs: request.example_outputs.clone(),
+            success_criteria: request.success_criteria.clone(),
+        };
+        let token_count = coach_for_tokens.compute_token_count();
 
         // Serialize data_requirements to JSON if present
         let data_requirements_json = request
@@ -41,14 +80,19 @@ impl CoachesManager {
             .as_ref()
             .and_then(|dr| serde_json::to_string(dr).ok());
 
+        // Compute content hash from request fields for deduplication
+        let content_hash = compute_request_hash(request);
+
         sqlx::query(
             r"
             INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
+                forked_from, max_tool_iterations, startup_query, data_requirements,
+                purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
+                content_hash
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             ",
         )
         .bind(id.to_string())
@@ -56,7 +100,7 @@ impl CoachesManager {
         .bind(tenant_id)
         .bind(&request.title)
         .bind(&request.description)
-        .bind(&request.system_prompt)
+        .bind(effective_system_prompt)
         .bind(request.category.as_str())
         .bind(&tags_json)
         .bind(&sample_prompts_json)
@@ -69,6 +113,13 @@ impl CoachesManager {
         .bind(Option::<i32>::None) // max_tool_iterations
         .bind(&request.startup_query)
         .bind(&data_requirements_json)
+        .bind(&request.purpose)
+        .bind(&request.when_to_use)
+        .bind(&request.instructions)
+        .bind(&request.example_inputs)
+        .bind(&request.example_outputs)
+        .bind(&request.success_criteria)
+        .bind(&content_hash)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?;
@@ -95,7 +146,7 @@ impl CoachesManager {
             tenant_id: tenant_id.to_string(),
             title: request.title.clone(),
             description: request.description.clone(),
-            system_prompt: request.system_prompt.clone(),
+            system_prompt: effective_system_prompt.to_owned(),
             category: request.category,
             tags: request.tags.clone(),
             sample_prompts: request.sample_prompts.clone(),
@@ -109,6 +160,12 @@ impl CoachesManager {
             max_tool_iterations: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
+            purpose: request.purpose.clone(),
+            when_to_use: request.when_to_use.clone(),
+            instructions: request.instructions.clone(),
+            example_inputs: request.example_inputs.clone(),
+            example_outputs: request.example_outputs.clone(),
+            success_criteria: request.success_criteria.clone(),
         })
     }
 
@@ -128,7 +185,8 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -199,6 +257,7 @@ impl CoachesManager {
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
                    c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
                    COALESCE(ca.is_active, 0) as is_active,
@@ -331,12 +390,31 @@ impl CoachesManager {
             existing_row.and_then(|(dr,)| dr)
         };
 
+        // Resolve structured sections: use new value if provided, otherwise keep existing
+        let purpose = request.purpose.clone().or(existing.purpose);
+        let when_to_use = request.when_to_use.clone().or(existing.when_to_use);
+        let instructions = request.instructions.clone().or(existing.instructions);
+        let example_inputs = request.example_inputs.clone().or(existing.example_inputs);
+        let example_outputs = request.example_outputs.clone().or(existing.example_outputs);
+        let success_criteria = request
+            .success_criteria
+            .clone()
+            .or(existing.success_criteria);
+
+        // When instructions is updated, also update system_prompt for runtime compatibility
+        let system_prompt = instructions
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(system_prompt);
+
         let result = sqlx::query(
             r"
             UPDATE coaches SET
                 title = $1, description = $2, system_prompt = $3,
                 category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8,
-                startup_query = $12, data_requirements = $13
+                startup_query = $12, data_requirements = $13,
+                purpose = $14, when_to_use = $15, instructions = $16,
+                example_inputs = $17, example_outputs = $18, success_criteria = $19
             WHERE id = $9 AND user_id = $10 AND tenant_id = $11
             ",
         )
@@ -353,6 +431,12 @@ impl CoachesManager {
         .bind(tenant_id)
         .bind(&startup_query)
         .bind(&data_requirements_json)
+        .bind(&purpose)
+        .bind(&when_to_use)
+        .bind(&instructions)
+        .bind(&example_inputs)
+        .bind(&example_outputs)
+        .bind(&success_criteria)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update coach: {e}")))?;
@@ -437,8 +521,9 @@ impl CoachesManager {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
+                forked_from, max_tool_iterations, startup_query, data_requirements,
+                purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
             ",
         )
         .bind(id.to_string())
@@ -459,6 +544,12 @@ impl CoachesManager {
         .bind(source.max_tool_iterations) // max_tool_iterations (inherit from source)
         .bind(&source.startup_query) // startup_query (inherit from source)
         .bind(&source_data_requirements_json) // data_requirements (inherit from source)
+        .bind(&source.purpose)
+        .bind(&source.when_to_use)
+        .bind(&source.instructions)
+        .bind(&source.example_inputs)
+        .bind(&source.example_outputs)
+        .bind(&source.success_criteria)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to fork coach: {e}")))?;
@@ -499,6 +590,12 @@ impl CoachesManager {
             max_tool_iterations: source.max_tool_iterations,
             startup_query: source.startup_query,
             data_requirements: source.data_requirements,
+            purpose: source.purpose,
+            when_to_use: source.when_to_use,
+            instructions: source.instructions,
+            example_inputs: source.example_inputs,
+            example_outputs: source.example_outputs,
+            success_criteria: source.success_criteria,
         })
     }
 
@@ -661,7 +758,8 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (
                 title LIKE $3 OR description LIKE $3 OR tags LIKE $3
@@ -779,7 +877,8 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements
+                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
             WHERE ca.is_active = 1 AND c.tenant_id = $2
@@ -793,4 +892,57 @@ impl CoachesManager {
 
         row.map(|r| row_to_coach(&r)).transpose()
     }
+
+    /// Find a coach by content hash for deduplication within a user's coaches.
+    ///
+    /// Returns the first coach matching the given `content_hash` for the specified
+    /// user and tenant, or None if no match exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if database operation fails
+    pub async fn find_by_content_hash(
+        &self,
+        content_hash: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, title, description, system_prompt,
+                   category, tags, sample_prompts, token_count,
+                   created_at, updated_at, is_system, visibility, prerequisites,
+                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
+            FROM coaches
+            WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3
+            LIMIT 1
+            ",
+        )
+        .bind(content_hash)
+        .bind(user_id.to_string())
+        .bind(tenant_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to find coach by content hash: {e}")))?;
+
+        row.map(|r| row_to_coach(&r)).transpose()
+    }
+}
+
+/// Compute a content hash from a `CreateCoachRequest` using `DefaultHasher`.
+///
+/// Hashes the title, `system_prompt`, tags, and all structured section fields
+/// to produce a deterministic 16-character hex string for deduplication.
+pub fn compute_request_hash(request: &CreateCoachRequest) -> String {
+    let mut hasher = DefaultHasher::new();
+    request.title.hash(&mut hasher);
+    request.system_prompt.hash(&mut hasher);
+    request.tags.hash(&mut hasher);
+    request.purpose.hash(&mut hasher);
+    request.instructions.hash(&mut hasher);
+    request.example_inputs.hash(&mut hasher);
+    request.example_outputs.hash(&mut hasher);
+    request.success_criteria.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }

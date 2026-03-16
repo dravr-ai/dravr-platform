@@ -174,6 +174,25 @@ impl CoachesRepository for Database {
         }
     }
 
+    async fn find_by_content_hash(
+        &self,
+        content_hash: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Coach>> {
+        match self {
+            Self::SQLite(db) => {
+                db.find_by_content_hash(content_hash, user_id, tenant_id)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.find_by_content_hash(content_hash, user_id, tenant_id)
+                    .await
+            }
+        }
+    }
+
     async fn create_system_coach(
         &self,
         admin_user_id: Uuid,

@@ -13,11 +13,13 @@ import type {
   CoachVersion,
   FieldChange,
   ForkCoachResponse,
+  ImportCoachResponse,
+  ImportPreviewResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { Coach, CreateCoachRequest, UpdateCoachRequest, ListCoachesResponse, CoachVersion, ForkCoachResponse };
+export type { Coach, CreateCoachRequest, UpdateCoachRequest, ListCoachesResponse, CoachVersion, ForkCoachResponse, ImportCoachResponse, ImportPreviewResponse };
 
 export interface ListCoachesOptions {
   category?: string;
@@ -242,6 +244,44 @@ export function createCoachesApi(axios: AxiosInstance) {
       request: GenerateCoachRequest
     ): Promise<GenerateCoachResponse> {
       const response = await axios.post<GenerateCoachResponse>(ENDPOINTS.COACHES.GENERATE, request);
+      return response.data;
+    },
+
+    /**
+     * Import a coach from markdown content.
+     */
+    async importFromMarkdown(markdown: string): Promise<ImportCoachResponse> {
+      const response = await axios.post<ImportCoachResponse>(ENDPOINTS.COACHES.IMPORT, markdown, {
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      return response.data;
+    },
+
+    /**
+     * Preview a coach import from markdown without saving.
+     */
+    async importPreview(markdown: string): Promise<ImportPreviewResponse> {
+      const response = await axios.post<ImportPreviewResponse>(ENDPOINTS.COACHES.IMPORT_PREVIEW, markdown, {
+        headers: { 'Content-Type': 'text/plain' },
+      });
+      return response.data;
+    },
+
+    /**
+     * Import a coach from a URL. When save is false, returns a preview.
+     */
+    async importFromUrl(url: string, save = true): Promise<ImportCoachResponse | ImportPreviewResponse> {
+      const response = await axios.post(ENDPOINTS.COACHES.IMPORT_URL, { url, save });
+      return response.data;
+    },
+
+    /**
+     * Export a coach as markdown text.
+     */
+    async exportAsMarkdown(coachId: string): Promise<string> {
+      const response = await axios.get<string>(ENDPOINTS.COACHES.EXPORT(coachId), {
+        responseType: 'text',
+      });
       return response.data;
     },
   };

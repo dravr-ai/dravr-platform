@@ -11,7 +11,7 @@ use crate::{
     errors::AppError,
     llm::{get_coach_generation_prompt, ChatMessage, ChatRequest},
     mcp::resources::ServerResources,
-    services::{coaches as coaches_service, recipes as recipes_service},
+    services::{coach_import, coaches as coaches_service, recipes as recipes_service},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -22,14 +22,16 @@ use axum::{
 use pierre_core::models::coaches::{
     CoachCategory, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
+use pierre_database::database::coaches::compute_request_hash;
 use pierre_database::database::{repositories::OAuthTokenRepository, ChatManager};
 use std::sync::Arc;
 
 use super::types::{
     CoachResponse, CreateCoachBody, ForkCoachResponse, GenerateCoachRequest, GenerateCoachResponse,
-    GeneratedCoachData, HideCoachResponse, ImportCoachResponse, ListCoachesQuery,
-    ListCoachesResponse, MissingPrerequisite, RecordUsageResponse, SearchCoachesQuery,
-    ToggleFavoriteResponse, UpdateCoachBody,
+    GeneratedCoachData, HideCoachResponse, ImportCoachResponse, ImportFromUrlBody,
+    ImportPreviewResponse, ListCoachesQuery, ListCoachesResponse, MissingPrerequisite,
+    ParsedCoachFields, RecordUsageResponse, SearchCoachesQuery, ToggleFavoriteResponse,
+    UpdateCoachBody,
 };
 
 /// Handle GET /api/coaches - List coaches for a user
@@ -251,6 +253,10 @@ pub(super) async fn handle_export(
 }
 
 /// Handle POST /api/coaches/import - Import coach from markdown
+///
+/// Parses markdown content, checks for duplicate content hashes, and
+/// creates a new coach. Returns 409 Conflict if a coach with the same
+/// content already exists for this user.
 pub(super) async fn handle_import(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
@@ -263,38 +269,181 @@ pub(super) async fn handle_import(
     let definition = parse_coach_content(&body, None)
         .map_err(|e| AppError::invalid_input(format!("Invalid markdown format: {e}")))?;
 
-    // Create coach from the parsed definition
-    let request = CreateCoachRequest {
-        title: definition.frontmatter.title,
-        description: Some(definition.sections.purpose.clone()),
-        system_prompt: definition.sections.instructions,
-        category: definition.frontmatter.category,
-        tags: definition.frontmatter.tags,
-        sample_prompts: definition
-            .sections
-            .example_inputs
-            .map(|inputs| {
-                inputs
-                    .lines()
-                    .filter_map(|line| {
-                        line.trim()
-                            .strip_prefix('-')
-                            .map(|s| s.trim().trim_matches('"').to_owned())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        startup_query: None,
-        data_requirements: None,
-    };
+    let warnings = coach_import::generate_import_warnings(&definition);
+    let parsed_name = definition.frontmatter.name.clone();
+    let token_count = definition.token_count;
 
+    let request = coach_import::definition_to_create_request(&definition);
+
+    // Check for duplicate using the same hash that create() will store
+    let request_hash = compute_request_hash(&request);
     let manager = super::get_coaches_manager(&resources);
+    if let Some(existing) = manager
+        .find_by_content_hash(&request_hash, auth.user_id, tenant_id)
+        .await?
+    {
+        return Err(AppError::already_exists(format!(
+            "Coach with identical content (id: {})",
+            existing.id
+        )));
+    }
+
     let coach = manager.create(auth.user_id, tenant_id, &request).await?;
 
     let response = ImportCoachResponse {
         coach: coach.into(),
-        parsed_name: definition.frontmatter.name,
-        token_count: definition.token_count,
+        parsed_name,
+        token_count,
+        warnings,
+    };
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// Handle POST /api/coaches/import/preview - Preview a markdown import without saving
+///
+/// Parses the markdown content and returns validation results, warnings,
+/// and duplicate detection information without creating a coach.
+pub(super) async fn handle_import_preview(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Response, AppError> {
+    let auth = super::authenticate(&headers, &resources).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    match parse_coach_content(&body, None) {
+        Ok(definition) => {
+            let warnings = coach_import::generate_import_warnings(&definition);
+            let token_count = definition.token_count;
+            let request = coach_import::definition_to_create_request(&definition);
+            let content_hash = compute_request_hash(&request);
+
+            // Check for duplicate using the same hash that create() stores
+            let manager = super::get_coaches_manager(&resources);
+            let duplicate = manager
+                .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
+                .await?;
+
+            let parsed = ParsedCoachFields {
+                name: definition.frontmatter.name,
+                title: definition.frontmatter.title,
+                category: definition.frontmatter.category.as_str().to_owned(),
+                tags: definition.frontmatter.tags,
+                purpose: definition.sections.purpose,
+                has_instructions: !definition.sections.instructions.is_empty(),
+                has_example_inputs: definition.sections.example_inputs.is_some(),
+                has_example_outputs: definition.sections.example_outputs.is_some(),
+                has_success_criteria: definition.sections.success_criteria.is_some(),
+            };
+
+            let response = ImportPreviewResponse {
+                valid: true,
+                parsed: Some(parsed),
+                errors: Vec::new(),
+                warnings,
+                content_hash: Some(content_hash),
+                duplicate_exists: duplicate.is_some(),
+                duplicate_coach_id: duplicate.map(|c| c.id.to_string()),
+                token_count: Some(token_count),
+            };
+
+            Ok((StatusCode::OK, Json(response)).into_response())
+        }
+        Err(e) => {
+            let response = ImportPreviewResponse {
+                valid: false,
+                parsed: None,
+                errors: vec![e.message],
+                warnings: Vec::new(),
+                content_hash: None,
+                duplicate_exists: false,
+                duplicate_coach_id: None,
+                token_count: None,
+            };
+
+            Ok((StatusCode::OK, Json(response)).into_response())
+        }
+    }
+}
+
+/// Handle POST /api/coaches/import/url - Import coach from a URL
+///
+/// Fetches markdown content from the given HTTPS URL with SSRF protection,
+/// then either saves as a new coach or returns a preview depending on the
+/// `save` parameter.
+pub(super) async fn handle_import_from_url(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    Json(body): Json<ImportFromUrlBody>,
+) -> Result<Response, AppError> {
+    let auth = super::authenticate(&headers, &resources).await?;
+    let tenant_id = super::get_user_tenant(&auth)?;
+
+    // Fetch markdown from the URL (includes SSRF validation)
+    let markdown = coach_import::fetch_markdown_from_url(&body.url).await?;
+
+    // Parse the fetched markdown
+    let definition = parse_coach_content(&markdown, Some(&body.url))
+        .map_err(|e| AppError::invalid_input(format!("Invalid markdown format: {e}")))?;
+
+    let warnings = coach_import::generate_import_warnings(&definition);
+    let token_count = definition.token_count;
+    let request = coach_import::definition_to_create_request(&definition);
+    let content_hash = compute_request_hash(&request);
+
+    let manager = super::get_coaches_manager(&resources);
+
+    if !body.save {
+        // Preview mode: return parsed fields without saving
+        let duplicate = manager
+            .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
+            .await?;
+
+        let parsed = ParsedCoachFields {
+            name: definition.frontmatter.name,
+            title: definition.frontmatter.title,
+            category: definition.frontmatter.category.as_str().to_owned(),
+            tags: definition.frontmatter.tags,
+            purpose: definition.sections.purpose,
+            has_instructions: !definition.sections.instructions.is_empty(),
+            has_example_inputs: definition.sections.example_inputs.is_some(),
+            has_example_outputs: definition.sections.example_outputs.is_some(),
+            has_success_criteria: definition.sections.success_criteria.is_some(),
+        };
+
+        let response = ImportPreviewResponse {
+            valid: true,
+            parsed: Some(parsed),
+            errors: Vec::new(),
+            warnings,
+            content_hash: Some(content_hash),
+            duplicate_exists: duplicate.is_some(),
+            duplicate_coach_id: duplicate.map(|c| c.id.to_string()),
+            token_count: Some(token_count),
+        };
+
+        return Ok((StatusCode::OK, Json(response)).into_response());
+    }
+
+    // Save mode: check for duplicates, then create
+    if let Some(existing) = manager
+        .find_by_content_hash(&content_hash, auth.user_id, tenant_id)
+        .await?
+    {
+        return Err(AppError::already_exists(format!(
+            "Coach with identical content (id: {})",
+            existing.id
+        )));
+    }
+
+    let parsed_name = definition.frontmatter.name.clone();
+    let coach = manager.create(auth.user_id, tenant_id, &request).await?;
+
+    let response = ImportCoachResponse {
+        coach: coach.into(),
+        parsed_name,
+        token_count,
+        warnings,
     };
     Ok((StatusCode::CREATED, Json(response)).into_response())
 }

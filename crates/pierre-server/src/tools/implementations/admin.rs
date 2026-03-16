@@ -580,6 +580,12 @@ impl McpTool for AdminUpdateSystemCoachTool {
             sample_prompts: None,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let manager = get_coaches_manager(ctx);

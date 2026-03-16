@@ -394,6 +394,12 @@ impl McpTool for CreateCoachTool {
             sample_prompts,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let coach = manager.create(ctx.user_id, tenant_id, &request).await?;
@@ -594,6 +600,12 @@ impl McpTool for UpdateCoachTool {
             sample_prompts,
             startup_query: None,
             data_requirements: None,
+            purpose: None,
+            when_to_use: None,
+            instructions: None,
+            example_inputs: None,
+            example_outputs: None,
+            success_criteria: None,
         };
 
         let coach = manager
