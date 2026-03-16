@@ -546,6 +546,12 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       time_frame: dr?.activities?.time_frame ?? '12w',
       detail_mode: (dr?.activities?.mode as 'summary' | 'detailed') ?? 'summary',
       athlete_profile: dr?.athlete_profile ?? false,
+      purpose: coach.purpose || '',
+      when_to_use: coach.when_to_use || '',
+      instructions: coach.instructions || '',
+      example_inputs: coach.example_inputs || '',
+      example_outputs: coach.example_outputs || '',
+      success_criteria: coach.success_criteria || '',
     });
     setShowCoachModal(true);
   };
