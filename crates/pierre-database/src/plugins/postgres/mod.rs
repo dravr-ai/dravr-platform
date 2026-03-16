@@ -343,6 +343,19 @@ impl DatabaseProvider for PostgresDatabase {
     async fn migrate(&self) -> AppResult<()> {
         info!("Running PostgreSQL database migrations...");
 
+        // Fix stale migration entry: version 20260316000002 was applied from a
+        // now-renamed file (nullable_user_id → 20260316000003). The version slot
+        // is now occupied by verify_token.sql which has a different checksum.
+        // Delete the stale entry so the correct migration can be applied cleanly.
+        sqlx::query(
+            "DELETE FROM _sqlx_migrations \
+             WHERE version = 20260316000002 \
+             AND description != 'messaging verify token'",
+        )
+        .execute(&self.pool)
+        .await
+        .ok();
+
         sqlx::migrate!("./migrations_pg")
             .set_ignore_missing(true)
             .run(&self.pool)
