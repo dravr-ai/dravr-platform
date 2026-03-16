@@ -45,22 +45,25 @@ interface DeleteChannelConfigResponse {
 
 export const messagingApi = {
   async listChannels(): Promise<ChannelConfigResponse> {
-    return pierreApi.adapter.get<ChannelConfigResponse>('/api/messaging/channels');
+    const response = await pierreApi.axios.get<ChannelConfigResponse>('/api/messaging/channels');
+    return response.data;
   },
 
   async upsertChannel(
     channel: string,
     body: UpsertChannelConfigRequest
   ): Promise<UpsertChannelConfigResponse> {
-    return pierreApi.adapter.put<UpsertChannelConfigResponse>(
+    const response = await pierreApi.axios.put<UpsertChannelConfigResponse>(
       `/api/messaging/channels/${channel}`,
       body
     );
+    return response.data;
   },
 
   async deleteChannel(channel: string): Promise<DeleteChannelConfigResponse> {
-    return pierreApi.adapter.delete<DeleteChannelConfigResponse>(
+    const response = await pierreApi.axios.delete<DeleteChannelConfigResponse>(
       `/api/messaging/channels/${channel}`
     );
+    return response.data;
   },
 };
