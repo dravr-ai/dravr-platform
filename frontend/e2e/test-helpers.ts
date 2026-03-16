@@ -293,6 +293,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
   });
 
   // Mock social endpoints (needed by Insights tab)
+  // Uses route.fallback() so test-specific social mocks can override
   await page.route('**/api/social/**', async (route) => {
     const url = route.request().url();
     if (url.includes('/friends')) {

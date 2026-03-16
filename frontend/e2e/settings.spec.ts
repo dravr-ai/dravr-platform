@@ -614,20 +614,22 @@ test.describe('Settings Page - User Mode', () => {
   test('data providers tab displays individual provider names', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // Override OAuth status AFTER setupAuthenticatedMocks (LIFO: last registered wins)
-    await page.route('**/api/oauth/status', async (route) => {
+    // Override providers status (Data Providers tab calls /api/providers via oauthApi.getProvidersStatus)
+    await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-          { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
-          { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-          { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
-        ]),
+        body: JSON.stringify({
+          providers: [
+            { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+            { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities', 'sleep'] },
+            { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+            { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+          ],
+        }),
       });
     });
 
@@ -647,20 +649,22 @@ test.describe('Settings Page - User Mode', () => {
   test('data providers tab distinguishes OAuth Connect buttons from Manual badges', async ({ page }) => {
     await loginAndNavigateToSettings(page);
 
-    // Override OAuth status AFTER setupAuthenticatedMocks (LIFO: last registered wins)
-    await page.route('**/api/oauth/status', async (route) => {
+    // Override providers status (Data Providers tab calls /api/providers via oauthApi.getProvidersStatus)
+    await page.route('**/api/providers', async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([
-          { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
-          { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
-          { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
-        ]),
+        body: JSON.stringify({
+          providers: [
+            { provider: 'strava', display_name: 'Strava', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'fitbit', display_name: 'Fitbit', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'garmin', display_name: 'Garmin', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'whoop', display_name: 'WHOOP', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'terra', display_name: 'Terra', requires_oauth: true, connected: false, capabilities: ['activities'] },
+            { provider: 'synthetic', display_name: 'Synthetic', requires_oauth: false, connected: false, capabilities: ['activities'] },
+            { provider: 'synthetic_sleep', display_name: 'Synthetic Sleep', requires_oauth: false, connected: false, capabilities: ['sleep'] },
+          ],
+        }),
       });
     });
 
