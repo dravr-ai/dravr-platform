@@ -100,6 +100,16 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       await axios.delete(ENDPOINTS.OAUTH.DISCONNECT(provider));
     },
 
+    /**
+     * Get the OAuth authorization URL for a provider from the server.
+     * Calls the mobile/init endpoint and returns just the URL string.
+     * Used by web frontend for popup OAuth flow.
+     */
+    async getAuthorizeUrlForProvider(provider: string): Promise<string> {
+      const response = await this.initMobileOAuth(provider);
+      return response.authorization_url;
+    },
+
     // Aliases for backward compatibility
     getOAuthStatus() {
       return this.getStatus();

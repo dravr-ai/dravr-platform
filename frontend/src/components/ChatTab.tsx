@@ -7,8 +7,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ConfirmDialog, TabHeader } from './ui';
-import { chatApi, providersApi, coachesApi } from '../services/api';
-import { oauthApi } from '../services/api/oauth';
+import { chatApi, providersApi, coachesApi, oauthApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import PromptSuggestions from './PromptSuggestions';
 import { MessageCircle, Plus, Sparkles } from 'lucide-react';
@@ -572,7 +571,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
       sessionStorage.setItem('pierre_oauth_conversation', selectedConversation);
     }
     try {
-      const authUrl = await oauthApi.getOAuthAuthorizeUrl(provider);
+      const authUrl = await oauthApi.getAuthorizeUrlForProvider(provider);
       window.open(authUrl, '_blank');
     } catch (error) {
       console.error(`Failed to get OAuth URL for ${provider}:`, error);

@@ -249,6 +249,16 @@ bun run e2e:build && bun run e2e:test
 
 ## Web Frontend Development (frontend/)
 
+### API Client Architecture: No Local Duplication
+
+**CRITICAL: Never create local API modules in `frontend/src/services/api/` for functionality that belongs in `@pierre/api-client`.**
+
+- All cross-platform API methods MUST live in `packages/api-client/src/domains/`
+- Web-only endpoints (admin, a2a, dashboard, keys, usage) stay local in `frontend/src/services/api/`
+- Components import domain APIs from `'../services/api'` barrel (`index.ts`), never directly from individual domain files
+- If a new endpoint is needed for both web and mobile: add it to `@pierre/api-client` first, then consume via the barrel
+- Types shared between web and mobile MUST come from `@pierre/shared-types`, not inline interfaces in local files
+
 ### Frontend Validation Commands
 When working on `frontend/`, run these validations:
 

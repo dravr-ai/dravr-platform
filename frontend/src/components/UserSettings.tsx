@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
-import { userApi, pierreApi, apiService } from '../services/api';
+import { userApi, pierreApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions } from './ui';
 import { clsx } from 'clsx';
@@ -185,7 +185,7 @@ export default function UserSettings() {
   // Fetch fitness provider connection status
   const { data: providersResponse, isLoading: isLoadingProviders, refetch: refetchProviders } = useQuery({
     queryKey: QUERY_KEYS.user.providerConnections(),
-    queryFn: () => apiService.getProvidersStatus(),
+    queryFn: () => oauthApi.getProvidersStatus(),
     enabled: isAuthenticated,
   });
 
@@ -357,7 +357,7 @@ export default function UserSettings() {
     try {
       setConnectingProvider(providerId);
       setProviderMessage(null);
-      const authUrl = await apiService.getOAuthAuthorizeUrlForProvider(providerId);
+      const authUrl = await oauthApi.getAuthorizeUrlForProvider(providerId);
 
       // Open OAuth in a new tab (not a popup window)
       window.open(authUrl, '_blank');
@@ -405,7 +405,7 @@ export default function UserSettings() {
   const handleDisconnectProvider = async (providerId: string) => {
     try {
       setProviderMessage(null);
-      await apiService.disconnectProvider(providerId);
+      await oauthApi.disconnectProvider(providerId);
       setProviderToDisconnect(null);
       setProviderMessage({ type: 'success', text: `${providerId} disconnected` });
       refetchProviders();
