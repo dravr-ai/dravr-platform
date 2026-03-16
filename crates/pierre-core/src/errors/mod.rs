@@ -66,6 +66,10 @@ pub enum ErrorCode {
     AuthMalformed,
     /// User lacks permission for the requested operation
     PermissionDenied,
+    /// User account is pending admin approval
+    AccountPending,
+    /// User account has been suspended
+    AccountSuspended,
 
     // Rate Limiting
     /// Rate limit has been exceeded
@@ -136,8 +140,12 @@ impl ErrorCode {
             // 401 Unauthorized - Authentication issues (missing or invalid credentials)
             Self::AuthRequired | Self::AuthInvalid => UNAUTHORIZED,
 
-            // 403 Forbidden - Authorization issues (expired/malformed tokens, permission denied)
-            Self::AuthExpired | Self::AuthMalformed | Self::PermissionDenied => FORBIDDEN,
+            // 403 Forbidden - Authorization issues (expired/malformed tokens, permission denied, account status)
+            Self::AuthExpired
+            | Self::AuthMalformed
+            | Self::PermissionDenied
+            | Self::AccountPending
+            | Self::AccountSuspended => FORBIDDEN,
 
             // 404 Not Found
             Self::ResourceNotFound => NOT_FOUND,
@@ -190,6 +198,8 @@ impl ErrorCode {
             Self::ExternalServiceUnavailable => "An external service is currently unavailable",
             Self::ExternalAuthFailed => "Authentication with external service failed",
             Self::ExternalRateLimited => "External service rate limit exceeded",
+            Self::AccountPending => "Account is pending admin approval",
+            Self::AccountSuspended => "Account has been suspended",
             Self::ConfigError => "Configuration error encountered",
             Self::ConfigMissing => "Required configuration is missing",
             Self::ConfigInvalid => "Configuration is invalid",
@@ -223,6 +233,8 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "AuthExpired" => Ok(Self::AuthExpired),
             "AuthMalformed" => Ok(Self::AuthMalformed),
             "PermissionDenied" => Ok(Self::PermissionDenied),
+            "AccountPending" => Ok(Self::AccountPending),
+            "AccountSuspended" => Ok(Self::AccountSuspended),
             "RateLimitExceeded" => Ok(Self::RateLimitExceeded),
             "QuotaExceeded" => Ok(Self::QuotaExceeded),
             "InvalidInput" => Ok(Self::InvalidInput),
@@ -430,6 +442,18 @@ impl AppError {
     #[must_use]
     pub fn database(message: impl Into<String>) -> Self {
         Self::new(ErrorCode::DatabaseError, message)
+    }
+
+    /// Account pending admin approval
+    #[must_use]
+    pub fn account_pending(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::AccountPending, message)
+    }
+
+    /// Account suspended
+    #[must_use]
+    pub fn account_suspended(message: impl Into<String>) -> Self {
+        Self::new(ErrorCode::AccountSuspended, message)
     }
 
     /// Configuration error

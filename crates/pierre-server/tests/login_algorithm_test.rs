@@ -216,10 +216,9 @@ async fn test_login_pending_user_succeeds_with_status_in_response() {
 }
 
 #[tokio::test]
-async fn test_login_suspended_user_succeeds_with_status_in_response() {
-    // DESIGN NOTE: Suspended users CAN authenticate - the frontend restricts access
-    // based on user_status in the response. This allows the frontend to display
-    // appropriate messaging (e.g., "Your account has been suspended")
+async fn test_login_suspended_user_is_rejected() {
+    // Suspended users are blocked at login — the /oauth/token endpoint returns
+    // 400 with OAuth2 "access_denied" error (RFC 6749 format).
     let setup = LoginAlgorithmTestSetup::new().await.expect("Setup failed");
 
     let email = "suspended@example.com";
@@ -243,25 +242,23 @@ async fn test_login_suspended_user_succeeds_with_status_in_response() {
         .send(routes)
         .await;
 
-    // Suspended users can authenticate - access control is handled by frontend
     assert_eq!(
         response.status(),
-        200,
-        "Suspended user should be able to authenticate (frontend handles access control)"
+        400,
+        "Suspended user should be rejected via OAuth2 error format"
     );
 
     let body: serde_json::Value = response.json();
+    let oauth_error = body["error"].as_str().unwrap_or_default();
+    assert_eq!(
+        oauth_error, "access_denied",
+        "OAuth2 error should be access_denied for suspended users, got: {oauth_error}"
+    );
 
-    // Verify the user_status is returned so frontend can act on it
-    let user_status = body["user"]["user_status"]
-        .as_str()
-        .unwrap_or_default()
-        .to_lowercase();
-
+    let description = body["error_description"].as_str().unwrap_or_default();
     assert!(
-        user_status.contains("suspended"),
-        "Response should include user_status=Suspended for frontend handling, got: {}",
-        user_status
+        description.contains("suspended"),
+        "Error description should mention suspension, got: {description}"
     );
 }
 

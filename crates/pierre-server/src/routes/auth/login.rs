@@ -168,15 +168,10 @@ impl AuthService {
             return Err(auth_error(error_messages::INVALID_CREDENTIALS));
         }
 
-        // Log user status for auditing (pending/suspended users can authenticate
-        // but frontend restricts access based on user_status)
-        if !user.user_status.can_login() {
-            info!(
-                user_id = %user.id,
-                status = ?user.user_status,
-                "User login with restricted status"
-            );
-        }
+        // Block suspended users; pending users authenticate so the frontend
+        // can show the "pending approval" page (user_status is in the response).
+        // The auth middleware enforces status on subsequent API calls.
+        Self::reject_if_suspended(&user)?;
 
         // Update last active timestamp
         self.data
@@ -245,8 +240,9 @@ impl AuthService {
         // Find or create user from Firebase claims
         let user = self.find_or_create_firebase_user(&claims, email).await?;
 
-        // Check if user can login (not suspended)
-        Self::validate_user_can_login(&user)?;
+        // Block suspended users; pending users authenticate so the frontend
+        // can show the "pending approval" page (user_status is in the response).
+        Self::reject_if_suspended(&user)?;
 
         // Generate session and return response
         self.complete_firebase_login(&user, &claims.provider).await
@@ -478,19 +474,18 @@ impl AuthService {
         Ok(new_user)
     }
 
-    /// Validate that user is allowed to login
-    fn validate_user_can_login(user: &User) -> AppResult<()> {
-        if user.user_status.can_login() {
-            return Ok(());
+    /// Reject login for suspended users.
+    ///
+    /// Pending users are allowed to authenticate so the frontend can show
+    /// the "pending approval" page. The auth middleware gates API access.
+    fn reject_if_suspended(user: &User) -> AppResult<()> {
+        if user.user_status == UserStatus::Suspended {
+            tracing::warn!(user_id = %user.id, "Login denied: account suspended");
+            return Err(AppError::account_suspended(
+                "Your account has been suspended",
+            ));
         }
-
-        tracing::warn!(user_id = %user.id, status = %user.user_status, "Login denied: user status");
-        let status_msg = match user.user_status {
-            UserStatus::Pending => "Account pending approval",
-            UserStatus::Suspended => "Account suspended",
-            UserStatus::Active => "Account active",
-        };
-        Err(user_state_error(status_msg))
+        Ok(())
     }
 
     /// Complete Firebase login: generate JWT and update last active
@@ -561,6 +556,10 @@ impl AuthService {
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
+
+        // Block suspended users from refreshing tokens.
+        // Pending users can refresh so the frontend can poll for status changes.
+        Self::reject_if_suspended(&user)?;
 
         // Ensure user has a tenant (auto-creates one for admin setup/CLI users)
         let active_tenant_id = self.ensure_user_has_tenant(&user).await?;
@@ -1364,7 +1363,9 @@ pub(super) async fn handle_oauth2_token(
                 ErrorCode::AuthInvalid | ErrorCode::AuthRequired | ErrorCode::AuthExpired => {
                     "invalid_grant"
                 }
-                ErrorCode::PermissionDenied => "unauthorized_client",
+                ErrorCode::PermissionDenied
+                | ErrorCode::AccountPending
+                | ErrorCode::AccountSuspended => "access_denied",
                 ErrorCode::InvalidInput | ErrorCode::InvalidFormat => "invalid_request",
                 _ => "server_error",
             };
