@@ -30,13 +30,11 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 fn create_test_user() -> User {
-    let mut user = User::new(
+    User::new(
         "test@example.com".into(),
         "hashed_password_123".into(),
         Some("Test User".into()),
-    );
-    user.user_status = UserStatus::Active;
-    user
+    )
 }
 
 fn create_auth_manager() -> AuthManager {
