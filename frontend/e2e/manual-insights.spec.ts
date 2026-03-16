@@ -234,8 +234,9 @@ test.describe('Insights - Edit and Share Flow', () => {
 
     await expect(page.getByText('Coach Suggestions')).toBeVisible({ timeout: 10000 });
 
-    // Click on first suggestion's share button (SuggestionCard has a Share button)
-    const shareInsightButton = page.getByRole('button', { name: /Share/i }).first();
+    // Click on first suggestion's share button inside the modal dialog
+    const modal = page.locator('[role="dialog"]');
+    const shareInsightButton = modal.getByRole('button', { name: /Share/i }).first();
     await shareInsightButton.click();
 
     // Should enter editing mode with "Edit & Share" title
