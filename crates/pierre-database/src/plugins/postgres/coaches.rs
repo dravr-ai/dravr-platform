@@ -51,7 +51,7 @@ fn compute_content_hash(content: &serde_json::Value) -> String {
 
 /// Compute a content hash from a `CreateCoachRequest` using `DefaultHasher`.
 ///
-/// Hashes the title, system_prompt, tags, and all structured section fields
+/// Hashes the title, `system_prompt`, tags, and all structured section fields
 /// to produce a deterministic 16-character hex string for deduplication.
 fn compute_request_hash(request: &CreateCoachRequest) -> String {
     let mut hasher = DefaultHasher::new();
