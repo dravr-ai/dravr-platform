@@ -1,5 +1,5 @@
 # ABOUTME: Multi-stage production Dockerfile for Pierre MCP Server (Rust binary)
-# ABOUTME: Uses cargo-chef for workspace-aware dependency caching; runtime stage uses debian-slim with non-root user
+# ABOUTME: Uses cargo-chef for dependency caching; runtime stage uses debian-slim with non-root user
 
 # Stage 0: base image with build dependencies and cargo-chef installed
 FROM --platform=linux/amd64 rust:1.94-slim AS chef
