@@ -300,4 +300,60 @@ impl MessagingRepository for Database {
             }
         }
     }
+
+    // ── In-Chat OTP Linking ──
+
+    async fn get_active_otp_link_state(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<Value>> {
+        match self {
+            Self::SQLite(db) => {
+                db.get_active_otp_link_state_impl(tenant_id, channel_type, channel_user_id)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.get_active_otp_link_state(tenant_id, channel_type, channel_user_id)
+                    .await
+            }
+        }
+    }
+
+    async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.set_otp_on_link_state_impl(id, email, otp_hash).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.set_otp_on_link_state(id, email, otp_hash).await,
+        }
+    }
+
+    async fn increment_otp_attempts(&self, id: &str) -> AppResult<i32> {
+        match self {
+            Self::SQLite(db) => db.increment_otp_attempts_impl(id).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.increment_otp_attempts(id).await,
+        }
+    }
+
+    async fn invalidate_otp_link_states(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => {
+                db.invalidate_otp_link_states_impl(tenant_id, channel_type, channel_user_id)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.invalidate_otp_link_states(tenant_id, channel_type, channel_user_id)
+                    .await
+            }
+        }
+    }
 }

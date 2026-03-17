@@ -101,4 +101,20 @@ impl ResendEmailService {
         let html = templates::password_reset_code_html(code);
         self.send_email(to, "Your password reset code", &html).await
     }
+
+    /// Send a channel linking verification code email
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_channel_linking_code(
+        &self,
+        to: &str,
+        code: &str,
+        channel_name: &str,
+    ) -> AppResult<()> {
+        let html = templates::channel_linking_code_html(code, channel_name);
+        self.send_email(to, "Your Pierre verification code", &html)
+            .await
+    }
 }
