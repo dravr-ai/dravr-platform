@@ -4,4 +4,4 @@
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 -- Copyright (c) 2026 dravr.ai
 
-ALTER TABLE messaging_channel_configs ADD COLUMN verify_token TEXT;
+ALTER TABLE messaging_channel_configs ADD COLUMN IF NOT EXISTS verify_token TEXT;
