@@ -968,20 +968,14 @@ async fn create_verified_channel_link(
         ));
     };
 
-    // Get the user's tenant for the channel link
-    let db_tenant: &dyn TenantRepository = &*params.resources.database;
-    let user_tenant_id = match db_tenant.list_for_user(user.id).await {
-        Ok(tenants) if !tenants.is_empty() => {
-            TenantId::from_str(&tenants[0].id.to_string()).unwrap_or(params.tenant_id)
-        }
-        _ => params.tenant_id,
-    };
-
+    // Use the bot's tenant for the channel link — the webhook handler resolves
+    // tenant from the channel config signature, and get_channel_link queries by
+    // that same tenant_id. Using the user's tenant would cause a lookup miss.
     let link_id = Uuid::new_v4().to_string();
     let user_id_str = user.id.to_string();
     let link_params = CreateChannelLinkParams {
         id: &link_id,
-        tenant_id: user_tenant_id,
+        tenant_id: params.tenant_id,
         user_id: &user_id_str,
         channel_type: params.channel,
         channel_user_id: params.sender_id,
