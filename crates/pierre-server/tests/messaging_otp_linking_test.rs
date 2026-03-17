@@ -52,12 +52,12 @@ mod messaging_otp_linking_tests {
         hex::encode(mac.finalize().into_bytes())
     }
 
-    /// Compute WhatsApp HMAC-SHA256 signature (`sha256={hex}`)
+    /// Compute HMAC-SHA256 signature (`sha256={hex}`) for webhook verification
     fn compute_whatsapp_sig(secret: &str, body: &[u8]) -> String {
         format!("sha256={}", hmac_sha256_hex(secret, body))
     }
 
-    /// SHA-256 hash of an OTP code (matches the hash_otp() function in webhooks.rs)
+    /// SHA-256 hash of an OTP code (matches the `hash_otp` function in webhooks)
     fn hash_otp(code: &str) -> String {
         use sha2::Digest;
         let mut hasher = sha2::Sha256::new();
@@ -103,7 +103,7 @@ mod messaging_otp_linking_tests {
         (user_id, tenant_id)
     }
 
-    /// Set up a WhatsApp channel config with a known signing secret
+    /// Set up a channel config with a known signing secret
     async fn setup_whatsapp_config(
         db: &dyn MessagingRepository,
         tenant_id: TenantId,
@@ -127,7 +127,7 @@ mod messaging_otp_linking_tests {
         .unwrap();
     }
 
-    /// Build a WhatsApp Cloud API webhook payload for a text message
+    /// Build a Cloud API webhook payload for a text message
     fn whatsapp_text_payload(sender_id: &str, msg_id: &str, text: &str) -> serde_json::Value {
         json!({
             "object": "whatsapp_business_account",
@@ -154,7 +154,7 @@ mod messaging_otp_linking_tests {
         })
     }
 
-    /// Send a WhatsApp webhook and return the response body as JSON
+    /// Send a signed webhook and return the response body as JSON
     async fn send_whatsapp_webhook(
         resources: &Arc<ServerResources>,
         secret: &str,
@@ -176,7 +176,7 @@ mod messaging_otp_linking_tests {
         (status, body)
     }
 
-    /// Create an OTP link state in the DB (simulates what start_otp_flow does)
+    /// Create an OTP link state in the DB (simulates the `start_otp_flow` function)
     ///
     /// Creates a link state with `method=otp`, then calls `set_otp_on_link_state`
     /// with an empty email and empty hash to set `otp_step='awaiting_otp'`.
@@ -226,7 +226,7 @@ mod messaging_otp_linking_tests {
             .unwrap();
     }
 
-    /// Inject a dummy email service into ServerResources so the OTP flow
+    /// Inject a dummy email service into `ServerResources` so the OTP flow
     /// triggers (instead of falling back to link-URL).
     ///
     /// The email service uses a fake API key, so actual sends will fail.
@@ -844,6 +844,8 @@ mod messaging_otp_linking_tests {
 
     #[tokio::test]
     async fn test_linked_user_bypasses_otp_flow() {
+        use pierre_database::plugins::CreateChannelLinkParams;
+
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
@@ -857,7 +859,6 @@ mod messaging_otp_linking_tests {
         let sender_id = "15550005555";
 
         // Pre-create a channel link (user is already linked)
-        use pierre_database::plugins::CreateChannelLinkParams;
         let link_id = Uuid::new_v4().to_string();
         let user_id_str = user_id.to_string();
         db.create_channel_link(&CreateChannelLinkParams {
