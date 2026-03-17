@@ -865,6 +865,120 @@ impl MessagingRepository for PostgresDatabase {
 
         Ok(result.rows_affected() > 0)
     }
+
+    // ── In-Chat OTP Linking ──
+
+    async fn get_active_otp_link_state(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<Value>> {
+        let row = sqlx::query(
+            r"
+            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+                   channel_user_id, sender_name, otp_step, email, otp_hash,
+                   otp_attempts, expires_at, created_at
+            FROM messaging_link_states
+            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+              AND otp_step IS NOT NULL AND used = FALSE AND expires_at > CURRENT_TIMESTAMP
+            ORDER BY created_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get active OTP link state: {e}")))?;
+
+        Ok(row.map(|r| {
+            let expires_at: DateTime<Utc> = r.get("expires_at");
+            let created_at: DateTime<Utc> = r.get("created_at");
+
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "tenant_id": r.get::<String, _>("tenant_id"),
+                "user_id": r.try_get::<Option<String>, _>("user_id").ok().flatten(),
+                "channel_type": r.get::<String, _>("channel_type"),
+                "code": r.get::<String, _>("code"),
+                "method": r.get::<String, _>("method"),
+                "channel_user_id": r.try_get::<Option<String>, _>("channel_user_id").ok().flatten(),
+                "sender_name": r.try_get::<Option<String>, _>("sender_name").ok().flatten(),
+                "otp_step": r.try_get::<Option<String>, _>("otp_step").ok().flatten(),
+                "email": r.try_get::<Option<String>, _>("email").ok().flatten(),
+                "otp_hash": r.try_get::<Option<String>, _>("otp_hash").ok().flatten(),
+                "otp_attempts": r.get::<i32, _>("otp_attempts"),
+                "expires_at": expires_at.to_rfc3339(),
+                "created_at": created_at.to_rfc3339(),
+            })
+        }))
+    }
+
+    async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET email = $1, otp_hash = $2, otp_step = 'awaiting_otp', otp_attempts = 0
+            WHERE id = $3
+            ",
+        )
+        .bind(email)
+        .bind(otp_hash)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set OTP on link state: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn increment_otp_attempts(&self, id: &str) -> AppResult<i32> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET otp_attempts = otp_attempts + 1
+            WHERE id = $1
+            ",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to increment OTP attempts: {e}")))?;
+
+        let row = sqlx::query(r"SELECT otp_attempts FROM messaging_link_states WHERE id = $1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to read OTP attempts: {e}")))?;
+
+        Ok(row.get::<i32, _>("otp_attempts"))
+    }
+
+    async fn invalidate_otp_link_states(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET used = TRUE
+            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+              AND otp_step IS NOT NULL AND used = FALSE
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to invalidate OTP link states: {e}")))?;
+
+        Ok(())
+    }
 }
 
 /// Convert an outbound queue row to JSON value

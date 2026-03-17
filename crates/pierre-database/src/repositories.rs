@@ -1659,6 +1659,31 @@ pub trait MessagingRepository: Send + Sync {
         user_id: &str,
         channel_type: &str,
     ) -> AppResult<bool>;
+
+    // ── In-Chat OTP Linking ──
+
+    /// Look up an active in-chat OTP linking flow by channel identity.
+    /// Returns the link state if one exists with `otp_step` set, `used = 0`, and not expired.
+    async fn get_active_otp_link_state(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<Value>>;
+
+    /// Advance the OTP flow: set email and OTP hash, transition to `awaiting_otp`.
+    async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()>;
+
+    /// Increment OTP attempt counter and return the new count (brute-force protection).
+    async fn increment_otp_attempts(&self, id: &str) -> AppResult<i32>;
+
+    /// Invalidate any active OTP link states for a sender (cleanup before new flow).
+    async fn invalidate_otp_link_states(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()>;
 }
 
 // ================================

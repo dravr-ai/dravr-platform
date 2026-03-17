@@ -10,19 +10,22 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono::{Duration, Utc};
+use hex;
 use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
-    LINK_CODE_TTL_MINUTES,
+    LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
-use pierre_core::models::TenantId;
+use pierre_core::models::{TenantId, User};
 use pierre_database::plugins::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
-    MessagingRepository,
+    MessagingRepository, TenantRepository, UserRepository,
 };
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
+use rand::Rng;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -94,6 +97,17 @@ struct PendingDispatch {
     conversation_id: Option<String>,
     /// Text content to dispatch
     text_content: String,
+}
+
+/// Parameters for the OTP code verification step of the channel linking flow
+struct OtpVerificationParams<'a> {
+    resources: &'a ServerResources,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &'a str,
+    sender_id: &'a str,
+    state_id: &'a str,
+    email: &'a str,
 }
 
 /// Query parameters for Meta webhook verification (GET request)
@@ -604,7 +618,527 @@ async fn create_link_and_prompt(
     }
 }
 
-/// Persist inbound messages and collect pending dispatches for background processing
+// ══════════════════════════════════════════════════════════════
+// In-Chat OTP Linking Helpers
+// ══════════════════════════════════════════════════════════════
+
+/// Check if a message is a cancel command for the OTP linking flow
+fn is_cancel_command(content: &MessageContent) -> bool {
+    matches!(content, MessageContent::Text { body } if body.trim().eq_ignore_ascii_case("cancel"))
+}
+
+/// Basic email format validation (not RFC 5322, just good enough for UX)
+fn looks_like_email(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.contains('@') && trimmed.contains('.') && trimmed.len() > 5 && !trimmed.contains(' ')
+}
+
+/// Generate a cryptographically random 6-digit OTP code
+fn generate_otp() -> String {
+    let code: u32 = rand::thread_rng().gen_range(100_000..1_000_000);
+    code.to_string()
+}
+
+/// SHA-256 hash of an OTP code for secure storage
+fn hash_otp(code: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(code.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Mask an email address for display (e.g., "j***@dravr.ai")
+fn mask_email(email: &str) -> String {
+    if let Some(at_pos) = email.find('@') {
+        if at_pos > 1 {
+            let first = &email[..1];
+            let domain = &email[at_pos..];
+            return format!("{first}***{domain}");
+        }
+    }
+    "***".to_owned()
+}
+
+/// Create a text reply message for OTP flow responses
+fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> OutgoingMessage {
+    OutgoingMessage {
+        channel_type,
+        recipient_id: sender_id.to_owned(),
+        content: MessageContent::Text { body },
+        correlation_id: Uuid::new_v4(),
+    }
+}
+
+/// Handle an in-chat OTP linking flow step
+///
+/// Returns `Some(OutgoingMessage)` if the OTP flow handled the message (reply to send),
+/// or `None` if no active OTP flow exists (proceed to normal routing).
+async fn handle_otp_flow(
+    resources: &ServerResources,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &str,
+    sender_id: &str,
+    content: &MessageContent,
+) -> Option<OutgoingMessage> {
+    let db: &dyn MessagingRepository = &*resources.database;
+
+    // Handle cancel command: invalidate any active flow
+    if is_cancel_command(content) {
+        if let Ok(Some(_)) = db
+            .get_active_otp_link_state(tenant_id, channel, sender_id)
+            .await
+        {
+            let _ = db
+                .invalidate_otp_link_states(tenant_id, channel, sender_id)
+                .await;
+            return Some(otp_reply(
+                channel_type,
+                sender_id,
+                "Linking cancelled. Send a message anytime to start again.".to_owned(),
+            ));
+        }
+        // No active flow, cancel is just a normal message
+        return None;
+    }
+
+    // Look up active OTP flow
+    let state = db
+        .get_active_otp_link_state(tenant_id, channel, sender_id)
+        .await
+        .ok()??;
+
+    let state_id = state["id"].as_str()?.to_owned();
+    let otp_step = state["otp_step"].as_str()?;
+
+    let text = match content {
+        MessageContent::Text { body } => body.trim().to_owned(),
+        _ => return None,
+    };
+
+    // Distinguish sub-states: awaiting_otp with empty email = awaiting email input
+    let email = state["email"].as_str().unwrap_or_default().to_owned();
+
+    match otp_step {
+        "awaiting_otp" if email.is_empty() => Some(
+            handle_email_step(
+                resources,
+                tenant_id,
+                channel_type,
+                channel,
+                sender_id,
+                &state_id,
+                &text,
+            )
+            .await,
+        ),
+        "awaiting_otp" => {
+            let params = OtpVerificationParams {
+                resources,
+                tenant_id,
+                channel_type,
+                channel,
+                sender_id,
+                state_id: &state_id,
+                email: &email,
+            };
+            Some(handle_otp_verification_step(params, &text).await)
+        }
+        _ => None,
+    }
+}
+
+/// Validate user exists and belongs to at least one tenant
+///
+/// Returns the user on success, or an error reply for the caller to return.
+async fn validate_email_user(
+    resources: &ServerResources,
+    channel_type: ChannelType,
+    sender_id: &str,
+    email: &str,
+) -> Result<User, OutgoingMessage> {
+    let db_user: &dyn UserRepository = &*resources.database;
+
+    // Cross-tenant user lookup by email
+    let user = match db_user.get_by_email(email).await {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return Err(otp_reply(
+                channel_type,
+                sender_id,
+                "No Pierre account found with that email. Please check and try again, \
+                 or type \"cancel\" to stop."
+                    .to_owned(),
+            ));
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to look up user by email during OTP flow");
+            return Err(otp_reply(
+                channel_type,
+                sender_id,
+                "Something went wrong. Please try again later.".to_owned(),
+            ));
+        }
+    };
+
+    // Verify user belongs to a tenant (shared bot model: accept any tenant the user belongs to)
+    let db_tenant: &dyn TenantRepository = &*resources.database;
+    let tenants = match db_tenant.list_for_user(user.id).await {
+        Ok(t) => t,
+        Err(e) => {
+            warn!(error = %e, user_id = %user.id, "Failed to list tenants for user during OTP flow");
+            return Err(otp_reply(
+                channel_type,
+                sender_id,
+                "Something went wrong. Please try again later.".to_owned(),
+            ));
+        }
+    };
+
+    if tenants.is_empty() {
+        return Err(otp_reply(
+            channel_type,
+            sender_id,
+            "This account is not associated with any organization. Please contact support."
+                .to_owned(),
+        ));
+    }
+
+    Ok(user)
+}
+
+/// Generate an OTP code, store it, and send the verification email
+///
+/// Returns the masked email on success, or an error reply for the caller to return.
+async fn generate_and_send_otp(
+    resources: &ServerResources,
+    channel_type: ChannelType,
+    sender_id: &str,
+    state_id: &str,
+    email: &str,
+) -> Result<String, OutgoingMessage> {
+    let db_msg: &dyn MessagingRepository = &*resources.database;
+
+    let otp_code = generate_otp();
+    let otp_hashed = hash_otp(&otp_code);
+
+    if let Err(e) = db_msg
+        .set_otp_on_link_state(state_id, email, &otp_hashed)
+        .await
+    {
+        warn!(error = %e, "Failed to set OTP on link state");
+        return Err(otp_reply(
+            channel_type,
+            sender_id,
+            "Something went wrong. Please try again later.".to_owned(),
+        ));
+    }
+
+    // Send the OTP code via email
+    let channel_display_name = channel_type.to_string();
+    let Some(email_svc) = &resources.email_service else {
+        warn!("Email service not configured, cannot send OTP for channel linking");
+        return Err(otp_reply(
+            channel_type,
+            sender_id,
+            "Email delivery is not configured. Please contact your administrator.".to_owned(),
+        ));
+    };
+
+    if let Err(e) = email_svc
+        .send_channel_linking_code(email, &otp_code, &channel_display_name)
+        .await
+    {
+        warn!(error = %e, "Failed to send OTP email for channel linking");
+        return Err(otp_reply(
+            channel_type,
+            sender_id,
+            "Failed to send the verification email. Please try again later.".to_owned(),
+        ));
+    }
+
+    Ok(mask_email(email))
+}
+
+/// Handle the email collection step of the OTP flow
+///
+/// Validates the email, looks up the Pierre user, generates and sends the OTP code.
+async fn handle_email_step(
+    resources: &ServerResources,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &str,
+    sender_id: &str,
+    state_id: &str,
+    text: &str,
+) -> OutgoingMessage {
+    if !looks_like_email(text) {
+        return otp_reply(
+            channel_type,
+            sender_id,
+            "That doesn't look like an email address. Please type your Pierre account email."
+                .to_owned(),
+        );
+    }
+
+    let email = text.trim().to_lowercase();
+
+    if let Err(reply) = validate_email_user(resources, channel_type, sender_id, &email).await {
+        return reply;
+    }
+
+    let masked =
+        match generate_and_send_otp(resources, channel_type, sender_id, state_id, &email).await {
+            Ok(m) => m,
+            Err(reply) => return reply,
+        };
+
+    info!(
+        channel = %channel,
+        tenant_id = %tenant_id,
+        sender_id = %sender_id,
+        email_masked = %masked,
+        "OTP code sent for channel linking"
+    );
+
+    otp_reply(
+        channel_type,
+        sender_id,
+        format!(
+            "I've sent a 6-digit code to {masked}. Please type it here within 10 minutes.\n\
+             Type \"cancel\" to stop."
+        ),
+    )
+}
+
+/// Handle an incorrect OTP code: increment attempts and return feedback
+///
+/// Invalidates the linking session if max attempts are reached, otherwise
+/// returns the remaining attempt count.
+async fn handle_otp_mismatch(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &str,
+    sender_id: &str,
+    state_id: &str,
+) -> OutgoingMessage {
+    let attempts = db
+        .increment_otp_attempts(state_id)
+        .await
+        .unwrap_or(MAX_OTP_ATTEMPTS);
+
+    if attempts >= MAX_OTP_ATTEMPTS {
+        let _ = db
+            .invalidate_otp_link_states(tenant_id, channel, sender_id)
+            .await;
+        return otp_reply(
+            channel_type,
+            sender_id,
+            "Too many incorrect attempts. The linking session has been cancelled. \
+             Send a message to start again."
+                .to_owned(),
+        );
+    }
+
+    let remaining = MAX_OTP_ATTEMPTS - attempts;
+    otp_reply(
+        channel_type,
+        sender_id,
+        format!(
+            "Incorrect code. You have {remaining} attempt(s) remaining. \
+             Please try again or type \"cancel\" to stop."
+        ),
+    )
+}
+
+/// Create a permanent channel link for a verified user
+///
+/// Looks up the user, resolves their tenant, and creates the DB link record.
+async fn create_verified_channel_link(
+    params: &OtpVerificationParams<'_>,
+) -> Result<User, OutgoingMessage> {
+    let db_user: &dyn UserRepository = &*params.resources.database;
+    let db_msg: &dyn MessagingRepository = &*params.resources.database;
+
+    let Ok(Some(user)) = db_user.get_by_email(params.email).await else {
+        return Err(otp_reply(
+            params.channel_type,
+            params.sender_id,
+            "Something went wrong verifying your account. Please try again.".to_owned(),
+        ));
+    };
+
+    // Get the user's tenant for the channel link
+    let db_tenant: &dyn TenantRepository = &*params.resources.database;
+    let user_tenant_id = match db_tenant.list_for_user(user.id).await {
+        Ok(tenants) if !tenants.is_empty() => {
+            TenantId::from_str(&tenants[0].id.to_string()).unwrap_or(params.tenant_id)
+        }
+        _ => params.tenant_id,
+    };
+
+    let link_id = Uuid::new_v4().to_string();
+    let user_id_str = user.id.to_string();
+    let link_params = CreateChannelLinkParams {
+        id: &link_id,
+        tenant_id: user_tenant_id,
+        user_id: &user_id_str,
+        channel_type: params.channel,
+        channel_user_id: params.sender_id,
+        display_name: user.display_name.as_deref(),
+    };
+
+    if let Err(e) = db_msg.create_channel_link(&link_params).await {
+        warn!(error = %e, "Failed to create channel link during OTP verification");
+        return Err(otp_reply(
+            params.channel_type,
+            params.sender_id,
+            "Failed to link your account. This channel identity may already be linked.".to_owned(),
+        ));
+    }
+
+    // Mark the OTP link state as used
+    let _ = db_msg
+        .invalidate_otp_link_states(params.tenant_id, params.channel, params.sender_id)
+        .await;
+
+    Ok(user)
+}
+
+/// Handle the OTP verification step of the linking flow
+///
+/// Validates the code, checks attempts, and creates the permanent channel link on success.
+async fn handle_otp_verification_step(
+    params: OtpVerificationParams<'_>,
+    text: &str,
+) -> OutgoingMessage {
+    // Check if input looks like a 6-digit code
+    let trimmed = text.trim();
+    if trimmed.len() != 6 || !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return otp_reply(
+            params.channel_type,
+            params.sender_id,
+            "Please type the 6-digit code sent to your email, or type \"cancel\" to stop."
+                .to_owned(),
+        );
+    }
+
+    let db_msg: &dyn MessagingRepository = &*params.resources.database;
+
+    // Hash input and compare against stored hash
+    let input_hash = hash_otp(trimmed);
+
+    let active_state = db_msg
+        .get_active_otp_link_state(params.tenant_id, params.channel, params.sender_id)
+        .await;
+    let stored_hash = match &active_state {
+        Ok(Some(s)) => s["otp_hash"].as_str().unwrap_or_default().to_owned(),
+        _ => {
+            return otp_reply(
+                params.channel_type,
+                params.sender_id,
+                "Your linking session has expired. Send a message to start again.".to_owned(),
+            );
+        }
+    };
+
+    if input_hash != stored_hash {
+        return handle_otp_mismatch(
+            db_msg,
+            params.tenant_id,
+            params.channel_type,
+            params.channel,
+            params.sender_id,
+            params.state_id,
+        )
+        .await;
+    }
+
+    // OTP matches — look up user and create permanent link
+    let user = match create_verified_channel_link(&params).await {
+        Ok(u) => u,
+        Err(reply) => return reply,
+    };
+
+    info!(
+        channel = %params.channel,
+        user_id = %user.id,
+        sender_id = %params.sender_id,
+        "Account linked via in-chat OTP verification"
+    );
+
+    otp_reply(
+        params.channel_type,
+        params.sender_id,
+        "Your account has been linked successfully! You can now chat with Pierre through \
+         this channel."
+            .to_owned(),
+    )
+}
+
+/// Start a new OTP linking flow for an unlinked user
+///
+/// Creates a link state with `otp_step` set (via `set_otp_on_link_state`) and sends a prompt
+/// asking for the user's email. The flow uses `awaiting_otp` with an empty email field to
+/// represent the "awaiting email" state, and `awaiting_otp` with a non-empty email for
+/// the "awaiting OTP code" state.
+async fn start_otp_flow(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    sender_id: &str,
+    sender_name: Option<&str>,
+) -> OutgoingMessage {
+    // Invalidate any existing OTP flows for this sender before starting a new one
+    let channel_str = channel_type.to_string();
+    let _ = db
+        .invalidate_otp_link_states(tenant_id, &channel_str, sender_id)
+        .await;
+
+    let code = generate_link_code();
+    let expires_at = Utc::now() + Duration::minutes(OTP_TTL_MINUTES);
+    let id = Uuid::new_v4().to_string();
+
+    let params = CreateLinkStateParams {
+        id: &id,
+        tenant_id,
+        user_id: None,
+        channel_type: &channel_str,
+        code: &code,
+        method: "otp",
+        channel_user_id: Some(sender_id),
+        sender_name,
+        expires_at: &expires_at.to_rfc3339(),
+    };
+
+    if let Err(e) = db.create_link_state(&params).await {
+        warn!(error = %e, "Failed to create OTP link state for unlinked user");
+        return otp_reply(
+            channel_type,
+            sender_id,
+            "Something went wrong. Please try again later.".to_owned(),
+        );
+    }
+
+    // Set otp_step via set_otp_on_link_state (sets to 'awaiting_otp' with empty email,
+    // which handle_otp_flow interprets as "awaiting email input")
+    if let Err(e) = db.set_otp_on_link_state(&id, "", "").await {
+        warn!(error = %e, "Failed to initialize OTP step on link state");
+        return otp_reply(
+            channel_type,
+            sender_id,
+            "Something went wrong. Please try again later.".to_owned(),
+        );
+    }
+
+    otp_reply(
+        channel_type,
+        sender_id,
+        "Hi! To link your Pierre account, please type your email address.\n\
+         Type \"cancel\" to stop."
+            .to_owned(),
+    )
+}
 ///
 /// Returns (`stored_count`, `pending_dispatches`) — the dispatches are processed
 /// asynchronously after the webhook returns HTTP 200.
@@ -693,6 +1227,21 @@ async fn persist_single_message(
         return Ok(PersistOutcome::HandledNotStored);
     }
 
+    // Check for active in-chat OTP linking flow
+    if let Some(otp_response) = handle_otp_flow(
+        resources,
+        tenant_id,
+        channel_type,
+        channel,
+        &message.sender_id,
+        &message.content,
+    )
+    .await
+    {
+        send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
     // Resolve session via channel link (returns None for unlinked users)
     let session = resolve_or_prompt(
         resources,
@@ -738,6 +1287,43 @@ async fn persist_single_message(
     )
 }
 
+/// Send an authentication prompt to an unlinked user
+///
+/// Chooses between in-chat OTP flow (when email service is available) and
+/// link-URL flow (fallback), then sends the response via the channel adapter.
+async fn send_unlinked_user_prompt(
+    resources: &ServerResources,
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    channel: &str,
+    channel_type: ChannelType,
+    adapter: &Arc<dyn MessagingChannel>,
+    message: &IncomingMessage,
+) {
+    let prompt = if resources.email_service.is_some() {
+        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
+        start_otp_flow(
+            db,
+            tenant_id,
+            channel_type,
+            &message.sender_id,
+            message.sender_name.as_deref(),
+        )
+        .await
+    } else {
+        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL (no email service)");
+        create_link_and_prompt(
+            db,
+            tenant_id,
+            channel_type,
+            &message.sender_id,
+            message.sender_name.as_deref(),
+        )
+        .await
+    };
+    send_channel_response(db, tenant_id, channel, adapter, prompt).await;
+}
+
 /// Resolve a linked session or send an authentication prompt for unlinked users
 ///
 /// Returns `Ok(Some(session))` for linked users, `Ok(None)` for unlinked users
@@ -762,16 +1348,16 @@ async fn resolve_or_prompt(
     {
         Ok(Some(session)) => Ok(Some(session)),
         Ok(None) => {
-            info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL");
-            let prompt = create_link_and_prompt(
+            send_unlinked_user_prompt(
+                resources,
                 db,
                 tenant_id,
+                channel,
                 channel_type,
-                &message.sender_id,
-                message.sender_name.as_deref(),
+                adapter,
+                message,
             )
             .await;
-            send_channel_response(db, tenant_id, channel, adapter, prompt).await;
             Ok(None)
         }
         Err(e) => {

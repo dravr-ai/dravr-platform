@@ -351,3 +351,10 @@ pub const RETRY_DELAYS_SECS: [u64; 3] = [1, 5, 30];
 
 /// Maximum number of retry attempts before dead-lettering
 pub const MAX_RETRY_ATTEMPTS: i32 = 3;
+
+/// OTP code expires after 10 minutes
+pub const OTP_TTL_MINUTES: i64 = 10;
+/// Maximum OTP verification attempts before flow is invalidated
+pub const MAX_OTP_ATTEMPTS: i32 = 3;
+/// Maximum OTP flows per hour per `channel_user_id` (rate limiting)
+pub const MAX_OTP_FLOWS_PER_HOUR: i64 = 5;

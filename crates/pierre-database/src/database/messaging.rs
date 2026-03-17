@@ -987,6 +987,145 @@ impl Database {
             .collect())
     }
 
+    // ── In-Chat OTP Linking ──
+
+    /// Look up an active in-chat OTP linking flow by channel identity
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails
+    pub async fn get_active_otp_link_state_impl(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<Value>> {
+        let now = Utc::now().to_rfc3339();
+
+        let row = sqlx::query(
+            r"
+            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+                   channel_user_id, sender_name, otp_step, email, otp_hash,
+                   otp_attempts, expires_at, created_at
+            FROM messaging_link_states
+            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
+              AND otp_step IS NOT NULL AND used = 0 AND expires_at > ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            ",
+        )
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .bind(&now)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get active OTP link state: {e}")))?;
+
+        Ok(row.map(|r| {
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "tenant_id": r.get::<String, _>("tenant_id"),
+                "user_id": r.try_get::<Option<String>, _>("user_id").ok().flatten(),
+                "channel_type": r.get::<String, _>("channel_type"),
+                "code": r.get::<String, _>("code"),
+                "method": r.get::<String, _>("method"),
+                "channel_user_id": r.try_get::<Option<String>, _>("channel_user_id").ok().flatten(),
+                "sender_name": r.try_get::<Option<String>, _>("sender_name").ok().flatten(),
+                "otp_step": r.try_get::<Option<String>, _>("otp_step").ok().flatten(),
+                "email": r.try_get::<Option<String>, _>("email").ok().flatten(),
+                "otp_hash": r.try_get::<Option<String>, _>("otp_hash").ok().flatten(),
+                "otp_attempts": r.get::<i32, _>("otp_attempts"),
+                "expires_at": r.get::<String, _>("expires_at"),
+                "created_at": r.get::<String, _>("created_at"),
+            })
+        }))
+    }
+
+    /// Advance the OTP flow: set email and OTP hash, transition to `awaiting_otp`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails
+    pub async fn set_otp_on_link_state_impl(
+        &self,
+        id: &str,
+        email: &str,
+        otp_hash: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET email = ?, otp_hash = ?, otp_step = 'awaiting_otp', otp_attempts = 0
+            WHERE id = ?
+            ",
+        )
+        .bind(email)
+        .bind(otp_hash)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set OTP on link state: {e}")))?;
+
+        Ok(())
+    }
+
+    /// Increment OTP attempt counter and return the new count
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails
+    pub async fn increment_otp_attempts_impl(&self, id: &str) -> AppResult<i32> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET otp_attempts = otp_attempts + 1
+            WHERE id = ?
+            ",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to increment OTP attempts: {e}")))?;
+
+        let row = sqlx::query(r"SELECT otp_attempts FROM messaging_link_states WHERE id = ?")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to read OTP attempts: {e}")))?;
+
+        Ok(row.get::<i32, _>("otp_attempts"))
+    }
+
+    /// Invalidate any active OTP link states for a sender
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails
+    pub async fn invalidate_otp_link_states_impl(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET used = 1
+            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
+              AND otp_step IS NOT NULL AND used = 0
+            ",
+        )
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to invalidate OTP link states: {e}")))?;
+
+        Ok(())
+    }
+
     /// Delete a channel link (unlink)
     ///
     /// # Errors
@@ -1171,6 +1310,36 @@ impl MessagingRepository for Database {
         channel_type: &str,
     ) -> AppResult<bool> {
         self.delete_channel_link_impl(tenant_id, user_id, channel_type)
+            .await
+    }
+
+    // ── In-Chat OTP Linking ──
+
+    async fn get_active_otp_link_state(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<Value>> {
+        self.get_active_otp_link_state_impl(tenant_id, channel_type, channel_user_id)
+            .await
+    }
+
+    async fn set_otp_on_link_state(&self, id: &str, email: &str, otp_hash: &str) -> AppResult<()> {
+        self.set_otp_on_link_state_impl(id, email, otp_hash).await
+    }
+
+    async fn increment_otp_attempts(&self, id: &str) -> AppResult<i32> {
+        self.increment_otp_attempts_impl(id).await
+    }
+
+    async fn invalidate_otp_link_states(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()> {
+        self.invalidate_otp_link_states_impl(tenant_id, channel_type, channel_user_id)
             .await
     }
 }
