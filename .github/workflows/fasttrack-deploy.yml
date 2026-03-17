@@ -1,0 +1,107 @@
+# ABOUTME: Fasttrack deploy to dev — builds and deploys without waiting for CI tests
+# ABOUTME: Manual trigger only (workflow_dispatch) for rapid iteration on deployed features
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: Fasttrack Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: 'What to deploy'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - server
+          - frontend
+          - both
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish-and-deploy:
+    name: Build & Deploy (${{ inputs.component }})
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to GCP (Artifact Registry)
+        uses: google-github-actions/auth@v3
+        id: auth-artifacts
+        with:
+          workload_identity_provider: ${{ secrets.GCP_ARTIFACTS_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_IMAGE_PUBLISHER_SA }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          REGISTRY_HOST="$(echo '${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}' | cut -d'/' -f1)"
+          gcloud auth configure-docker "${REGISTRY_HOST}" --quiet
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
+          SHORT_SHA="${GITHUB_SHA:0:8}"
+          echo "server_tag=${REGISTRY}/server:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "frontend_tag=${REGISTRY}/frontend:${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push server image
+        if: inputs.component == 'server' || inputs.component == 'both'
+        id: server
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/images/server/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.server_tag }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Build and push frontend image
+        if: inputs.component == 'frontend' || inputs.component == 'both'
+        id: frontend
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/images/frontend/Dockerfile
+          push: true
+          tags: ${{ steps.tags.outputs.frontend_tag }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+          build-args: |
+            VITE_FIREBASE_API_KEY=${{ secrets.VITE_FIREBASE_API_KEY }}
+            VITE_FIREBASE_AUTH_DOMAIN=${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+            VITE_FIREBASE_PROJECT_ID=${{ vars.VITE_FIREBASE_PROJECT_ID }}
+
+      - name: Authenticate to GCP (dev deployer)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Deploy server to Cloud Run (dev)
+        if: (inputs.component == 'server' || inputs.component == 'both') && steps.server.outcome == 'success'
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ steps.tags.outputs.server_tag }}@${{ steps.server.outputs.digest }}
+
+      - name: Deploy frontend to Cloud Run (dev)
+        if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-frontend
+          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          image: ${{ steps.tags.outputs.frontend_tag }}@${{ steps.frontend.outputs.digest }}
