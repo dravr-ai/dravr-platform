@@ -186,11 +186,19 @@ pub async fn dispatch_and_get_response(
     // Use the conversation's system prompt (set when a coach was selected) if available,
     // otherwise fall back to the default Pierre fitness assistant prompt.
     // Append the messaging context prompt to constrain response length and formatting.
+    let has_coach_prompt = conv.system_prompt.is_some();
     let base_prompt = conv
         .system_prompt
         .as_deref()
         .unwrap_or_else(|| get_pierre_system_prompt());
     let system_prompt = format!("{base_prompt}\n\n{}", get_messaging_context_prompt());
+    info!(
+        conversation_id = %conversation_id,
+        has_coach_prompt,
+        system_prompt_len = system_prompt.len(),
+        system_prompt_preview = %if system_prompt.len() > 200 { &system_prompt[..200] } else { &system_prompt },
+        "Messaging dispatch: system prompt selected"
+    );
     let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 
     // Build MCP tools and get LLM provider

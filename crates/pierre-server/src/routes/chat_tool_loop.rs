@@ -19,7 +19,7 @@ use crate::{
     errors::AppError,
     llm::{
         ChatMessage, ChatProvider, ChatRequest, FunctionCall, FunctionDeclaration,
-        FunctionResponse, TokenUsage, Tool,
+        FunctionResponse, MessageRole, TokenUsage, Tool,
     },
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
 };
@@ -556,7 +556,17 @@ async fn run_headless_tool_loop(
         )
     })?;
 
-    info!("Headless tool loop: invoking Copilot ACP converse()");
+    // Log the system prompt to verify it's being passed correctly
+    let system_msg = llm_messages
+        .iter()
+        .find(|m| m.role == MessageRole::System)
+        .map(|m| &m.content);
+    info!(
+        system_prompt_present = system_msg.is_some(),
+        system_prompt_len = system_msg.map_or(0, String::len),
+        system_prompt_preview = %system_msg.map_or("(none)", |s| if s.len() > 200 { &s[..200] } else { s }),
+        "Headless tool loop: invoking Copilot ACP converse()"
+    );
 
     // Build the ChatRequest from the accumulated messages
     let request = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
