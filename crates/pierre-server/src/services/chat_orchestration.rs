@@ -183,12 +183,14 @@ pub async fn dispatch_and_get_response(
     let history = get_conversation_history(database, conversation_id, user_id).await?;
 
     // Build LLM messages with system prompt and history.
+    // Use the conversation's system prompt (set when a coach was selected) if available,
+    // otherwise fall back to the default Pierre fitness assistant prompt.
     // Append the messaging context prompt to constrain response length and formatting.
-    let system_prompt = format!(
-        "{}\n\n{}",
-        get_pierre_system_prompt(),
-        get_messaging_context_prompt()
-    );
+    let base_prompt = conv
+        .system_prompt
+        .as_deref()
+        .unwrap_or_else(|| get_pierre_system_prompt());
+    let system_prompt = format!("{base_prompt}\n\n{}", get_messaging_context_prompt());
     let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 
     // Build MCP tools and get LLM provider
