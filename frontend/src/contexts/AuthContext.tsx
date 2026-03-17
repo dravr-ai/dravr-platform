@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
     const storedImpersonation = localStorage.getItem(STORAGE_KEYS.IMPERSONATION);
 
-    if (storedUser) {
+    if (storedUser && storedUser !== 'undefined') {
       setUser(JSON.parse(storedUser));
     }
     if (storedImpersonation) {
