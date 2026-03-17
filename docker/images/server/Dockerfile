@@ -95,7 +95,7 @@ USER appuser
 # Set working directory
 WORKDIR /app
 
-# Production runtime environment variables
+# Server runtime environment variables
 ENV RUST_LOG=info
 ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
