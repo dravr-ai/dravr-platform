@@ -13,12 +13,6 @@ enable_database = true
 enable_cache    = false
 enable_frontend = true
 
-# Public IP for local debugging via Cloud SQL Auth Proxy (proxy handles auth + SSL enforced)
-database_enable_public_ip = true
-database_authorized_networks = [
-  { name = "cloud-sql-proxy", value = "0.0.0.0/0" }
-]
-
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
 frontend_base_url = "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app"
 

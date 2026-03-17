@@ -357,6 +357,44 @@ module "seed_synthetic_activities" {
 }
 
 # -----------------------------------------------------------------------------
+# SQL Client Job (for local debugging via gcloud run jobs execute)
+# -----------------------------------------------------------------------------
+
+module "sql_client" {
+  count  = var.enable_database ? 1 : 0
+  source = "../../modules/cloud_run_jobs"
+
+  project_id               = var.project_id
+  region                   = var.region
+  job_name                 = "${var.service_name}-sql-client"
+  container_image          = "postgres:15-alpine"
+  service_account_email    = module.service_accounts.app_service_account_email
+  vpc_connector_id         = module.networking.vpc_connector_id
+  cloudsql_connection_name = module.database[0].connection_name
+  cpu                      = "1"
+  memory                   = "512Mi"
+  max_retries              = 0
+  timeout                  = "60s"
+
+  command = ["psql"]
+  args    = ["-c", "SELECT 1"]
+
+  env_vars = {
+    PGHOST     = "/cloudsql/${module.database[0].connection_name}"
+    PGDATABASE = module.database[0].database_name
+    PGUSER     = module.database[0].database_user
+  }
+
+  secret_env_vars = {
+    PGPASSWORD = module.secrets.secret_ids["db_password"]
+  }
+
+  labels = merge(var.labels, { component = "sql-client" })
+
+  depends_on = [module.networking, module.secrets, module.service_accounts]
+}
+
+# -----------------------------------------------------------------------------
 # Admin Frontend (optional)
 # -----------------------------------------------------------------------------
 
