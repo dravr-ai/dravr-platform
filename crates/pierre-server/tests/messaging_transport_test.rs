@@ -791,6 +791,53 @@ mod slack {
             .unwrap();
         assert!(messages.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_parse_strips_slack_email_formatting() {
+        let transport = make_transport();
+        let payload = serde_json::json!({
+            "event": {
+                "type": "message",
+                "user": "U1234",
+                "text": "<mailto:jf@dravr.ai|jf@dravr.ai>",
+                "channel": "D5678",
+                "ts": "1609459200.000200"
+            }
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        match &messages[0].content {
+            MessageContent::Text { body } => assert_eq!(body, "jf@dravr.ai"),
+            other => panic!("Expected plain email, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_strips_slack_url_formatting() {
+        let transport = make_transport();
+        let payload = serde_json::json!({
+            "event": {
+                "type": "message",
+                "user": "U1234",
+                "text": "Check <https://example.com|example.com> now",
+                "channel": "D5678",
+                "ts": "1609459200.000300"
+            }
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        match &messages[0].content {
+            MessageContent::Text { body } => assert_eq!(body, "Check example.com now"),
+            other => panic!("Expected stripped URL, got: {other:?}"),
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
