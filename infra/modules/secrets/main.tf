@@ -261,3 +261,127 @@ resource "google_secret_manager_secret_version" "copilot_github_token_placeholde
     ignore_changes = [secret_data]
   }
 }
+
+# -----------------------------------------------------------------------------
+# Messaging Channel Secrets (Slack, Telegram, WhatsApp)
+# -----------------------------------------------------------------------------
+
+resource "google_secret_manager_secret" "slack_bot_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-slack-bot-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "slack_bot_token_placeholder" {
+  secret      = google_secret_manager_secret.slack_bot_token.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "slack_signing_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-slack-signing-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "slack_signing_secret_placeholder" {
+  secret      = google_secret_manager_secret.slack_signing_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "telegram_bot_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-telegram-bot-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "telegram_bot_token_placeholder" {
+  secret      = google_secret_manager_secret.telegram_bot_token.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "telegram_webhook_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-telegram-webhook-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "telegram_webhook_secret_placeholder" {
+  secret      = google_secret_manager_secret.telegram_webhook_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "meta_whatsapp_app_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-whatsapp-app-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "meta_whatsapp_app_secret_placeholder" {
+  secret      = google_secret_manager_secret.meta_whatsapp_app_secret.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
+resource "google_secret_manager_secret" "meta_whatsapp_access_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-whatsapp-access-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "meta_whatsapp_access_token_placeholder" {
+  secret      = google_secret_manager_secret.meta_whatsapp_access_token.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
