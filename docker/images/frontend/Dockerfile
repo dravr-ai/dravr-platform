@@ -18,6 +18,10 @@ RUN bun install --frozen-lockfile --filter frontend
 
 COPY frontend/ frontend/
 
+# Cache-buster: changes when the commit SHA changes, forcing a rebuild
+ARG COMMIT_SHA=dev
+ENV COMMIT_SHA=${COMMIT_SHA}
+
 # Firebase configuration (public keys, baked at build time)
 # VITE_API_BASE_URL is intentionally omitted — frontend uses same-origin (nginx proxy)
 ARG VITE_FIREBASE_API_KEY
