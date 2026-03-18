@@ -225,8 +225,8 @@ impl TenantOAuthManager {
                 .clone()
                 .unwrap_or_else(|| Self::default_redirect_uri("strava"));
             info!(
-                "Using server-level Strava OAuth credentials for tenant {}",
-                tenant_id
+                "Using server-level Strava OAuth credentials for tenant {} (client_id={})",
+                tenant_id, client_id
             );
             return Some(TenantOAuthCredentials {
                 tenant_id,
@@ -431,8 +431,8 @@ impl TenantOAuthManager {
         match database.get_user_oauth_app(user_id, provider).await {
             Ok(Some(user_app)) => {
                 info!(
-                    "Using user-specific {} OAuth credentials for user {} in tenant {}",
-                    provider, user_id, tenant_id
+                    "Using user-specific {} OAuth credentials for user {} in tenant {} (client_id={})",
+                    provider, user_id, tenant_id, user_app.client_id
                 );
                 Some(TenantOAuthCredentials {
                     tenant_id,
