@@ -20,12 +20,13 @@ import {
 //   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID,
 //   VITE_FIREBASE_STORAGE_BUCKET, VITE_FIREBASE_MESSAGING_SENDER_ID, VITE_FIREBASE_APP_ID
 //
-// authDomain uses the current origin (self-hosted auth handler via nginx reverse proxy).
-// Nginx proxies /__/auth/* to {projectId}.firebaseapp.com transparently.
-// This eliminates third-party cookie issues and manual OAuth redirect URI configuration.
+// authDomain uses Firebase's hosted auth handler directly.
+// Self-hosted approach (nginx reverse proxy to firebaseapp.com) is disabled because
+// Cloud Run VPC cannot reliably reach firebaseapp.com (IPv6 unreachable, resolver 8.8.8.8
+// blocked by VPC connector). Popup flow works without self-hosting.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: window.location.host,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${import.meta.env.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
