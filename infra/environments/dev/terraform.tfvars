@@ -1,8 +1,8 @@
 # Required
 project_id = "dravr-dev" # TODO: replace with actual GCP project ID
-# Initial image reference — CI/CD deploys by digest and Terraform lifecycle.ignore_changes prevents drift
-backend_image        = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/server:cae87eda"
-frontend_image       = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/frontend:cae87eda"
+# Baseline image for fresh resource creation — CI/CD deploys by digest and lifecycle.ignore_changes prevents drift
+backend_image        = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/server:latest"
+frontend_image       = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/frontend:latest"
 artifacts_project_id = "dravr-artifacts"
 
 environment  = "development"
