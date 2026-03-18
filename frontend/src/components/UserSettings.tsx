@@ -816,10 +816,10 @@ export default function UserSettings() {
                     />
 
                     {selectedProvider && (
-                      <p className="text-xs text-zinc-500">
-                        Set this redirect URI in your {selectedProvider} app settings:{' '}
-                        <code className="text-zinc-400 break-all">{`${window.location.origin}/api/oauth/callback/${selectedProvider}`}</code>
-                      </p>
+                      <div className="text-xs text-zinc-500 space-y-1">
+                        <p>In your {selectedProvider} app settings, set:</p>
+                        <p>Authorization Callback Domain: <code className="text-zinc-400">{window.location.host}</code></p>
+                      </div>
                     )}
 
                     <div className="flex gap-2 justify-end pt-2">
