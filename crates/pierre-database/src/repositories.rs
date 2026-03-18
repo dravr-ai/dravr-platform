@@ -1661,7 +1661,7 @@ pub trait MessagingRepository: Send + Sync {
     ) -> AppResult<bool>;
 
     /// Logout a channel sender: delete their channel link, sessions, and OTP states.
-    /// Identified by channel identity (sender_id), not user_id.
+    /// Identified by channel identity (`sender_id`), not `user_id`.
     async fn logout_channel_sender(
         &self,
         tenant_id: TenantId,
