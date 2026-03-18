@@ -20,32 +20,32 @@ impl ResponseRenderer for TelegramRenderer {
     fn render(&self, msg: &OutgoingMessage) -> MessagingResult<Value> {
         let chat_id = &msg.recipient_id;
 
-        match &msg.content {
-            MessageContent::Text { body } => Ok(json!({
+        let mut payload = match &msg.content {
+            MessageContent::Text { body } => json!({
                 "chat_id": chat_id,
                 "text": encode_text(body).as_ref(),
                 "parse_mode": "HTML"
-            })),
-            MessageContent::Media { url, caption, .. } => Ok(json!({
+            }),
+            MessageContent::Media { url, caption, .. } => json!({
                 "chat_id": chat_id,
                 "photo": url,
                 "caption": caption.as_deref().unwrap_or("")
-            })),
+            }),
             MessageContent::Location {
                 latitude,
                 longitude,
-            } => Ok(json!({
+            } => json!({
                 "chat_id": chat_id,
                 "latitude": latitude,
                 "longitude": longitude
-            })),
+            }),
             MessageContent::Card {
                 title,
                 body,
                 actions,
             } => {
                 let text = format!("<b>{}</b>\n\n{}", encode_text(title), encode_text(body));
-                let mut payload = json!({
+                let mut card_payload = json!({
                     "chat_id": chat_id,
                     "text": text,
                     "parse_mode": "HTML"
@@ -64,14 +64,23 @@ impl ResponseRenderer for TelegramRenderer {
                         })
                         .collect();
 
-                    payload["reply_markup"] = json!({
+                    card_payload["reply_markup"] = json!({
                         "inline_keyboard": keyboard
                     });
                 }
 
-                Ok(payload)
+                card_payload
+            }
+        };
+
+        // Add reply_to_message_id for threaded reply context
+        if let Some(ref reply_to) = msg.reply_to {
+            if let Ok(msg_id) = reply_to.parse::<i64>() {
+                payload["reply_to_message_id"] = json!(msg_id);
             }
         }
+
+        Ok(payload)
     }
 
     fn max_message_length(&self) -> usize {

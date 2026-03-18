@@ -657,6 +657,7 @@ mod messaging_tests {
                 body: text.to_owned(),
             },
             correlation_id: Uuid::new_v4(),
+            reply_to: None,
         }
     }
 
@@ -681,6 +682,7 @@ mod messaging_tests {
                 ],
             },
             correlation_id: Uuid::new_v4(),
+            reply_to: None,
         }
     }
 
@@ -694,6 +696,7 @@ mod messaging_tests {
                 caption: Some("Your weekly progress".to_owned()),
             },
             correlation_id: Uuid::new_v4(),
+            reply_to: None,
         }
     }
 
@@ -809,6 +812,7 @@ mod messaging_tests {
                 longitude: 2.3522,
             },
             correlation_id: Uuid::new_v4(),
+            reply_to: None,
         };
         let payload = renderer.render(&msg).unwrap();
 

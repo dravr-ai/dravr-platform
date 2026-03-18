@@ -97,6 +97,8 @@ struct PendingDispatch {
     conversation_id: Option<String>,
     /// Text content to dispatch
     text_content: String,
+    /// Channel-native message ID for reply/thread context (Slack ts, Telegram `message_id`)
+    channel_message_id: String,
 }
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -197,6 +199,21 @@ pub async fn handle_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<impl IntoResponse, AppError> {
+    // Slack retries webhooks after 3 seconds with X-Slack-Retry-Num header.
+    // DB idempotency prevents duplicates, but rejecting retries early avoids
+    // redundant signature verification and DB lookups.
+    if channel == "slack" && headers.get("x-slack-retry-num").is_some() {
+        let retry_num = headers
+            .get("x-slack-retry-num")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("?");
+        debug!(retry_num, "Acknowledging Slack retry without reprocessing");
+        return Ok((
+            StatusCode::OK,
+            Json(json!({ "status": "ok", "slack_retry_acknowledged": true })),
+        ));
+    }
+
     let verification = parse_and_verify(&resources, &channel, &headers, &body).await?;
 
     info!(
@@ -457,6 +474,7 @@ async fn handle_linking_command(
             body: response_text,
         },
         correlation_id: Uuid::new_v4(),
+        reply_to: None,
     }
 }
 
@@ -598,6 +616,7 @@ async fn create_link_and_prompt(
                     .to_owned(),
             },
             correlation_id: Uuid::new_v4(),
+            reply_to: None,
         };
     }
 
@@ -615,6 +634,7 @@ async fn create_link_and_prompt(
         recipient_id: sender_id.to_owned(),
         content: MessageContent::Text { body },
         correlation_id: Uuid::new_v4(),
+        reply_to: None,
     }
 }
 
@@ -665,6 +685,7 @@ fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> Outgoi
         recipient_id: sender_id.to_owned(),
         content: MessageContent::Text { body },
         correlation_id: Uuid::new_v4(),
+        reply_to: None,
     }
 }
 
@@ -1275,6 +1296,7 @@ async fn persist_single_message(
                     sender_id: message.sender_id.clone(),
                     conversation_id: message.conversation_id.clone(),
                     text_content,
+                    channel_message_id: message.channel_message_id.clone(),
                 },
             )))
         },
@@ -1450,6 +1472,7 @@ async fn dispatch_and_respond(dispatch: PendingDispatch) {
             body: response_text,
         },
         correlation_id: Uuid::new_v4(),
+        reply_to: Some(dispatch.channel_message_id.clone()),
     };
 
     send_outbound_response(&dispatch, &outgoing).await;

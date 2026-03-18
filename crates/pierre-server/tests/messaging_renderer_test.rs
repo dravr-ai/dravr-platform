@@ -31,6 +31,7 @@ fn text_message(channel: ChannelType, text: &str) -> OutgoingMessage {
             body: text.to_owned(),
         },
         correlation_id: Uuid::nil(),
+        reply_to: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn media_message(channel: ChannelType) -> OutgoingMessage {
             caption: Some("A photo".to_owned()),
         },
         correlation_id: Uuid::nil(),
+        reply_to: None,
     }
 }
 
@@ -56,6 +58,7 @@ fn location_message(channel: ChannelType) -> OutgoingMessage {
             longitude: 2.3522,
         },
         correlation_id: Uuid::nil(),
+        reply_to: None,
     }
 }
 
@@ -80,6 +83,7 @@ fn card_message(channel: ChannelType) -> OutgoingMessage {
             ],
         },
         correlation_id: Uuid::nil(),
+        reply_to: None,
     }
 }
 
@@ -369,5 +373,65 @@ mod telegram {
         assert_eq!(r.max_message_length(), 4096);
         assert!(r.supports_media());
         assert!(r.supports_cards());
+    }
+
+    #[test]
+    fn test_reply_to_adds_reply_to_message_id() {
+        let msg = OutgoingMessage {
+            channel_type: ChannelType::Telegram,
+            recipient_id: "12345".to_owned(),
+            content: MessageContent::Text {
+                body: "Reply text".to_owned(),
+            },
+            correlation_id: Uuid::nil(),
+            reply_to: Some("42".to_owned()),
+        };
+        let payload = renderer().render(&msg).unwrap();
+        assert_eq!(payload["reply_to_message_id"], 42);
+    }
+
+    #[test]
+    fn test_reply_to_none_omits_reply_to_message_id() {
+        let msg = text_message(ChannelType::Telegram, "No reply context");
+        let payload = renderer().render(&msg).unwrap();
+        assert!(payload.get("reply_to_message_id").is_none());
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Slack Reply-To Thread Tests
+// ═══════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "client-messaging")]
+mod slack_reply_to {
+    use super::*;
+    use pierre_messaging::channels::slack::renderer::SlackRenderer;
+    use pierre_messaging::renderer::ResponseRenderer;
+
+    fn renderer() -> SlackRenderer {
+        SlackRenderer
+    }
+
+    #[test]
+    fn test_reply_to_adds_thread_ts() {
+        let msg = OutgoingMessage {
+            channel_type: ChannelType::Slack,
+            recipient_id: "C12345".to_owned(),
+            content: MessageContent::Text {
+                body: "Threaded reply".to_owned(),
+            },
+            correlation_id: Uuid::nil(),
+            reply_to: Some("1234567890.123456".to_owned()),
+        };
+        let payload = renderer().render(&msg).unwrap();
+        assert_eq!(payload["thread_ts"], "1234567890.123456");
+        assert_eq!(payload["channel"], "C12345");
+    }
+
+    #[test]
+    fn test_reply_to_none_omits_thread_ts() {
+        let msg = text_message(ChannelType::Slack, "No thread context");
+        let payload = renderer().render(&msg).unwrap();
+        assert!(payload.get("thread_ts").is_none());
     }
 }

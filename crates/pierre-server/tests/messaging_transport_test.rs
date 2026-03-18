@@ -226,6 +226,69 @@ mod whatsapp {
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("invalid JSON"));
     }
+
+    #[tokio::test]
+    async fn test_parse_extracts_display_name_from_contacts() {
+        let transport = make_transport();
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "contacts": [{
+                            "wa_id": "15551234567",
+                            "profile": { "name": "Jean-Francois" }
+                        }],
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.contact_name",
+                            "type": "text",
+                            "text": { "body": "Hi" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].sender_name.as_deref(),
+            Some("Jean-Francois"),
+            "Display name should be extracted from contacts array"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_parse_without_contacts_leaves_name_none() {
+        let transport = make_transport();
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.no_contacts",
+                            "type": "text",
+                            "text": { "body": "No contacts" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let messages = transport
+            .parse_inbound(&HeaderMap::new(), &body)
+            .await
+            .unwrap();
+        assert_eq!(messages.len(), 1);
+        assert!(
+            messages[0].sender_name.is_none(),
+            "Without contacts array, sender_name should be None"
+        );
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

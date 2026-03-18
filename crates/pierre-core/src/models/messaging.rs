@@ -153,6 +153,12 @@ pub struct OutgoingMessage {
     pub content: MessageContent,
     /// Correlation ID for tracing end-to-end message flow
     pub correlation_id: Uuid,
+    /// Channel-native reply/thread identifier for threading context
+    ///
+    /// Slack: `thread_ts` — replies go into the same thread.
+    /// Telegram: `reply_to_message_id` — shows "in reply to" indicator.
+    /// `WhatsApp`: not applicable (DM-only, no threading).
+    pub reply_to: Option<String>,
 }
 
 /// Delivery receipt tracking outbound message lifecycle
