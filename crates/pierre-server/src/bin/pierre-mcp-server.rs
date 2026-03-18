@@ -497,6 +497,13 @@ async fn create_server(
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
+    // Seed messaging channel configs from environment variables (idempotent upsert)
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::messaging_seed;
+        messaging_seed::seed_from_env(&database).await;
+    }
+
     let resources_instance = ServerResources::new(
         database,
         auth_manager,

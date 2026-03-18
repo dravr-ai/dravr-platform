@@ -89,7 +89,7 @@ struct PendingDispatch {
     /// conversation was created under this tenant).
     channel_tenant_id: TenantId,
     /// User's own tenant — used for tool execution (OAuth, activities, etc.).
-    /// May differ from channel_tenant_id when the user belongs to a different
+    /// May differ from `channel_tenant_id` when the user belongs to a different
     /// tenant than the bot that owns the webhook.
     user_tenant_id: TenantId,
     /// Channel type enum
