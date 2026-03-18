@@ -866,6 +866,47 @@ impl MessagingRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
+    async fn logout_channel_sender(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        sender_id: &str,
+    ) -> AppResult<()> {
+        let tid = tenant_id.to_string();
+
+        sqlx::query(
+            "DELETE FROM messaging_sessions WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3",
+        )
+        .bind(&tid)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete sessions: {e}")))?;
+
+        sqlx::query(
+            "DELETE FROM messaging_channel_links WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3",
+        )
+        .bind(&tid)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete channel link: {e}")))?;
+
+        sqlx::query(
+            "UPDATE messaging_link_states SET used = 1 WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3 AND used = 0",
+        )
+        .bind(&tid)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to invalidate OTP states: {e}")))?;
+
+        Ok(())
+    }
+
     // ── In-Chat OTP Linking ──
 
     async fn get_active_otp_link_state(

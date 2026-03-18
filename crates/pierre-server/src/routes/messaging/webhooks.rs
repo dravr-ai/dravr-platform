@@ -666,7 +666,7 @@ fn is_logout_command(content: &MessageContent) -> bool {
     matches!(content, MessageContent::Text { body } if body.trim().eq_ignore_ascii_case("logout"))
 }
 
-/// Handle logout: delete channel link so the user must re-link to continue
+/// Handle logout: delete channel link, sessions, and OTP states atomically
 async fn handle_logout(
     resources: &ServerResources,
     tenant_id: TenantId,
@@ -676,15 +676,12 @@ async fn handle_logout(
 ) -> OutgoingMessage {
     let db: &dyn MessagingRepository = &*resources.database;
 
-    // Delete channel link (session becomes orphaned and won't resolve)
-    if let Err(e) = db.delete_channel_link(tenant_id, channel, sender_id).await {
-        warn!(error = %e, "Failed to delete channel link during logout");
+    if let Err(e) = db
+        .logout_channel_sender(tenant_id, channel, sender_id)
+        .await
+    {
+        warn!(error = %e, "Failed to logout channel sender");
     }
-
-    // Invalidate any active OTP flows
-    let _ = db
-        .invalidate_otp_link_states(tenant_id, channel, sender_id)
-        .await;
 
     info!(
         channel = %channel,
