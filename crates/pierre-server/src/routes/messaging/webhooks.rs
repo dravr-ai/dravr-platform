@@ -448,7 +448,7 @@ async fn consume_and_link(
         Ok(user_id) => {
             info!(channel = %channel, user_id = %user_id, channel_user_id = %sender_id, "Channel linked via deep link");
             "Your account has been linked successfully! You can now chat with Pierre \
-             through this channel."
+             through this channel.\n\nType \"logout\" anytime to disconnect."
                 .to_owned()
         }
         Err(msg) => {
@@ -650,6 +650,45 @@ async fn create_link_and_prompt(
 /// Check if a message is a cancel command for the OTP linking flow
 fn is_cancel_command(content: &MessageContent) -> bool {
     matches!(content, MessageContent::Text { body } if body.trim().eq_ignore_ascii_case("cancel"))
+}
+
+/// Check if a message is a logout/disconnect command
+fn is_logout_command(content: &MessageContent) -> bool {
+    matches!(content, MessageContent::Text { body } if body.trim().eq_ignore_ascii_case("logout"))
+}
+
+/// Handle logout: delete channel link so the user must re-link to continue
+async fn handle_logout(
+    resources: &ServerResources,
+    tenant_id: TenantId,
+    channel_type: ChannelType,
+    channel: &str,
+    sender_id: &str,
+) -> OutgoingMessage {
+    let db: &dyn MessagingRepository = &*resources.database;
+
+    // Delete channel link (session becomes orphaned and won't resolve)
+    if let Err(e) = db.delete_channel_link(tenant_id, channel, sender_id).await {
+        warn!(error = %e, "Failed to delete channel link during logout");
+    }
+
+    // Invalidate any active OTP flows
+    let _ = db
+        .invalidate_otp_link_states(tenant_id, channel, sender_id)
+        .await;
+
+    info!(
+        channel = %channel,
+        sender_id = %sender_id,
+        "User logged out from messaging channel"
+    );
+
+    otp_reply(
+        channel_type,
+        sender_id,
+        "You've been logged out from Pierre. Send a message anytime to link your account again."
+            .to_owned(),
+    )
 }
 
 /// Basic email format validation (not RFC 5322, just good enough for UX)
@@ -1091,7 +1130,7 @@ async fn handle_otp_verification_step(
         params.channel_type,
         params.sender_id,
         "Your account has been linked successfully! You can now chat with Pierre through \
-         this channel."
+         this channel.\n\nType \"logout\" anytime to disconnect."
             .to_owned(),
     )
 }
@@ -1259,6 +1298,20 @@ async fn persist_single_message(
     .await
     {
         send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
+        return Ok(PersistOutcome::HandledNotStored);
+    }
+
+    // Check for logout command: unlink channel and destroy session
+    if is_logout_command(&message.content) {
+        let logout_response = handle_logout(
+            resources,
+            tenant_id,
+            channel_type,
+            channel,
+            &message.sender_id,
+        )
+        .await;
+        send_channel_response(db, tenant_id, channel, adapter, logout_response).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
 
