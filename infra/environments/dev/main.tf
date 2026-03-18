@@ -182,6 +182,13 @@ module "backend" {
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
+
+      # WhatsApp non-secret config (phone number ID is not sensitive)
+      META_WHATSAPP_PHONE_NUMBER_ID = "997162370153116"
+      META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
+
+      # Admin email for messaging channel seeding (resolves tenant on startup)
+      ADMIN_EMAIL = "admin@dravr.ai"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
@@ -207,6 +214,14 @@ module "backend" {
     COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
     OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
     RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
+
+    # Messaging channel credentials (seeded into DB on startup)
+    SLACK_BOT_TOKEN              = module.secrets.secret_ids["slack_bot_token"]
+    SLACK_SIGNING_SECRET         = module.secrets.secret_ids["slack_signing_secret"]
+    TELEGRAM_BOT_TOKEN           = module.secrets.secret_ids["telegram_bot_token"]
+    TELEGRAM_WEBHOOK_SECRET      = module.secrets.secret_ids["telegram_webhook_secret"]
+    META_WHATSAPP_APP_SECRET     = module.secrets.secret_ids["meta_whatsapp_app_secret"]
+    META_WHATSAPP_ACCESS_TOKEN   = module.secrets.secret_ids["meta_whatsapp_access_token"]
   }
 
   health_check_path           = "/health"
