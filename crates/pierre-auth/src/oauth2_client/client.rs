@@ -194,7 +194,7 @@ impl OAuth2Client {
             ("redirect_uri", self.config.redirect_uri.as_str()),
         ];
 
-        let response: TokenResponse = self
+        let http_response = self
             .client
             .post(&self.config.token_url)
             .form(&params)
@@ -202,12 +202,26 @@ impl OAuth2Client {
             .await
             .map_err(|e| {
                 AppError::external_service("oauth", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("oauth", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("oauth", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "oauth",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "oauth",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         Ok(Self::token_from_response(response))
     }
@@ -234,7 +248,7 @@ impl OAuth2Client {
             params.push(("code_verifier", &pkce.code_verifier));
         }
 
-        let response: TokenResponse = self
+        let http_response = self
             .client
             .post(&self.config.token_url)
             .form(&params)
@@ -242,12 +256,26 @@ impl OAuth2Client {
             .await
             .map_err(|e| {
                 AppError::external_service("oauth", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("oauth", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("oauth", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "oauth",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "oauth",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         Ok(Self::token_from_response(response))
     }
@@ -265,7 +293,7 @@ impl OAuth2Client {
             ("grant_type", "refresh_token"),
         ];
 
-        let response: TokenResponse = self
+        let http_response = self
             .client
             .post(&self.config.token_url)
             .form(&params)
@@ -273,12 +301,26 @@ impl OAuth2Client {
             .await
             .map_err(|e| {
                 AppError::external_service("oauth", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("oauth", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("oauth", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "oauth",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: TokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "oauth",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         Ok(Self::token_from_response(response))
     }
@@ -319,6 +361,7 @@ struct TokenResponse {
 pub mod strava {
     use super::{DateTime, Deserialize, OAuth2Token, PkceParams, Utc};
     use pierre_core::errors::{AppError, AppResult};
+    use serde_json;
 
     /// Strava OAuth 2.0 token response with athlete information
     #[derive(Debug, Deserialize)]
@@ -368,19 +411,33 @@ pub mod strava {
             ("grant_type", "authorization_code"),
         ];
 
-        let response: StravaTokenResponse = client
+        let http_response = client
             .post("https://www.strava.com/oauth/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("strava", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("strava", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("strava", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "strava",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "strava",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         let token = OAuth2Token {
             access_token: response.access_token,
@@ -415,19 +472,33 @@ pub mod strava {
             ("code_verifier", &pkce.code_verifier),
         ];
 
-        let response: StravaTokenResponse = client
+        let http_response = client
             .post("https://www.strava.com/oauth/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("strava", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("strava", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("strava", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "strava",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "strava",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         let token = OAuth2Token {
             access_token: response.access_token,
@@ -460,19 +531,33 @@ pub mod strava {
             ("grant_type", "refresh_token"),
         ];
 
-        let response: StravaTokenResponse = client
+        let http_response = client
             .post("https://www.strava.com/oauth/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("strava", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("strava", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("strava", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "strava",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: StravaTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "strava",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         Ok(OAuth2Token {
             access_token: response.access_token,
@@ -490,6 +575,7 @@ pub mod strava {
 pub mod fitbit {
     use super::{Deserialize, Duration, OAuth2Token, PkceParams, Utc};
     use pierre_core::errors::{AppError, AppResult};
+    use serde_json;
 
     /// Fitbit OAuth 2.0 token response with user information
     #[derive(Debug, Deserialize)]
@@ -535,19 +621,33 @@ pub mod fitbit {
             ("redirect_uri", redirect_uri),
         ];
 
-        let response: FitbitTokenResponse = client
+        let http_response = client
             .post("https://api.fitbit.com/oauth2/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "fitbit",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "fitbit",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         let token = OAuth2Token {
             access_token: response.access_token,
@@ -586,19 +686,33 @@ pub mod fitbit {
             ("code_verifier", &pkce.code_verifier),
         ];
 
-        let response: FitbitTokenResponse = client
+        let http_response = client
             .post("https://api.fitbit.com/oauth2/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "fitbit",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "fitbit",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         let token = OAuth2Token {
             access_token: response.access_token,
@@ -633,19 +747,33 @@ pub mod fitbit {
             ("grant_type", "refresh_token"),
         ];
 
-        let response: FitbitTokenResponse = client
+        let http_response = client
             .post("https://api.fitbit.com/oauth2/token")
             .form(&params)
             .send()
             .await
             .map_err(|e| {
                 AppError::external_service("fitbit", format!("Failed to send token request: {e}"))
-            })?
-            .json()
-            .await
-            .map_err(|e| {
-                AppError::external_service("fitbit", format!("Failed to parse token response: {e}"))
             })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("fitbit", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "fitbit",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: FitbitTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "fitbit",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
 
         Ok(OAuth2Token {
             access_token: response.access_token,
