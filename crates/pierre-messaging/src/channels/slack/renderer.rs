@@ -22,8 +22,8 @@ impl ResponseRenderer for SlackRenderer {
     fn render(&self, msg: &OutgoingMessage) -> MessagingResult<Value> {
         let channel = &msg.recipient_id;
 
-        match &msg.content {
-            MessageContent::Text { body } => Ok(json!({
+        let mut payload = match &msg.content {
+            MessageContent::Text { body } => json!({
                 "channel": channel,
                 "blocks": [{
                     "type": "section",
@@ -32,21 +32,21 @@ impl ResponseRenderer for SlackRenderer {
                         "text": body
                     }
                 }]
-            })),
-            MessageContent::Media { url, caption, .. } => Ok(json!({
+            }),
+            MessageContent::Media { url, caption, .. } => json!({
                 "channel": channel,
                 "blocks": [{
                     "type": "image",
                     "image_url": url,
                     "alt_text": caption.as_deref().unwrap_or("Image")
                 }]
-            })),
+            }),
             MessageContent::Location {
                 latitude,
                 longitude,
             } => {
                 let map_text = format!("Location: {latitude}, {longitude}");
-                Ok(json!({
+                json!({
                     "channel": channel,
                     "blocks": [{
                         "type": "section",
@@ -55,7 +55,7 @@ impl ResponseRenderer for SlackRenderer {
                             "text": map_text
                         }
                     }]
-                }))
+                })
             }
             MessageContent::Card {
                 title,
@@ -96,12 +96,19 @@ impl ResponseRenderer for SlackRenderer {
                     }));
                 }
 
-                Ok(json!({
+                json!({
                     "channel": channel,
                     "blocks": blocks
-                }))
+                })
             }
+        };
+
+        // Add thread_ts for threaded reply context in Slack conversations
+        if let Some(ref thread_ts) = msg.reply_to {
+            payload["thread_ts"] = json!(thread_ts);
         }
+
+        Ok(payload)
     }
 
     fn max_message_length(&self) -> usize {

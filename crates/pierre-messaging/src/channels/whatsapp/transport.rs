@@ -82,17 +82,22 @@ impl TransportAdapter for WhatsAppTransport {
                     continue;
                 };
 
+                // Meta Cloud API includes a contacts array with profile names
+                // keyed by wa_id, allowing display name resolution without extra API calls
+                let contacts = value.get("contacts").and_then(Value::as_array);
+
                 for msg in msgs {
                     let sender_id = msg.get("from").and_then(Value::as_str).unwrap_or("unknown");
 
                     let channel_message_id = msg.get("id").and_then(Value::as_str).unwrap_or("");
 
+                    let sender_name = resolve_contact_name(contacts, sender_id);
                     let content = parse_whatsapp_content(msg);
 
                     messages.push(IncomingMessage {
                         channel_type: ChannelType::WhatsApp,
                         sender_id: sender_id.to_owned(),
-                        sender_name: None,
+                        sender_name,
                         content,
                         conversation_id: None,
                         channel_message_id: channel_message_id.to_owned(),
@@ -181,6 +186,19 @@ impl TransportAdapter for WhatsAppTransport {
             timestamp: Utc::now(),
         })
     }
+}
+
+/// Resolve a sender's display name from the Meta Cloud API contacts array
+///
+/// The `contacts` array maps `wa_id` to `profile.name`, provided alongside
+/// messages in the same webhook payload.
+fn resolve_contact_name(contacts: Option<&Vec<Value>>, sender_id: &str) -> Option<String> {
+    contacts?
+        .iter()
+        .find(|c| c.get("wa_id").and_then(Value::as_str) == Some(sender_id))
+        .and_then(|c| c.pointer("/profile/name"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
 }
 
 /// Parse message content from a `WhatsApp` Cloud API message object

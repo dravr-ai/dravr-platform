@@ -667,6 +667,54 @@ mod messaging_e2e_tests {
     }
 
     #[tokio::test]
+    async fn test_slack_retry_header_short_circuits() {
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = &*resources.database;
+
+        let (_user_id, tenant_id) =
+            create_e2e_user(&resources, "slack_retry@example.com", "Pass123!").await;
+
+        let config_id = Uuid::new_v4().to_string();
+        db.upsert_channel_config(&UpsertChannelConfigParams {
+            id: &config_id,
+            tenant_id,
+            channel_type: "slack",
+            api_key: Some("xoxb-retry-test"),
+            api_secret: None,
+            webhook_secret: Some("retry_secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: None,
+            is_active: true,
+        })
+        .await
+        .unwrap();
+
+        let router = MessagingRoutes::routes(Arc::clone(&resources));
+
+        // Send with X-Slack-Retry-Num header — should get 200 without signature verification
+        let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
+            .header("content-type", "application/json")
+            .header("x-slack-retry-num", "1")
+            .header("x-slack-retry-reason", "http_timeout")
+            .json(&json!({"type": "event_callback", "event": {"type": "message"}}))
+            .send(router)
+            .await;
+
+        assert_eq!(
+            resp.status_code(),
+            StatusCode::OK,
+            "Slack retry should be acknowledged with 200"
+        );
+        let body: serde_json::Value = resp.json();
+        assert_eq!(
+            body["slack_retry_acknowledged"], true,
+            "Response should indicate retry was acknowledged"
+        );
+    }
+
+    #[tokio::test]
     async fn test_invalid_signature_rejected_slack() {
         let resources = create_test_server_resources().await.unwrap();
         let db: &dyn MessagingRepository = &*resources.database;
