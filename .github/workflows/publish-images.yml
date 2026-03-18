@@ -111,11 +111,11 @@ jobs:
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
           SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
 
-          SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA}"
+          SERVER_TAGS="${REGISTRY}/server:${SHORT_SHA},${REGISTRY}/server:latest"
 
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
-            SERVER_TAGS="${SERVER_TAGS},${REGISTRY}/server:${VERSION},${REGISTRY}/server:latest"
+            SERVER_TAGS="${SERVER_TAGS},${REGISTRY}/server:${VERSION}"
           fi
 
           echo "server_tags=${SERVER_TAGS}" >> "$GITHUB_OUTPUT"
@@ -198,11 +198,11 @@ jobs:
           REGISTRY="${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}"
           SHORT_SHA="${{ needs.resolve-sha.outputs.short_sha }}"
 
-          FRONTEND_TAGS="${REGISTRY}/frontend:${SHORT_SHA}"
+          FRONTEND_TAGS="${REGISTRY}/frontend:${SHORT_SHA},${REGISTRY}/frontend:latest"
 
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
-            FRONTEND_TAGS="${FRONTEND_TAGS},${REGISTRY}/frontend:${VERSION},${REGISTRY}/frontend:latest"
+            FRONTEND_TAGS="${FRONTEND_TAGS},${REGISTRY}/frontend:${VERSION}"
           fi
 
           echo "frontend_tags=${FRONTEND_TAGS}" >> "$GITHUB_OUTPUT"

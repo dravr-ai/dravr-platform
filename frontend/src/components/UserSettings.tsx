@@ -166,7 +166,6 @@ export default function UserSettings() {
   const [selectedProvider, setSelectedProvider] = useState('');
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
-  const [redirectUri, setRedirectUri] = useState('');
   const [credentialMessage, setCredentialMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [providerToDelete, setProviderToDelete] = useState<string | null>(null);
 
@@ -239,7 +238,6 @@ export default function UserSettings() {
       setSelectedProvider('');
       setClientId('');
       setClientSecret('');
-      setRedirectUri('');
     },
     onError: (error: Error) => {
       setCredentialMessage({ type: 'error', text: error.message || 'Failed to save credentials' });
@@ -322,15 +320,17 @@ export default function UserSettings() {
   };
 
   const handleAddCredentials = () => {
-    if (!selectedProvider || !clientId.trim() || !clientSecret.trim() || !redirectUri.trim()) {
-      setCredentialMessage({ type: 'error', text: 'All fields are required' });
+    if (!selectedProvider || !clientId.trim() || !clientSecret.trim()) {
+      setCredentialMessage({ type: 'error', text: 'Provider, Client ID, and Client Secret are required' });
       return;
     }
+    // Auto-generate the redirect URI from the current deployment
+    const autoRedirectUri = `${window.location.origin}/api/oauth/callback/${selectedProvider}`;
     registerMutation.mutate({
       provider: selectedProvider,
       client_id: clientId.trim(),
       client_secret: clientSecret.trim(),
-      redirect_uri: redirectUri.trim(),
+      redirect_uri: autoRedirectUri,
     });
   };
 
@@ -758,74 +758,92 @@ export default function UserSettings() {
               </div>
             )}
 
-            {/* Add Credentials Form */}
+            {/* Add Credentials Modal */}
             {showAddCredentials && (
-              <div className="mt-4 p-4 border border-white/10 rounded-xl bg-[#151520]">
-                <h3 className="font-medium text-white mb-4">Add Provider Credentials</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-zinc-300 mb-2">Provider</label>
-                    <select
-                      value={selectedProvider}
-                      onChange={(e) => setSelectedProvider(e.target.value)}
-                      className="select-dark w-full px-4 py-3 bg-[#0F0F1A] border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
-                    >
-                      <option value="">Select a provider</option>
-                      {availableProviders.map((provider) => (
-                        <option key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => {
+                setShowAddCredentials(false);
+                setSelectedProvider('');
+                setClientId('');
+                setClientSecret('');
+                setCredentialMessage(null);
+              }}>
+                <div className="w-full max-w-md mx-4 p-6 bg-[#1A1A2E] border border-white/10 rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-semibold text-white mb-1">Add Provider Credentials</h3>
+                  <p className="text-sm text-zinc-400 mb-5">Use your own OAuth app to connect fitness providers</p>
 
-                  <Input
-                    variant="dark"
-                    label="Client ID"
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    placeholder="Enter your OAuth client ID"
-                  />
+                  {credentialMessage && (
+                    <div className={`p-3 rounded-lg text-sm mb-4 ${
+                      credentialMessage.type === 'success'
+                        ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
+                        : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                    }`}>
+                      {credentialMessage.text}
+                    </div>
+                  )}
 
-                  <Input
-                    variant="dark"
-                    label="Client Secret"
-                    type="password"
-                    value={clientSecret}
-                    onChange={(e) => setClientSecret(e.target.value)}
-                    placeholder="Enter your OAuth client secret"
-                  />
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-zinc-300 mb-2">Provider</label>
+                      <select
+                        value={selectedProvider}
+                        onChange={(e) => setSelectedProvider(e.target.value)}
+                        className="select-dark w-full px-4 py-3 bg-[#0F0F1A] border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                      >
+                        <option value="">Select a provider</option>
+                        {availableProviders.map((provider) => (
+                          <option key={provider.id} value={provider.id}>
+                            {provider.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-                  <Input
-                    variant="dark"
-                    label="Redirect URI"
-                    value={redirectUri}
-                    onChange={(e) => setRedirectUri(e.target.value)}
-                    placeholder="e.g., http://localhost:8081/api/oauth/callback/strava"
-                  />
+                    <Input
+                      variant="dark"
+                      label="Client ID"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="Enter your OAuth client ID"
+                    />
 
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="secondary"
-                      onClick={() => {
-                        setShowAddCredentials(false);
-                        setSelectedProvider('');
-                        setClientId('');
-                        setClientSecret('');
-                        setRedirectUri('');
-                        setCredentialMessage(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="gradient"
-                      onClick={handleAddCredentials}
-                      loading={registerMutation.isPending}
-                      disabled={!selectedProvider || !clientId || !clientSecret || !redirectUri}
-                    >
-                      Save Credentials
-                    </Button>
+                    <Input
+                      variant="dark"
+                      label="Client Secret"
+                      type="password"
+                      value={clientSecret}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                      placeholder="Enter your OAuth client secret"
+                    />
+
+                    {selectedProvider && (
+                      <p className="text-xs text-zinc-500">
+                        Set this redirect URI in your {selectedProvider} app settings:{' '}
+                        <code className="text-zinc-400 break-all">{`${window.location.origin}/api/oauth/callback/${selectedProvider}`}</code>
+                      </p>
+                    )}
+
+                    <div className="flex gap-2 justify-end pt-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          setShowAddCredentials(false);
+                          setSelectedProvider('');
+                          setClientId('');
+                          setClientSecret('');
+                          setCredentialMessage(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="gradient"
+                        onClick={handleAddCredentials}
+                        loading={registerMutation.isPending}
+                        disabled={!selectedProvider || !clientId || !clientSecret}
+                      >
+                        Save Credentials
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
