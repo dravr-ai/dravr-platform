@@ -170,9 +170,11 @@ pub mod test_utils;
 /// Domain service layer for protocol-agnostic business logic
 pub(crate) mod services;
 
-// Re-export messaging outbound worker for binary startup
+// Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(feature = "client-messaging")]
 pub use services::messaging_outbound::start_outbound_worker;
+#[cfg(feature = "client-messaging")]
+pub use services::messaging_seed;
 
 // Re-export OAuth flow validation for integration testing
 pub use services::oauth_flow;

@@ -40,3 +40,7 @@ pub mod usage_pruning;
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;
+
+/// Seed messaging channel configs from environment variables on startup
+#[cfg(feature = "client-messaging")]
+pub mod messaging_seed;
