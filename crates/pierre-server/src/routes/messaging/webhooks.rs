@@ -85,7 +85,9 @@ struct PendingDispatch {
     adapter: Arc<dyn MessagingChannel>,
     /// Resolved session info
     session: ResolvedSession,
-    /// Tenant that owns this channel config
+    /// Tenant for tool execution (user's own tenant, resolved from membership).
+    /// May differ from the channel config tenant when the user belongs to a
+    /// different tenant than the bot that owns the webhook.
     tenant_id: TenantId,
     /// Channel type enum
     channel_type: ChannelType,
@@ -1278,6 +1280,12 @@ async fn persist_single_message(
         return Err(());
     }
 
+    // Resolve the user's own tenant for tool execution (OAuth, activities, etc.).
+    // The webhook tenant is the bot's tenant (channel config), but the user may
+    // belong to a different tenant. Tool execution must use the user's tenant so
+    // that OAuth connections and data queries match.
+    let user_tenant_id = resolve_user_tenant(resources, &session.user_id, tenant_id).await;
+
     // Extract text content for LLM dispatch
     content_body_text(&message.content).map_or_else(
         || {
@@ -1290,7 +1298,7 @@ async fn persist_single_message(
                     resources: Arc::clone(resources),
                     adapter: Arc::clone(adapter),
                     session,
-                    tenant_id,
+                    tenant_id: user_tenant_id,
                     channel_type,
                     channel: channel.to_owned(),
                     sender_id: message.sender_id.clone(),
@@ -1430,6 +1438,37 @@ async fn store_inbound_message(
             );
             Err(())
         }
+    }
+}
+
+/// Resolve the user's own tenant for tool execution.
+///
+/// The webhook tenant is the bot's channel config tenant. The user may belong to
+/// a different tenant. This looks up the user's first tenant membership and uses
+/// that for tool execution (OAuth, activities), falling back to the webhook tenant.
+async fn resolve_user_tenant(
+    resources: &ServerResources,
+    user_id: &str,
+    fallback_tenant_id: TenantId,
+) -> TenantId {
+    let Ok(user_uuid) = user_id.parse::<Uuid>() else {
+        return fallback_tenant_id;
+    };
+    let db: &dyn TenantRepository = &*resources.database;
+    match db.list_for_user(user_uuid).await {
+        Ok(tenants) if !tenants.is_empty() => {
+            let resolved = tenants[0].id;
+            if resolved != fallback_tenant_id {
+                info!(
+                    user_id = %user_id,
+                    user_tenant = %resolved,
+                    channel_tenant = %fallback_tenant_id,
+                    "Using user's own tenant for tool execution (differs from channel tenant)"
+                );
+            }
+            resolved
+        }
+        _ => fallback_tenant_id,
     }
 }
 
