@@ -157,33 +157,6 @@ const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Dispatch a user message through the LLM pipeline and return the assistant's text response.
 ///
-/// Simplified version of the chat route's `send_message` flow, used by the messaging
-/// gateway to process inbound channel messages. Persists user message, builds LLM
-/// context, runs tool loop, persists assistant response, and returns the text content.
-///
-/// # Errors
-///
-/// Returns errors from message persistence, LLM provider initialization, or tool execution.
-pub async fn dispatch_and_get_response(
-    resources: &Arc<ServerResources>,
-    conversation_id: &str,
-    user_id: &str,
-    tenant_id: TenantId,
-    content: &str,
-) -> AppResult<String> {
-    dispatch_and_get_response_with_tool_tenant(
-        resources,
-        conversation_id,
-        user_id,
-        tenant_id,
-        tenant_id,
-        content,
-    )
-    .await
-}
-
-/// Dispatch with separate tenants for conversation persistence and tool execution.
-///
 /// `conversation_tenant_id` is used for conversation/message DB lookups.
 /// `tool_tenant_id` is used for tool execution (OAuth, activities, etc.).
 /// These differ when a messaging user belongs to a different tenant than the
