@@ -1660,6 +1660,15 @@ pub trait MessagingRepository: Send + Sync {
         channel_type: &str,
     ) -> AppResult<bool>;
 
+    /// Logout a channel sender: delete their channel link, sessions, and OTP states.
+    /// Identified by channel identity (sender_id), not user_id.
+    async fn logout_channel_sender(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        sender_id: &str,
+    ) -> AppResult<()>;
+
     // ── In-Chat OTP Linking ──
 
     /// Look up an active in-chat OTP linking flow by channel identity.

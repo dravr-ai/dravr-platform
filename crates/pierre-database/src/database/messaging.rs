@@ -1152,6 +1152,59 @@ impl Database {
 
         Ok(result.rows_affected() > 0)
     }
+
+    /// Logout a channel sender: delete link, sessions, and OTP states by sender identity
+    pub async fn logout_channel_sender_impl(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        sender_id: &str,
+    ) -> AppResult<()> {
+        // Delete sessions (references sender via channel_user_id)
+        sqlx::query(
+            r"
+            DELETE FROM messaging_sessions
+            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
+            ",
+        )
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete sessions: {e}")))?;
+
+        // Delete channel link (uses channel_user_id, not user_id)
+        sqlx::query(
+            r"
+            DELETE FROM messaging_channel_links
+            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ?
+            ",
+        )
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to delete channel link: {e}")))?;
+
+        // Invalidate OTP states
+        sqlx::query(
+            r"
+            UPDATE messaging_link_states
+            SET used = 1
+            WHERE tenant_id = ? AND channel_type = ? AND channel_user_id = ? AND used = 0
+            ",
+        )
+        .bind(tenant_id)
+        .bind(channel_type)
+        .bind(sender_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to invalidate OTP states: {e}")))?;
+
+        Ok(())
+    }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1310,6 +1363,16 @@ impl MessagingRepository for Database {
         channel_type: &str,
     ) -> AppResult<bool> {
         self.delete_channel_link_impl(tenant_id, user_id, channel_type)
+            .await
+    }
+
+    async fn logout_channel_sender(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        sender_id: &str,
+    ) -> AppResult<()> {
+        self.logout_channel_sender_impl(tenant_id, channel_type, sender_id)
             .await
     }
 

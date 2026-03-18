@@ -301,6 +301,25 @@ impl MessagingRepository for Database {
         }
     }
 
+    async fn logout_channel_sender(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        sender_id: &str,
+    ) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => {
+                db.logout_channel_sender_impl(tenant_id, channel_type, sender_id)
+                    .await
+            }
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => {
+                db.logout_channel_sender(tenant_id, channel_type, sender_id)
+                    .await
+            }
+        }
+    }
+
     // ── In-Chat OTP Linking ──
 
     async fn get_active_otp_link_state(
