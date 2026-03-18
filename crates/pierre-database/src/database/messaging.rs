@@ -1153,7 +1153,11 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
-    /// Logout a channel sender: delete link, sessions, and OTP states by sender identity
+    /// Logout a channel sender: delete link, sessions, and OTP states by sender identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` if any database deletion query fails.
     pub async fn logout_channel_sender_impl(
         &self,
         tenant_id: TenantId,
