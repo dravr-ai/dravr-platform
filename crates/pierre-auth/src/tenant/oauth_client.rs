@@ -75,9 +75,14 @@ impl TenantOAuthClient {
             )));
         }
 
-        // Get tenant credentials
+        // Get credentials: user-specific → tenant-specific → server-level
         let credentials = manager
-            .get_credentials(tenant_context.tenant_id, provider, database)
+            .get_credentials_for_user(
+                Some(tenant_context.user_id),
+                tenant_context.tenant_id,
+                provider,
+                database,
+            )
             .await?;
         drop(manager);
 
