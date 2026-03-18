@@ -1121,8 +1121,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.13.2"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.13.2#eb0d96947fe76d80806ff60ce356df16880a97e6"
+version = "0.13.3"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.13.3#f646dd7c96734145e3d7fbd5106211873befd44a"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1742,7 +1742,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2926,7 +2926,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2963,7 +2963,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
