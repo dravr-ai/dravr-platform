@@ -145,7 +145,8 @@ impl TransportAdapter for SlackTransport {
             .get("user")
             .and_then(Value::as_str)
             .unwrap_or("unknown");
-        let text = event.get("text").and_then(Value::as_str).unwrap_or("");
+        let raw_text = event.get("text").and_then(Value::as_str).unwrap_or("");
+        let text = strip_slack_formatting(raw_text);
         let channel_id = event.get("channel").and_then(Value::as_str).unwrap_or("");
         let ts = event.get("ts").and_then(Value::as_str).unwrap_or("0");
 
@@ -153,9 +154,7 @@ impl TransportAdapter for SlackTransport {
             channel_type: ChannelType::Slack,
             sender_id: user_id.to_owned(),
             sender_name: None,
-            content: MessageContent::Text {
-                body: text.to_owned(),
-            },
+            content: MessageContent::Text { body: text },
             conversation_id: Some(channel_id.to_owned()),
             channel_message_id: ts.to_owned(),
             timestamp: Utc::now(),
@@ -316,6 +315,44 @@ fn parse_block_actions(payload: &Value) -> Vec<IncomingMessage> {
             })
         })
         .collect()
+}
+
+/// Strip Slack's mrkdwn auto-formatting from message text
+///
+/// Slack wraps URLs as `<https://example.com>` or `<https://example.com|label>`,
+/// emails as `<mailto:user@example.com|user@example.com>`,
+/// and user mentions as `<@U12345>`. This extracts the plain text.
+fn strip_slack_formatting(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '<' {
+            // Collect everything until '>'
+            let mut inner = String::new();
+            for c in chars.by_ref() {
+                if c == '>' {
+                    break;
+                }
+                inner.push(c);
+            }
+            // Extract the display label (after '|') or the raw value
+            if let Some(pipe_pos) = inner.find('|') {
+                result.push_str(&inner[pipe_pos + 1..]);
+            } else if let Some(stripped) = inner.strip_prefix("mailto:") {
+                result.push_str(stripped);
+            } else if inner.starts_with('@') || inner.starts_with('#') {
+                // User/channel mentions — keep the @/@# prefix
+                result.push_str(&inner);
+            } else {
+                result.push_str(&inner);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
 }
 
 /// Decode a percent-encoded (URL-encoded) string
