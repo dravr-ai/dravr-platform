@@ -68,6 +68,8 @@ struct BootstrapUser {
     display_name: &'static str,
     tier: &'static str,
     is_admin: bool,
+    /// Optional custom password (defaults to `DEMO_USER_PASSWORD` if None)
+    password: Option<&'static str>,
 }
 
 /// Fixed set of demo users created on every fresh deployment
@@ -77,12 +79,28 @@ const DEMO_USERS: &[BootstrapUser] = &[
         display_name: "Alice Demo",
         tier: "professional",
         is_admin: false,
+        password: None,
     },
     BootstrapUser {
         email: "bob@demo.pierre.dev",
         display_name: "Bob Demo",
         tier: "starter",
         is_admin: false,
+        password: None,
+    },
+    BootstrapUser {
+        email: "phil_test@dravr.ai",
+        display_name: "Phil Test",
+        tier: "professional",
+        is_admin: false,
+        password: Some("fougeresEtSapin2017#!$"),
+    },
+    BootstrapUser {
+        email: "jf_test@dravr.ai",
+        display_name: "JF Test",
+        tier: "professional",
+        is_admin: false,
+        password: Some("fougeresEtSapin2017#!$"),
     },
 ];
 
@@ -216,6 +234,7 @@ async fn main() -> AppResult<()> {
 
     // --- Demo users ---
     for user in DEMO_USERS {
+        let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
         let existing = db.seed_check_user_exists(user.email).await?;
         if let Some(id) = existing {
             // Update password/role for existing demo user (upsert via ON CONFLICT)
@@ -223,7 +242,7 @@ async fn main() -> AppResult<()> {
                 &db,
                 user.email,
                 user.display_name,
-                DEMO_USER_PASSWORD,
+                password,
                 user.tier,
                 user.is_admin,
             )
@@ -234,7 +253,7 @@ async fn main() -> AppResult<()> {
                 &db,
                 user.email,
                 user.display_name,
-                DEMO_USER_PASSWORD,
+                password,
                 user.tier,
                 user.is_admin,
             )

@@ -148,20 +148,6 @@ fn get_demo_users_part1() -> Vec<DemoUser> {
             status: "active",
             password: Some("MobileTest1234"),
         },
-        DemoUser {
-            email: "phil_test@dravr.ai",
-            display_name: "Phil Test",
-            tier: "professional",
-            status: "active",
-            password: Some("fougeresEtSapin2017#!$"),
-        },
-        DemoUser {
-            email: "jf_test@dravr.ai",
-            display_name: "JF Test",
-            tier: "professional",
-            status: "active",
-            password: Some("fougeresEtSapin2017#!$"),
-        },
         // Regular demo users
         DemoUser {
             email: "alice@acme.com",
@@ -945,8 +931,6 @@ fn print_test_credentials() {
          === Visual Testing Credentials ===\n\
          Web Test User:    webtest@pierre.dev / WebTest123!\n\
          Mobile Test User: mobiletest@pierre.dev / MobileTest1234\n\
-         Phil Test:        phil_test@dravr.ai / fougeresEtSapin2017#!$\n\
-         JF Test:          jf_test@dravr.ai / fougeresEtSapin2017#!$\n\
          Demo Users:       DemoUser123! (for alice@acme.com, bob@startup.io, etc.)\n\
          \n\
          Done! Restart the server to see the demo data in the dashboard."
