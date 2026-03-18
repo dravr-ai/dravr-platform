@@ -219,6 +219,15 @@ pub async fn handle_webhook(
         ));
     }
 
+    // Slack url_verification must be handled before signature verification.
+    // Slack sends this challenge when the admin first configures the Events URL,
+    // potentially before the channel config is saved in Pierre's DB.
+    if channel == "slack" {
+        if let Some(handshake) = detect_handshake_response(&channel, &body) {
+            return Ok((StatusCode::OK, Json(handshake)));
+        }
+    }
+
     let verification = parse_and_verify(&resources, &channel, &headers, &body).await?;
 
     info!(
