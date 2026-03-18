@@ -1124,6 +1124,22 @@ name = "embacle"
 version = "0.12.0"
 source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.0#850988ade90ba1be212554ee2c968650eb38ecfc"
 dependencies = [
+ "async-trait",
+ "bitflags",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "which",
+]
+
+[[package]]
+name = "embacle"
+version = "0.12.0"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.1#f9f9cdabad43e1cc9b3d666915f138f66a6f65e7"
+dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
  "bitflags",
@@ -1741,7 +1757,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -2560,7 +2576,7 @@ dependencies = [
  "bcrypt",
  "bitflags",
  "chrono",
- "embacle",
+ "embacle 0.12.0 (git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.1)",
  "http",
  "rand 0.8.5",
  "reqwest",
@@ -2619,7 +2635,7 @@ dependencies = [
  "async-trait",
  "bitflags",
  "bytes",
- "embacle",
+ "embacle 0.12.0 (git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.1)",
  "futures-util",
  "pierre-core",
  "reqwest",
@@ -2720,7 +2736,7 @@ dependencies = [
  "dashmap",
  "dirs",
  "ed25519-dalek",
- "embacle",
+ "embacle 0.12.0 (git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.12.0)",
  "eventsource-stream",
  "futures-util",
  "glob",
@@ -2925,7 +2941,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2962,7 +2978,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.60.2",
 ]
