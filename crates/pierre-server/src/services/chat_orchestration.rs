@@ -171,11 +171,42 @@ pub async fn dispatch_and_get_response(
     tenant_id: TenantId,
     content: &str,
 ) -> AppResult<String> {
+    dispatch_and_get_response_with_tool_tenant(
+        resources,
+        conversation_id,
+        user_id,
+        tenant_id,
+        tenant_id,
+        content,
+    )
+    .await
+}
+
+/// Dispatch with separate tenants for conversation persistence and tool execution.
+///
+/// `conversation_tenant_id` is used for conversation/message DB lookups.
+/// `tool_tenant_id` is used for tool execution (OAuth, activities, etc.).
+/// These differ when a messaging user belongs to a different tenant than the
+/// bot that owns the channel webhook.
+pub async fn dispatch_and_get_response_with_tool_tenant(
+    resources: &Arc<ServerResources>,
+    conversation_id: &str,
+    user_id: &str,
+    conversation_tenant_id: TenantId,
+    tool_tenant_id: TenantId,
+    content: &str,
+) -> AppResult<String> {
     let database = resources.database.as_ref();
 
-    // Persist user message (crash-safe: saved before LLM dispatch)
-    let msg_result =
-        persist_user_message(database, conversation_id, user_id, tenant_id, content).await?;
+    // Persist user message (uses conversation tenant for DB lookup)
+    let msg_result = persist_user_message(
+        database,
+        conversation_id,
+        user_id,
+        conversation_tenant_id,
+        content,
+    )
+    .await?;
 
     let conv = msg_result.conversation;
 
@@ -198,14 +229,14 @@ pub async fn dispatch_and_get_response(
     let provider = create_chat_provider().await?;
     let executor = Arc::new(UniversalExecutor::new(Arc::clone(resources)));
 
-    // Run multi-turn tool execution loop
+    // Run multi-turn tool execution loop (uses user's tenant for tool execution)
     let tool_params = ToolLoopParams {
         provider: &provider,
         executor,
         tools: &tools,
         model: &conv.model,
         user_id,
-        tenant_id,
+        tenant_id: tool_tenant_id,
         max_iterations: MESSAGING_MAX_TOOL_ITERATIONS,
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
@@ -217,7 +248,7 @@ pub async fn dispatch_and_get_response(
         "Messaging LLM dispatch completed"
     );
 
-    // Persist assistant response
+    // Persist assistant response (uses conversation tenant for DB lookup)
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
     let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
 
@@ -231,7 +262,7 @@ pub async fn dispatch_and_get_response(
         prompt_tokens,
         model: Some(&conv.model),
     };
-    persist_assistant_response(database, &assistant_params, tenant_id).await?;
+    persist_assistant_response(database, &assistant_params, conversation_tenant_id).await?;
 
     Ok(result.content)
 }

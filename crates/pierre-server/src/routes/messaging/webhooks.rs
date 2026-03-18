@@ -85,10 +85,13 @@ struct PendingDispatch {
     adapter: Arc<dyn MessagingChannel>,
     /// Resolved session info
     session: ResolvedSession,
-    /// Tenant for tool execution (user's own tenant, resolved from membership).
-    /// May differ from the channel config tenant when the user belongs to a
-    /// different tenant than the bot that owns the webhook.
-    tenant_id: TenantId,
+    /// Channel config tenant — used for conversation/message persistence (the
+    /// conversation was created under this tenant).
+    channel_tenant_id: TenantId,
+    /// User's own tenant — used for tool execution (OAuth, activities, etc.).
+    /// May differ from channel_tenant_id when the user belongs to a different
+    /// tenant than the bot that owns the webhook.
+    user_tenant_id: TenantId,
     /// Channel type enum
     channel_type: ChannelType,
     /// Channel name string (e.g., "slack")
@@ -1298,7 +1301,8 @@ async fn persist_single_message(
                     resources: Arc::clone(resources),
                     adapter: Arc::clone(adapter),
                     session,
-                    tenant_id: user_tenant_id,
+                    channel_tenant_id: tenant_id,
+                    user_tenant_id,
                     channel_type,
                     channel: channel.to_owned(),
                     sender_id: message.sender_id.clone(),
@@ -1476,11 +1480,12 @@ async fn resolve_user_tenant(
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
 async fn dispatch_and_respond(dispatch: PendingDispatch) {
-    let response_text = match chat_orchestration::dispatch_and_get_response(
+    let response_text = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
         &dispatch.resources,
         &dispatch.session.conversation,
         &dispatch.session.user_id,
-        dispatch.tenant_id,
+        dispatch.channel_tenant_id,
+        dispatch.user_tenant_id,
         &dispatch.text_content,
     )
     .await
@@ -1521,7 +1526,8 @@ async fn dispatch_and_respond(dispatch: PendingDispatch) {
 async fn send_outbound_response(dispatch: &PendingDispatch, outgoing: &OutgoingMessage) {
     let db: &dyn MessagingRepository = &*dispatch.resources.database;
 
-    let Some(channel_config) = load_channel_config(db, dispatch.tenant_id, &dispatch.channel).await
+    let Some(channel_config) =
+        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
     else {
         return;
     };
@@ -1586,7 +1592,7 @@ async fn persist_outbound_message(
     let correlation_str = outgoing.correlation_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
-        tenant_id: dispatch.tenant_id,
+        tenant_id: dispatch.channel_tenant_id,
         session_id: &dispatch.session.session_id,
         direction: "outbound",
         channel_type: &dispatch.channel,
@@ -1640,7 +1646,7 @@ async fn try_enqueue_for_retry(
     let correlation_str = outgoing.correlation_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
-        tenant_id: dispatch.tenant_id,
+        tenant_id: dispatch.channel_tenant_id,
         session_id: &dispatch.session.session_id,
         direction: "outbound",
         channel_type: &dispatch.channel,
@@ -1662,7 +1668,7 @@ async fn try_enqueue_for_retry(
     db.enqueue_outbound(
         &queue_id,
         &out_msg_id,
-        dispatch.tenant_id,
+        dispatch.channel_tenant_id,
         &dispatch.channel,
         &payload_str,
     )
