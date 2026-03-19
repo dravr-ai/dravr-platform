@@ -334,3 +334,25 @@ resource "google_secret_manager_secret" "meta_whatsapp_access_token" {
     auto {}
   }
 }
+
+resource "google_secret_manager_secret" "meta_messenger_app_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-messenger-app-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret" "meta_messenger_page_access_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-messenger-page-access-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}

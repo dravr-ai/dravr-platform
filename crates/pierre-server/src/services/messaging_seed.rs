@@ -1,5 +1,5 @@
 // ABOUTME: Seed messaging channel configs from environment variables on server startup
-// ABOUTME: Reads Slack, Telegram, and Meta WhatsApp env vars and upserts DB channel configs
+// ABOUTME: Reads Slack, Telegram, Meta WhatsApp, and Meta Messenger env vars and upserts DB channel configs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -37,6 +37,9 @@ where
         seeded += count;
     }
     if let Some(count) = seed_whatsapp(database, tenant_id).await {
+        seeded += count;
+    }
+    if let Some(count) = seed_messenger(database, tenant_id).await {
         seeded += count;
     }
 
@@ -171,6 +174,47 @@ async fn seed_whatsapp(
         }
         Err(e) => {
             warn!(error = %e, "Failed to seed WhatsApp channel config");
+            None
+        }
+    }
+}
+
+/// Seed Messenger channel config from `META_MESSENGER_*` env vars
+async fn seed_messenger(
+    database: &(dyn MessagingRepository + '_),
+    tenant_id: TenantId,
+) -> Option<u32> {
+    let app_secret = env::var("META_MESSENGER_APP_SECRET").ok()?;
+    let page_access_token = env::var("META_MESSENGER_PAGE_ACCESS_TOKEN").ok()?;
+
+    if app_secret.is_empty() || page_access_token.is_empty() {
+        return None;
+    }
+
+    let verify_token = env::var("META_MESSENGER_VERIFY_TOKEN").ok();
+
+    let id = Uuid::new_v4().to_string();
+    let params = UpsertChannelConfigParams {
+        id: &id,
+        tenant_id,
+        channel_type: "messenger",
+        api_key: Some(&page_access_token),
+        api_secret: None,
+        webhook_secret: Some(&app_secret),
+        verify_token: verify_token.as_deref(),
+        account_id: None,
+        phone_number: None,
+        bot_token: None,
+        is_active: true,
+    };
+
+    match database.upsert_channel_config(&params).await {
+        Ok(()) => {
+            info!("Seeded Messenger channel config from env vars");
+            Some(1)
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to seed Messenger channel config");
             None
         }
     }
