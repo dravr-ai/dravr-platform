@@ -324,7 +324,7 @@ fn parse_block_actions(payload: &Value) -> Vec<IncomingMessage> {
 /// and user mentions as `<@U12345>`. This extracts the plain text.
 fn strip_slack_formatting(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
+    let mut chars = text.chars();
 
     while let Some(ch) = chars.next() {
         if ch == '<' {
