@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   RefreshControl,
   ScrollView,
+  Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -31,48 +32,27 @@ import {
   useNotificationActions,
   useUnreadCount,
 } from '../../hooks/useNotifications';
+// Relative imports for Jest/Metro compatibility
+import {
+  NOTIFICATION_CATEGORY_META,
+  NOTIFICATION_CATEGORIES,
+  formatNotificationTime,
+  formatCollapsedCount,
+} from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 
-const CATEGORY_FILTERS: { key: NotificationCategory | 'all'; label: string; icon: React.ElementType }[] = [
-  { key: 'all', label: 'All', icon: Bell },
-  { key: 'training', label: 'Training', icon: Dumbbell },
-  { key: 'recovery', label: 'Recovery', icon: Heart },
-  { key: 'social', label: 'Social', icon: Users },
-  { key: 'coach', label: 'Coach', icon: MessageCircle },
-  { key: 'achievement', label: 'Achieve', icon: Trophy },
-  { key: 'system', label: 'System', icon: Settings },
-  { key: 'ai', label: 'AI', icon: Brain },
-  { key: 'reminders', label: 'Remind', icon: Clock },
-];
-
-function getCategoryColor(category: NotificationCategory): string {
-  const map: Record<NotificationCategory, string> = {
-    training: colors.pierre.activity,
-    recovery: colors.pierre.recovery,
-    social: '#818CF8',
-    coach: colors.primary[400],
-    achievement: '#FBBF24',
-    system: '#94A3B8',
-    ai: colors.pierre.cyan,
-    reminders: '#F472B6',
-  };
-  return map[category];
-}
-
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
-  const date = new Date(dateStr).getTime();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHr = Math.floor(diffMs / 3_600_000);
-  const diffDay = Math.floor(diffMs / 86_400_000);
-
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(dateStr).toLocaleDateString();
-}
+/** Map Lucide-native icon components by category for rendering */
+const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
+  all: Bell,
+  training: Dumbbell,
+  recovery: Heart,
+  social: Users,
+  coach: MessageCircle,
+  achievement: Trophy,
+  system: Settings,
+  ai: Brain,
+  reminders: Clock,
+};
 
 function NotificationRow({
   item,
@@ -86,7 +66,8 @@ function NotificationRow({
   onDelete: (id: string) => void;
 }) {
   const isUnread = !item.read_at;
-  const categoryColor = getCategoryColor(item.category);
+  const meta = NOTIFICATION_CATEGORY_META[item.category];
+  const collapsedLabel = formatCollapsedCount(item.collapsed_count);
 
   return (
     <TouchableOpacity
@@ -101,23 +82,37 @@ function NotificationRow({
         {isUnread && (
           <View
             className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: categoryColor }}
+            style={{ backgroundColor: meta.color }}
           />
         )}
       </View>
 
+      {/* Image thumbnail */}
+      {item.image_url ? (
+        <Image
+          source={{ uri: item.image_url }}
+          className="w-10 h-10 rounded-lg mr-2"
+          resizeMode="cover"
+        />
+      ) : null}
+
       {/* Content */}
       <View className="flex-1 mr-2">
-        <View className="flex-row items-center mb-0.5">
+        <View className="flex-row items-center mb-0.5 flex-wrap">
           <Text
             className="text-xs font-medium mr-2"
-            style={{ color: categoryColor }}
+            style={{ color: meta.color }}
           >
-            {item.category.toUpperCase()}
+            {meta.label.toUpperCase()}
           </Text>
           <Text className="text-xs text-zinc-500">
-            {formatRelativeTime(item.created_at)}
+            {formatNotificationTime(item.created_at)}
           </Text>
+          {collapsedLabel && (
+            <View className="ml-2 px-1.5 py-0.5 rounded bg-white/5">
+              <Text className="text-[10px] text-zinc-500">{collapsedLabel}</Text>
+            </View>
+          )}
         </View>
         <Text
           className="text-sm mb-0.5"
@@ -200,6 +195,15 @@ export function NotificationCenterScreen() {
     deleteNotification(id);
   }, [deleteNotification]);
 
+  /** Category filter list: 'all' + each category from shared constants */
+  const categoryFilters = [
+    { key: 'all' as const, label: 'All' },
+    ...NOTIFICATION_CATEGORIES.map((cat) => ({
+      key: cat,
+      label: NOTIFICATION_CATEGORY_META[cat].label,
+    })),
+  ];
+
   return (
     <View className="flex-1 bg-background-primary" style={{ paddingTop: insets.top }}>
       {/* Header */}
@@ -242,8 +246,9 @@ export function NotificationCenterScreen() {
         className="border-b border-white/5"
         contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 6 }}
       >
-        {CATEGORY_FILTERS.map(({ key, label, icon: Icon }) => {
+        {categoryFilters.map(({ key, label }) => {
           const isActive = selectedCategory === key;
+          const Icon = CATEGORY_ICONS[key];
           return (
             <TouchableOpacity
               key={key}

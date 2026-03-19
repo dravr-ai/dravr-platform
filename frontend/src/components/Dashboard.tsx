@@ -325,7 +325,7 @@ export default function Dashboard() {
             </button>
 
             {/* Notification bell */}
-            <NotificationBell onViewAll={() => setActiveTab('notifications')} />
+            <NotificationBell onViewAll={() => setActiveTab('notifications')} onNavigate={setActiveTab} />
 
             {/* Settings gear icon - visible shortcut to user settings */}
             <button
@@ -512,7 +512,7 @@ export default function Dashboard() {
         )}
         {activeTab === 'notifications' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-            <NotificationsPanel />
+            <NotificationsPanel onNavigate={setActiveTab} />
           </Suspense>
         )}
         {activeTab === 'admin-tokens' && (
