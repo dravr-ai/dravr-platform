@@ -302,7 +302,7 @@ impl OAuthService {
         tenant_id: Option<uuid::Uuid>,
     ) -> AppResult<OAuth2Token> {
         let oauth_config = self
-            .create_oauth_config_with_tenant(provider, tenant_id)
+            .create_oauth_config_with_user(provider, user_id, tenant_id)
             .await?;
         let oauth_client = OAuth2Client::new(oauth_config)?;
 
@@ -394,6 +394,75 @@ impl OAuthService {
             scopes: vec![scopes],
             use_pkce: params.use_pkce,
         })
+    }
+
+    /// Create `OAuth2` config with user-specific credential priority
+    ///
+    /// Resolution order (matching `TenantOAuthManager::get_credentials_for_user`):
+    /// 1. User-specific credentials (from `user_oauth_app_credentials` table)
+    /// 2. Tenant-specific credentials (from `tenant_oauth_credentials` table)
+    /// 3. Server-level OAuth configuration (environment variables)
+    ///
+    /// This ensures the token exchange uses the same credentials as the authorization
+    /// URL generation, preventing client_id mismatches that cause "invalid code" errors.
+    ///
+    /// # Errors
+    /// Returns error if provider is unsupported or no credentials are configured
+    async fn create_oauth_config_with_user(
+        &self,
+        provider: &str,
+        user_id: uuid::Uuid,
+        tenant_id: Option<uuid::Uuid>,
+    ) -> AppResult<OAuth2Config> {
+        // Priority 1: Try user-specific credentials (per-user OAuth app)
+        if let Ok(Some(user_app)) = self
+            .data
+            .database()
+            .get_user_oauth_app(user_id, provider)
+            .await
+        {
+            info!(
+                "Token exchange using user-specific {} credentials for user {} (client_id={})",
+                provider, user_id, user_app.client_id
+            );
+
+            let descriptor = self
+                .data
+                .provider_registry()
+                .get_descriptor(provider)
+                .ok_or_else(|| {
+                    AppError::invalid_input(format!("Unsupported provider: {provider}"))
+                })?;
+
+            let endpoints = descriptor.oauth_endpoints().ok_or_else(|| {
+                AppError::invalid_input(format!("Provider {provider} does not support OAuth"))
+            })?;
+
+            let params = descriptor.oauth_params().ok_or_else(|| {
+                AppError::invalid_input(format!("Provider {provider} OAuth params not configured"))
+            })?;
+
+            let scopes = descriptor
+                .default_scopes()
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
+                .join(params.scope_separator);
+
+            return Ok(OAuth2Config {
+                client_id: user_app.client_id,
+                client_secret: user_app.client_secret,
+                auth_url: endpoints.auth_url.to_owned(),
+                token_url: endpoints.token_url.to_owned(),
+                redirect_uri: user_app.redirect_uri,
+                scopes: vec![scopes],
+                use_pkce: params.use_pkce,
+            });
+        }
+
+        // Priority 2+3: Tenant-specific, then server-level
+        self.create_oauth_config_with_tenant(provider, tenant_id)
+            .await
     }
 
     /// Create `OAuth2` config using tenant-specific credentials when available
