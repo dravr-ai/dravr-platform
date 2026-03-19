@@ -1046,6 +1046,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "dravr-canot"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c84ced5f321d3681c1dabbe111411c1cc5a701827221c9534f4c1e31ccceb2c"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "ed25519-dalek",
+ "hex",
+ "hmac",
+ "html-escape",
+ "http",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "thiserror 2.0.18",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2561,6 +2584,7 @@ dependencies = [
  "bcrypt",
  "bitflags",
  "chrono",
+ "dravr-canot",
  "embacle",
  "http",
  "rand 0.8.5",
@@ -2636,21 +2660,7 @@ dependencies = [
 name = "pierre-messaging"
 version = "0.3.0"
 dependencies = [
- "async-trait",
- "chrono",
- "ed25519-dalek",
- "hex",
- "hmac",
- "html-escape",
- "http",
- "pierre-core",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tracing",
- "uuid",
+ "dravr-canot",
 ]
 
 [[package]]
@@ -4945,7 +4955,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
