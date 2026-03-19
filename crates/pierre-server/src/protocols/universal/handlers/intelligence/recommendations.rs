@@ -15,6 +15,10 @@ use crate::intelligence::{
 };
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
+use pierre_llm::prompts::{RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT};
+
+const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
+const RECOMMENDATION_TYPE_PLACEHOLDER: &str = "{recommendation_type}";
 use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -88,26 +92,14 @@ async fn generate_recommendations_via_sampling(
         }
     };
 
-    // Create prompt for LLM
-    let prompt = format!(
-        "You are an expert fitness coach analyzing training data.\n\n\
-         {activity_summary}\n\n\
-         Please provide {recommendation_type} training recommendations based on this data. \
-         Focus on actionable advice for improving performance, preventing injury, \
-         and optimizing training load. Format your response as JSON with the following structure:\n\
-         {{\n\
-           \"recommendation_type\": \"{recommendation_type}\",\n\
-           \"recommendations\": [\"recommendation 1\", \"recommendation 2\", ...],\n\
-           \"priority\": \"high/medium/low\",\n\
-           \"reasoning\": \"brief explanation\"\n\
-         }}"
-    );
+    // Create prompt for LLM from template
+    let prompt = RECOMMENDATION_ANALYSIS_PROMPT
+        .replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary)
+        .replace(RECOMMENDATION_TYPE_PLACEHOLDER, recommendation_type);
 
     // Send sampling request to client's LLM
     let request = CreateMessageRequest {
-        messages: vec![PromptMessage::user(Content::Text {
-            text: prompt,
-        })],
+        messages: vec![PromptMessage::user(Content::Text { text: prompt })],
         model_preferences: Some(ModelPreferences {
             // High intelligence priority - client decides actual model
             hints: None,
@@ -117,7 +109,7 @@ async fn generate_recommendations_via_sampling(
         }),
         max_tokens: 1024,
         temperature: Some(0.7),
-        system_prompt: Some("You are an expert fitness coach providing personalized training advice. Always respond with valid JSON.".to_owned()),
+        system_prompt: Some(RECOMMENDATION_SYSTEM_PROMPT.trim().to_owned()),
         include_context: None,
         stop_sequences: None,
         metadata: None,

@@ -43,6 +43,30 @@ pub const INSIGHT_GENERATION_PROMPT: &str = include_str!("insight_generation.md"
 /// keep responses concise and mobile-friendly.
 pub const MESSAGING_CONTEXT_PROMPT: &str = include_str!("messaging_context.md");
 
+/// Recommendation analysis user prompt template
+///
+/// Contains the user-facing prompt for generating training recommendations.
+/// Template placeholders: `{activity_summary}`, `{recommendation_type}`.
+pub const RECOMMENDATION_ANALYSIS_PROMPT: &str = include_str!("recommendation_analysis.md");
+
+/// Recommendation analysis system prompt
+///
+/// System prompt for the LLM when generating training recommendations.
+/// Instructs the model to respond as an expert fitness coach with valid JSON.
+pub const RECOMMENDATION_SYSTEM_PROMPT: &str = include_str!("recommendation_system.md");
+
+/// Activity analysis user prompt template
+///
+/// Contains the user-facing prompt for AI-powered activity analysis.
+/// Template placeholder: `{activity_summary}`.
+pub const ACTIVITY_ANALYSIS_PROMPT: &str = include_str!("activity_analysis.md");
+
+/// Activity analysis system prompt
+///
+/// System prompt for the LLM when analyzing individual activities.
+/// Instructs the model to respond as an expert fitness coach with valid JSON.
+pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = include_str!("activity_analysis_system.md");
+
 /// Get the system prompt for the Pierre fitness assistant
 ///
 /// This is the default system prompt used when starting a new conversation.
@@ -86,4 +110,34 @@ pub const fn get_insight_generation_prompt() -> &'static str {
 #[must_use]
 pub const fn get_messaging_context_prompt() -> &'static str {
     MESSAGING_CONTEXT_PROMPT
+}
+
+/// Get the recommendation analysis user prompt template
+///
+/// Template with `{activity_summary}` and `{recommendation_type}` placeholders
+/// for generating training recommendations via MCP sampling.
+#[must_use]
+pub const fn get_recommendation_analysis_prompt() -> &'static str {
+    RECOMMENDATION_ANALYSIS_PROMPT
+}
+
+/// Get the recommendation analysis system prompt
+#[must_use]
+pub const fn get_recommendation_system_prompt() -> &'static str {
+    RECOMMENDATION_SYSTEM_PROMPT
+}
+
+/// Get the activity analysis user prompt template
+///
+/// Template with `{activity_summary}` placeholder for AI-powered
+/// activity analysis via MCP sampling.
+#[must_use]
+pub const fn get_activity_analysis_prompt() -> &'static str {
+    ACTIVITY_ANALYSIS_PROMPT
+}
+
+/// Get the activity analysis system prompt
+#[must_use]
+pub const fn get_activity_analysis_system_prompt() -> &'static str {
+    ACTIVITY_ANALYSIS_SYSTEM_PROMPT
 }
