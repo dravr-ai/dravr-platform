@@ -5,6 +5,7 @@
 // ABOUTME: Features smooth animations, gradient accent bar, and accessible focus management
 
 import React, { useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -74,7 +75,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in"
       onClick={handleOverlayClick}
@@ -121,7 +122,8 @@ export const Modal: React.FC<ModalProps> = ({
           <div className="px-6 py-4 bg-pierre-dark/50 border-t border-white/10">{footer}</div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
