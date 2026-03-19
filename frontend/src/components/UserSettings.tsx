@@ -759,95 +759,96 @@ export default function UserSettings() {
             )}
 
             {/* Add Credentials Modal */}
-            {showAddCredentials && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => {
+            <Modal
+              isOpen={showAddCredentials}
+              onClose={() => {
                 setShowAddCredentials(false);
                 setSelectedProvider('');
                 setClientId('');
                 setClientSecret('');
                 setCredentialMessage(null);
-              }}>
-                <div className="w-full max-w-md mx-4 p-6 bg-[#1A1A2E] border border-white/10 rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                  <h3 className="text-lg font-semibold text-white mb-1">Add Provider Credentials</h3>
-                  <p className="text-sm text-zinc-400 mb-5">Use your own OAuth app to connect fitness providers</p>
-
-                  {credentialMessage && (
-                    <div className={`p-3 rounded-lg text-sm mb-4 ${
-                      credentialMessage.type === 'success'
-                        ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
-                        : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
-                    }`}>
-                      {credentialMessage.text}
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-zinc-300 mb-2">Provider</label>
-                      <select
-                        value={selectedProvider}
-                        onChange={(e) => setSelectedProvider(e.target.value)}
-                        className="select-dark w-full px-4 py-3 bg-[#0F0F1A] border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
-                      >
-                        <option value="">Select a provider</option>
-                        {availableProviders.map((provider) => (
-                          <option key={provider.id} value={provider.id}>
-                            {provider.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <Input
-                      variant="dark"
-                      label="Client ID"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      placeholder="Enter your OAuth client ID"
-                    />
-
-                    <Input
-                      variant="dark"
-                      label="Client Secret"
-                      type="password"
-                      value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
-                      placeholder="Enter your OAuth client secret"
-                    />
-
-                    {selectedProvider && (
-                      <div className="text-xs text-zinc-500 space-y-1">
-                        <p>In your {selectedProvider} app settings, set:</p>
-                        <p>Authorization Callback Domain: <code className="text-zinc-400">{window.location.host}</code></p>
-                      </div>
-                    )}
-
-                    <div className="flex gap-2 justify-end pt-2">
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setShowAddCredentials(false);
-                          setSelectedProvider('');
-                          setClientId('');
-                          setClientSecret('');
-                          setCredentialMessage(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        variant="gradient"
-                        onClick={handleAddCredentials}
-                        loading={registerMutation.isPending}
-                        disabled={!selectedProvider || !clientId || !clientSecret}
-                      >
-                        Save Credentials
-                      </Button>
-                    </div>
-                  </div>
+              }}
+              title="Add Provider Credentials"
+              size="md"
+              footer={
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setShowAddCredentials(false);
+                      setSelectedProvider('');
+                      setClientId('');
+                      setClientSecret('');
+                      setCredentialMessage(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="gradient"
+                    onClick={handleAddCredentials}
+                    loading={registerMutation.isPending}
+                    disabled={!selectedProvider || !clientId || !clientSecret}
+                  >
+                    Save Credentials
+                  </Button>
                 </div>
+              }
+            >
+              <p className="text-sm text-zinc-400 mb-5">Use your own OAuth app to connect fitness providers</p>
+
+              {credentialMessage && (
+                <div className={`p-3 rounded-lg text-sm mb-4 ${
+                  credentialMessage.type === 'success'
+                    ? 'bg-pierre-activity/20 text-pierre-activity border border-pierre-activity/30'
+                    : 'bg-pierre-red-500/20 text-pierre-red-500 border border-pierre-red-500/30'
+                }`}>
+                  {credentialMessage.text}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">Provider</label>
+                  <select
+                    value={selectedProvider}
+                    onChange={(e) => setSelectedProvider(e.target.value)}
+                    className="select-dark w-full px-4 py-3 bg-[#0F0F1A] border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                  >
+                    <option value="">Select a provider</option>
+                    {availableProviders.map((provider) => (
+                      <option key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <Input
+                  variant="dark"
+                  label="Client ID"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                  placeholder="Enter your OAuth client ID"
+                />
+
+                <Input
+                  variant="dark"
+                  label="Client Secret"
+                  type="password"
+                  value={clientSecret}
+                  onChange={(e) => setClientSecret(e.target.value)}
+                  placeholder="Enter your OAuth client secret"
+                />
+
+                {selectedProvider && (
+                  <div className="text-xs text-zinc-500 space-y-1">
+                    <p>In your {selectedProvider} app settings, set:</p>
+                    <p>Authorization Callback Domain: <code className="text-zinc-400">{window.location.host}</code></p>
+                  </div>
+                )}
               </div>
-            )}
+            </Modal>
           </Card>
           </>
         )}
