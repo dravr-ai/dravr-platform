@@ -13,6 +13,9 @@ use crate::intelligence::physiological_constants::business_thresholds::{
 use crate::intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
+use pierre_llm::prompts::{ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT};
+
+const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
@@ -339,30 +342,12 @@ async fn generate_activity_intelligence_via_sampling(
             .map_or_else(|| "N/A".to_owned(), |c| c.to_string())
     );
 
-    // Create prompt for LLM
-    let prompt = format!(
-        "You are an expert fitness coach analyzing an athlete's activity.\n\n\
-         {activity_summary}\n\n\
-         Provide AI-powered insights about this activity focusing on:\n\
-         1. Performance analysis (pacing, effort level)\n\
-         2. Training effectiveness\n\
-         3. Specific recommendations for improvement\n\
-         4. Recovery suggestions\n\n\
-         Format your response as JSON with this structure:\n\
-         {{\n\
-           \"summary\": \"brief overall assessment\",\n\
-           \"insights\": [\"insight 1\", \"insight 2\", ...],\n\
-           \"recommendations\": [\"recommendation 1\", \"recommendation 2\", ...],\n\
-           \"performance_score\": \"rating out of 10\",\n\
-           \"analysis_type\": \"ai_powered\"\n\
-         }}"
-    );
+    // Create prompt for LLM from template
+    let prompt = ACTIVITY_ANALYSIS_PROMPT.replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary);
 
     // Send sampling request to client's LLM
     let request = CreateMessageRequest {
-        messages: vec![PromptMessage::user(Content::Text {
-            text: prompt,
-        })],
+        messages: vec![PromptMessage::user(Content::Text { text: prompt })],
         model_preferences: Some(ModelPreferences {
             // Hint for high-quality model - client decides actual model
             hints: None,
@@ -372,7 +357,7 @@ async fn generate_activity_intelligence_via_sampling(
         }),
         max_tokens: 800,
         temperature: Some(0.7),
-        system_prompt: Some("You are an expert fitness coach providing detailed activity analysis. Always respond with valid JSON.".to_owned()),
+        system_prompt: Some(ACTIVITY_ANALYSIS_SYSTEM_PROMPT.trim().to_owned()),
         include_context: None,
         stop_sequences: None,
         metadata: None,
