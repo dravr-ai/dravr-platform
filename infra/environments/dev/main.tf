@@ -187,6 +187,9 @@ module "backend" {
       META_WHATSAPP_PHONE_NUMBER_ID = "997162370153116"
       META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
 
+      # Messenger non-secret config (verify token is the App Secret, not sensitive here)
+      META_MESSENGER_VERIFY_TOKEN   = "5aec2c301a90cf03a31e5f5e638f9e38"
+
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = "admin@dravr.ai"
     },
@@ -220,8 +223,10 @@ module "backend" {
     SLACK_SIGNING_SECRET         = module.secrets.secret_ids["slack_signing_secret"]
     TELEGRAM_BOT_TOKEN           = module.secrets.secret_ids["telegram_bot_token"]
     TELEGRAM_WEBHOOK_SECRET      = module.secrets.secret_ids["telegram_webhook_secret"]
-    META_WHATSAPP_APP_SECRET     = module.secrets.secret_ids["meta_whatsapp_app_secret"]
-    META_WHATSAPP_ACCESS_TOKEN   = module.secrets.secret_ids["meta_whatsapp_access_token"]
+    META_WHATSAPP_APP_SECRET           = module.secrets.secret_ids["meta_whatsapp_app_secret"]
+    META_WHATSAPP_ACCESS_TOKEN         = module.secrets.secret_ids["meta_whatsapp_access_token"]
+    META_MESSENGER_APP_SECRET          = module.secrets.secret_ids["meta_messenger_app_secret"]
+    META_MESSENGER_PAGE_ACCESS_TOKEN   = module.secrets.secret_ids["meta_messenger_page_access_token"]
   }
 
   health_check_path           = "/health"
