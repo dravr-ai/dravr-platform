@@ -833,12 +833,19 @@ async fn validate_email_user(
     let user = match db_user.get_by_email(email).await {
         Ok(Some(u)) => u,
         Ok(None) => {
+            let register_url = resources
+                .config
+                .frontend_url
+                .as_deref()
+                .unwrap_or(&resources.config.base_url);
             return Err(otp_reply(
                 channel_type,
                 sender_id,
-                "No Pierre account found with that email. Please check and try again, \
-                 or type \"cancel\" to stop."
-                    .to_owned(),
+                format!(
+                    "No Pierre account found with that email. \
+                     You can register at {register_url} and then try again, \
+                     or type \"cancel\" to stop."
+                ),
             ));
         }
         Err(e) => {

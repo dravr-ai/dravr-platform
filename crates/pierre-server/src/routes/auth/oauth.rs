@@ -404,7 +404,7 @@ impl OAuthService {
     /// 3. Server-level OAuth configuration (environment variables)
     ///
     /// This ensures the token exchange uses the same credentials as the authorization
-    /// URL generation, preventing client_id mismatches that cause "invalid code" errors.
+    /// URL generation, preventing `client_id` mismatches that cause "invalid code" errors.
     ///
     /// # Errors
     /// Returns error if provider is unsupported or no credentials are configured
