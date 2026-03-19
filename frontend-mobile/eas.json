@@ -9,6 +9,16 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-15gjsl9aagkhrkhks58uq0okpl15alp7.apps.googleusercontent.com"
       }
     },
     "preview": {
@@ -18,6 +28,17 @@
       },
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-15gjsl9aagkhrkhks58uq0okpl15alp7.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -27,6 +48,17 @@
       },
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "629001562818",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:629001562818:web:9c09e313ead19b4d72695b",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "629001562818-aruetllrbhotqnjvoq7tsssbrfgpf576.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "629001562818-15gjsl9aagkhrkhks58uq0okpl15alp7.apps.googleusercontent.com"
       }
     }
   },
