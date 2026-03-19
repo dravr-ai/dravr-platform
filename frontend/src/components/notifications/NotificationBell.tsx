@@ -12,40 +12,21 @@ import {
   useUnreadCount,
   useNotificationActions,
 } from '../../hooks/useNotifications';
-import type { NotificationItem, NotificationCategory } from '@pierre/shared-types';
-
-const CATEGORY_COLORS: Record<NotificationCategory, string> = {
-  training: 'text-green-400',
-  recovery: 'text-blue-400',
-  social: 'text-indigo-400',
-  coach: 'text-sky-400',
-  achievement: 'text-amber-400',
-  system: 'text-slate-400',
-  ai: 'text-cyan-400',
-  reminders: 'text-pink-400',
-};
-
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
-  const date = new Date(dateStr).getTime();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHr = Math.floor(diffMs / 3_600_000);
-  const diffDay = Math.floor(diffMs / 86_400_000);
-
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffHr < 24) return `${diffHr}h`;
-  if (diffDay < 7) return `${diffDay}d`;
-  return new Date(dateStr).toLocaleDateString();
-}
+import {
+  NOTIFICATION_CATEGORY_META,
+  formatNotificationTime,
+  formatCollapsedCount,
+} from '@pierre/shared-constants';
+import type { NotificationItem, NotificationAction } from '@pierre/shared-types';
 
 interface NotificationBellProps {
   /** Callback when user navigates to full notifications page */
   onViewAll?: () => void;
+  /** Callback when a notification with route data is clicked */
+  onNavigate?: (route: string) => void;
 }
 
-export function NotificationBell({ onViewAll }: NotificationBellProps) {
+export function NotificationBell({ onViewAll, onNavigate }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -71,8 +52,27 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
       if (!item.read_at) {
         markAsRead(item.id);
       }
+      if (item.data?.route && typeof item.data.route === 'string' && onNavigate) {
+        setIsOpen(false);
+        onNavigate(item.data.route);
+      }
     },
-    [markAsRead],
+    [markAsRead, onNavigate],
+  );
+
+  const handleActionClick = useCallback(
+    (item: NotificationItem, action: NotificationAction) => {
+      if (!item.read_at) {
+        markAsRead(item.id);
+      }
+      const data = item.data as Record<string, string> | undefined;
+      const screen = data?.screen ?? action.id;
+      if (onNavigate) {
+        setIsOpen(false);
+        onNavigate(screen);
+      }
+    },
+    [markAsRead, onNavigate],
   );
 
   return (
@@ -136,6 +136,8 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
             ) : (
               notifications.map((item) => {
                 const isUnread = !item.read_at;
+                const meta = NOTIFICATION_CATEGORY_META[item.category];
+                const collapsedLabel = formatCollapsedCount(item.collapsed_count);
                 return (
                   <div
                     key={item.id}
@@ -148,24 +150,62 @@ export function NotificationBell({ onViewAll }: NotificationBellProps) {
                     {/* Unread indicator */}
                     <div className="w-2 pt-1.5 flex-shrink-0">
                       {isUnread && (
-                        <div className="w-2 h-2 rounded-full bg-violet-500" />
+                        <div
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: meta.color }}
+                        />
                       )}
                     </div>
+
+                    {/* Image thumbnail */}
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt=""
+                        className="w-8 h-8 rounded-md object-cover flex-shrink-0 mt-0.5"
+                      />
+                    )}
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
-                        <span className={clsx('text-[10px] font-medium uppercase', CATEGORY_COLORS[item.category])}>
-                          {item.category}
+                        <span
+                          className="text-[10px] font-medium uppercase"
+                          style={{ color: meta.color }}
+                        >
+                          {meta.label}
                         </span>
                         <span className="text-[10px] text-zinc-500">
-                          {formatRelativeTime(item.created_at)}
+                          {formatNotificationTime(item.created_at)}
                         </span>
+                        {collapsedLabel && (
+                          <span className="text-[10px] text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded">
+                            {collapsedLabel}
+                          </span>
+                        )}
                       </div>
                       <p className={clsx('text-xs truncate', isUnread ? 'text-white font-medium' : 'text-zinc-300')}>
                         {item.title}
                       </p>
                       <p className="text-[11px] text-zinc-500 truncate">{item.body}</p>
+
+                      {/* Action buttons */}
+                      {item.actions && item.actions.length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          {item.actions.map((action: NotificationAction) => (
+                            <button
+                              key={action.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleActionClick(item, action);
+                              }}
+                              className="text-[10px] font-medium px-2 py-1 rounded bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 transition-colors"
+                            >
+                              {action.title}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Delete button */}

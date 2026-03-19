@@ -33,6 +33,16 @@ export {
 
 export type { DesignSystem } from './design-system';
 
+// Notification constants (category metadata, time formatting)
+export {
+  NOTIFICATION_CATEGORY_META,
+  NOTIFICATION_CATEGORIES,
+  formatNotificationTime,
+  formatCollapsedCount,
+} from './notifications';
+
+export type { NotificationCategoryMeta } from './notifications';
+
 // React Query keys (for consistent cache key management)
 export { QUERY_KEYS } from './query-keys';
 export type { QueryKeys } from './query-keys';

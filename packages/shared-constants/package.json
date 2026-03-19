@@ -13,6 +13,10 @@
     "./social": {
       "types": "./src/social.ts",
       "import": "./src/social.ts"
+    },
+    "./notifications": {
+      "types": "./src/notifications.ts",
+      "import": "./src/notifications.ts"
     }
   },
   "scripts": {

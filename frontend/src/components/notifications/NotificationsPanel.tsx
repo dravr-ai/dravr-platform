@@ -23,47 +23,33 @@ import {
   useNotificationFeed,
   useNotificationActions,
 } from '../../hooks/useNotifications';
-import type { NotificationCategory, NotificationItem } from '@pierre/shared-types';
+import {
+  NOTIFICATION_CATEGORY_META,
+  NOTIFICATION_CATEGORIES,
+  formatNotificationTime,
+  formatCollapsedCount,
+} from '@pierre/shared-constants';
+import type { NotificationCategory, NotificationItem, NotificationAction } from '@pierre/shared-types';
 
-const CATEGORY_FILTERS: { key: NotificationCategory | 'all'; label: string; Icon: React.ElementType }[] = [
-  { key: 'all', label: 'All', Icon: Bell },
-  { key: 'training', label: 'Training', Icon: Dumbbell },
-  { key: 'recovery', label: 'Recovery', Icon: Heart },
-  { key: 'social', label: 'Social', Icon: Users },
-  { key: 'coach', label: 'Coach', Icon: MessageCircle },
-  { key: 'achievement', label: 'Achievements', Icon: Trophy },
-  { key: 'system', label: 'System', Icon: Settings },
-  { key: 'ai', label: 'AI Insights', Icon: Brain },
-  { key: 'reminders', label: 'Reminders', Icon: Clock },
-];
-
-const CATEGORY_COLORS: Record<NotificationCategory, string> = {
-  training: 'text-green-400 bg-green-500/10',
-  recovery: 'text-blue-400 bg-blue-500/10',
-  social: 'text-indigo-400 bg-indigo-500/10',
-  coach: 'text-sky-400 bg-sky-500/10',
-  achievement: 'text-amber-400 bg-amber-500/10',
-  system: 'text-slate-400 bg-slate-500/10',
-  ai: 'text-cyan-400 bg-cyan-500/10',
-  reminders: 'text-pink-400 bg-pink-500/10',
+/** Map Lucide icon components by category for rendering */
+const CATEGORY_ICONS: Record<NotificationCategory | 'all', React.ElementType> = {
+  all: Bell,
+  training: Dumbbell,
+  recovery: Heart,
+  social: Users,
+  coach: MessageCircle,
+  achievement: Trophy,
+  system: Settings,
+  ai: Brain,
+  reminders: Clock,
 };
 
-function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
-  const date = new Date(dateStr).getTime();
-  const diffMs = now - date;
-  const diffMin = Math.floor(diffMs / 60_000);
-  const diffHr = Math.floor(diffMs / 3_600_000);
-  const diffDay = Math.floor(diffMs / 86_400_000);
-
-  if (diffMin < 1) return 'Just now';
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
-  return new Date(dateStr).toLocaleDateString();
+interface NotificationsPanelProps {
+  /** Callback when a notification with route data is clicked */
+  onNavigate?: (route: string) => void;
 }
 
-export default function NotificationsPanel() {
+export default function NotificationsPanel({ onNavigate }: NotificationsPanelProps) {
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
 
   const feedParams = selectedCategory === 'all'
@@ -78,9 +64,35 @@ export default function NotificationsPanel() {
       if (!item.read_at) {
         markAsRead(item.id);
       }
+      if (item.data?.route && typeof item.data.route === 'string' && onNavigate) {
+        onNavigate(item.data.route);
+      }
     },
-    [markAsRead],
+    [markAsRead, onNavigate],
   );
+
+  const handleActionClick = useCallback(
+    (item: NotificationItem, action: NotificationAction) => {
+      if (!item.read_at) {
+        markAsRead(item.id);
+      }
+      const data = item.data as Record<string, string> | undefined;
+      const screen = data?.screen ?? action.id;
+      if (onNavigate) {
+        onNavigate(screen);
+      }
+    },
+    [markAsRead, onNavigate],
+  );
+
+  /** Category filter list: 'all' + each category from shared constants */
+  const categoryFilters = [
+    { key: 'all' as const, label: 'All' },
+    ...NOTIFICATION_CATEGORIES.map((cat) => ({
+      key: cat,
+      label: NOTIFICATION_CATEGORY_META[cat].label,
+    })),
+  ];
 
   return (
     <div className="h-full flex flex-col">
@@ -113,8 +125,9 @@ export default function NotificationsPanel() {
 
       {/* Category filters */}
       <div className="flex items-center gap-2 px-6 py-3 border-b border-white/5 overflow-x-auto">
-        {CATEGORY_FILTERS.map(({ key, label, Icon }) => {
+        {categoryFilters.map(({ key, label }) => {
           const isActive = selectedCategory === key;
+          const Icon = CATEGORY_ICONS[key];
           return (
             <button
               key={key}
@@ -153,7 +166,8 @@ export default function NotificationsPanel() {
           <div className="divide-y divide-white/5">
             {notifications.map((item) => {
               const isUnread = !item.read_at;
-              const colorClass = CATEGORY_COLORS[item.category];
+              const meta = NOTIFICATION_CATEGORY_META[item.category];
+              const collapsedLabel = formatCollapsedCount(item.collapsed_count);
 
               return (
                 <div
@@ -167,26 +181,66 @@ export default function NotificationsPanel() {
                   {/* Unread indicator */}
                   <div className="w-2 pt-2 flex-shrink-0">
                     {isUnread && (
-                      <div className="w-2 h-2 rounded-full bg-violet-500" />
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: meta.color }}
+                      />
                     )}
                   </div>
 
+                  {/* Image thumbnail */}
+                  {item.image_url && (
+                    <img
+                      src={item.image_url}
+                      alt=""
+                      className="w-10 h-10 rounded-lg object-cover flex-shrink-0 mt-0.5"
+                    />
+                  )}
+
                   {/* Category badge */}
-                  <div className={clsx('px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5', colorClass)}>
-                    {item.category}
+                  <div
+                    className="px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase flex-shrink-0 mt-0.5"
+                    style={{ color: meta.color, backgroundColor: `${meta.color}15` }}
+                  >
+                    {meta.label}
                   </div>
 
                   {/* Content */}
                   <div className="flex-1 min-w-0">
-                    <p className={clsx('text-sm', isUnread ? 'text-white font-medium' : 'text-zinc-300')}>
-                      {item.title}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className={clsx('text-sm', isUnread ? 'text-white font-medium' : 'text-zinc-300')}>
+                        {item.title}
+                      </p>
+                      {collapsedLabel && (
+                        <span className="text-[10px] text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded whitespace-nowrap">
+                          {collapsedLabel}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{item.body}</p>
+
+                    {/* Action buttons */}
+                    {item.actions && item.actions.length > 0 && (
+                      <div className="flex items-center gap-2 mt-2">
+                        {item.actions.map((action: NotificationAction) => (
+                          <button
+                            key={action.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleActionClick(item, action);
+                            }}
+                            className="text-xs font-medium px-2.5 py-1 rounded-md bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 transition-colors"
+                          >
+                            {action.title}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Time and actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[11px] text-zinc-500">{formatRelativeTime(item.created_at)}</span>
+                    <span className="text-[11px] text-zinc-500">{formatNotificationTime(item.created_at)}</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

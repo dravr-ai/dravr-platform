@@ -140,6 +140,10 @@ export interface NotificationItem {
   created_at: string;
   /** Action buttons attached to this notification */
   actions?: NotificationAction[];
+  /** Number of notifications collapsed into this one (1 = standalone, >1 = group) */
+  collapsed_count?: number;
+  /** IDs of notifications that were collapsed into this group */
+  collapsed_ids?: string[];
 }
 
 /** Response for POST /api/notifications/badge-sync */
