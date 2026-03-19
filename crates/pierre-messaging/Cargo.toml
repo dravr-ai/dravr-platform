@@ -1,5 +1,5 @@
 # ABOUTME: Multi-channel messaging gateway crate for Pierre fitness platform
-# ABOUTME: Feature-gated channel adapters for WhatsApp, Messenger, Discord, Slack, Telegram
+# ABOUTME: Re-exports from dravr-canot standalone messaging library
 
 [package]
 name = "pierre-messaging"
@@ -12,32 +12,15 @@ publish = false
 
 [features]
 default = []
-channel-whatsapp = []
-channel-messenger = []
-channel-discord = ["dep:ed25519-dalek"]
-channel-slack = []
-channel-telegram = []
+channel-whatsapp = ["dravr-canot/channel-whatsapp"]
+channel-messenger = ["dravr-canot/channel-messenger"]
+channel-discord = ["dravr-canot/channel-discord"]
+channel-slack = ["dravr-canot/channel-slack"]
+channel-telegram = ["dravr-canot/channel-telegram"]
 all-channels = ["channel-whatsapp", "channel-messenger", "channel-discord", "channel-slack", "channel-telegram"]
 
 [dependencies]
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
-
-async-trait = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-hmac = "0.12"
-http = "1.4"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-sha2 = "0.10"
-subtle = "2.6"
-hex = "0.4"
-html-escape = "0.2"
-tracing = "0.1"
-uuid = { version = "1.22", features = ["v4"] }
-
-# Discord Ed25519 signature verification
-ed25519-dalek = { version = "2.2", optional = true }
+dravr-canot = { version = "0.2.0" }
 
 [lints]
 workspace = true

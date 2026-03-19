@@ -1,5 +1,5 @@
-// ABOUTME: Multi-channel messaging gateway for Pierre fitness platform
-// ABOUTME: Trait-based architecture with transport adapters and response renderers per channel
+// ABOUTME: Re-export facade for dravr-canot multi-channel messaging library
+// ABOUTME: All types, traits, and channel adapters are now canonical in dravr-canot
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,46 +8,25 @@
 
 //! # Pierre Messaging Gateway
 //!
-//! This crate provides a unified messaging interface for routing conversations
-//! through external chat platforms (`WhatsApp`, Messenger, Discord, Slack, Telegram).
-//!
-//! Each channel implements two traits:
-//! - [`TransportAdapter`] — webhook parsing, signature verification, raw HTTP send
-//! - [`ResponseRenderer`] — format `OutgoingMessage` into channel-specific payloads
+//! This crate re-exports the [`dravr-canot`](https://crates.io/crates/dravr-canot)
+//! messaging library. All types, traits, and channel adapters live in dravr-canot;
+//! this crate exists solely for workspace path compatibility.
 
-/// Channel trait combining transport and rendering
-pub mod channel;
+// Re-export all root-level items (traits, types)
+pub use dravr_canot::*;
 
-/// Channel descriptor metadata (name, type, webhook path, capabilities)
-pub mod descriptor;
-
-/// Transport adapter trait for webhook ingress and outbound HTTP
-pub mod transport;
-
-/// Response renderer trait for channel-specific message formatting
-pub mod renderer;
-
-/// Channel registry mapping `ChannelType` to adapter instances
-pub mod registry;
-
-/// Stateless adapter factory for on-demand channel adapter construction
-pub mod factory;
-
-/// Outbound retry worker with exponential backoff and dead-letter queue
-pub mod retry;
-
-/// Observability helpers for structured tracing spans and metrics
-pub mod observability;
-
-/// Shared Meta Platform (Messenger + `WhatsApp`) HMAC-SHA256 signature verification
-pub mod meta_signature;
-
-/// Per-channel adapter implementations
-pub mod channels;
-
-// Re-export primary types for consumers
-pub use channel::MessagingChannel;
-pub use descriptor::ChannelDescriptor;
-pub use registry::ChannelRegistry;
-pub use renderer::ResponseRenderer;
-pub use transport::TransportAdapter;
+// Re-export modules so `pierre_messaging::channel::MessagingChannel` etc. resolve
+pub use dravr_canot::channel;
+pub use dravr_canot::channels;
+pub use dravr_canot::config;
+pub use dravr_canot::descriptor;
+pub use dravr_canot::error;
+pub use dravr_canot::factory;
+pub use dravr_canot::http_client;
+pub use dravr_canot::meta_signature;
+pub use dravr_canot::models;
+pub use dravr_canot::observability;
+pub use dravr_canot::registry;
+pub use dravr_canot::renderer;
+pub use dravr_canot::retry;
+pub use dravr_canot::transport;
