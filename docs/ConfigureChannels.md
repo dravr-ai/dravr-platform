@@ -365,6 +365,144 @@ The OTP linking flow sends verification codes via email. Pierre uses [Resend](ht
 
 ---
 
+## Messenger
+
+Messenger uses the Meta platform (same as WhatsApp). If you already have a Meta App for WhatsApp, you can reuse it — the App Secret is shared across products.
+
+### 1. Create a Facebook Page
+
+1. Go to [facebook.com/pages/create](https://facebook.com/pages/create)
+2. Fill in a name (e.g., "Dravr Fitness") and category (e.g., "Software")
+3. Click **Create Page**
+
+### 2. Add Messenger to Your Meta App
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps/) → select your app
+2. Left sidebar → **Cas d'utilisation** (Use Cases)
+3. If **"Interagir avec la clientèle sur Messenger from Meta"** is not listed, click **"Ajouter des cas d'utilisation"** to add it
+4. Click the **pencil icon** (✏️) next to the Messenger use case
+
+### 3. Generate a Page Access Token
+
+1. In the Messenger use case, click **Paramètres de Messenger API** in the left sidebar
+2. Scroll to **step 2: "Générez des tokens d'accès"**
+3. Click **"Ajouter ou supprimer des Pages"** → select your Facebook Page → authorize
+4. Click **Générer un jeton** (Generate Token) next to your page
+5. Copy the **Page Access Token**
+
+### 4. Get the App Secret
+
+1. In the left sidebar, go to **Paramètres de l'app** → **Général** (Settings → Basic)
+2. Copy the **Clé secrète** (App Secret)
+
+> **Note**: If you already use WhatsApp, this is the same App Secret (`META_WHATSAPP_APP_SECRET`).
+
+### 5. Store Credentials
+
+#### In `.envrc` (local development)
+
+```bash
+export META_MESSENGER_APP_SECRET="your-app-secret"
+export META_MESSENGER_PAGE_ACCESS_TOKEN="EAAf..."
+export META_MESSENGER_VERIFY_TOKEN="your-app-secret"
+```
+
+#### In GCP Secret Manager (production)
+
+```bash
+printf 'your-app-secret' | gcloud secrets create dravr-mcp-server-meta-messenger-app-secret --data-file=- --project=dravr-dev
+printf 'EAAf...' | gcloud secrets create dravr-mcp-server-meta-messenger-page-access-token --data-file=- --project=dravr-dev
+```
+
+> **Warning**: Use `printf` not `echo` to avoid trailing newlines in secrets.
+
+### 6. Configure Pierre
+
+**Option A: Automatic via Environment Variables (recommended)**
+
+Pierre auto-seeds channel configs from env vars at startup via `messaging_seed.rs`. Set the `META_MESSENGER_*` variables in `.envrc` (local) or Cloud Run env vars (GCP), and the channel config is created automatically on boot.
+
+**Option B: Manual via API**
+
+```bash
+curl -X PUT https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/api/messaging/channels/messenger \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-admin-token>" \
+  -d '{
+    "enabled": true,
+    "credentials": {
+      "api_key": "EAAf...",
+      "webhook_secret": "your-app-secret",
+      "verify_token": "your-app-secret"
+    }
+  }'
+```
+
+**Option C: Via the Web UI**
+
+Go to **Settings** → **Messaging** tab → click **Configure** on Messenger → fill in the fields → Save.
+
+Field mapping:
+
+| Pierre Field | Meta Equivalent | Purpose |
+|-------------|-----------------|---------|
+| `api_key` | Page Access Token | Sending messages via Graph API (`POST /me/messages`) |
+| `webhook_secret` | App Secret | HMAC-SHA256 signature verification for inbound webhooks |
+| `verify_token` | Verify Token | Meta's GET handshake when registering the webhook URL |
+
+### 7. Register the Webhook
+
+1. Go to [developers.facebook.com](https://developers.facebook.com) → your app
+2. Left sidebar → Messenger use case → **Paramètres de Messenger API**
+3. Under **step 1: "Configurez les webhooks"**, set:
+   - **URL de rappel** (Callback URL):
+     ```
+     https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/api/messaging/webhook/messenger
+     ```
+   - **Vérifier le token** (Verify Token): your verify token value (e.g., the App Secret)
+4. Click **"Vérifier et enregistrer"** (Verify and Save)
+   - Meta sends a GET request with `hub.verify_token` — Pierre validates and responds with `hub.challenge`
+   - You should see a green checkmark
+
+### 8. Subscribe to Webhook Events
+
+1. In **step 2**, under the **Abonnement Webhooks** column next to your page, click **"Ajouter des abonnements"**
+2. Subscribe to:
+   - `messages` — fires when someone DMs the page
+   - `messaging_postbacks` — fires when someone taps a button
+3. Click **"Enregistrer"**
+
+### 9. Test
+
+1. On Facebook, find your page (e.g., "Dravr Fitness") or open `https://m.me/YourPageName`
+2. Send a message (e.g., "Hello")
+3. Pierre replies with the OTP linking prompt (asks for your Pierre email)
+4. Enter your Pierre email → receive a 6-digit code via email → type it in Messenger
+5. Pierre confirms account linked
+6. Send another message → Pierre responds via the LLM pipeline
+
+> **Note**: During development (app not published), only users with a role on the Meta App (admin, developer, tester) can message the bot. To receive messages from all Facebook users, complete the **App Review** (step 3 in the Messenger API settings) and request the `pages_messaging` permission.
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No webhook received | `messages` event not subscribed for the page | Expand step 2 → "Ajouter des abonnements" → subscribe to `messages` |
+| Webhook received but no reply | Page Access Token expired or missing | Regenerate token in Messenger API settings |
+| "No matching channel configuration" | Webhook signature doesn't match stored `webhook_secret` | Verify the App Secret matches in Pierre's channel config |
+| Meta verification fails | Channel config doesn't exist in DB yet | Ensure Pierre is deployed with `seed_messenger()` and env vars are set |
+| Only admins can message the bot | App not published, `pages_messaging` not approved | Complete App Review or add test users as app roles |
+
+### Architecture Notes
+
+- **Shared bot model**: One Facebook Page serves all tenants. Same as WhatsApp — the channel config belongs to a single tenant, but users from any tenant can link.
+- **Webhook verification**: Same as WhatsApp — Meta sends `x-hub-signature-256` header with HMAC-SHA256 using the App Secret.
+- **Message delivery**: Outbound messages use the Graph API (`POST https://graph.facebook.com/v18.0/me/messages`) with the Page Access Token as bearer auth.
+- **No phone number**: Unlike WhatsApp, Messenger uses Page-Scoped User IDs (PSIDs) — no phone number field needed.
+- **Rich messages**: Supports text, media attachments, and generic templates with buttons (postback or URL).
+
+---
+
 ## Channel Config API Reference
 
 All channels are managed through the same REST API:
