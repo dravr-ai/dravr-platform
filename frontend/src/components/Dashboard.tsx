@@ -76,7 +76,9 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState(isAdminUser ? 'overview' : 'chat');
   // Sub-view state for insights tab (feed vs friends), matching mobile's social stack
   const [insightsView, setInsightsView] = useState<'feed' | 'friends'>('feed');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem('pierre.sidebar_collapsed') === 'true';
+  });
   const [selectedAdminToken, setSelectedAdminToken] = useState<AdminToken | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -360,7 +362,11 @@ export default function Dashboard() {
 
         {/* Collapse Toggle Button */}
         <button
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          onClick={() => {
+            const next = !sidebarCollapsed;
+            localStorage.setItem('pierre.sidebar_collapsed', String(next));
+            setSidebarCollapsed(next);
+          }}
           className="absolute -right-5 top-20 w-11 h-11 bg-pierre-slate border border-white/20 rounded-full flex items-center justify-center shadow-sm hover:bg-white/10 hover:border-pierre-violet transition-all duration-200 z-50"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
