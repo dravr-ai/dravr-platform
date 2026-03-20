@@ -13,7 +13,7 @@ mod common;
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     models::{User, UserStatus, UserTier},
@@ -125,7 +125,7 @@ impl TestServer {
             auth_provider: String::new(),
         };
 
-        UserRepository::create(&*self.database, &user).await?;
+        self.database.repositories().users.create(&user).await?;
 
         // Generate JWT token
         let jwt_token = self

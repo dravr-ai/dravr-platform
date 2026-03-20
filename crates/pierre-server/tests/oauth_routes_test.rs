@@ -12,10 +12,7 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -843,12 +840,16 @@ async fn test_login_with_correct_credentials() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*server_resources.database, &admin_user)
+    server_resources
+        .repos
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
     server_resources
-        .database
+        .repos
+        .users
         .update_status(user_id, UserStatus::Active, Some(admin_id))
         .await
         .unwrap();

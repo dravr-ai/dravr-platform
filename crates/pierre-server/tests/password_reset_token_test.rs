@@ -18,7 +18,6 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::PasswordResetRepository;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -111,7 +110,8 @@ impl ResetTokenTestSetup {
         let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
 
         self.resources
-            .database
+            .repos
+            .password_reset
             .store_token(user_id, &token_hash, "test_admin")
             .await?;
 

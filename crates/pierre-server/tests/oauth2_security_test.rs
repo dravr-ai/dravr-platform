@@ -13,7 +13,7 @@ use pierre_auth::oauth2_server::{
 };
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider, OAuth2ServerRepository},
+    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -43,7 +43,8 @@ async fn test_redirect_uri_https_enforcement() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     // Test 1: HTTPS URI should succeed
     let https_registration = ClientRegistrationRequest {
@@ -135,7 +136,8 @@ async fn test_redirect_uri_fragment_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     // URI with fragment should fail (security risk per RFC 6749)
     let fragment_registration = ClientRegistrationRequest {
@@ -182,7 +184,8 @@ async fn test_redirect_uri_wildcard_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     // Wildcard URI should fail (subdomain bypass attack prevention)
     let wildcard_registration = ClientRegistrationRequest {
@@ -229,7 +232,8 @@ async fn test_redirect_uri_oob_urn() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     // Out-of-band URN should succeed (for native apps per RFC 8252)
     let oob_registration = ClientRegistrationRequest {
@@ -269,7 +273,8 @@ async fn test_argon2id_client_secret_hashing() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let registration_request = ClientRegistrationRequest {
         redirect_uris: vec!["https://example.com/callback".to_owned()],
@@ -287,6 +292,8 @@ async fn test_argon2id_client_secret_hashing() {
 
     // Retrieve client from database to check hash format
     let client = database
+        .repositories()
+        .oauth2_server
         .get_client(&registration_response.client_id)
         .await
         .unwrap()
@@ -335,7 +342,8 @@ async fn test_client_secret_validation() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let registration_request = ClientRegistrationRequest {
         redirect_uris: vec!["https://example.com/callback".to_owned()],
@@ -399,7 +407,8 @@ async fn test_empty_redirect_uri_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let empty_uri_registration = ClientRegistrationRequest {
         redirect_uris: vec![],
@@ -445,7 +454,8 @@ async fn test_malformed_uri_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let malformed_uri_registration = ClientRegistrationRequest {
         redirect_uris: vec!["not-a-valid-uri".to_owned()],
@@ -491,7 +501,8 @@ async fn test_unsupported_grant_type_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let unsupported_grant_registration = ClientRegistrationRequest {
         redirect_uris: vec!["https://example.com/callback".to_owned()],
@@ -537,7 +548,8 @@ async fn test_unsupported_response_type_rejection() {
     );
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
 
     let unsupported_response_registration = ClientRegistrationRequest {
         redirect_uris: vec!["https://example.com/callback".to_owned()],

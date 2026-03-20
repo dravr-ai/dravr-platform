@@ -14,7 +14,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-use pierre_database::plugins::{factory::Database, TenantRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     mcp::{
         multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},
@@ -44,7 +44,8 @@ async fn create_authenticated_user(
         Some("Configuration Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Then create the tenant with the user as owner
     let tenant = Tenant {
@@ -57,10 +58,10 @@ async fn create_authenticated_user(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    TenantRepository::create(database, &tenant).await?;
+    repos.tenants.create(&tenant).await?;
 
     // Finally, update the user to associate with the tenant via the database
-    database.update_tenant_id(user_id, tenant_uuid).await?;
+    repos.users.update_tenant_id(user_id, tenant_uuid).await?;
 
     let token = auth_manager.generate_token(&user, jwks_manager)?;
     Ok((user_id, token))
@@ -83,7 +84,8 @@ async fn create_authenticated_user_with_different_tenant(
         Some("Configuration Test User (Different Tenant)".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Then create the tenant with the user as owner
     let tenant = Tenant {
@@ -96,10 +98,10 @@ async fn create_authenticated_user_with_different_tenant(
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    TenantRepository::create(database, &tenant).await?;
+    repos.tenants.create(&tenant).await?;
 
     // Finally, update the user to associate with the tenant via the database
-    database.update_tenant_id(user_id, tenant_uuid).await?;
+    repos.users.update_tenant_id(user_id, tenant_uuid).await?;
 
     let token = auth_manager.generate_token(&user, jwks_manager)?;
     Ok((user_id, token))

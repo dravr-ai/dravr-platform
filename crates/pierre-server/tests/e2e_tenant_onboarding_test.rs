@@ -24,7 +24,7 @@ use pierre_auth::{
         TenantOAuthClient, TenantRole,
     },
 };
-use pierre_database::plugins::{factory::Database, TenantRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -120,8 +120,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(&*database, &acme_admin).await?;
-    UserRepository::create(&*database, &beta_admin).await?;
+    database.repositories().users.create(&acme_admin).await?;
+    database.repositories().users.create(&beta_admin).await?;
 
     // Step 3: Create first tenant ("Acme Fitness Co.")
     let acme_tenant = Tenant {
@@ -135,7 +135,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*database, &acme_tenant).await?;
+    database.repositories().tenants.create(&acme_tenant).await?;
 
     // Step 4: Create second tenant ("Beta Health Inc.") for isolation testing
     let beta_tenant = Tenant {
@@ -149,7 +149,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*database, &beta_tenant).await?;
+    database.repositories().tenants.create(&beta_tenant).await?;
 
     // Step 5: Register OAuth applications for each tenant
     let acme_strava_app = OAuthApp {
@@ -180,8 +180,16 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         updated_at: chrono::Utc::now(),
     };
 
-    database.create_oauth_app(&acme_strava_app).await?;
-    database.create_oauth_app(&beta_strava_app).await?;
+    database
+        .repositories()
+        .tenants
+        .create_oauth_app(&acme_strava_app)
+        .await?;
+    database
+        .repositories()
+        .tenants
+        .create_oauth_app(&beta_strava_app)
+        .await?;
 
     // Step 6: Set up tenant OAuth client and configure credentials
     let oauth_config = Arc::new(OAuthConfig {
@@ -315,20 +323,21 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
     println!("Beta tenant tool execution successful");
 
     // Step 10: Verify tenant isolation - check OAuth credentials
+    let repos = database.repositories();
     let acme_oauth_creds = tenant_oauth_client
         .get_tenant_credentials(
             acme_tenant_id,
             "strava",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
     let beta_oauth_creds = tenant_oauth_client
         .get_tenant_credentials(
             beta_tenant_id,
             "strava",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
 
@@ -367,8 +376,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             &acme_context,
             "strava",
             "acme_state_123",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
 
@@ -377,8 +386,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             &beta_context,
             "strava",
             "beta_state_456",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
 
@@ -448,7 +457,7 @@ async fn setup_multitenant_scenario(
         auth_provider: String::new(),
     };
 
-    UserRepository::create(&**database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     let tenant1 = Tenant {
         id: tenant1_id,
@@ -472,8 +481,8 @@ async fn setup_multitenant_scenario(
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&**database, &tenant1).await?;
-    TenantRepository::create(&**database, &tenant2).await?;
+    database.repositories().tenants.create(&tenant1).await?;
+    database.repositories().tenants.create(&tenant2).await?;
 
     Ok((tenant1_id, tenant2_id, user_id))
 }
@@ -535,20 +544,21 @@ async fn test_tenant_context_switching() -> Result<()> {
         TenantRole::Member,
     );
 
+    let repos = database.repositories();
     let oauth1 = tenant_oauth_client
         .get_oauth_client(
             &tenant1_context,
             "strava",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
     let oauth2 = tenant_oauth_client
         .get_oauth_client(
             &tenant2_context,
             "strava",
-            database.as_ref(),
-            database.as_ref(),
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await?;
 

@@ -13,10 +13,7 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, SecurityRepository, TenantRepository, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
     config::environment::{
@@ -239,7 +236,8 @@ impl MultiTenantMcpClient {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        UserRepository::create(database, &test_user).await?;
+        let repos = database.repositories();
+        repos.users.create(&test_user).await?;
 
         // Create a test tenant for OAuth credentials with test user as owner
         let test_tenant = Tenant {
@@ -252,7 +250,7 @@ impl MultiTenantMcpClient {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        TenantRepository::create(database, &test_tenant).await?;
+        repos.tenants.create(&test_tenant).await?;
 
         let strava_credentials = TenantOAuthCredentials {
             tenant_id: tenant_uuid,
@@ -263,7 +261,8 @@ impl MultiTenantMcpClient {
             scopes: vec!["read".to_owned(), "activity:read_all".to_owned()],
             rate_limit_per_day: 1000,
         };
-        database
+        repos
+            .tenants
             .store_oauth_credentials(&strava_credentials)
             .await?;
 
@@ -276,7 +275,8 @@ impl MultiTenantMcpClient {
             scopes: vec!["activity".to_owned(), "profile".to_owned()],
             rate_limit_per_day: 1000,
         };
-        database
+        repos
+            .tenants
             .store_oauth_credentials(&fitbit_credentials)
             .await?;
 
@@ -481,10 +481,13 @@ async fn setup_test_environment() -> Result<(Database, AuthManager, u16, TempDir
 
     // Initialize the system secret in the database to match what the server expects
     // First get_or_create to ensure the entry exists, then update with our test value
-    let _ = database
+    let security_repos = database.repositories();
+    let _ = security_repos
+        .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
-    database
+    security_repos
+        .security
         .update_system_secret("admin_jwt_secret", TEST_JWT_SECRET)
         .await?;
 
@@ -493,7 +496,8 @@ async fn setup_test_environment() -> Result<(Database, AuthManager, u16, TempDir
     let auth_manager = AuthManager::new(24);
 
     // Verify the database contains the expected secret
-    let verified_secret = database
+    let verified_secret = security_repos
+        .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
     assert_eq!(

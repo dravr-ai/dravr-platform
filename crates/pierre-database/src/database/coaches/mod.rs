@@ -17,6 +17,7 @@ mod versions;
 
 pub use types::*;
 pub use user::compute_request_hash;
+pub use versions::row_to_coach_version;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};

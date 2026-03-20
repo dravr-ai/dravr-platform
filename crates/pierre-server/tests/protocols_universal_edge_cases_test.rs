@@ -13,7 +13,6 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::{OAuthTokenRepository, TenantRepository, UserRepository};
 use pierre_mcp_server::{
     config::environment::*,
     constants::oauth_providers,
@@ -263,7 +262,7 @@ async fn test_oauth_configuration_errors() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -273,7 +272,7 @@ async fn test_oauth_configuration_errors() -> Result<()> {
         "starter".to_owned(),
         user_id, // User is now the owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     // Test get_activities with missing OAuth config
     // Must specify a real provider (strava) - default provider is "synthetic" which doesn't need OAuth
@@ -321,7 +320,7 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Store an invalid/expired token
     let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
@@ -336,7 +335,8 @@ async fn test_invalid_provider_tokens() -> Result<()> {
     );
     executor
         .resources
-        .database
+        .repos
+        .oauth_tokens
         .upsert_token(&oauth_token)
         .await?;
 
@@ -439,7 +439,7 @@ async fn test_invalid_tool_parameters() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test get_activities with invalid limit
     let request = UniversalRequest {
@@ -533,7 +533,7 @@ async fn test_concurrent_tool_execution() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create multiple concurrent requests
     let mut handles = vec![];
@@ -580,7 +580,7 @@ async fn test_tool_response_metadata() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     let request = UniversalRequest {
         tool_name: "get_connection_status".to_owned(),
@@ -615,7 +615,7 @@ async fn test_intelligence_integration_errors() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test analytics tools with invalid data
     let request = UniversalRequest {
@@ -648,7 +648,7 @@ async fn test_provider_unavailable() -> Result<()> {
     let mut user = create_test_user("test@example.com", Some("Test User".to_owned()));
     user.id = user_id;
     user.password_hash = bcrypt::hash("password", bcrypt::DEFAULT_COST)?;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test with unsupported provider
     let request = UniversalRequest {

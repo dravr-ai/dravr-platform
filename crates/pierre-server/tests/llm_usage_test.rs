@@ -8,12 +8,12 @@
 #![allow(missing_docs, clippy::unwrap_used)]
 
 use pierre_database::database::llm_usage::InsertLlmUsage;
-use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
 
 #[tokio::test]
 async fn test_insert_llm_usage() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     let params = InsertLlmUsage {
         tenant_id: "tenant-1",
@@ -29,7 +29,7 @@ async fn test_insert_llm_usage() {
         execution_time_ms: Some(1500),
     };
 
-    let record = db.insert_llm_usage(&params).await.unwrap();
+    let record = repos.llm_usage.insert_llm_usage(&params).await.unwrap();
 
     assert!(!record.id.is_empty());
     assert_eq!(record.tenant_id, "tenant-1");
@@ -49,6 +49,7 @@ async fn test_insert_llm_usage() {
 #[tokio::test]
 async fn test_insert_llm_usage_without_conversation() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     let params = InsertLlmUsage {
         tenant_id: "tenant-1",
@@ -64,7 +65,7 @@ async fn test_insert_llm_usage_without_conversation() {
         execution_time_ms: None,
     };
 
-    let record = db.insert_llm_usage(&params).await.unwrap();
+    let record = repos.llm_usage.insert_llm_usage(&params).await.unwrap();
 
     assert!(record.conversation_id.is_none());
     assert!(record.execution_time_ms.is_none());
@@ -75,6 +76,7 @@ async fn test_insert_llm_usage_without_conversation() {
 #[tokio::test]
 async fn test_insert_multiple_llm_usage_records() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     for i in 0..3 {
         let params = InsertLlmUsage {
@@ -90,7 +92,7 @@ async fn test_insert_multiple_llm_usage_records() {
             tool_calls_count: 0,
             execution_time_ms: None,
         };
-        db.insert_llm_usage(&params).await.unwrap();
+        repos.llm_usage.insert_llm_usage(&params).await.unwrap();
     }
 
     // Verify fourth insert succeeds (proves multiple inserts work)
@@ -107,6 +109,6 @@ async fn test_insert_multiple_llm_usage_records() {
         tool_calls_count: 0,
         execution_time_ms: None,
     };
-    let record = db.insert_llm_usage(&params).await.unwrap();
+    let record = repos.llm_usage.insert_llm_usage(&params).await.unwrap();
     assert_eq!(record.total_tokens, 1000);
 }

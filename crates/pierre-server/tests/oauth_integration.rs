@@ -14,7 +14,7 @@ mod common;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider, TenantRepository, UserRepository},
+    plugins::{factory::Database, DatabaseProvider},
 };
 use pierre_mcp_server::{
     config::environment::{
@@ -259,7 +259,10 @@ async fn test_oauth_authorization_url_generation() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&database, &admin_user)
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
@@ -275,7 +278,12 @@ async fn test_oauth_authorization_url_generation() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&database, &tenant).await.unwrap();
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
 
     // Store tenant OAuth credentials for Strava
     let strava_credentials = TenantOAuthCredentials {
@@ -288,6 +296,8 @@ async fn test_oauth_authorization_url_generation() {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&strava_credentials)
         .await
         .unwrap();
@@ -303,6 +313,8 @@ async fn test_oauth_authorization_url_generation() {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&fitbit_credentials)
         .await
         .unwrap();
@@ -743,7 +755,7 @@ async fn test_connection_status_no_providers() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     let cache = common::create_test_cache().await.unwrap();
     let server_resources = Arc::new(
@@ -1205,7 +1217,12 @@ async fn test_disconnect_provider() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&**server_context.data().database(), &user)
+    server_context
+        .data()
+        .database()
+        .repositories()
+        .users
+        .create(&user)
         .await
         .unwrap();
 
@@ -1220,7 +1237,12 @@ async fn test_disconnect_provider() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&**server_context.data().database(), &tenant)
+    server_context
+        .data()
+        .database()
+        .repositories()
+        .tenants
+        .create(&tenant)
         .await
         .unwrap();
 
@@ -1283,7 +1305,10 @@ async fn test_oauth_urls_contain_required_parameters() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&database, &admin_user)
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
@@ -1299,7 +1324,12 @@ async fn test_oauth_urls_contain_required_parameters() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&database, &tenant).await.unwrap();
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
 
     // Store tenant OAuth credentials
     let strava_credentials = TenantOAuthCredentials {
@@ -1312,6 +1342,8 @@ async fn test_oauth_urls_contain_required_parameters() {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&strava_credentials)
         .await
         .unwrap();
@@ -1326,6 +1358,8 @@ async fn test_oauth_urls_contain_required_parameters() {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&fitbit_credentials)
         .await
         .unwrap();

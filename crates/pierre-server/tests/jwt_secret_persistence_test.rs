@@ -11,7 +11,7 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::key_management::KeyManager;
-use pierre_database::plugins::{factory::Database, AdminRepository, SecurityRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::admin::{jwt::AdminJwtManager, models::CreateAdminTokenRequest};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -51,7 +51,9 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
         key_manager.complete_initialization(&mut database).await?;
 
         // Get/create JWT secret (simulating pierre-cli)
-        let jwt_secret = database
+        let repos = database.repositories();
+        let jwt_secret = repos
+            .security
             .get_or_create_system_secret("admin_jwt_secret")
             .await?;
 
@@ -64,7 +66,8 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
             is_super_admin: true,
         };
 
-        let generated_token = database
+        let generated_token = repos
+            .admin
             .create_token(&request, &jwt_secret, &jwks_manager)
             .await?;
         println!("Generated token: {}", generated_token.jwt_token);
@@ -87,7 +90,9 @@ async fn test_jwt_secret_persistence_across_restarts() -> Result<()> {
         key_manager.complete_initialization(&mut database).await?;
 
         // Get JWT secret again (simulating server restart)
-        database
+        let repos = database.repositories();
+        repos
+            .security
             .get_or_create_system_secret("admin_jwt_secret")
             .await?
     };
@@ -147,7 +152,9 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
         #[cfg(not(feature = "postgresql"))]
         let mut database = Database::new(&db_url, database_key.to_vec()).await?;
         key_manager.complete_initialization(&mut database).await?;
-        database
+        let repos = database.repositories();
+        repos
+            .security
             .get_or_create_system_secret("admin_jwt_secret")
             .await?
     };
@@ -164,7 +171,9 @@ async fn test_mek_ensures_consistent_jwt_storage() -> Result<()> {
         #[cfg(not(feature = "postgresql"))]
         let mut database = Database::new(&db_url, database_key.to_vec()).await?;
         key_manager.complete_initialization(&mut database).await?;
-        database
+        let repos = database.repositories();
+        repos
+            .security
             .get_or_create_system_secret("admin_jwt_secret")
             .await?
     };

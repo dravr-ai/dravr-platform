@@ -18,8 +18,7 @@
 )]
 
 use pierre_database::plugins::{
-    factory::Database, CreateSessionParams, InsertMessageParams, MessagingRepository,
-    UpsertChannelConfigParams,
+    factory::Database, CreateSessionParams, InsertMessageParams, UpsertChannelConfigParams,
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -64,7 +63,11 @@ async fn create_test_session(db: &Database, session_id: &str, tenant_id: TenantI
         channel_conversation_id: None,
         pierre_conversation_id: None,
     };
-    db.create_session(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_session(&params)
+        .await
+        .unwrap();
 }
 
 /// Create a session and a message for FK relationships (receipts/queue reference messages)
@@ -89,7 +92,11 @@ async fn create_test_message(
         correlation_id: "test-corr",
         raw_payload: None,
     };
-    db.insert_message(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .insert_message(&params)
+        .await
+        .unwrap();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -116,9 +123,18 @@ async fn test_upsert_and_get_channel_config() {
         is_active: true,
     };
 
-    db.upsert_channel_config(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .upsert_channel_config(&params)
+        .await
+        .unwrap();
 
-    let config = db.get_channel_config(tenant_id, "whatsapp").await.unwrap();
+    let config = db
+        .repositories()
+        .messaging
+        .get_channel_config(tenant_id, "whatsapp")
+        .await
+        .unwrap();
     assert!(config.is_some());
     let config = config.unwrap();
     assert_eq!(config["channel_type"], "whatsapp");
@@ -144,7 +160,11 @@ async fn test_upsert_updates_existing_config() {
         bot_token: None,
         is_active: true,
     };
-    db.upsert_channel_config(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .upsert_channel_config(&params)
+        .await
+        .unwrap();
 
     // Upsert again with new values
     let new_id = Uuid::new_v4().to_string();
@@ -161,9 +181,18 @@ async fn test_upsert_updates_existing_config() {
         bot_token: None,
         is_active: false,
     };
-    db.upsert_channel_config(&params2).await.unwrap();
+    db.repositories()
+        .messaging
+        .upsert_channel_config(&params2)
+        .await
+        .unwrap();
 
-    let config = db.get_channel_config(tenant_id, "slack").await.unwrap();
+    let config = db
+        .repositories()
+        .messaging
+        .get_channel_config(tenant_id, "slack")
+        .await
+        .unwrap();
     let config = config.unwrap();
     assert_eq!(config["is_active"], false);
 }
@@ -189,10 +218,19 @@ async fn test_list_channel_configs() {
             bot_token: Some("bot_tok"),
             is_active: true,
         };
-        db.upsert_channel_config(&params).await.unwrap();
+        db.repositories()
+            .messaging
+            .upsert_channel_config(&params)
+            .await
+            .unwrap();
     }
 
-    let configs = db.list_channel_configs(tenant_id).await.unwrap();
+    let configs = db
+        .repositories()
+        .messaging
+        .list_channel_configs(tenant_id)
+        .await
+        .unwrap();
     assert_eq!(configs.len(), 2);
 }
 
@@ -215,15 +253,26 @@ async fn test_delete_channel_config() {
         bot_token: Some("bot_token"),
         is_active: true,
     };
-    db.upsert_channel_config(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .upsert_channel_config(&params)
+        .await
+        .unwrap();
 
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_config(tenant_id, "discord")
         .await
         .unwrap();
     assert!(deleted);
 
-    let config = db.get_channel_config(tenant_id, "discord").await.unwrap();
+    let config = db
+        .repositories()
+        .messaging
+        .get_channel_config(tenant_id, "discord")
+        .await
+        .unwrap();
     assert!(config.is_none());
 }
 
@@ -231,6 +280,8 @@ async fn test_delete_channel_config() {
 async fn test_delete_nonexistent_config() {
     let db = create_test_db().await;
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_config(test_tenant_id(), "whatsapp")
         .await
         .unwrap();
@@ -257,13 +308,27 @@ async fn test_tenant_isolation_channel_config() {
         bot_token: None,
         is_active: true,
     };
-    db.upsert_channel_config(&params_a).await.unwrap();
+    db.repositories()
+        .messaging
+        .upsert_channel_config(&params_a)
+        .await
+        .unwrap();
 
     // Tenant B should not see tenant A's config
-    let config_b = db.get_channel_config(tenant_b, "whatsapp").await.unwrap();
+    let config_b = db
+        .repositories()
+        .messaging
+        .get_channel_config(tenant_b, "whatsapp")
+        .await
+        .unwrap();
     assert!(config_b.is_none());
 
-    let configs_b = db.list_channel_configs(tenant_b).await.unwrap();
+    let configs_b = db
+        .repositories()
+        .messaging
+        .list_channel_configs(tenant_b)
+        .await
+        .unwrap();
     assert!(configs_b.is_empty());
 }
 
@@ -286,9 +351,15 @@ async fn test_create_and_lookup_session() {
         channel_conversation_id: Some("tg_chat_200"),
         pierre_conversation_id: None,
     };
-    db.create_session(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_session(&params)
+        .await
+        .unwrap();
 
     let session = db
+        .repositories()
+        .messaging
         .get_session_by_channel_identity(tenant_id, "telegram", "tg_user_100")
         .await
         .unwrap();
@@ -312,10 +383,18 @@ async fn test_touch_session_updates_timestamp() {
         channel_conversation_id: Some("C5678"),
         pierre_conversation_id: None,
     };
-    db.create_session(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_session(&params)
+        .await
+        .unwrap();
 
     // Touch should succeed without error
-    db.touch_session(&session_id).await.unwrap();
+    db.repositories()
+        .messaging
+        .touch_session(&session_id)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -334,10 +413,16 @@ async fn test_session_tenant_isolation() {
         channel_conversation_id: None,
         pierre_conversation_id: None,
     };
-    db.create_session(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_session(&params)
+        .await
+        .unwrap();
 
     // Tenant B should not see tenant A's session
     let session = db
+        .repositories()
+        .messaging
         .get_session_by_channel_identity(tenant_b, "whatsapp", "wa_user_42")
         .await
         .unwrap();
@@ -371,7 +456,12 @@ async fn test_insert_message_returns_true_on_first_insert() {
         raw_payload: Some(r#"{"Body":"Hello"}"#),
     };
 
-    let inserted = db.insert_message(&params).await.unwrap();
+    let inserted = db
+        .repositories()
+        .messaging
+        .insert_message(&params)
+        .await
+        .unwrap();
     assert!(inserted, "First insert should return true");
 }
 
@@ -397,7 +487,12 @@ async fn test_insert_duplicate_message_returns_false() {
         correlation_id: "corr-1",
         raw_payload: None,
     };
-    let first = db.insert_message(&params1).await.unwrap();
+    let first = db
+        .repositories()
+        .messaging
+        .insert_message(&params1)
+        .await
+        .unwrap();
     assert!(first);
 
     // Same channel_message_id + tenant_id = duplicate
@@ -414,7 +509,12 @@ async fn test_insert_duplicate_message_returns_false() {
         correlation_id: "corr-2",
         raw_payload: None,
     };
-    let second = db.insert_message(&params2).await.unwrap();
+    let second = db
+        .repositories()
+        .messaging
+        .insert_message(&params2)
+        .await
+        .unwrap();
     assert!(!second, "Duplicate message should return false");
 }
 
@@ -442,10 +542,16 @@ async fn test_get_session_messages() {
             correlation_id: &format!("corr-{i}"),
             raw_payload: None,
         };
-        db.insert_message(&params).await.unwrap();
+        db.repositories()
+            .messaging
+            .insert_message(&params)
+            .await
+            .unwrap();
     }
 
     let messages = db
+        .repositories()
+        .messaging
         .get_session_messages("session-abc", tenant_id, 10, 0)
         .await
         .unwrap();
@@ -475,11 +581,17 @@ async fn test_get_session_messages_pagination() {
             correlation_id: &format!("corr-{i}"),
             raw_payload: None,
         };
-        db.insert_message(&params).await.unwrap();
+        db.repositories()
+            .messaging
+            .insert_message(&params)
+            .await
+            .unwrap();
     }
 
     // First page: limit 2
     let page1 = db
+        .repositories()
+        .messaging
         .get_session_messages("session-pag", tenant_id, 2, 0)
         .await
         .unwrap();
@@ -487,6 +599,8 @@ async fn test_get_session_messages_pagination() {
 
     // Second page: offset 2, limit 2
     let page2 = db
+        .repositories()
+        .messaging
         .get_session_messages("session-pag", tenant_id, 2, 2)
         .await
         .unwrap();
@@ -494,6 +608,8 @@ async fn test_get_session_messages_pagination() {
 
     // Third page: offset 4, limit 2
     let page3 = db
+        .repositories()
+        .messaging
         .get_session_messages("session-pag", tenant_id, 2, 4)
         .await
         .unwrap();
@@ -513,15 +629,17 @@ async fn test_insert_delivery_receipt() {
     // Create session + message first (FK constraint)
     create_test_message(&db, "msg-rcpt", "session-rcpt", tenant_id, "CM_RCPT1").await;
 
-    db.insert_delivery_receipt(
-        &receipt_id,
-        tenant_id,
-        "msg-rcpt",
-        Some("ext-msg-1"),
-        "sent",
-    )
-    .await
-    .unwrap();
+    db.repositories()
+        .messaging
+        .insert_delivery_receipt(
+            &receipt_id,
+            tenant_id,
+            "msg-rcpt",
+            Some("ext-msg-1"),
+            "sent",
+        )
+        .await
+        .unwrap();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -537,17 +655,24 @@ async fn test_enqueue_and_get_pending_outbound() {
     // Create session + message first (FK constraint)
     create_test_message(&db, "msg-q1", "session-q1", tenant_id, "CM_Q1").await;
 
-    db.enqueue_outbound(
-        &queue_id,
-        "msg-q1",
-        tenant_id,
-        "whatsapp",
-        r#"{"Body":"Hi"}"#,
-    )
-    .await
-    .unwrap();
+    db.repositories()
+        .messaging
+        .enqueue_outbound(
+            &queue_id,
+            "msg-q1",
+            tenant_id,
+            "whatsapp",
+            r#"{"Body":"Hi"}"#,
+        )
+        .await
+        .unwrap();
 
-    let pending = db.get_pending_outbound(tenant_id, 10).await.unwrap();
+    let pending = db
+        .repositories()
+        .messaging
+        .get_pending_outbound(tenant_id, 10)
+        .await
+        .unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["channel_type"], "whatsapp");
     assert_eq!(pending[0]["status"], "pending");
@@ -562,23 +687,32 @@ async fn test_update_outbound_status() {
     // Create session + message first (FK constraint)
     create_test_message(&db, "msg-q2", "session-q2", tenant_id, "CM_Q2").await;
 
-    db.enqueue_outbound(
-        &queue_id,
-        "msg-q2",
-        tenant_id,
-        "telegram",
-        r#"{"text":"Hi"}"#,
-    )
-    .await
-    .unwrap();
+    db.repositories()
+        .messaging
+        .enqueue_outbound(
+            &queue_id,
+            "msg-q2",
+            tenant_id,
+            "telegram",
+            r#"{"text":"Hi"}"#,
+        )
+        .await
+        .unwrap();
 
     // Mark as sent
-    db.update_outbound_status(&queue_id, "sent", 1, None)
+    db.repositories()
+        .messaging
+        .update_outbound_status(&queue_id, "sent", 1, None)
         .await
         .unwrap();
 
     // Should no longer appear in pending
-    let pending = db.get_pending_outbound(tenant_id, 10).await.unwrap();
+    let pending = db
+        .repositories()
+        .messaging
+        .get_pending_outbound(tenant_id, 10)
+        .await
+        .unwrap();
     assert!(
         pending.is_empty(),
         "Sent items should not appear as pending"
@@ -595,12 +729,19 @@ async fn test_outbound_queue_tenant_isolation() {
     // Create session + message in tenant A (FK constraint)
     create_test_message(&db, "msg-q3", "session-q3", tenant_a, "CM_Q3").await;
 
-    db.enqueue_outbound(&queue_id, "msg-q3", tenant_a, "slack", r#"{"text":"Hi"}"#)
+    db.repositories()
+        .messaging
+        .enqueue_outbound(&queue_id, "msg-q3", tenant_a, "slack", r#"{"text":"Hi"}"#)
         .await
         .unwrap();
 
     // Tenant B should see empty queue
-    let pending = db.get_pending_outbound(tenant_b, 10).await.unwrap();
+    let pending = db
+        .repositories()
+        .messaging
+        .get_pending_outbound(tenant_b, 10)
+        .await
+        .unwrap();
     assert!(pending.is_empty());
 }
 
@@ -614,30 +755,44 @@ async fn test_retry_worker_dead_letters_invalid_tenant() {
     create_test_message(&db, "msg-dlq", "session-dlq", tenant_id, "CM_DLQ").await;
 
     // Enqueue an outbound message
-    db.enqueue_outbound(
-        &queue_id,
-        "msg-dlq",
-        tenant_id,
-        "whatsapp",
-        r#"{"Body":"Hi"}"#,
-    )
-    .await
-    .unwrap();
+    db.repositories()
+        .messaging
+        .enqueue_outbound(
+            &queue_id,
+            "msg-dlq",
+            tenant_id,
+            "whatsapp",
+            r#"{"Body":"Hi"}"#,
+        )
+        .await
+        .unwrap();
 
     // Verify it appears in pending
-    let pending = db.get_all_pending_outbound(10).await.unwrap();
+    let pending = db
+        .repositories()
+        .messaging
+        .get_all_pending_outbound(10)
+        .await
+        .unwrap();
     assert!(
         pending.iter().any(|e| e["id"].as_str() == Some(&queue_id)),
         "Entry should be pending before dead-letter"
     );
 
     // Simulate the retry worker dead-lettering an entry (e.g., invalid tenant_id parse)
-    db.update_outbound_status(&queue_id, "dlq", 1, None)
+    db.repositories()
+        .messaging
+        .update_outbound_status(&queue_id, "dlq", 1, None)
         .await
         .unwrap();
 
     // Entry should no longer appear in pending queue
-    let pending_after = db.get_all_pending_outbound(10).await.unwrap();
+    let pending_after = db
+        .repositories()
+        .messaging
+        .get_all_pending_outbound(10)
+        .await
+        .unwrap();
     assert!(
         !pending_after
             .iter()

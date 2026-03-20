@@ -14,7 +14,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use pierre_database::plugins::{factory::Database, SecurityRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -191,6 +191,8 @@ async fn test_jwt_secret_not_logged() -> Result<(), Box<dyn Error>> {
 
     // Get or create JWT secret
     let jwt_secret = database
+        .repositories()
+        .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
 
@@ -249,12 +251,13 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
     };
 
     // Test instrumented database operation (has #[tracing::instrument])
-    let created_id = UserRepository::create(&database, &user).await?;
+    let repos = database.repositories();
+    let created_id = repos.users.create(&user).await?;
 
     assert_eq!(created_id, user.id, "Created user ID should match");
 
     // Test instrumented get_user operation
-    let retrieved_user = database.get_global(user.id).await?;
+    let retrieved_user = repos.users.get_global(user.id).await?;
 
     assert!(retrieved_user.is_some(), "User should be retrievable");
     if let Some(user) = retrieved_user {

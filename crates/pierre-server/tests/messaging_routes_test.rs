@@ -26,7 +26,6 @@ mod messaging_routes_tests {
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_database::plugins::TenantRepository;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
     use std::sync::Arc;
@@ -315,11 +314,16 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         // Look up the test user's tenant_id for the channel config
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Set up Slack channel config with known signing secret
@@ -380,10 +384,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Discord uses Ed25519 for signature verification.
@@ -440,10 +449,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Set up Telegram channel config (simple secret-based auth)
@@ -510,10 +524,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Create a session and a message (outbound queue requires FK to messages)
@@ -581,10 +600,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let config_id = Uuid::new_v4().to_string();
@@ -627,10 +651,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Config with both verify_token and webhook_secret set
@@ -682,10 +711,15 @@ mod messaging_routes_tests {
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
 
         let (_user_id, user) = create_test_user(&resources.database).await.unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Config without verify_token (legacy setup)

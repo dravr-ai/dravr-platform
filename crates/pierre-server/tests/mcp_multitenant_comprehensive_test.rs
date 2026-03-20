@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::plugins::{factory::Database, TenantRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     mcp::multitenant::{McpRequest, MultiTenantMcpServer},
     models::{Tenant, User},
@@ -37,7 +37,7 @@ async fn create_test_user_with_auth(database: &Database) -> Result<(User, String
         "password123".to_owned(),
         Some("Test User".to_owned()),
     );
-    UserRepository::create(database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     let auth_manager = common::create_test_auth_manager();
     let jwks_manager = common::get_shared_test_jwks();
@@ -141,7 +141,7 @@ async fn test_mcp_authenticate_request() -> Result<()> {
         bcrypt::hash("test_password", 4)?,
         Some("Auth Test User".to_owned()),
     );
-    UserRepository::create(&*resources.database, &user).await?;
+    resources.repos.users.create(&user).await?;
 
     let request = McpRequest {
         jsonrpc: "2.0".to_owned(),
@@ -626,7 +626,7 @@ async fn test_concurrent_requests() -> Result<()> {
             "password".to_owned(),
             Some(format!("Concurrent User {i}")),
         );
-        UserRepository::create(&*resources.database, &user).await?;
+        resources.repos.users.create(&user).await?;
 
         // Create tenant for this user
         let tenant_slug = format!("concurrent-tenant-{i}");
@@ -637,11 +637,12 @@ async fn test_concurrent_requests() -> Result<()> {
             "starter".to_owned(),
             user.id,
         );
-        TenantRepository::create(&*resources.database, &tenant).await?;
+        resources.repos.tenants.create(&tenant).await?;
 
         // Link user to tenant via user_tenants table
         resources
-            .database
+            .repos
+            .users
             .update_tenant_id(user.id, tenant.id)
             .await?;
 

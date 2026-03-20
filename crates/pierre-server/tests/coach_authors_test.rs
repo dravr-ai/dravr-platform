@@ -13,7 +13,6 @@ use common::{create_test_server_resources, create_test_user, create_test_user_wi
 use pierre_database::database::coach_authors::{
     CoachAuthorsManager, CreateAuthorRequest, UpdateAuthorRequest,
 };
-use pierre_database::plugins::TenantRepository;
 use pierre_mcp_server::models::TenantId;
 use uuid::Uuid;
 
@@ -25,7 +24,12 @@ use uuid::Uuid;
 async fn test_create_author() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -62,7 +66,12 @@ async fn test_create_author() {
 async fn test_create_author_minimal() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -89,7 +98,12 @@ async fn test_create_author_minimal() {
 async fn test_create_author_duplicate() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -121,7 +135,12 @@ async fn test_create_author_duplicate() {
 async fn test_get_author_by_user() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -153,7 +172,12 @@ async fn test_get_author_by_user() {
 async fn test_get_author_by_user_not_found() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -169,7 +193,12 @@ async fn test_get_author_by_user_not_found() {
 async fn test_get_author_by_id() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -216,7 +245,12 @@ async fn test_get_author_by_id_not_found() {
 async fn test_update_author_all_fields() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -267,7 +301,12 @@ async fn test_update_author_all_fields() {
 async fn test_update_author_partial() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -311,7 +350,12 @@ async fn test_update_author_partial() {
 async fn test_update_author_not_found() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -339,7 +383,12 @@ async fn test_update_author_not_found() {
 async fn test_verify_author() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -391,7 +440,12 @@ async fn test_verify_author_not_found() {
 async fn test_increment_published_count() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -444,7 +498,12 @@ async fn test_increment_published_count() {
 async fn test_update_install_count_increment() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -480,7 +539,12 @@ async fn test_update_install_count_increment() {
 async fn test_update_install_count_decrement() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -521,7 +585,12 @@ async fn test_update_install_count_decrement() {
 async fn test_update_install_count_never_negative() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -560,7 +629,12 @@ async fn test_update_install_count_never_negative() {
 async fn test_list_popular_authors() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -599,7 +673,12 @@ async fn test_list_popular_authors() {
 async fn test_list_popular_authors_empty_no_published() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -625,7 +704,12 @@ async fn test_list_popular_authors_empty_no_published() {
 async fn test_list_verified_authors() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -658,7 +742,12 @@ async fn test_list_verified_authors() {
 async fn test_list_verified_authors_excludes_unverified() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -687,7 +776,12 @@ async fn test_list_verified_authors_excludes_unverified() {
 async fn test_get_or_create_new() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -709,7 +803,12 @@ async fn test_get_or_create_new() {
 async fn test_get_or_create_existing() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.database).await.unwrap();
-    let tenants = resources.database.list_for_user(user_id).await.unwrap();
+    let tenants = resources
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap();
     let tenant_id = tenants
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
@@ -749,7 +848,12 @@ async fn test_authors_isolated_by_tenant() {
     let (user1_id, _user1) = create_test_user_with_email(&resources.database, "user1@example.com")
         .await
         .unwrap();
-    let tenants1 = resources.database.list_for_user(user1_id).await.unwrap();
+    let tenants1 = resources
+        .repos
+        .tenants
+        .list_for_user(user1_id)
+        .await
+        .unwrap();
     let tenant1_id = tenants1
         .first()
         .map_or_else(|| TenantId::from(user1_id), |t| t.id);
@@ -758,7 +862,12 @@ async fn test_authors_isolated_by_tenant() {
     let (user2_id, _user2) = create_test_user_with_email(&resources.database, "user2@example.com")
         .await
         .unwrap();
-    let tenants2 = resources.database.list_for_user(user2_id).await.unwrap();
+    let tenants2 = resources
+        .repos
+        .tenants
+        .list_for_user(user2_id)
+        .await
+        .unwrap();
     let tenant2_id = tenants2
         .first()
         .map_or_else(|| TenantId::from(user2_id), |t| t.id);

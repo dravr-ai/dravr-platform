@@ -22,7 +22,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::plugins::TenantRepository;
 use pierre_mcp_server::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use std::sync::Arc;
@@ -50,7 +49,7 @@ async fn create_test_user_for_coaches(executor: &UniversalToolExecutor) -> Resul
     let (user_id, _user) =
         common::create_test_user_with_email(&executor.resources.database, &email).await?;
     // Get tenant_id from the tenant where user is owner
-    let all_tenants = executor.resources.database.get_all().await?;
+    let all_tenants = executor.resources.repos.tenants.get_all().await?;
     let user_tenant = all_tenants
         .iter()
         .find(|t| t.owner_user_id == user_id)

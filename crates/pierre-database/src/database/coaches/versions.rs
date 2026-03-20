@@ -447,7 +447,11 @@ impl CoachesManager {
 }
 
 /// Convert a database row to a `CoachVersion` struct
-fn row_to_coach_version(row: &SqliteRow) -> AppResult<CoachVersion> {
+///
+/// # Errors
+///
+/// Returns an error if row fields cannot be parsed (invalid UUID, datetime, or JSON)
+pub fn row_to_coach_version(row: &SqliteRow) -> AppResult<CoachVersion> {
     let id: String = row.get("id");
     let coach_id: String = row.get("coach_id");
     let version: i32 = row.get("version");

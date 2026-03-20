@@ -433,7 +433,7 @@ impl MobilityManager {
 // ============================================================================
 
 /// Convert a database row to a `StretchingExercise`
-fn row_to_stretching_exercise(row: &SqliteRow) -> AppResult<StretchingExercise> {
+pub(crate) fn row_to_stretching_exercise(row: &SqliteRow) -> AppResult<StretchingExercise> {
     let category_str: String = row.get("category");
     let difficulty_str: String = row.get("difficulty");
     let primary_muscles_json: String = row.get("primary_muscles");
@@ -495,7 +495,7 @@ fn row_to_stretching_exercise(row: &SqliteRow) -> AppResult<StretchingExercise> 
 }
 
 /// Convert a database row to a `YogaPose`
-fn row_to_yoga_pose(row: &SqliteRow) -> AppResult<YogaPose> {
+pub(crate) fn row_to_yoga_pose(row: &SqliteRow) -> AppResult<YogaPose> {
     let category_str: String = row.get("category");
     let difficulty_str: String = row.get("difficulty");
     let pose_type_str: String = row.get("pose_type");
@@ -596,7 +596,7 @@ fn row_to_yoga_pose(row: &SqliteRow) -> AppResult<YogaPose> {
 }
 
 /// Convert a database row to an `ActivityMuscleMapping`
-fn row_to_activity_muscle_mapping(row: &SqliteRow) -> AppResult<ActivityMuscleMapping> {
+pub(crate) fn row_to_activity_muscle_mapping(row: &SqliteRow) -> AppResult<ActivityMuscleMapping> {
     let primary_muscles_json: String = row.get("primary_muscles");
     let secondary_muscles_json: Option<String> = row.get("secondary_muscles");
     let stretch_categories_json: Option<String> = row.get("recommended_stretch_categories");

@@ -22,9 +22,7 @@ mod helpers;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::{
-    CreateLinkStateParams, MessagingRepository, TenantRepository, UserRepository,
-};
+use pierre_database::plugins::{CreateLinkStateParams, MessagingRepository};
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::{Tenant, TenantId, User};
 use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -66,7 +64,6 @@ async fn create_channel_initiated_link_state(
 ///
 /// `TenantRepository::create` automatically inserts the owner into `tenant_users`.
 async fn add_user_to_tenant(resources: &ServerResources, user_id: Uuid, tenant_id: TenantId) {
-    let tenant_repo: &dyn TenantRepository = &*resources.database;
     let tenant = Tenant {
         id: tenant_id,
         name: "Link Auth Test Tenant".to_owned(),
@@ -77,7 +74,7 @@ async fn add_user_to_tenant(resources: &ServerResources, user_id: Uuid, tenant_i
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
-    tenant_repo.create(&tenant).await.unwrap();
+    resources.repos.tenants.create(&tenant).await.unwrap();
 }
 
 /// Create a test user with bcrypt-hashed password and return the `user_id`
@@ -98,8 +95,7 @@ async fn create_test_user_with_password(
         Some("Test User".to_owned()),
     );
     let user_id = user.id;
-    let user_repo: &dyn UserRepository = &*resources.database;
-    user_repo.create(&user).await.unwrap();
+    resources.repos.users.create(&user).await.unwrap();
     user_id
 }
 
@@ -110,7 +106,7 @@ async fn create_test_user_with_password(
 #[tokio::test]
 async fn test_link_page_renders_for_valid_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -144,7 +140,7 @@ async fn test_link_page_renders_for_valid_code() {
 #[tokio::test]
 async fn test_link_page_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -194,7 +190,7 @@ async fn test_link_page_nonexistent_code() {
 #[tokio::test]
 async fn test_link_auth_login_success() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -237,7 +233,7 @@ async fn test_link_auth_login_success() {
 #[tokio::test]
 async fn test_link_auth_wrong_password() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -282,7 +278,7 @@ async fn test_link_auth_wrong_password() {
 #[tokio::test]
 async fn test_link_auth_register_success() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -325,7 +321,7 @@ async fn test_link_auth_register_success() {
 #[tokio::test]
 async fn test_link_auth_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -366,7 +362,7 @@ async fn test_link_auth_expired_code() {
 #[tokio::test]
 async fn test_link_auth_double_submit() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code = create_channel_initiated_link_state(
@@ -432,7 +428,7 @@ async fn test_link_auth_double_submit() {
 #[tokio::test]
 async fn test_link_auth_register_duplicate_email() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     let code =
@@ -472,7 +468,7 @@ async fn test_link_auth_register_duplicate_email() {
 #[tokio::test]
 async fn test_link_auth_cross_tenant_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_a = TenantId::from(Uuid::new_v4());
     let tenant_b = TenantId::from(Uuid::new_v4());
 
@@ -521,7 +517,7 @@ async fn test_link_auth_cross_tenant_rejected() {
 #[tokio::test]
 async fn test_link_callback_channel_mismatch_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = &*resources.repos.messaging;
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     // Create a link state for "slack"

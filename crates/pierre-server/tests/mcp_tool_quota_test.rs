@@ -13,7 +13,6 @@ mod integration;
 use anyhow::Result;
 use chrono::{Datelike, Duration, Utc};
 use integration::{IntegrationTestServer, McpTestClient};
-use pierre_database::database::repositories::UsageCounterRepository;
 use serde_json::json;
 
 // ============================================================================
@@ -88,7 +87,8 @@ async fn test_mcp_tool_increments_daily_counter() -> Result<()> {
     // Get counter before
     let before = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -108,7 +108,8 @@ async fn test_mcp_tool_increments_daily_counter() -> Result<()> {
     // Check counter was incremented
     let after = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -121,7 +122,8 @@ async fn test_mcp_tool_increments_daily_counter() -> Result<()> {
     // Also check weekly counter
     let weekly = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -149,7 +151,8 @@ async fn test_mcp_tool_blocked_at_daily_limit() -> Result<()> {
     // Pre-seed counter to 150 so the next check_limit returns allowed=false.
     server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .increment_counter(
             &tenant_id,
             &user_id,
@@ -191,7 +194,8 @@ async fn test_mcp_tool_blocked_at_weekly_limit() -> Result<()> {
     // Pre-seed weekly counter to 750 so the next check_limit returns allowed=false.
     server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .increment_counter(
             &tenant_id,
             &user_id,
@@ -236,7 +240,8 @@ async fn test_shared_budget_chat_and_mcp() -> Result<()> {
     // Pre-seed to 149 — one more MCP call should succeed, then the next should be blocked.
     server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .increment_counter(
             &tenant_id,
             &user_id,
@@ -298,7 +303,8 @@ async fn test_failed_tool_does_not_increment() -> Result<()> {
     // Counter should remain at 0 — failed tool calls do not count against quota
     let counter = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -381,7 +387,8 @@ async fn test_quota_error_response_format() -> Result<()> {
     // Pre-seed to exceed hard limit
     server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .increment_counter(
             &tenant_id,
             &user_id,
@@ -451,7 +458,8 @@ async fn test_activity_summary_increments_counter() -> Result<()> {
     // Counter should start at zero
     let before = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -471,7 +479,8 @@ async fn test_activity_summary_increments_counter() -> Result<()> {
     // Daily summary counter should be incremented
     let after = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -484,7 +493,8 @@ async fn test_activity_summary_increments_counter() -> Result<()> {
     // Weekly summary counter should also be incremented
     let weekly = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -500,7 +510,8 @@ async fn test_activity_summary_increments_counter() -> Result<()> {
     // Detailed counters should remain at zero
     let detailed_daily = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -533,7 +544,8 @@ async fn test_activity_detailed_increments_counter() -> Result<()> {
     // Daily detailed counter should be incremented
     let detailed_daily = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -549,7 +561,8 @@ async fn test_activity_detailed_increments_counter() -> Result<()> {
     // Weekly detailed counter should also be incremented
     let detailed_weekly = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -565,7 +578,8 @@ async fn test_activity_detailed_increments_counter() -> Result<()> {
     // Summary counters should remain at zero
     let summary_daily = server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .get_counter(
             &tenant_id,
             &user_id,
@@ -592,7 +606,8 @@ async fn test_activity_detailed_blocked_at_daily_limit() -> Result<()> {
     // Pre-seed counter to 30 so next check returns allowed=false.
     server
         .resources()
-        .database
+        .repos
+        .usage_counters
         .increment_counter(
             &tenant_id,
             &user_id,

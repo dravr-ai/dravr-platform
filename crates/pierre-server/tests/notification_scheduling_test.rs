@@ -27,7 +27,6 @@ mod notification_scheduling_tests {
     use pierre_core::models::notifications::{
         collapse_notifications, CreateNotificationParams, NotificationCategory, NotificationItem,
     };
-    use pierre_database::repositories::TenantRepository;
     use pierre_mcp_server::routes::notifications::NotificationRoutes;
     use serde_json::{json, Value};
     use std::sync::Arc;
@@ -361,7 +360,12 @@ mod notification_scheduling_tests {
         let token = format!("Bearer {user_token}");
 
         // Look up the user's tenant
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();

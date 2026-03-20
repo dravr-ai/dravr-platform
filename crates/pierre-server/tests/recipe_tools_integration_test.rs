@@ -19,7 +19,6 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::plugins::UserRepository;
 use pierre_mcp_server::{
     models::User,
     protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor},
@@ -56,7 +55,7 @@ async fn create_test_user_for_recipes(executor: &UniversalToolExecutor) -> Resul
         Some("Recipe Test User".to_owned()),
     );
     let user_id = user.id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
     Ok(user_id)
 }
 

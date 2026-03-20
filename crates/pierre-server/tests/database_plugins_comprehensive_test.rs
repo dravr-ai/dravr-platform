@@ -17,10 +17,7 @@ use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
 use pierre_core::models::JwtUsage;
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{
-        factory::Database, ApiKeyRepository, DatabaseProvider, OAuthTokenRepository,
-        UsageRepository, UserRepository,
-    },
+    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -96,25 +93,29 @@ async fn test_user_crud_operations() -> Result<()> {
         Some("Test CRUD User".to_owned()),
     );
 
-    let user_id = UserRepository::create(&db, &user).await?;
+    let repos = db.repositories();
+    let user_id = repos.users.create(&user).await?;
     assert_eq!(user_id, user.id);
 
     // Get user by ID
-    let retrieved_user = db.get_global(user_id).await?;
+    let retrieved_user = repos.users.get_global(user_id).await?;
     assert!(retrieved_user.is_some());
     assert_eq!(retrieved_user.unwrap().email, "test_crud@example.com");
 
     // Get user by email
-    let user_by_email = db.get_by_email("test_crud@example.com").await?;
+    let user_by_email = repos.users.get_by_email("test_crud@example.com").await?;
     assert!(user_by_email.is_some());
     assert_eq!(user_by_email.unwrap().id, user_id);
 
     // Get user by email (required)
-    let user_required = db.get_by_email_required("test_crud@example.com").await?;
+    let user_required = repos
+        .users
+        .get_by_email_required("test_crud@example.com")
+        .await?;
     assert_eq!(user_required.id, user_id);
 
     // Test non-existent user
-    let non_existent = db.get_global(Uuid::new_v4()).await?;
+    let non_existent = repos.users.get_global(Uuid::new_v4()).await?;
     assert!(non_existent.is_none());
 
     Ok(())
@@ -141,14 +142,15 @@ async fn test_user_last_active_update() -> Result<()> {
         None,
     );
 
-    let user_id = UserRepository::create(&db, &user).await?;
+    let repos = db.repositories();
+    let user_id = repos.users.create(&user).await?;
 
     // Update last active
-    let result = db.update_last_active(user_id).await;
+    let result = repos.users.update_last_active(user_id).await;
     assert!(result.is_ok());
 
     // Verify user can still be retrieved
-    let updated_user = db.get_global(user_id).await?;
+    let updated_user = repos.users.get_global(user_id).await?;
     assert!(updated_user.is_some());
 
     Ok(())
@@ -169,8 +171,10 @@ async fn test_user_count() -> Result<()> {
     let db = Database::new("sqlite::memory:", encryption_key).await?;
     db.migrate().await?;
 
+    let repos = db.repositories();
+
     // Initial count should be 0
-    let initial_count = db.count().await?;
+    let initial_count = repos.users.count().await?;
     assert_eq!(initial_count, 0);
 
     // Create multiple users
@@ -180,11 +184,11 @@ async fn test_user_count() -> Result<()> {
             "password".to_owned(),
             Some(format!("User {i}")),
         );
-        UserRepository::create(&db, &user).await?;
+        repos.users.create(&user).await?;
     }
 
     // Count should be 3
-    let count = db.count().await?;
+    let count = repos.users.count().await?;
     assert_eq!(count, 3);
 
     Ok(())
@@ -210,10 +214,12 @@ async fn test_strava_token_operations() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Initially no token
     let initial_token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -233,10 +239,15 @@ async fn test_strava_token_operations() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    db.upsert_token(&oauth_token).await?;
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await?;
 
     // Retrieve token
     let token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -252,13 +263,17 @@ async fn test_strava_token_operations() -> Result<()> {
     assert!(scopes.contains(&"activity:read_all".to_owned()));
 
     // Clear token
-    db.delete_token(
-        user_id,
-        TenantId::from_uuid(Uuid::nil()),
-        oauth_providers::STRAVA,
-    )
-    .await?;
+    db.repositories()
+        .oauth_tokens
+        .delete_token(
+            user_id,
+            TenantId::from_uuid(Uuid::nil()),
+            oauth_providers::STRAVA,
+        )
+        .await?;
     let cleared_token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -290,10 +305,12 @@ async fn test_fitbit_token_operations() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Initially no token
     let initial_token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -313,10 +330,15 @@ async fn test_fitbit_token_operations() -> Result<()> {
         Some(expires_at),
         Some("activity profile".to_owned()),
     );
-    db.upsert_token(&oauth_token).await?;
+    db.repositories()
+        .oauth_tokens
+        .upsert_token(&oauth_token)
+        .await?;
 
     // Retrieve token
     let token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -335,13 +357,17 @@ async fn test_fitbit_token_operations() -> Result<()> {
     assert!(scopes.contains(&"profile".to_owned()));
 
     // Clear token
-    db.delete_token(
-        user_id,
-        TenantId::from_uuid(Uuid::nil()),
-        oauth_providers::FITBIT,
-    )
-    .await?;
+    db.repositories()
+        .oauth_tokens
+        .delete_token(
+            user_id,
+            TenantId::from_uuid(Uuid::nil()),
+            oauth_providers::FITBIT,
+        )
+        .await?;
     let cleared_token = db
+        .repositories()
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -373,7 +399,7 @@ async fn test_api_key_operations() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Create API key
     let api_key = ApiKey {
@@ -392,24 +418,34 @@ async fn test_api_key_operations() -> Result<()> {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&db, &api_key).await?;
+    db.repositories().api_keys.create(&api_key).await?;
 
     // Get API keys for user
-    let user_keys = db.get_for_user(user_id).await?;
+    let user_keys = db.repositories().api_keys.get_for_user(user_id).await?;
     assert_eq!(user_keys.len(), 1);
     assert_eq!(user_keys[0].name, "Test API Key");
 
     // Get API key by prefix
-    let key_by_prefix = db.get_by_prefix("pk_test", "hashed_key_value").await?;
+    let key_by_prefix = db
+        .repositories()
+        .api_keys
+        .get_by_prefix("pk_test", "hashed_key_value")
+        .await?;
     assert!(key_by_prefix.is_some());
     assert_eq!(key_by_prefix.unwrap().id, api_key.id);
 
     // Update last used
-    db.update_last_used(&api_key.id).await?;
+    db.repositories()
+        .api_keys
+        .update_last_used(&api_key.id)
+        .await?;
 
     // Deactivate API key
-    db.deactivate(&api_key.id, user_id).await?;
-    let deactivated_key = db.get_for_user(user_id).await?;
+    db.repositories()
+        .api_keys
+        .deactivate(&api_key.id, user_id)
+        .await?;
+    let deactivated_key = db.repositories().api_keys.get_for_user(user_id).await?;
     assert!(!deactivated_key[0].is_active);
 
     Ok(())
@@ -435,7 +471,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     let api_key = ApiKey {
         id: Uuid::new_v4().to_string(),
@@ -453,7 +489,7 @@ async fn test_api_key_usage_tracking() -> Result<()> {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&db, &api_key).await?;
+    db.repositories().api_keys.create(&api_key).await?;
 
     // Record usage
     let usage = ApiKeyUsage {
@@ -470,10 +506,14 @@ async fn test_api_key_usage_tracking() -> Result<()> {
         user_agent: Some("test-client/1.0".to_owned()),
     };
 
-    db.record_api_key(&usage).await?;
+    db.repositories().usage.record_api_key(&usage).await?;
 
     // Get usage stats (Note: usage tracking may be handled differently in plugin interface)
-    let current_usage = db.get_api_key_current(&api_key.id).await?;
+    let current_usage = db
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await?;
     // For plugin interface, just verify the method works
     let _ = current_usage;
 
@@ -503,7 +543,7 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Record JWT usage
     let jwt_usage = JwtUsage {
@@ -520,10 +560,14 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         timestamp: Utc::now(),
     };
 
-    db.record_jwt_usage(&jwt_usage).await?;
+    db.repositories().usage.record_jwt_usage(&jwt_usage).await?;
 
     // Get JWT usage count (Note: usage counting may work differently in plugin interface)
-    let count = db.get_jwt_current_usage(user_id).await?;
+    let count = db
+        .repositories()
+        .usage
+        .get_jwt_current_usage(user_id)
+        .await?;
     // For plugin interface, just verify the method works without asserting specific counts
     let _ = count;
 
@@ -542,9 +586,16 @@ async fn test_jwt_usage_tracking() -> Result<()> {
         timestamp: Utc::now(),
     };
 
-    db.record_jwt_usage(&jwt_usage2).await?;
+    db.repositories()
+        .usage
+        .record_jwt_usage(&jwt_usage2)
+        .await?;
 
-    let updated_count = db.get_jwt_current_usage(user_id).await?;
+    let updated_count = db
+        .repositories()
+        .usage
+        .get_jwt_current_usage(user_id)
+        .await?;
     // Just verify the method works
     let _ = updated_count;
 
@@ -578,7 +629,7 @@ async fn test_concurrent_database_operations() -> Result<()> {
                 "password".to_owned(),
                 Some(format!("Concurrent User {i}")),
             );
-            UserRepository::create(&db_clone, &user).await
+            db_clone.repositories().users.create(&user).await
         }));
     }
 
@@ -589,7 +640,7 @@ async fn test_concurrent_database_operations() -> Result<()> {
     }
 
     // Verify all users were created
-    let count = db.count().await?;
+    let count = db.repositories().users.count().await?;
     assert_eq!(count, 5);
 
     Ok(())
@@ -615,7 +666,7 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Test with special characters in tokens
     let long_token = format!("very_long_token_{}", "x".repeat(500));
@@ -638,10 +689,15 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
             Some(expires_at),
             Some("read".to_owned()),
         );
-        db.upsert_token(&oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&oauth_token)
+            .await?;
 
         // Retrieve and verify
         let retrieved = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -663,10 +719,15 @@ async fn test_token_encryption_roundtrip() -> Result<()> {
             Some(expires_at),
             Some("activity".to_owned()),
         );
-        db.upsert_token(&fitbit_oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&fitbit_oauth_token)
+            .await?;
 
         // Retrieve and verify
         let fitbit_token = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -698,17 +759,29 @@ async fn test_database_error_scenarios() -> Result<()> {
     db.migrate().await?;
 
     // Test getting non-existent user by email (required)
-    let result = db.get_by_email_required("nonexistent@example.com").await;
+    let result = db
+        .repositories()
+        .users
+        .get_by_email_required("nonexistent@example.com")
+        .await;
     assert!(result.is_err());
 
     // Test operations on non-existent API key
     let fake_key_id = Uuid::new_v4().to_string();
-    let result = db.update_last_used(&fake_key_id).await;
+    let result = db
+        .repositories()
+        .api_keys
+        .update_last_used(&fake_key_id)
+        .await;
     // Should either succeed (no-op) or fail gracefully
     let _ = result;
 
     let fake_user_id = Uuid::new_v4();
-    let result = db.deactivate(&fake_key_id, fake_user_id).await;
+    let result = db
+        .repositories()
+        .api_keys
+        .deactivate(&fake_key_id, fake_user_id)
+        .await;
     // Should either succeed (no-op) or fail gracefully
     let _ = result;
 
@@ -735,7 +808,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     let api_key = ApiKey {
         id: Uuid::new_v4().to_string(),
@@ -753,7 +826,7 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&db, &api_key).await?;
+    db.repositories().api_keys.create(&api_key).await?;
 
     // Record multiple usage entries with different response times
     let response_times = [100, 150, 200, 75, 300];
@@ -773,11 +846,15 @@ async fn test_api_key_usage_aggregation() -> Result<()> {
             ip_address: Some("127.0.0.1".to_owned()),
         };
 
-        db.record_api_key(&usage).await?;
+        db.repositories().usage.record_api_key(&usage).await?;
     }
 
     // Check aggregated stats (Note: usage aggregation may work differently in plugin interface)
-    let current_usage = db.get_api_key_current(&api_key.id).await?;
+    let current_usage = db
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await?;
     // For plugin interface, just verify the method works
     let _ = current_usage;
 
@@ -814,7 +891,7 @@ async fn test_user_tier_handling() -> Result<()> {
         );
         user.tier = tier.clone();
 
-        let user_id = UserRepository::create(&db, &user).await?;
+        let user_id = db.repositories().users.create(&user).await?;
 
         // Create API key with corresponding tier
         let api_key = ApiKey {
@@ -841,10 +918,10 @@ async fn test_user_tier_handling() -> Result<()> {
             created_at: Utc::now(),
         };
 
-        ApiKeyRepository::create(&db, &api_key).await?;
+        db.repositories().api_keys.create(&api_key).await?;
 
         // Verify retrieval maintains tier
-        let retrieved_keys = db.get_for_user(user_id).await?;
+        let retrieved_keys = db.repositories().api_keys.get_for_user(user_id).await?;
         let expected_api_tier = match tier {
             UserTier::Starter => ApiKeyTier::Starter,
             UserTier::Professional => ApiKeyTier::Professional,
@@ -852,8 +929,8 @@ async fn test_user_tier_handling() -> Result<()> {
         };
         assert_eq!(retrieved_keys[0].tier, expected_api_tier);
 
-        let retrieved_user = db.get_global(user_id).await?.unwrap();
-        assert_eq!(retrieved_user.tier, *tier);
+        let tier_user = db.repositories().users.get_global(user_id).await?.unwrap();
+        assert_eq!(tier_user.tier, *tier);
     }
 
     Ok(())
@@ -880,12 +957,12 @@ async fn test_database_connection_reuse() -> Result<()> {
         "password".to_owned(),
         None,
     );
-    let user_id = UserRepository::create(&db, &user).await?;
+    let user_id = db.repositories().users.create(&user).await?;
 
     // Perform multiple operations to test connection reuse
     for i in 0..10 {
         // Each operation should work with the same connection
-        db.update_last_active(user_id).await?;
+        db.repositories().users.update_last_active(user_id).await?;
 
         let token_expires = Utc::now() + chrono::Duration::hours(i);
         let oauth_token = UserOAuthToken::new(
@@ -897,9 +974,14 @@ async fn test_database_connection_reuse() -> Result<()> {
             Some(token_expires),
             Some("read".to_owned()),
         );
-        db.upsert_token(&oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&oauth_token)
+            .await?;
 
         let retrieved_token = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -933,7 +1015,7 @@ mod postgres_tests {
             Some("PostgreSQL Creation Test".to_owned()),
         );
 
-        let user_id = UserRepository::create(&db, &user).await?;
+        let user_id = db.repositories().users.create(&user).await?;
         assert_eq!(user_id, user.id);
 
         // Database cleanup happens automatically when isolated_db is dropped
@@ -974,23 +1056,32 @@ mod postgres_tests {
             );
             user.tier = tier.clone();
 
-            let user_id = UserRepository::create(&db, &user).await?;
+            let user_id = db.repositories().users.create(&user).await?;
 
             // Test user retrieval
-            let retrieved = db.get_global(user_id).await?.unwrap();
+            let retrieved = db.repositories().users.get_global(user_id).await?.unwrap();
             assert_eq!(retrieved.email, user.email);
             assert_eq!(retrieved.tier, *tier);
 
             // Test by email lookup
-            let by_email = db.get_by_email(&user.email).await?.unwrap();
+            let by_email = db
+                .repositories()
+                .users
+                .get_by_email(&user.email)
+                .await?
+                .unwrap();
             assert_eq!(by_email.id, user_id);
 
             // Test required email lookup
-            let required = db.get_by_email_required(&user.email).await?;
+            let required = db
+                .repositories()
+                .users
+                .get_by_email_required(&user.email)
+                .await?;
             assert_eq!(required.id, user_id);
 
             // Test last active update
-            db.update_last_active(user_id).await?;
+            db.repositories().users.update_last_active(user_id).await?;
 
             // Clean up for next iteration
             // Clean up would happen on test drop or next run
@@ -1009,7 +1100,7 @@ mod postgres_tests {
             "password".to_owned(),
             None,
         );
-        let user_id = UserRepository::create(&db, &user).await?;
+        let user_id = db.repositories().users.create(&user).await?;
 
         // Test all API key tiers
         let api_key_tiers = [
@@ -1041,15 +1132,19 @@ mod postgres_tests {
             };
 
             // Create API key
-            ApiKeyRepository::create(&db, &api_key).await?;
+            db.repositories().api_keys.create(&api_key).await?;
 
             // Test retrieval
-            let retrieved = db.get_by_id(&api_key.id, Some(user_id)).await?;
+            let retrieved = db
+                .repositories()
+                .api_keys
+                .get_by_id(&api_key.id, Some(user_id))
+                .await?;
             assert!(retrieved.is_some());
             assert_eq!(retrieved.unwrap().tier, *tier);
 
             // Test user keys
-            let user_keys = db.get_for_user(user_id).await?;
+            let user_keys = db.repositories().api_keys.get_for_user(user_id).await?;
             assert!(!user_keys.is_empty());
 
             // Test usage tracking
@@ -1067,12 +1162,19 @@ mod postgres_tests {
                 ip_address: Some("10.0.0.1".to_owned()),
             };
 
-            db.record_api_key(&usage).await?;
+            db.repositories().usage.record_api_key(&usage).await?;
 
             // Test deactivation
-            db.deactivate(&api_key.id, user_id).await?;
+            db.repositories()
+                .api_keys
+                .deactivate(&api_key.id, user_id)
+                .await?;
 
-            let deactivated = db.get_by_id(&api_key.id, Some(user_id)).await?;
+            let deactivated = db
+                .repositories()
+                .api_keys
+                .get_by_id(&api_key.id, Some(user_id))
+                .await?;
             assert!(deactivated.is_none() || !deactivated.unwrap().is_active);
         }
 
@@ -1092,7 +1194,7 @@ mod postgres_tests {
             "password".to_owned(),
             None,
         );
-        let user_id = UserRepository::create(&db, &user).await?;
+        let user_id = db.repositories().users.create(&user).await?;
 
         let expires_at = Utc::now() + chrono::Duration::hours(2);
 
@@ -1106,9 +1208,14 @@ mod postgres_tests {
             Some(expires_at),
             Some("read,activity:read".to_owned()),
         );
-        db.upsert_token(&strava_oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&strava_oauth_token)
+            .await?;
 
         let strava_token = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -1133,9 +1240,14 @@ mod postgres_tests {
             Some(expires_at),
             Some("activity,profile".to_owned()),
         );
-        db.upsert_token(&fitbit_oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&fitbit_oauth_token)
+            .await?;
 
         let fitbit_token = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -1163,9 +1275,14 @@ mod postgres_tests {
             Some(expires_at),
             Some("read_all".to_owned()),
         );
-        db.upsert_token(&special_oauth_token).await?;
+        db.repositories()
+            .oauth_tokens
+            .upsert_token(&special_oauth_token)
+            .await?;
 
         let retrieved = db
+            .repositories()
+            .oauth_tokens
             .get_token(
                 user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -1201,10 +1318,14 @@ mod postgres_tests {
                     "password".to_owned(),
                     Some(format!("PostgreSQL Concurrent User {i}")),
                 );
-                let user_id = UserRepository::create(&db_clone, &user).await?;
+                let user_id = db_clone.repositories().users.create(&user).await?;
 
                 // Immediately perform operations on the created user
-                db_clone.update_last_active(user_id).await?;
+                db_clone
+                    .repositories()
+                    .users
+                    .update_last_active(user_id)
+                    .await?;
 
                 let api_key = ApiKey {
                     id: Uuid::new_v4().to_string(),
@@ -1222,7 +1343,7 @@ mod postgres_tests {
                     created_at: Utc::now(),
                 };
 
-                ApiKeyRepository::create(&db_clone, &api_key).await?;
+                db_clone.repositories().api_keys.create(&api_key).await?;
 
                 Ok::<_, anyhow::Error>(user_id)
             }));
@@ -1237,7 +1358,7 @@ mod postgres_tests {
 
         // Verify all users were created
         for user_id in &user_ids {
-            let user = db.get_global(*user_id).await?;
+            let user = db.repositories().users.get_global(*user_id).await?;
             assert!(user.is_some());
         }
 
@@ -1257,7 +1378,7 @@ mod postgres_tests {
             "password".to_owned(),
             None,
         );
-        let user_id = UserRepository::create(&db, &user).await?;
+        let user_id = db.repositories().users.create(&user).await?;
 
         // Record JWT usage entries
         for i in 0..5 {
@@ -1275,7 +1396,7 @@ mod postgres_tests {
                 user_agent: Some("postgres-jwt-client/1.0".to_owned()),
             };
 
-            db.record_jwt_usage(&jwt_usage).await?;
+            db.repositories().usage.record_jwt_usage(&jwt_usage).await?;
         }
 
         // Verify usage tracking doesn't fail
@@ -1290,23 +1411,33 @@ mod postgres_tests {
 
         // Test non-existent user operations
         let fake_user_id = Uuid::new_v4();
-        let result = db.get_global(fake_user_id).await?;
+        let result = db.repositories().users.get_global(fake_user_id).await?;
         assert!(result.is_none());
 
         // Test non-existent email required (should error)
         let result = db
+            .repositories()
+            .users
             .get_by_email_required("nonexistent_postgres@example.com")
             .await;
         assert!(result.is_err());
 
         // Test invalid API key operations
         let fake_key_hash = "nonexistent_postgres_hash";
-        let result = db.get_by_id(fake_key_hash, None).await?;
+        let result = db
+            .repositories()
+            .api_keys
+            .get_by_id(fake_key_hash, None)
+            .await?;
         assert!(result.is_none());
 
         // Test deactivating non-existent key
         let fake_key_id = Uuid::new_v4().to_string();
-        let result = db.deactivate(&fake_key_id, fake_user_id).await;
+        let result = db
+            .repositories()
+            .api_keys
+            .deactivate(&fake_key_id, fake_user_id)
+            .await;
         // Should succeed as no-op or fail gracefully
         let _ = result;
 
@@ -1334,8 +1465,8 @@ mod postgres_tests {
                 );
 
                 // Create and immediately clean up to test pooling
-                let user_id = UserRepository::create(&db_clone, &user).await?;
-                let retrieved = db_clone.get_global(user_id).await?;
+                let user_id = db_clone.repositories().users.create(&user).await?;
+                let retrieved = db_clone.repositories().users.get_global(user_id).await?;
                 assert!(retrieved.is_some());
 
                 // Clean up immediately

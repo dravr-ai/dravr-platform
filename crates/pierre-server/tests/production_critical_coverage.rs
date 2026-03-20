@@ -14,7 +14,6 @@
 
 use anyhow::Result;
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
-use pierre_database::plugins::UserRepository;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     mcp::multitenant::MultiTenantMcpServer,
@@ -56,7 +55,8 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(server.database(), &user).await?;
+    let repos = server.database().repositories();
+    repos.users.create(&user).await?;
 
     // Generate real JWT token
     let jwks_manager = common::get_shared_test_jwks();
@@ -151,7 +151,8 @@ async fn test_admin_auth_flow() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(&*database, &admin_user).await?;
+    let repos = database.repositories();
+    repos.users.create(&admin_user).await?;
 
     // Test token generation for admin
     let jwks_manager = common::get_shared_test_jwks();
@@ -172,6 +173,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
     let server = MultiTenantMcpServer::new(resources);
 
     // Create multiple test users to test tenant isolation
+    let repos = server.database().repositories();
     let mut users = Vec::new();
     for i in 0..3 {
         let user_id = Uuid::new_v4();
@@ -198,7 +200,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             firebase_uid: None,
             auth_provider: String::new(),
         };
-        UserRepository::create(server.database(), &user).await?;
+        repos.users.create(&user).await?;
         users.push(user);
     }
 
@@ -245,7 +247,8 @@ async fn test_production_database_scenarios() -> Result<()> {
     };
 
     // Create first user
-    UserRepository::create(&*database, &user1).await?;
+    let repos = database.repositories();
+    repos.users.create(&user1).await?;
 
     // Try to create duplicate email (should fail)
     let user2 = User {
@@ -268,7 +271,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    let result = UserRepository::create(&*database, &user2).await;
+    let result = repos.users.create(&user2).await;
     assert!(result.is_err()); // Should fail due to unique constraint
 
     Ok(())
@@ -301,7 +304,8 @@ async fn test_production_rate_limiting() -> Result<()> {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(&*database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
     let jwks_manager = common::get_shared_test_jwks();
     let _token = auth_manager.generate_token(&user, &jwks_manager)?;
 

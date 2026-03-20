@@ -53,7 +53,8 @@ async fn test_rate_limit_client_registration() {
 
     database.migrate().await.unwrap();
 
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let rate_limiter = OAuth2RateLimiter::new();
     let client_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
 

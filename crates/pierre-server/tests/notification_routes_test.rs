@@ -25,7 +25,6 @@ mod notification_routes_tests {
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use pierre_core::models::notifications::{CreateNotificationParams, NotificationCategory};
-    use pierre_database::repositories::TenantRepository;
     use pierre_mcp_server::routes::notifications::NotificationRoutes;
     use pierre_notifications::NotificationService;
     use serde_json::json;
@@ -441,8 +440,20 @@ mod notification_routes_tests {
             .await
             .unwrap();
 
-        let tenant_a = resources.database.list_for_user(user_a.id).await.unwrap()[0].id;
-        let tenant_b = resources.database.list_for_user(user_b.id).await.unwrap()[0].id;
+        let tenant_a = resources
+            .repos
+            .tenants
+            .list_for_user(user_a.id)
+            .await
+            .unwrap()[0]
+            .id;
+        let tenant_b = resources
+            .repos
+            .tenants
+            .list_for_user(user_b.id)
+            .await
+            .unwrap()[0]
+            .id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -521,7 +532,13 @@ mod notification_routes_tests {
             .await
             .unwrap();
 
-        let tenant_id = resources.database.list_for_user(user.id).await.unwrap()[0].id;
+        let tenant_id = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap()[0]
+            .id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);

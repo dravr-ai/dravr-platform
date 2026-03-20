@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use pierre_auth::tenant::TenantOAuthCredentials;
-use pierre_database::plugins::{factory::Database, TenantRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,
@@ -123,7 +123,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&*database, &admin_user).await?;
+    let admin_id = database.repositories().users.create(&admin_user).await?;
 
     // Create tenant
     let tenant_id = TenantId::new();
@@ -137,7 +137,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&*database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Store tenant OAuth credentials
     let strava_credentials = TenantOAuthCredentials {
@@ -150,6 +150,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&strava_credentials)
         .await?;
 
@@ -163,6 +165,8 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&fitbit_credentials)
         .await?;
 
@@ -659,6 +663,8 @@ async fn test_user_login_success() -> Result<()> {
 
     // Approve the user for testing
     database
+        .repositories()
+        .users
         .update_status(user_id, UserStatus::Active, None)
         .await?;
 
@@ -956,6 +962,8 @@ async fn test_token_refresh_success() -> Result<()> {
 
     // Approve the user for testing
     database
+        .repositories()
+        .users
         .update_status(user_uuid, UserStatus::Active, None)
         .await?;
 
@@ -1199,6 +1207,8 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
 
     // Approve the user for testing
     database
+        .repositories()
+        .users
         .update_status(user_id, UserStatus::Active, None)
         .await?;
 
@@ -1310,7 +1320,7 @@ async fn test_oauth_connection_status_no_connections() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     let status = oauth_routes.get_connection_status(user_id).await?;
 
@@ -1352,7 +1362,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     // Create tenant so disconnect_provider can resolve user's tenant
     let tenant = Tenant {
@@ -1365,7 +1375,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&*database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Disconnecting a provider that wasn't connected should succeed (idempotent)
     let result = oauth_routes
@@ -1403,7 +1413,7 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     let result = oauth_routes
         .disconnect_provider(user_id, "invalid_provider", None)
@@ -1717,6 +1727,8 @@ async fn test_complete_auth_flow() -> Result<()> {
 
     // Approve the user for testing
     database
+        .repositories()
+        .users
         .update_status(user_id, UserStatus::Active, None)
         .await?;
 
@@ -1762,7 +1774,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&*database, &admin_user).await?;
+    let admin_id = database.repositories().users.create(&admin_user).await?;
 
     let tenant_id = TenantId::new();
     let tenant = Tenant {
@@ -1775,7 +1787,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&*database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     let strava_credentials = TenantOAuthCredentials {
         tenant_id,
@@ -1787,6 +1799,8 @@ async fn test_complete_auth_flow() -> Result<()> {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&strava_credentials)
         .await?;
 
@@ -2034,6 +2048,8 @@ async fn test_concurrent_logins() -> Result<()> {
 
         // Approve the user
         database
+            .repositories()
+            .users
             .update_status(user_id, UserStatus::Active, None)
             .await?;
     }

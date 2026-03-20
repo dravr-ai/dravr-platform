@@ -155,7 +155,7 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{AuthManager, JwtValidationError},
 };
-use pierre_database::plugins::{factory::Database, OAuthTokenRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     constants::oauth_providers,
@@ -202,7 +202,7 @@ async fn create_multiple_test_users(
             Some(format!("Test User {i}")),
         );
         let user_id = user.id;
-        UserRepository::create(database, &user).await?;
+        database.repositories().users.create(&user).await?;
 
         // Generate JWT token for user
         let token = auth_manager.generate_token(&user, jwks_manager)?;
@@ -232,7 +232,8 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
         Some("User 1".to_owned()),
     );
     let user1_id = user1.id;
-    UserRepository::create(&*database, &user1).await?;
+    let repos = database.repositories();
+    repos.users.create(&user1).await?;
 
     let user2 = User::new(
         "user2@test.com".to_owned(),
@@ -240,11 +241,11 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
         Some("User 2".to_owned()),
     );
     let user2_id = user2.id;
-    UserRepository::create(&*database, &user2).await?;
+    repos.users.create(&user2).await?;
 
     // Verify users exist and are isolated
-    let retrieved_user1 = database.get_global(user1_id).await?.unwrap();
-    let retrieved_user2 = database.get_global(user2_id).await?.unwrap();
+    let retrieved_user1 = repos.users.get_global(user1_id).await?.unwrap();
+    let retrieved_user2 = repos.users.get_global(user2_id).await?.unwrap();
 
     assert_eq!(retrieved_user1.email, "user1@test.com");
     assert_eq!(retrieved_user2.email, "user2@test.com");
@@ -287,7 +288,7 @@ async fn test_authentication_middleware_integration() -> Result<()> {
         Some("Auth Test User".to_owned()),
     );
     let user_id = user.id;
-    UserRepository::create(&*database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     let token = auth_manager.generate_token(&user, &jwks_manager)?;
 
@@ -325,6 +326,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
 
     // Create multiple users
     let users = create_multiple_test_users(&database, &auth_manager, 3, &jwks_manager).await?;
+    let repos = database.repositories();
 
     // Store different data for each user
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -340,7 +342,7 @@ async fn test_tenant_data_isolation() -> Result<()> {
             Some(expires_at),
             Some("read,activity:read_all".to_owned()),
         );
-        database.upsert_token(&strava_token).await?;
+        repos.oauth_tokens.upsert_token(&strava_token).await?;
 
         // Store Fitbit tokens
         let fitbit_token = UserOAuthToken::new(
@@ -352,12 +354,13 @@ async fn test_tenant_data_isolation() -> Result<()> {
             Some(expires_at),
             Some("activity heartrate profile".to_owned()),
         );
-        database.upsert_token(&fitbit_token).await?;
+        repos.oauth_tokens.upsert_token(&fitbit_token).await?;
     }
 
     // Verify data isolation
     for (i, (user_id, _email, _token)) in users.iter().enumerate() {
-        let strava_token = database
+        let strava_token = repos
+            .oauth_tokens
             .get_token(
                 *user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -367,7 +370,8 @@ async fn test_tenant_data_isolation() -> Result<()> {
             .unwrap();
         assert_eq!(strava_token.access_token, format!("strava_access_{i}"));
 
-        let fitbit_token = database
+        let fitbit_token = repos
+            .oauth_tokens
             .get_token(
                 *user_id,
                 TenantId::from_uuid(Uuid::nil()),
@@ -379,7 +383,8 @@ async fn test_tenant_data_isolation() -> Result<()> {
     }
 
     // Verify users cannot access each other's data
-    let user0_strava = database
+    let user0_strava = repos
+        .oauth_tokens
         .get_token(
             users[0].0,
             TenantId::from_uuid(Uuid::nil()),
@@ -387,7 +392,8 @@ async fn test_tenant_data_isolation() -> Result<()> {
         )
         .await?
         .unwrap();
-    let user1_strava = database
+    let user1_strava = repos
+        .oauth_tokens
         .get_token(
             users[1].0,
             TenantId::from_uuid(Uuid::nil()),
@@ -420,9 +426,10 @@ async fn test_concurrent_user_operations() -> Result<()> {
                 Some(format!("Concurrent User {i}")),
             );
             let user_id = user.id;
+            let repos = db.repositories();
 
             // Create user
-            UserRepository::create(&*db, &user).await?;
+            repos.users.create(&user).await?;
 
             // Generate token
             let jwks_manager = common::get_shared_test_jwks();
@@ -443,10 +450,11 @@ async fn test_concurrent_user_operations() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_token(&oauth_token).await?;
+            repos.oauth_tokens.upsert_token(&oauth_token).await?;
 
             // Retrieve and verify data
-            let token_data = db
+            let token_data = repos
+                .oauth_tokens
                 .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
@@ -484,7 +492,7 @@ async fn test_token_expiration_handling() -> Result<()> {
         "hashed_password".to_owned(),
         Some("Expired Token User".to_owned()),
     );
-    UserRepository::create(&*database, &user).await?;
+    database.repositories().users.create(&user).await?;
 
     // Create auth manager with very short expiry (fraction of a second)
     let short_expiry_auth_manager = Arc::new(AuthManager::new(0)); // 0 hours expiry
@@ -553,6 +561,7 @@ async fn test_invalid_token_handling() -> Result<()> {
 #[tokio::test]
 async fn test_user_tier_management() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
+    let repos = database.repositories();
 
     // Create users with different tiers
     let mut starter_user = User::new(
@@ -561,7 +570,7 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Starter User".to_owned()),
     );
     starter_user.tier = UserTier::Starter;
-    database.create(&starter_user).await?;
+    repos.users.create(&starter_user).await?;
 
     let mut pro_user = User::new(
         "pro@test.com".to_owned(),
@@ -569,7 +578,7 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Pro User".to_owned()),
     );
     pro_user.tier = UserTier::Professional;
-    database.create(&pro_user).await?;
+    repos.users.create(&pro_user).await?;
 
     let mut enterprise_user = User::new(
         "enterprise@test.com".to_owned(),
@@ -577,12 +586,12 @@ async fn test_user_tier_management() -> Result<()> {
         Some("Enterprise User".to_owned()),
     );
     enterprise_user.tier = UserTier::Enterprise;
-    database.create(&enterprise_user).await?;
+    repos.users.create(&enterprise_user).await?;
 
     // Verify users have correct tiers
-    let retrieved_starter = database.get_global(starter_user.id).await?.unwrap();
-    let retrieved_pro = database.get_global(pro_user.id).await?.unwrap();
-    let retrieved_enterprise = database.get_global(enterprise_user.id).await?.unwrap();
+    let retrieved_starter = repos.users.get_global(starter_user.id).await?.unwrap();
+    let retrieved_pro = repos.users.get_global(pro_user.id).await?.unwrap();
+    let retrieved_enterprise = repos.users.get_global(enterprise_user.id).await?.unwrap();
 
     assert_eq!(retrieved_starter.tier, UserTier::Starter);
     assert_eq!(retrieved_pro.tier, UserTier::Professional);
@@ -616,6 +625,8 @@ async fn test_database_encryption_isolation() -> Result<()> {
     let (user1_id, _email1, _token1) = &users[0];
     let (user2_id, _email2, _token2) = &users[1];
 
+    let repos = database.repositories();
+
     // Store encrypted data for each user
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
 
@@ -628,7 +639,7 @@ async fn test_database_encryption_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&user1_oauth_token).await?;
+    repos.oauth_tokens.upsert_token(&user1_oauth_token).await?;
 
     let user2_oauth_token = UserOAuthToken::new(
         *user2_id,
@@ -639,10 +650,11 @@ async fn test_database_encryption_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&user2_oauth_token).await?;
+    repos.oauth_tokens.upsert_token(&user2_oauth_token).await?;
 
     // Verify data is properly isolated and encrypted/decrypted
-    let user1_token_data = database
+    let user1_token_data = repos
+        .oauth_tokens
         .get_token(
             *user1_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -650,7 +662,8 @@ async fn test_database_encryption_isolation() -> Result<()> {
         )
         .await?
         .unwrap();
-    let user2_token_data = database
+    let user2_token_data = repos
+        .oauth_tokens
         .get_token(
             *user2_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -683,20 +696,21 @@ async fn test_session_state_management() -> Result<()> {
         Some("Session Test User".to_owned()),
     );
     let user_id = user.id;
-    UserRepository::create(&*database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Update last active timestamp
-    database.update_last_active(user_id).await?;
+    repos.users.update_last_active(user_id).await?;
 
     // Verify the timestamp was updated
-    let updated_user = database.get_global(user_id).await?.unwrap();
+    let updated_user = repos.users.get_global(user_id).await?.unwrap();
     // last_active is a DateTime<Utc>, not an Option
 
     // Test multiple updates
     sleep(Duration::from_millis(10)).await;
-    database.update_last_active(user_id).await?;
+    repos.users.update_last_active(user_id).await?;
 
-    let updated_user2 = database.get_global(user_id).await?.unwrap();
+    let updated_user2 = repos.users.get_global(user_id).await?.unwrap();
 
     // The second timestamp should be different (or at least not earlier)
     assert!(updated_user2.last_active >= updated_user.last_active);
@@ -788,8 +802,9 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
                 Some(format!("Memory Test User {i}")),
             );
             let user_id = user.id;
+            let repos = db.repositories();
 
-            UserRepository::create(&*db, &user).await?;
+            repos.users.create(&user).await?;
 
             // Generate and validate token
             let token = am.generate_token(&user, &jwks_mgr)?;
@@ -807,9 +822,10 @@ async fn test_memory_safety_concurrent_access() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_token(&oauth_token).await?;
+            repos.oauth_tokens.upsert_token(&oauth_token).await?;
 
-            let token_data = db
+            let token_data = repos
+                .oauth_tokens
                 .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
@@ -887,9 +903,11 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
 
     // Test various error conditions and ensure server components remain stable
 
+    let repos = database.repositories();
+
     // 1. Test invalid user ID
     let non_existent_user_id = Uuid::new_v4();
-    let result = database.get_global(non_existent_user_id).await?;
+    let result = repos.users.get_global(non_existent_user_id).await?;
     assert!(result.is_none());
 
     // 2. Test invalid token validation
@@ -914,7 +932,7 @@ async fn test_error_recovery_and_resilience() -> Result<()> {
     );
 
     // This should either fail or handle gracefully
-    let _result = database.create(&invalid_user).await;
+    let _result = repos.users.create(&invalid_user).await;
     // The result depends on database validation, but it shouldn't panic
 
     Ok(())
@@ -947,6 +965,7 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
             // Validate token
             let claims = am.validate_token(&token, &jwks_mgr)?;
             assert_eq!(claims.email, email);
+            let repos = db.repositories();
 
             // Store and retrieve data
             let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -959,9 +978,10 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
                 Some(expires_at),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_token(&oauth_token).await?;
+            repos.oauth_tokens.upsert_token(&oauth_token).await?;
 
-            let token_data = db
+            let token_data = repos
+                .oauth_tokens
                 .get_token(
                     user_id,
                     TenantId::from_uuid(Uuid::nil()),
@@ -972,7 +992,7 @@ async fn test_large_scale_multitenant_operations() -> Result<()> {
             assert_eq!(token_data.access_token, format!("access_{user_id}"));
 
             // Update last active
-            db.update_last_active(user_id).await?;
+            repos.users.update_last_active(user_id).await?;
 
             Ok::<_, anyhow::Error>(user_id)
         });

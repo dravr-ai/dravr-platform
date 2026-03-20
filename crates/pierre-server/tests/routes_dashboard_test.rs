@@ -158,7 +158,7 @@ use pierre_auth::{
     auth::{AuthMethod, AuthResult},
     rate_limiting::UnifiedRateLimitInfo,
 };
-use pierre_database::plugins::{factory::Database, ApiKeyRepository, UsageRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -390,7 +390,7 @@ impl DashboardTestSetup {
 
         let manager = ApiKeyManager::new();
         let (pro_key, _) = manager.create_api_key(user_id, request_pro)?;
-        database.create(&pro_key).await?;
+        database.repositories().api_keys.create(&pro_key).await?;
         api_keys.push(pro_key);
 
         // Create enterprise tier API key
@@ -403,7 +403,11 @@ impl DashboardTestSetup {
         };
 
         let (enterprise_key, _) = manager.create_api_key(user_id, request_enterprise)?;
-        database.create(&enterprise_key).await?;
+        database
+            .repositories()
+            .api_keys
+            .create(&enterprise_key)
+            .await?;
         api_keys.push(enterprise_key);
 
         // Create some usage data for testing
@@ -486,7 +490,7 @@ impl DashboardTestSetup {
                     };
 
                     // Record the usage
-                    database.record_api_key(&usage).await?;
+                    database.repositories().usage.record_api_key(&usage).await?;
                 }
             }
         }

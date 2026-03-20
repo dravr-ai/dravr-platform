@@ -620,9 +620,9 @@ impl RecipeManager {
     }
 }
 
-// Helper functions for type conversion
+// Helper functions for type conversion (pub(crate) for direct trait implementations)
 
-const fn meal_timing_to_string(timing: MealTiming) -> &'static str {
+pub(crate) const fn meal_timing_to_string(timing: MealTiming) -> &'static str {
     match timing {
         MealTiming::PreTraining => "pre_training",
         MealTiming::PostTraining => "post_training",
@@ -631,7 +631,7 @@ const fn meal_timing_to_string(timing: MealTiming) -> &'static str {
     }
 }
 
-fn string_to_meal_timing(s: &str) -> MealTiming {
+pub(crate) fn string_to_meal_timing(s: &str) -> MealTiming {
     match s {
         "pre_training" => MealTiming::PreTraining,
         "post_training" => MealTiming::PostTraining,
@@ -640,7 +640,7 @@ fn string_to_meal_timing(s: &str) -> MealTiming {
     }
 }
 
-const fn unit_to_string(unit: IngredientUnit) -> &'static str {
+pub(crate) const fn unit_to_string(unit: IngredientUnit) -> &'static str {
     match unit {
         IngredientUnit::Grams => "grams",
         IngredientUnit::Milliliters => "milliliters",
@@ -654,7 +654,7 @@ const fn unit_to_string(unit: IngredientUnit) -> &'static str {
     }
 }
 
-fn string_to_unit(s: &str) -> IngredientUnit {
+pub(crate) fn string_to_unit(s: &str) -> IngredientUnit {
     match s {
         "milliliters" => IngredientUnit::Milliliters,
         "cups" => IngredientUnit::Cups,
@@ -669,7 +669,10 @@ fn string_to_unit(s: &str) -> IngredientUnit {
     }
 }
 
-fn row_to_recipe(row: &SqliteRow, ingredients: Vec<RecipeIngredient>) -> AppResult<Recipe> {
+pub(crate) fn row_to_recipe(
+    row: &SqliteRow,
+    ingredients: Vec<RecipeIngredient>,
+) -> AppResult<Recipe> {
     let id_str: String = row.get("id");
     let user_id_str: String = row.get("user_id");
     let meal_timing_str: String = row.get("meal_timing");
@@ -728,4 +731,97 @@ fn row_to_recipe(row: &SqliteRow, ingredients: Vec<RecipeIngredient>) -> AppResu
             .map_err(|e| AppError::internal(format!("Invalid datetime: {e}")))?
             .with_timezone(&Utc),
     })
+}
+
+/// Fetch ingredients for a single recipe by ID
+pub(crate) async fn get_recipe_ingredients(
+    pool: &SqlitePool,
+    recipe_id: &str,
+) -> AppResult<Vec<RecipeIngredient>> {
+    let rows = sqlx::query(
+        r"
+        SELECT id, recipe_id, fdc_id, name, amount, unit, grams, preparation, sort_order
+        FROM recipe_ingredients
+        WHERE recipe_id = $1
+        ORDER BY sort_order
+        ",
+    )
+    .bind(recipe_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| AppError::database(format!("Failed to get recipe ingredients: {e}")))?;
+
+    let mut ingredients = Vec::with_capacity(rows.len());
+    for row in rows {
+        let unit_str: String = row.get("unit");
+        ingredients.push(RecipeIngredient {
+            fdc_id: row.get("fdc_id"),
+            name: row.get("name"),
+            amount: row.get("amount"),
+            unit: string_to_unit(&unit_str),
+            grams: row.get("grams"),
+            preparation: row.get("preparation"),
+        });
+    }
+
+    Ok(ingredients)
+}
+
+/// Batch fetch ingredients for multiple recipes in a single query
+///
+/// Returns a `HashMap` keyed by `recipe_id` for efficient lookup.
+/// This eliminates N+1 query pattern when listing multiple recipes.
+pub(crate) async fn get_ingredients_batch(
+    pool: &SqlitePool,
+    recipe_ids: &[String],
+) -> AppResult<HashMap<String, Vec<RecipeIngredient>>> {
+    if recipe_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Build parameterized IN clause for SQLite
+    let placeholders: Vec<String> = (1..=recipe_ids.len()).map(|i| format!("${i}")).collect();
+    let in_clause = placeholders.join(", ");
+
+    let query = format!(
+        r"
+        SELECT id, recipe_id, fdc_id, name, amount, unit, grams, preparation, sort_order
+        FROM recipe_ingredients
+        WHERE recipe_id IN ({in_clause})
+        ORDER BY recipe_id, sort_order
+        "
+    );
+
+    let mut query_builder = sqlx::query(&query);
+    for recipe_id in recipe_ids {
+        query_builder = query_builder.bind(recipe_id);
+    }
+
+    let rows = query_builder
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to batch fetch ingredients: {e}")))?;
+
+    // Group ingredients by recipe_id
+    let mut ingredients_map: HashMap<String, Vec<RecipeIngredient>> =
+        HashMap::with_capacity(recipe_ids.len());
+
+    for row in rows {
+        let recipe_id: String = row.get("recipe_id");
+        let unit_str: String = row.get("unit");
+        let ingredient = RecipeIngredient {
+            fdc_id: row.get("fdc_id"),
+            name: row.get("name"),
+            amount: row.get("amount"),
+            unit: string_to_unit(&unit_str),
+            grams: row.get("grams"),
+            preparation: row.get("preparation"),
+        };
+        ingredients_map
+            .entry(recipe_id)
+            .or_default()
+            .push(ingredient);
+    }
+
+    Ok(ingredients_map)
 }

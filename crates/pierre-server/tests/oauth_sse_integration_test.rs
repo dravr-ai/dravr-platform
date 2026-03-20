@@ -8,9 +8,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::{
-    database::oauth_notifications::OAuthNotification, plugins::NotificationRepository,
-};
+use pierre_database::database::oauth_notifications::OAuthNotification;
 use pierre_mcp_server::sse::manager::SseManager;
 use reqwest::Client;
 use serde_json::json;
@@ -89,7 +87,8 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
 
     // Save notification to database using the correct method signature
     resources
-        .database
+        .repos
+        .notifications
         .store(
             user_id,
             &oauth_notification.provider,

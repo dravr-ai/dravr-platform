@@ -1132,25 +1132,25 @@ impl StoreListingsManager {
 }
 
 /// Column list for coach queries (no table alias)
-const COACH_COLUMNS: &str = r"id, user_id, tenant_id, title, description, system_prompt,
+pub(crate) const COACH_COLUMNS: &str = r"id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
                    forked_from, max_tool_iterations";
 
 /// Column list for coach queries with table alias
-const COACH_COLUMNS_ALIASED: &str = r"c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
+pub(crate) const COACH_COLUMNS_ALIASED: &str = r"c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
                    c.forked_from, c.max_tool_iterations";
 
 /// Column list for store listing queries with table alias
-const LISTING_COLUMNS_ALIASED: &str = r"sl.id as sl_id, sl.publish_status, sl.published_at,
+pub(crate) const LISTING_COLUMNS_ALIASED: &str = r"sl.id as sl_id, sl.publish_status, sl.published_at,
                    sl.review_submitted_at, sl.review_decision_at, sl.review_decision_by,
                    sl.rejection_reason, sl.install_count, sl.icon_url, sl.author_id,
                    sl.created_at as sl_created_at, sl.updated_at as sl_updated_at";
 
 /// Convert a database row to a `StoreListing` struct
-fn row_to_store_listing(row: &SqliteRow) -> AppResult<StoreListing> {
+pub(crate) fn row_to_store_listing(row: &SqliteRow) -> AppResult<StoreListing> {
     let id_str: String = row
         .try_get("id")
         .or_else(|_| row.try_get("sl_id"))
@@ -1214,7 +1214,7 @@ fn row_to_store_listing(row: &SqliteRow) -> AppResult<StoreListing> {
 }
 
 /// Convert a `JOIN`ed database row to a `CoachWithListing`
-fn row_to_coach_with_listing(row: &SqliteRow) -> AppResult<CoachWithListing> {
+pub(crate) fn row_to_coach_with_listing(row: &SqliteRow) -> AppResult<CoachWithListing> {
     let coach = row_to_coach(row)?;
 
     // For the listing, we need to read sl_id as the listing id

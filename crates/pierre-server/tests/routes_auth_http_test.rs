@@ -91,7 +91,6 @@ impl AuthTestSetup {
 
     /// Create a test admin token for authentication
     async fn create_admin_token(&self) -> anyhow::Result<String> {
-        use pierre_database::plugins::AdminRepository;
         use pierre_mcp_server::admin::models::CreateAdminTokenRequest;
 
         // Create admin token request
@@ -103,11 +102,11 @@ impl AuthTestSetup {
             is_super_admin: true,
         };
 
-        // Use database method to create admin token
+        // Use repository to create admin token
         let generated_token = self
             .resources
-            .database
-            .as_ref()
+            .repos
+            .admin
             .create_token(&request, "test_jwt_secret", &self.resources.jwks_manager)
             .await?;
 

@@ -9,13 +9,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::Utc;
-use pierre_database::{
-    database::AddMessageParams,
-    plugins::{
-        factory::Database, ChatRepository, TenantRepository, ToolSelectionRepository,
-        UserRepository,
-    },
-};
+use pierre_database::{database::AddMessageParams, plugins::factory::Database};
 use pierre_mcp_server::{
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -42,8 +36,13 @@ async fn test_pg_get_tool_catalog() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
-    let catalog = db.get_tool_catalog().await.expect("Failed to get catalog");
+    let catalog = repos
+        .tool_selection
+        .get_tool_catalog()
+        .await
+        .expect("Failed to get catalog");
 
     // Catalog should be populated from migrations
     assert!(!catalog.is_empty(), "Tool catalog should not be empty");
@@ -73,9 +72,11 @@ async fn test_pg_get_tool_catalog_entry() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     // Test getting an existing tool
-    let entry = db
+    let entry = repos
+        .tool_selection
         .get_tool_catalog_entry("get_activities")
         .await
         .expect("Failed to get tool entry");
@@ -86,7 +87,8 @@ async fn test_pg_get_tool_catalog_entry() {
     assert_eq!(entry.category, ToolCategory::Fitness);
 
     // Test getting a non-existent tool
-    let missing = db
+    let missing = repos
+        .tool_selection
         .get_tool_catalog_entry("nonexistent_tool")
         .await
         .expect("Query should not fail");
@@ -107,8 +109,10 @@ async fn test_pg_get_tools_by_category() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
-    let fitness_tools = db
+    let fitness_tools = repos
+        .tool_selection
         .get_tools_by_category(ToolCategory::Fitness)
         .await
         .expect("Failed to get fitness tools");
@@ -143,9 +147,11 @@ async fn test_pg_get_tools_by_min_plan() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     // Starter plan should get starter tools
-    let starter_tools = db
+    let starter_tools = repos
+        .tool_selection
         .get_tools_by_min_plan(TenantPlan::Starter)
         .await
         .expect("Failed to get starter tools");
@@ -153,7 +159,8 @@ async fn test_pg_get_tools_by_min_plan() {
     assert!(!starter_tools.is_empty(), "Should have starter tools");
 
     // Enterprise plan should get all tools
-    let enterprise_tools = db
+    let enterprise_tools = repos
+        .tool_selection
         .get_tools_by_min_plan(TenantPlan::Enterprise)
         .await
         .expect("Failed to get enterprise tools");
@@ -178,6 +185,7 @@ async fn test_pg_tenant_tool_overrides() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     // Create a test tenant
     let tenant_id = TenantId::new();
@@ -185,14 +193,16 @@ async fn test_pg_tenant_tool_overrides() {
     create_pg_test_tenant(&db, tenant_id, user_id).await;
 
     // Initially no overrides
-    let overrides = db
+    let overrides = repos
+        .tool_selection
         .get_overrides(tenant_id)
         .await
         .expect("Failed to get overrides");
     assert!(overrides.is_empty(), "New tenant should have no overrides");
 
     // Create an override
-    let created = db
+    let created = repos
+        .tool_selection
         .upsert_override(
             tenant_id,
             "get_activities",
@@ -207,28 +217,32 @@ async fn test_pg_tenant_tool_overrides() {
     assert!(!created.is_enabled);
 
     // Get the single override
-    let single = db
+    let single = repos
+        .tool_selection
         .get_override(tenant_id, "get_activities")
         .await
         .expect("Failed to get single override");
     assert!(single.is_some(), "Should find the override");
 
     // Update the override
-    let updated = db
+    let updated = repos
+        .tool_selection
         .upsert_override(tenant_id, "get_activities", true, Some(user_id), None)
         .await
         .expect("Failed to update override");
     assert!(updated.is_enabled, "Override should now be enabled");
 
     // Delete the override
-    let deleted = db
+    let deleted = repos
+        .tool_selection
         .delete_override(tenant_id, "get_activities")
         .await
         .expect("Failed to delete override");
     assert!(deleted, "Delete should return true");
 
     // Verify deletion
-    let after_delete = db
+    let after_delete = repos
+        .tool_selection
         .get_override(tenant_id, "get_activities")
         .await
         .expect("Query should not fail");
@@ -249,13 +263,15 @@ async fn test_pg_count_enabled_tools() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     // Create a test tenant with starter plan
     let tenant_id = TenantId::new();
     let user_id = create_pg_test_user(&db).await;
     create_pg_test_tenant(&db, tenant_id, user_id).await;
 
-    let count = db
+    let count = repos
+        .tool_selection
         .count_enabled_tools(tenant_id)
         .await
         .expect("Failed to count enabled tools");
@@ -281,12 +297,14 @@ async fn test_pg_chat_create_conversation() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
-    let conv = db
+    let conv = repos
+        .chat
         .create_conversation(&user_id_str, tenant_id, "Test Chat", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
@@ -311,12 +329,14 @@ async fn test_pg_chat_create_conversation_with_system_prompt() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
-    let conv = db
+    let conv = repos
+        .chat
         .create_conversation(
             &user_id_str,
             tenant_id,
@@ -347,19 +367,22 @@ async fn test_pg_chat_get_conversation() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
     // Create a conversation first
-    let created = db
+    let created = repos
+        .chat
         .create_conversation(&user_id_str, tenant_id, "Retrieve Test", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
 
     // Retrieve it
-    let retrieved = db
+    let retrieved = repos
+        .chat
         .get_conversation(&created.id, &user_id_str, tenant_id)
         .await
         .expect("Failed to get conversation");
@@ -370,7 +393,8 @@ async fn test_pg_chat_get_conversation() {
     assert_eq!(retrieved.title, "Retrieve Test");
 
     // Try to get non-existent
-    let missing = db
+    let missing = repos
+        .chat
         .get_conversation("nonexistent", &user_id_str, tenant_id)
         .await
         .expect("Query should not fail");
@@ -394,6 +418,7 @@ async fn test_pg_chat_list_conversations() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
@@ -401,13 +426,16 @@ async fn test_pg_chat_list_conversations() {
 
     // Create multiple conversations
     for i in 1..=5 {
-        db.create_conversation(&user_id_str, tenant_id, &format!("Chat {i}"), "gpt-4", None)
+        repos
+            .chat
+            .create_conversation(&user_id_str, tenant_id, &format!("Chat {i}"), "gpt-4", None)
             .await
             .expect("Failed to create conversation");
     }
 
     // List with pagination
-    let list = db
+    let list = repos
+        .chat
         .list_conversations(&user_id_str, tenant_id, 3, 0)
         .await
         .expect("Failed to list conversations");
@@ -415,7 +443,8 @@ async fn test_pg_chat_list_conversations() {
     assert_eq!(list.len(), 3, "Should return 3 conversations with limit");
 
     // List second page
-    let page2 = db
+    let page2 = repos
+        .chat
         .list_conversations(&user_id_str, tenant_id, 3, 3)
         .await
         .expect("Failed to list page 2");
@@ -437,24 +466,28 @@ async fn test_pg_chat_update_conversation_title() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
-    let conv = db
+    let conv = repos
+        .chat
         .create_conversation(&user_id_str, tenant_id, "Original Title", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
 
-    let updated = db
+    let updated = repos
+        .chat
         .update_conversation_title(&conv.id, &user_id_str, tenant_id, "Updated Title")
         .await
         .expect("Failed to update title");
 
     assert!(updated, "Update should succeed");
 
-    let retrieved = db
+    let retrieved = repos
+        .chat
         .get_conversation(&conv.id, &user_id_str, tenant_id)
         .await
         .expect("Failed to get conversation")
@@ -477,24 +510,28 @@ async fn test_pg_chat_delete_conversation() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
-    let conv = db
+    let conv = repos
+        .chat
         .create_conversation(&user_id_str, tenant_id, "To Delete", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
 
-    let deleted = db
+    let deleted = repos
+        .chat
         .delete_conversation(&conv.id, &user_id_str, tenant_id)
         .await
         .expect("Failed to delete conversation");
 
     assert!(deleted, "Delete should succeed");
 
-    let retrieved = db
+    let retrieved = repos
+        .chat
         .get_conversation(&conv.id, &user_id_str, tenant_id)
         .await
         .expect("Query should not fail");
@@ -516,12 +553,14 @@ async fn test_pg_chat_messages() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
     let tenant_id = TenantId::from(Uuid::new_v4());
 
-    let conv = db
+    let conv = repos
+        .chat
         .create_conversation(&user_id_str, tenant_id, "Message Test", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
@@ -537,7 +576,8 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
     };
-    let msg1 = db
+    let msg1 = repos
+        .chat
         .add_message(&msg1_params)
         .await
         .expect("Failed to add user message");
@@ -555,7 +595,8 @@ async fn test_pg_chat_messages() {
         prompt_tokens: None,
         model: None,
     };
-    let msg2 = db
+    let msg2 = repos
+        .chat
         .add_message(&msg2_params)
         .await
         .expect("Failed to add assistant message");
@@ -565,7 +606,8 @@ async fn test_pg_chat_messages() {
     assert_eq!(msg2.finish_reason, Some("stop".to_owned()));
 
     // Get all messages (user_id required for ownership verification)
-    let messages = db
+    let messages = repos
+        .chat
         .get_messages(&conv.id, &user_id_str)
         .await
         .expect("Failed to get messages");
@@ -573,7 +615,8 @@ async fn test_pg_chat_messages() {
     assert_eq!(messages.len(), 2, "Should have 2 messages");
 
     // Get recent messages (user_id required for ownership verification)
-    let recent = db
+    let recent = repos
+        .chat
         .get_recent_messages(&conv.id, &user_id_str, 1)
         .await
         .expect("Failed to get recent messages");
@@ -581,7 +624,8 @@ async fn test_pg_chat_messages() {
     assert_eq!(recent.len(), 1, "Should return only 1 recent message");
 
     // Get message count (user_id required for ownership verification)
-    let count = db
+    let count = repos
+        .chat
         .get_message_count(&conv.id, &user_id_str)
         .await
         .expect("Failed to get message count");
@@ -603,6 +647,7 @@ async fn test_pg_chat_delete_all_user_conversations() {
         .get_database()
         .await
         .expect("Failed to get database");
+    let repos = db.repositories();
 
     let user_id = create_pg_test_user(&db).await;
     let user_id_str = user_id.to_string();
@@ -610,13 +655,16 @@ async fn test_pg_chat_delete_all_user_conversations() {
 
     // Create multiple conversations
     for i in 1..=3 {
-        db.create_conversation(&user_id_str, tenant_id, &format!("Conv {i}"), "gpt-4", None)
+        repos
+            .chat
+            .create_conversation(&user_id_str, tenant_id, &format!("Conv {i}"), "gpt-4", None)
             .await
             .expect("Failed to create conversation");
     }
 
     // Delete all
-    let deleted_count = db
+    let deleted_count = repos
+        .chat
         .delete_all_user_conversations(&user_id_str, tenant_id)
         .await
         .expect("Failed to delete all conversations");
@@ -624,7 +672,8 @@ async fn test_pg_chat_delete_all_user_conversations() {
     assert_eq!(deleted_count, 3, "Should delete 3 conversations");
 
     // Verify
-    let remaining = db
+    let remaining = repos
+        .chat
         .list_conversations(&user_id_str, tenant_id, 100, 0)
         .await
         .expect("Failed to list conversations");
@@ -658,7 +707,9 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(db, &user)
+    db.repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
     user_id
@@ -676,7 +727,9 @@ async fn create_pg_test_tenant(db: &Database, tenant_id: TenantId, owner_id: Uui
         updated_at: Utc::now(),
     };
 
-    TenantRepository::create(db, &tenant)
+    db.repositories()
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 }

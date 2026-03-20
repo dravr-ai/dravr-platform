@@ -150,7 +150,7 @@ mod common;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider, TenantRepository, UserRepository},
+    plugins::{factory::Database, DatabaseProvider},
 };
 use pierre_mcp_server::{
     config::environment::{
@@ -473,7 +473,10 @@ async fn test_oauth_callback_error_handling() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&database, &admin_user)
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
@@ -488,7 +491,12 @@ async fn test_oauth_callback_error_handling() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&database, &tenant).await.unwrap();
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
 
     // Create a test user with tenant association
     let test_user = User {
@@ -510,7 +518,12 @@ async fn test_oauth_callback_error_handling() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let test_user_id = UserRepository::create(&database, &test_user).await.unwrap();
+    let test_user_id = database
+        .repositories()
+        .users
+        .create(&test_user)
+        .await
+        .unwrap();
 
     // Create minimal config and ServerResources for OAuth routes
     let temp_dir = tempfile::tempdir().unwrap();
@@ -757,7 +770,10 @@ async fn test_oauth_state_csrf_protection() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let admin_id = UserRepository::create(&database, &admin_user)
+    let admin_id = database
+        .repositories()
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
@@ -773,7 +789,12 @@ async fn test_oauth_state_csrf_protection() {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(&database, &tenant).await.unwrap();
+    database
+        .repositories()
+        .tenants
+        .create(&tenant)
+        .await
+        .unwrap();
 
     // Store tenant OAuth credentials
     let strava_credentials = TenantOAuthCredentials {
@@ -786,6 +807,8 @@ async fn test_oauth_state_csrf_protection() {
         rate_limit_per_day: 15000,
     };
     database
+        .repositories()
+        .tenants
         .store_oauth_credentials(&strava_credentials)
         .await
         .unwrap();
