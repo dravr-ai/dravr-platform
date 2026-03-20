@@ -34,7 +34,6 @@ use chrono::{Duration, Utc};
 use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::SeederRepository;
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
@@ -459,9 +458,10 @@ async fn main() -> AppResult<()> {
         .unwrap_or_else(|| "sqlite:./data/users.db".to_owned());
 
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Find user
-    let user = db.seed_find_user_by_email(&args.email).await?;
+    let user = repos.seeder.seed_find_user_by_email(&args.email).await?;
     let Some(user) = user else {
         return Err(AppError::config(format!(
             "User not found: {}. Run ./scripts/complete-user-workflow.sh first.",
@@ -469,7 +469,8 @@ async fn main() -> AppResult<()> {
         )));
     };
 
-    let tenant_id_str = db
+    let tenant_id_str = repos
+        .seeder
         .seed_get_user_tenant(user.id)
         .await?
         .ok_or_else(|| AppError::config(format!("User {} has no tenant_id", args.email)))?;
@@ -482,7 +483,7 @@ async fn main() -> AppResult<()> {
     // Reset if requested
     if args.reset {
         info!("Resetting synthetic activities...");
-        db.seed_delete_synthetic_by_user(user.id).await?;
+        repos.seeder.seed_delete_synthetic_by_user(user.id).await?;
     }
 
     // Initialize RNG
@@ -575,7 +576,10 @@ async fn main() -> AppResult<()> {
             updated_at: Utc::now(),
         };
 
-        db.seed_insert_synthetic_activity(&activity).await?;
+        repos
+            .seeder
+            .seed_insert_synthetic_activity(&activity)
+            .await?;
         *activities_by_type.entry(sport.sport_type).or_insert(0) += 1;
     }
 
@@ -589,7 +593,10 @@ async fn main() -> AppResult<()> {
         connected_at: Utc::now(),
         metadata: r#"{"source": "seed-synthetic-activities"}"#.to_owned(),
     };
-    db.seed_upsert_provider_connection(&connection).await?;
+    repos
+        .seeder
+        .seed_upsert_provider_connection(&connection)
+        .await?;
     info!("Registered synthetic provider connection");
 
     // Print summary

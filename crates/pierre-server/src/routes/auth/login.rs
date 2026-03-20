@@ -32,9 +32,6 @@ use crate::{
     },
 };
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
-use pierre_database::database::repositories::{
-    OAuthTokenRepository, PasswordResetRepository, TenantRepository, UserRepository,
-};
 
 use super::types::{
     ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest, LoginRequest, LoginResponse,
@@ -81,7 +78,7 @@ impl AuthService {
         }
 
         // Check if user already exists
-        if let Ok(Some(_)) = self.data.database().get_by_email(&request.email).await {
+        if let Ok(Some(_)) = self.data.repos().users.get_by_email(&request.email).await {
             return Err(user_state_error(error_messages::USER_ALREADY_EXISTS));
         }
 
@@ -98,7 +95,11 @@ impl AuthService {
         user.approved_at = approved_at;
 
         // Save user to database
-        let user_id = UserRepository::create(self.data.database().as_ref(), &user)
+        let user_id = self
+            .data
+            .repos()
+            .users
+            .create(&user)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
 
@@ -114,7 +115,8 @@ impl AuthService {
 
         // Assign user to their personal tenant
         self.data
-            .database()
+            .repos()
+            .users
             .update_tenant_id(user_id, tenant_id)
             .await
             .map_err(|e| {
@@ -147,7 +149,8 @@ impl AuthService {
         // Get user from database
         let user = self
             .data
-            .database()
+            .repos()
+            .users
             .get_by_email_required(&request.email)
             .await
             .map_err(|e| {
@@ -179,7 +182,8 @@ impl AuthService {
 
         // Update last active timestamp
         self.data
-            .database()
+            .repos()
+            .users
             .update_last_active(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
@@ -264,7 +268,8 @@ impl AuthService {
         // Try to find user by Firebase UID first
         if let Some(user) = self
             .data
-            .database()
+            .repos()
+            .users
             .get_by_firebase_uid(&claims.sub)
             .await?
         {
@@ -273,11 +278,11 @@ impl AuthService {
         }
 
         // Check if user exists by email (might need linking)
-        if let Some(mut user) = self.data.database().get_by_email(email).await? {
+        if let Some(mut user) = self.data.repos().users.get_by_email(email).await? {
             tracing::info!(user_id = %user.id, "Linking existing email user to Firebase UID");
             user.firebase_uid = Some(claims.sub.clone());
             user.auth_provider.clone_from(&claims.provider);
-            UserRepository::create(self.data.database().as_ref(), &user).await?;
+            self.data.repos().users.create(&user).await?;
             return Ok(user);
         }
 
@@ -311,7 +316,10 @@ impl AuthService {
             updated_at: now,
         };
 
-        TenantRepository::create(self.data.database().as_ref(), &tenant)
+        self.data
+            .repos()
+            .tenants
+            .create(&tenant)
             .await
             .map_err(|e| {
                 error!(
@@ -336,7 +344,8 @@ impl AuthService {
     async fn ensure_user_has_tenant(&self, user: &User) -> AppResult<Option<String>> {
         let tenants = self
             .data
-            .database()
+            .repos()
+            .tenants
             .list_for_user(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -356,7 +365,8 @@ impl AuthService {
             .await?;
 
         self.data
-            .database()
+            .repos()
+            .users
             .update_tenant_id(user.id, tenant_id)
             .await
             .map_err(|e| {
@@ -471,7 +481,7 @@ impl AuthService {
             auth_provider: claims.provider.clone(),
         };
 
-        UserRepository::create(self.data.database().as_ref(), &new_user).await?;
+        self.data.repos().users.create(&new_user).await?;
 
         // Step 2: Create personal tenant (adds user to tenant_users as owner)
         self.create_personal_tenant(user_id, display_name, tiers::STARTER)
@@ -517,7 +527,8 @@ impl AuthService {
 
         let updated = self
             .data
-            .database()
+            .repos()
+            .users
             .update_status(user.id, UserStatus::Active, None)
             .await?;
         user.user_status = updated.user_status;
@@ -544,7 +555,7 @@ impl AuthService {
 
         let expires_at = Utc::now() + chrono::Duration::hours(limits::DEFAULT_SESSION_HOURS);
 
-        self.data.database().update_last_active(user.id).await?;
+        self.data.repos().users.update_last_active(user.id).await?;
 
         tracing::info!(user_id = %user.id, provider = %provider, "Firebase login successful");
 
@@ -589,7 +600,8 @@ impl AuthService {
         // Get user from database
         let user = self
             .data
-            .database()
+            .repos()
+            .users
             .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
@@ -614,7 +626,8 @@ impl AuthService {
 
         // Update last active timestamp
         self.data
-            .database()
+            .repos()
+            .users
             .update_last_active(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to update last active: {e}")))?;
@@ -695,7 +708,7 @@ pub(super) async fn handle_register(
 
     // Validate admin token
     let admin_auth_service = AdminAuthService::new(
-        resources.database.as_ref().clone(),
+        resources.repos.admin.clone(),
         resources.jwks_manager.clone(),
         resources.config.auth.admin_token_cache_ttl_secs,
     );
@@ -919,7 +932,8 @@ pub(super) async fn handle_session(
 
     // Look up user details from database
     let user = resources
-        .database
+        .repos
+        .users
         .get_global(user_id)
         .await
         .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
@@ -930,7 +944,8 @@ pub(super) async fn handle_session(
         Some(tid.to_string())
     } else {
         let tenants = resources
-            .database
+            .repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -1011,7 +1026,8 @@ pub(super) async fn handle_update_profile(
 
     // Update user in database
     let updated_user = resources
-        .database
+        .repos
+        .users
         .update_display_name(user_id, display_name)
         .await?;
 
@@ -1053,7 +1069,8 @@ pub(super) async fn handle_change_password(
 
     // Fetch user to get current password hash
     let user = resources
-        .database
+        .repos
+        .users
         .get_global(user_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
@@ -1085,7 +1102,8 @@ pub(super) async fn handle_change_password(
 
     // Update password in database
     resources
-        .database
+        .repos
+        .users
         .update_password(user_id, &password_hash)
         .await
         .map_err(|e| {
@@ -1124,7 +1142,11 @@ pub(super) async fn handle_complete_reset(
     let token_hash = format!("{:x}", Sha256::digest(request.reset_token.as_bytes()));
 
     // Atomically consume the token (validates existence, expiry, and single-use)
-    let user_id = resources.database.consume_token(&token_hash).await?;
+    let user_id = resources
+        .repos
+        .password_reset
+        .consume_token(&token_hash)
+        .await?;
 
     // Hash the new password using spawn_blocking to avoid blocking async executor
     let password_to_hash = request.new_password;
@@ -1136,7 +1158,8 @@ pub(super) async fn handle_complete_reset(
 
     // Update the user's password
     resources
-        .database
+        .repos
+        .users
         .update_password(user_id, &password_hash)
         .await
         .map_err(|e| {
@@ -1146,7 +1169,8 @@ pub(super) async fn handle_complete_reset(
 
     // Invalidate any other outstanding reset tokens for this user
     resources
-        .database
+        .repos
+        .password_reset
         .invalidate_tokens(user_id)
         .await
         .map_err(|e| {
@@ -1188,7 +1212,7 @@ pub(super) async fn handle_forgot_password(
     }
 
     // Look up user — if not found, return the same success message (anti-enumeration)
-    let user = resources.database.get_by_email(&request.email).await?;
+    let user = resources.repos.users.get_by_email(&request.email).await?;
 
     let Some(user) = user else {
         info!("Forgot password requested for nonexistent email (anti-enumeration)");
@@ -1204,7 +1228,8 @@ pub(super) async fn handle_forgot_password(
     // Rate limit: max N codes per hour per user
     let one_hour_ago = Utc::now() - chrono::Duration::hours(1);
     let recent_count = resources
-        .database
+        .repos
+        .password_reset
         .count_recent_tokens(user.id, one_hour_ago)
         .await?;
 
@@ -1233,7 +1258,8 @@ pub(super) async fn handle_forgot_password(
 
     // Store with short TTL
     resources
-        .database
+        .repos
+        .password_reset
         .store_token_with_ttl(
             user.id,
             &code_hash,
@@ -1282,11 +1308,15 @@ pub(super) async fn handle_user_stats(
     Span::current().record("user_id", user_id.to_string());
 
     // Get connected providers count from OAuth tokens (cross-tenant view for user stats)
-    let oauth_tokens = resources.database.get_tokens(user_id, None).await?;
+    let oauth_tokens = resources
+        .repos
+        .oauth_tokens
+        .get_tokens(user_id, None)
+        .await?;
     let connected_providers = i64::try_from(oauth_tokens.len()).unwrap_or(0);
 
     // Get user creation date to calculate days active
-    let user = resources.database.get_global(user_id).await?;
+    let user = resources.repos.users.get_global(user_id).await?;
     let days_active = match user {
         Some(u) => {
             let now = chrono::Utc::now();

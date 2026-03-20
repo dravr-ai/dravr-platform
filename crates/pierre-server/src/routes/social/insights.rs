@@ -49,7 +49,6 @@ use crate::{
     services::social_insights,
 };
 
-use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::social_dispatch::SocialManagerBackend;
 
 use super::{SocialMetadata, SocialRoutes};
@@ -439,7 +438,8 @@ impl SocialRoutes {
     ) -> Result<String, AppError> {
         // SECURITY: Global lookup — sharing policy check on authenticated user
         let user = resources
-            .database
+            .repos
+            .users
             .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
@@ -577,7 +577,7 @@ impl SocialRoutes {
             if let Some(service) = &resources.notification_service {
                 if let Some(tenant_uuid) = auth.active_tenant_id {
                     let tenant_id = TenantId::from(tenant_uuid);
-                    let sharer_user = resources.database.get_global(auth.user_id).await?;
+                    let sharer_user = resources.repos.users.get_global(auth.user_id).await?;
                     let sharer_name = sharer_user
                         .and_then(|u| u.display_name)
                         .unwrap_or_else(|| "Someone".to_owned());
@@ -1053,7 +1053,8 @@ impl SocialRoutes {
             .and_then(|tid| tid.parse::<TenantId>().ok())
             .map(|tid| TenantCredentialContext {
                 tenant_oauth_client: &resources.tenant_oauth_client,
-                database: &resources.database,
+                tenants: resources.repos.tenants.as_ref(),
+                oauth_tokens: resources.repos.oauth_tokens.as_ref(),
                 tenant_id: tid,
                 user_id,
             });
@@ -1253,7 +1254,7 @@ impl SocialRoutes {
         if insight.user_id != auth.user_id {
             if let Some(service) = &resources.notification_service {
                 if let Some(tenant_uuid) = auth.active_tenant_id {
-                    let reactor_user = resources.database.get_global(auth.user_id).await?;
+                    let reactor_user = resources.repos.users.get_global(auth.user_id).await?;
                     let reactor_name = reactor_user
                         .and_then(|u| u.display_name)
                         .unwrap_or_else(|| "Someone".to_owned());

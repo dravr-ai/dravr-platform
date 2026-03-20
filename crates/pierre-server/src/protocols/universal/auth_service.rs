@@ -17,7 +17,6 @@ use chrono::{DateTime, Utc};
 use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
 use pierre_auth::tenant::{TenantContext, TenantRole};
-use pierre_database::database::repositories::{OAuthTokenRepository, TenantRepository};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -98,7 +97,10 @@ impl AuthService {
         let tenant_id_parsed: TenantId = tenant_id_str.parse().map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
-        let token_result = (*self.resources.database)
+        let token_result = self
+            .resources
+            .repos
+            .oauth_tokens
             .get_token(user_id, tenant_id_parsed, provider)
             .await;
 
@@ -125,7 +127,7 @@ impl AuthService {
             return;
         };
 
-        let Ok(tenant) = (*self.resources.database).get_by_id(tenant_uuid).await else {
+        let Ok(tenant) = self.resources.repos.tenants.get_by_id(tenant_uuid).await else {
             return;
         };
 
@@ -140,7 +142,12 @@ impl AuthService {
         let _ = self
             .resources
             .tenant_oauth_client
-            .get_oauth_client(&tenant_context, provider, &self.resources.database)
+            .get_oauth_client(
+                &tenant_context,
+                provider,
+                self.resources.repos.tenants.as_ref(),
+                self.resources.repos.oauth_tokens.as_ref(),
+            )
             .await;
     }
 
@@ -318,7 +325,10 @@ impl AuthService {
                 error: Some(format!("Invalid tenant_id: {tenant_id_str}")),
                 metadata: None,
             })?;
-            let creds = (*self.resources.database)
+            let creds = self
+                .resources
+                .repos
+                .tenants
                 .get_oauth_credentials(tid, provider_name)
                 .await
                 .map_err(|e| UniversalResponse {
@@ -441,7 +451,10 @@ impl AuthService {
             let tid: TenantId = tenant_id.parse().map_err(|_| {
                 OAuthError::TokenRefreshFailed(format!("Invalid tenant_id: {tenant_id}"))
             })?;
-            let creds = (*self.resources.database)
+            let creds = self
+                .resources
+                .repos
+                .tenants
                 .get_oauth_credentials(tid, provider)
                 .await
                 .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?;
@@ -482,7 +495,9 @@ impl AuthService {
         let tenant_id_parsed: TenantId = tenant_id.parse().map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id}"))
         })?;
-        (*self.resources.database)
+        self.resources
+            .repos
+            .oauth_tokens
             .refresh_token(
                 user_id,
                 tenant_id_parsed,
@@ -534,7 +549,9 @@ impl AuthService {
         let tenant_id_parsed: TenantId = tenant_id_str.parse().map_err(|_| {
             OAuthError::DatabaseError(format!("Invalid tenant_id format: {tenant_id_str}"))
         })?;
-        (*self.resources.database)
+        self.resources
+            .repos
+            .oauth_tokens
             .delete_token(user_id, tenant_id_parsed, provider)
             .await
             .map_err(|e| OAuthError::DatabaseError(format!("Failed to delete token: {e}")))

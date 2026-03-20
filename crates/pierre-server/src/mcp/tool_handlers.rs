@@ -26,9 +26,8 @@ use pierre_auth::auth::AuthMethod as AuthResultMethod;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_database::database::repositories::TenantRepository;
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{LlmUsageRepository, NotificationRepository, UserRepository};
+use pierre_database::plugins::NotificationRepository;
+// Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;
 use std::sync::Arc;
@@ -128,7 +127,8 @@ impl ToolHandlers {
 
                 // Update user's last active timestamp
                 if let Err(e) = resources
-                    .database
+                    .repos
+                    .users
                     .update_last_active(auth_result.user_id)
                     .await
                 {
@@ -143,7 +143,7 @@ impl ToolHandlers {
                 // Tenant context is REQUIRED for tool execution to ensure tenant isolation
                 // Priority: JWT active_tenant_id > user's default tenant
                 let tenant_context = match extract_tenant_context_internal(
-                    &resources.database,
+                    &resources.repos,
                     Some(auth_result.user_id),
                     auth_result.active_tenant_id.map(TenantId::from), // Pass active_tenant_id from JWT claims
                     None, // MCP transport headers not applicable here
@@ -377,7 +377,7 @@ impl ToolHandlers {
             result,
             user_id,
             tool_name,
-            &routing_context.resources.database,
+            routing_context.resources.repos.notifications.as_ref(),
         )
         .await;
 
@@ -485,7 +485,8 @@ impl ToolHandlers {
             return;
         };
 
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
             if let Err(e) = usage_svc
                 .increment(tenant_id, user_id, counter_type, 1)
@@ -516,7 +517,8 @@ impl ToolHandlers {
         let exec_time_ms = duration_ms as i64;
 
         if let Err(e) = resources
-            .database
+            .repos
+            .llm_usage
             .insert_llm_usage(&InsertLlmUsage {
                 tenant_id,
                 user_id,
@@ -561,7 +563,8 @@ impl ToolHandlers {
         // Admin role bypasses quota enforcement for debugging and testing.
         // Owners (tenant creators) remain subject to quotas as cost control.
         if let Ok(Some(role)) = resources
-            .database
+            .repos
+            .tenants
             .get_user_role(auth_result.user_id, tenant_context.tenant_id)
             .await
         {
@@ -576,7 +579,8 @@ impl ToolHandlers {
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         // Check daily, then weekly quota
         for counter_type in &["daily_tool_calls", "weekly_tool_calls"] {
@@ -688,7 +692,8 @@ impl ToolHandlers {
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {
@@ -730,7 +735,8 @@ impl ToolHandlers {
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = user_id.to_string();
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         let mode = Self::activity_mode_from_args(args);
         let counter_types = if mode == "detailed" {
@@ -959,7 +965,7 @@ impl ToolHandlers {
         MultiTenantMcpServer::handle_tenant_connection_status(
             ctx.tenant_context,
             &ctx.resources.tenant_oauth_client,
-            &ctx.resources.database,
+            &ctx.resources.repos,
             request_id,
             credentials,
             ctx.resources.config.http_port,
@@ -1045,12 +1051,15 @@ impl ToolHandlers {
 
     /// Mark a list of notifications as read in the database
     async fn mark_notifications_read(
-        database: &Database,
+        notifications_repo: &dyn NotificationRepository,
         notifications: &[OAuthNotification],
         user_id: Uuid,
     ) {
         for notification in notifications {
-            if let Err(e) = database.mark_read(&notification.id, user_id).await {
+            if let Err(e) = notifications_repo
+                .mark_read(&notification.id, user_id)
+                .await
+            {
                 warn!(
                     "Failed to mark notification {} as read after delivery: {}",
                     notification.id, e
@@ -1089,11 +1098,11 @@ impl ToolHandlers {
 
     /// Fetch unread notifications if any exist
     async fn fetch_unread_notifications(
-        database: &Database,
+        notifications_repo: &dyn NotificationRepository,
         user_id: Uuid,
         tool_name: &str,
     ) -> Option<Vec<OAuthNotification>> {
-        match database.get_unread(user_id).await {
+        match notifications_repo.get_unread(user_id).await {
             Ok(notifications) if !notifications.is_empty() => {
                 debug!(
                     "Found {} unread OAuth notifications for user {} during {} tool call",
@@ -1125,7 +1134,7 @@ impl ToolHandlers {
         mut response: McpResponse,
         user_id: Uuid,
         tool_name: &str,
-        database: &Database,
+        notifications_repo: &dyn NotificationRepository,
     ) -> McpResponse {
         debug!(
             "NOTIFICATION_CHECK: Starting notification check for user {} with tool {}",
@@ -1137,7 +1146,7 @@ impl ToolHandlers {
         }
 
         let Some(unread_notifications) =
-            Self::fetch_unread_notifications(database, user_id, tool_name).await
+            Self::fetch_unread_notifications(notifications_repo, user_id, tool_name).await
         else {
             return response;
         };
@@ -1155,7 +1164,7 @@ impl ToolHandlers {
             tool_name
         );
 
-        Self::mark_notifications_read(database, &unread_notifications, user_id).await;
+        Self::mark_notifications_read(notifications_repo, &unread_notifications, user_id).await;
 
         response
     }

@@ -41,11 +41,7 @@ use pierre_auth::oauth2_client::{
     OAuth2Client, OAuth2Config, OAuth2Token, OAuthClientState, PkceParams,
 };
 use pierre_auth::tenant::{TenantContext, TenantRole};
-use pierre_database::database::repositories::{
-    NotificationRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    ProviderConnectionRepository, TenantRepository, UserRepository,
-};
-use pierre_database::plugins::factory::Database;
+use pierre_database::database::repositories::UserRepository;
 
 use super::types::{
     ConnectionStatus, OAuthAuthorizationResponse, OAuthStatus, ProviderStatus,
@@ -181,7 +177,8 @@ impl OAuthService {
         // Atomically consume the state from database (marks as used, checks expiry)
         let consumed = self
             .data
-            .database()
+            .repos()
+            .oauth_client_state
             .consume_oauth_client_state(state, provider, Utc::now())
             .await
             .map_err(|e| {
@@ -255,8 +252,9 @@ impl OAuthService {
         user_id: uuid::Uuid,
         provider: &str,
     ) -> AppResult<(User, String)> {
-        let database = self.data.database();
-        let user = database
+        let repos = self.data.repos();
+        let user = repos
+            .users
             .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
@@ -272,7 +270,8 @@ impl OAuthService {
         // NOTE: We use tenants.first() here intentionally because this is an OAuth callback
         // where the user has not yet established a JWT session with active_tenant_id.
         // The resulting token will carry this tenant_id as the default active_tenant_id.
-        let tenants = database
+        let tenants = repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -417,7 +416,8 @@ impl OAuthService {
         // Priority 1: Try user-specific credentials (per-user OAuth app)
         if let Ok(Some(user_app)) = self
             .data
-            .database()
+            .repos()
+            .oauth_tokens
             .get_user_oauth_app(user_id, provider)
             .await
         {
@@ -483,7 +483,7 @@ impl OAuthService {
             let tid = TenantId::from(tid);
             let tenant_creds = self
                 .data
-                .database()
+                .repos().tenants
                 .get_oauth_credentials(tid, provider)
                 .await
                 .map_err(|e| {
@@ -564,7 +564,8 @@ impl OAuthService {
         };
 
         self.data
-            .database()
+            .repos()
+            .oauth_tokens
             .upsert_token(&user_oauth_token)
             .await
             .map_err(|e| AppError::database(format!("Failed to upsert OAuth token: {e}")))?;
@@ -577,7 +578,8 @@ impl OAuthService {
             ))
         })?;
         self.data
-            .database()
+            .repos()
+            .provider_connections
             .register_connection(
                 user_id,
                 connection_tenant_id,
@@ -616,7 +618,8 @@ impl OAuthService {
     ) -> AppResult<String> {
         let notification_id = self
             .data
-            .database()
+            .repos()
+            .notifications
             .store(
                 user_id,
                 provider,
@@ -778,14 +781,16 @@ impl OAuthService {
 
         // Delete OAuth tokens from database
         self.data
-            .database()
+            .repos()
+            .oauth_tokens
             .delete_token(user_id, tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to delete OAuth token: {e}")))?;
 
         // Remove provider connection record
         self.data
-            .database()
+            .repos()
+            .provider_connections
             .remove_connection(user_id, tenant_id, provider)
             .await
             .map_err(|e| {
@@ -834,7 +839,8 @@ impl OAuthService {
         // Check for tenant-specific OAuth credentials first (multi-tenant mode)
         let tenant_creds = self
             .data
-            .database()
+            .repos()
+            .tenants
             .get_oauth_credentials(tenant_id, provider)
             .await
             .map_err(|e| {
@@ -922,7 +928,8 @@ impl OAuthService {
         };
 
         self.data
-            .database()
+            .repos()
+            .oauth_client_state
             .store_oauth_client_state(&client_state)
             .await
             .map_err(|e| {
@@ -959,7 +966,8 @@ impl OAuthService {
         // Get all provider connections (cross-tenant view)
         let connections = self
             .data
-            .database()
+            .repos()
+            .provider_connections
             .get_for_user(user_id, None)
             .await
             .map_err(|e| AppError::database(format!("Failed to get provider connections: {e}")))?;
@@ -967,7 +975,8 @@ impl OAuthService {
         // For OAuth connections, look up token expiry/scope info
         let oauth_tokens = self
             .data
-            .database()
+            .repos()
+            .oauth_tokens
             .get_tokens(user_id, None)
             .await
             .unwrap_or_default();
@@ -1171,7 +1180,8 @@ pub(super) async fn handle_oauth_status(
 
     // Check OAuth provider connection status for the user (cross-tenant view)
     let provider_statuses = resources
-        .database
+        .repos
+        .oauth_tokens
         .get_tokens(user_id, None)
         .await
         .map_or_else(
@@ -1246,7 +1256,8 @@ pub(super) async fn handle_providers_status(
 
     // Get user's provider connections (cross-tenant view, single source of truth)
     let connections = resources
-        .database
+        .repos
+        .provider_connections
         .get_for_user(user_id, None)
         .await
         .unwrap_or_default();
@@ -1346,7 +1357,7 @@ pub(super) async fn handle_oauth_auth_initiate(
     );
 
     // Verify user exists
-    get_user_for_oauth(&resources.database, user_id).await?;
+    get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
 
     let server_context = ServerContext::from(resources.as_ref());
@@ -1426,7 +1437,7 @@ pub(super) async fn handle_mobile_oauth_init(
     }
 
     // Verify user exists
-    get_user_for_oauth(&resources.database, user_id).await?;
+    get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from))?;
 
     // Build OAuth state with optional redirect URL
@@ -1440,7 +1451,8 @@ pub(super) async fn handle_mobile_oauth_init(
 
     // Generate OAuth URL using the state with embedded redirect URL
     let tenant_name = resources
-        .database
+        .repos
+        .tenants
         .get_by_id(tenant_id)
         .await
         .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
@@ -1473,13 +1485,20 @@ pub(super) async fn handle_mobile_oauth_init(
                 &provider,
                 &state,
                 pkce_params,
-                resources.database.as_ref(),
+                resources.repos.tenants.as_ref(),
+                resources.repos.oauth_tokens.as_ref(),
             )
             .await
     } else {
         resources
             .tenant_oauth_client
-            .get_authorization_url(&ctx, &provider, &state, resources.database.as_ref())
+            .get_authorization_url(
+                &ctx,
+                &provider,
+                &state,
+                resources.repos.tenants.as_ref(),
+                resources.repos.oauth_tokens.as_ref(),
+            )
             .await
     }
     .map_err(|e| {
@@ -1512,7 +1531,8 @@ pub(super) async fn handle_mobile_oauth_init(
     };
 
     resources
-        .database
+        .repos
+        .oauth_client_state
         .store_oauth_client_state(&client_state)
         .await
         .map_err(|e| {
@@ -1592,8 +1612,11 @@ fn parse_user_id(user_id_str: &str) -> Result<uuid::Uuid, AppError> {
 }
 
 /// Retrieve user from database with proper error handling
-async fn get_user_for_oauth(database: &Database, user_id: uuid::Uuid) -> Result<User, AppError> {
-    match database.get_global(user_id).await {
+async fn get_user_for_oauth(
+    users: &dyn UserRepository,
+    user_id: uuid::Uuid,
+) -> Result<User, AppError> {
+    match users.get_global(user_id).await {
         Ok(Some(user)) => Ok(user),
         Ok(None) => {
             error!("User {} not found in database", user_id);

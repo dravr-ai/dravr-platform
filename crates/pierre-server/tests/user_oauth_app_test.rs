@@ -340,7 +340,7 @@ async fn test_user_credentials_priority_over_server() -> Result<()> {
 
     // Get credentials with user_id - should return user-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -365,7 +365,7 @@ async fn test_fallback_to_server_credentials() -> Result<()> {
 
     // Get credentials - should fall back to server-level
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -388,7 +388,7 @@ async fn test_backward_compatible_get_credentials() -> Result<()> {
 
     // Use the original get_credentials (no user_id)
     let credentials = oauth_manager
-        .get_credentials(tenant_id, "strava", &database)
+        .get_credentials(tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -413,7 +413,7 @@ async fn test_error_when_no_credentials() -> Result<()> {
 
     // Should fail for garmin (no credentials anywhere)
     let result = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "garmin", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "garmin", &database, &database)
         .await;
 
     assert!(result.is_err(), "Should error when no credentials exist");
@@ -450,13 +450,13 @@ async fn test_different_users_different_credentials() -> Result<()> {
 
     // User A should get their own credentials
     let creds_a = oauth_manager
-        .get_credentials_for_user(Some(user_a), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_a), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(creds_a.client_id, "user_a_client_id");
 
     // User B should get server-level credentials
     let creds_b = oauth_manager
-        .get_credentials_for_user(Some(user_b), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_b), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(creds_b.client_id, "server_strava_id");
 
@@ -497,7 +497,7 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // With no user credentials, should get tenant-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -518,7 +518,7 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // Should now prefer user-specific over tenant-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -556,7 +556,7 @@ async fn test_user_credentials_default_scopes() -> Result<()> {
         .await?;
 
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "whoop", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "whoop", &database, &database)
         .await?;
 
     // Should have WHOOP default scopes
@@ -596,7 +596,7 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
         .await?;
 
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
 
     // Strava has a higher default rate limit (15000/day)
@@ -851,7 +851,7 @@ async fn test_all_provider_rate_limits() -> Result<()> {
             .await?;
 
         let credentials = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database)
+            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
             .await?;
 
         assert_eq!(
@@ -902,7 +902,7 @@ async fn test_all_provider_default_scopes() -> Result<()> {
             .await?;
 
         let credentials = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database)
+            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
             .await?;
 
         for scope in required_scopes {
@@ -980,7 +980,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
 
     // Test with only server credentials
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(
         creds.client_id, "server_strava_id",
@@ -998,7 +998,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
     oauth_manager.store_credentials(tenant_id, "strava", tenant_creds)?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(
         creds.client_id, "tenant_strava_id",
@@ -1017,7 +1017,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         .await?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(
         creds.client_id, "user_strava_id",
@@ -1028,7 +1028,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
     database.remove_user_oauth_app(user_id, "strava").await?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database)
+        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
         .await?;
     assert_eq!(
         creds.client_id, "tenant_strava_id",
@@ -1063,7 +1063,7 @@ async fn test_none_user_id_skips_user_lookup() -> Result<()> {
 
     // With None user_id, should skip user lookup and use server
     let creds = oauth_manager
-        .get_credentials_for_user(None, tenant_id, "strava", &database)
+        .get_credentials_for_user(None, tenant_id, "strava", &database, &database)
         .await?;
 
     assert_eq!(
@@ -1107,7 +1107,7 @@ async fn test_user_with_all_providers() -> Result<()> {
     // Verify each provider returns correct credentials
     for provider in &providers {
         let creds = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database)
+            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
             .await?;
 
         assert_eq!(
@@ -1141,7 +1141,13 @@ async fn test_error_unsupported_provider() -> Result<()> {
 
     // Request credentials for unsupported provider
     let result = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "unsupported_provider", &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "unsupported_provider",
+            &database,
+            &database,
+        )
         .await;
 
     assert!(result.is_err(), "Should error for unsupported provider");

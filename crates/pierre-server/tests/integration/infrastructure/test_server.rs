@@ -9,7 +9,6 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
-use pierre_database::plugins::{TenantRepository, UserRepository};
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig, CacheTtlConfig},
     config::environment::{
@@ -185,7 +184,8 @@ impl IntegrationTestServer {
             auth_provider: String::new(),
         };
 
-        UserRepository::create(&*self.resources.database, &user).await?;
+        let repos = self.resources.database.repositories();
+        repos.users.create(&user).await?;
 
         // Create tenant for user
         // Use enterprise plan to enable all tools for integration testing
@@ -200,13 +200,10 @@ impl IntegrationTestServer {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        TenantRepository::create(&*self.resources.database, &tenant).await?;
+        repos.tenants.create(&tenant).await?;
 
         // Update user with tenant ID
-        self.resources
-            .database
-            .update_tenant_id(user_id, tenant_id)
-            .await?;
+        repos.users.update_tenant_id(user_id, tenant_id).await?;
 
         // Generate JWT token with active_tenant_id so route handlers can resolve tenant
         let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
@@ -249,7 +246,8 @@ impl IntegrationTestServer {
             auth_provider: String::new(),
         };
 
-        UserRepository::create(&*self.resources.database, &user).await?;
+        let repos = self.resources.database.repositories();
+        repos.users.create(&user).await?;
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -262,12 +260,9 @@ impl IntegrationTestServer {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        TenantRepository::create(&*self.resources.database, &tenant).await?;
+        repos.tenants.create(&tenant).await?;
 
-        self.resources
-            .database
-            .update_tenant_id(user_id, tenant_id)
-            .await?;
+        repos.users.update_tenant_id(user_id, tenant_id).await?;
 
         let jwt_token = self.resources.auth_manager.generate_token_with_tenant(
             &user,

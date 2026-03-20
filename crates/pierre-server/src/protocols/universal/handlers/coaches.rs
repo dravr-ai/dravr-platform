@@ -13,9 +13,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest,
     ListCoachesFilter, UpdateCoachRequest,
 };
-use pierre_database::database::repositories::{
-    CoachesRepository, TenantRepository, UserRepository,
-};
+use pierre_database::database::repositories::CoachesRepository;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;
@@ -1076,7 +1074,8 @@ async fn verify_user_tenant_membership(
 ) -> Result<(), ProtocolError> {
     let user_tenants = executor
         .resources
-        .database
+        .repos
+        .tenants
         .list_for_user(target_user_id)
         .await
         .map_err(|e| {
@@ -1107,7 +1106,8 @@ async fn verify_admin_access(
     // SECURITY: Global lookup — admin role check before tenant is resolved
     let user = executor
         .resources
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| ProtocolError::InternalError(format!("Failed to get user: {e}")))?
@@ -1126,7 +1126,8 @@ async fn verify_admin_access(
             // Verify user is a member of this tenant
             let tenants = executor
                 .resources
-                .database
+                .repos
+                .tenants
                 .list_for_user(user_uuid)
                 .await
                 .map_err(|e| {
@@ -1142,7 +1143,8 @@ async fn verify_admin_access(
     // Fall back to user's first tenant (single-tenant users or tokens without active_tenant_id)
     let tenants = executor
         .resources
-        .database
+        .repos
+        .tenants
         .list_for_user(user_uuid)
         .await
         .map_err(|e| ProtocolError::InternalError(format!("Failed to get user tenants: {e}")))?;

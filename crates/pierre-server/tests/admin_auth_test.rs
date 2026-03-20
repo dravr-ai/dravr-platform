@@ -42,8 +42,9 @@ async fn test_admin_authentication_flow() {
 
     // Create auth service
     let jwt_secret = "test_jwt_secret_for_admin_auth";
+    let repos = database.repositories();
     let auth_service = AdminAuthService::new(
-        database.clone(),
+        repos.admin.clone(),
         jwks_manager.clone(),
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
     );

@@ -24,7 +24,6 @@ use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::utils::auth::extract_bearer_token;
 use chrono::Utc;
 use pierre_core::models::a2a::A2AClient;
-use pierre_database::plugins::A2ARepository;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -466,7 +465,8 @@ impl A2ARoutes {
 
         // Also create an A2A session for tracking purposes
         self.resources
-            .database
+            .repos
+            .a2a
             .create_session(client_id, None, &granted_scopes, 24)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to create session: {e}")))?;
@@ -523,7 +523,7 @@ impl A2ARoutes {
         // Resolve tenant context — required for all A2A tool execution
         let user_uuid = Uuid::parse_str(&user_id).ok();
         let tenant_context =
-            extract_tenant_context_internal(&self.resources.database, user_uuid, None, None)
+            extract_tenant_context_internal(&self.resources.repos, user_uuid, None, None)
                 .await
                 .map_err(|e| {
                     A2AError::InternalError(format!("Failed to resolve tenant context: {e}"))
@@ -608,7 +608,8 @@ impl A2ARoutes {
 
         match self
             .resources
-            .database
+            .repos
+            .a2a
             .update_session_activity(&token)
             .await
         {

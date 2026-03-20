@@ -12,9 +12,6 @@ use crate::utils::uuid::parse_user_id_for_protocol;
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::{TenantContext, TenantRole};
-use pierre_database::database::repositories::{
-    OAuthClientStateRepository, OAuthTokenRepository, TenantRepository, UserRepository,
-};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::env;
@@ -170,7 +167,8 @@ pub fn handle_disconnect_provider(
             // No active tenant in request - fall back to user's first tenant
             let tenants = executor
                 .resources
-                .database
+                .repos
+                .tenants
                 .list_for_user(user_uuid)
                 .await
                 .unwrap_or_default();
@@ -185,7 +183,10 @@ pub fn handle_disconnect_provider(
         };
 
         // Disconnect by deleting the token
-        match (*executor.resources.database)
+        match executor
+            .resources
+            .repos
+            .oauth_tokens
             .delete_token(user_uuid, tenant_id, provider)
             .await
         {
@@ -335,7 +336,7 @@ pub fn handle_connect_provider(
         }
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
         let registry = &executor.resources.provider_registry;
-        let db = &executor.resources.database;
+        let repos = &executor.resources.repos;
 
         // Extract and validate provider parameter
         let Some(provider) = request.parameters.get("provider").and_then(|v| v.as_str()) else {
@@ -365,7 +366,7 @@ pub fn handle_connect_provider(
         }
 
         // SECURITY: Global lookup — connection handler, tenant resolved from user's membership
-        match db.get_global(user_uuid).await {
+        match repos.users.get_global(user_uuid).await {
             Ok(Some(_)) => {}
             Ok(None) => return Ok(connection_error(format!("User {user_uuid} not found"))),
             Err(e) => return Ok(connection_error(format!("Database error: {e}"))),
@@ -375,7 +376,11 @@ pub fn handle_connect_provider(
         // falling back to user's first tenant for clients without active_tenant_id.
         // Security: always verify membership before using request.tenant_id,
         // as it would allow a caller to use another tenant's OAuth credentials/rate limits.
-        let tenants = db.list_for_user(user_uuid).await.unwrap_or_default();
+        let tenants = repos
+            .tenants
+            .list_for_user(user_uuid)
+            .await
+            .unwrap_or_default();
         let tenant_id: TenantId = request
             .tenant_id
             .as_ref()
@@ -399,7 +404,8 @@ pub fn handle_connect_provider(
                     }
                 },
             );
-        let tenant_name = db
+        let tenant_name = repos
+            .tenants
             .get_by_id(tenant_id)
             .await
             .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
@@ -415,7 +421,13 @@ pub fn handle_connect_provider(
         match executor
             .resources
             .tenant_oauth_client
-            .get_authorization_url(&ctx, provider, &state, db.as_ref())
+            .get_authorization_url(
+                &ctx,
+                provider,
+                &state,
+                executor.resources.repos.tenants.as_ref(),
+                executor.resources.repos.oauth_tokens.as_ref(),
+            )
             .await
         {
             Ok(url) => {
@@ -438,7 +450,11 @@ pub fn handle_connect_provider(
                     used: false,
                 };
 
-                if let Err(e) = db.store_oauth_client_state(&client_state).await {
+                if let Err(e) = repos
+                    .oauth_client_state
+                    .store_oauth_client_state(&client_state)
+                    .await
+                {
                     warn!("Failed to store OAuth state for CSRF protection: {}", e);
                     return Ok(build_oauth_error_response(
                         provider,

@@ -8,6 +8,8 @@
 //! This module provides automatic database type detection and creation
 //! based on connection strings.
 
+// Factory dispatch modules — retained temporarily for test backwards compatibility.
+// Production code uses RepositoryRegistry (resources.repos) instead.
 mod a2a;
 mod admin;
 mod api_key;
@@ -29,7 +31,10 @@ use super::DatabaseProvider;
 use async_trait::async_trait;
 use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, AppResult};
+use std::sync::Arc;
 use tracing::{debug, info};
+
+use crate::RepositoryRegistry;
 
 #[cfg(feature = "postgresql")]
 use super::postgres::PostgresDatabase;
@@ -60,6 +65,33 @@ pub enum Database {
 }
 
 impl Database {
+    /// Build a [`RepositoryRegistry`] from whichever backend this enum wraps.
+    ///
+    /// Call this once at startup. The returned registry holds `Arc<dyn Trait>`
+    /// for every repository, eliminating per-call enum dispatch.
+    #[must_use]
+    pub fn into_repositories(self) -> RepositoryRegistry {
+        match self {
+            Self::SQLite(db) => RepositoryRegistry::from_sqlite(Arc::new(db)),
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => RepositoryRegistry::from_postgres(Arc::new(db)),
+        }
+    }
+
+    /// Build a [`RepositoryRegistry`] by cloning the inner backend.
+    ///
+    /// Works on any `Database` reference. The inner `SqliteDatabase` or
+    /// `PostgresDatabase` is cloned (both hold connection pools which are
+    /// `Arc`-based, so the clone is cheap).
+    #[must_use]
+    pub fn repositories(&self) -> RepositoryRegistry {
+        match self {
+            Self::SQLite(db) => RepositoryRegistry::from_sqlite(Arc::new(db.clone())),
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => RepositoryRegistry::from_postgres(Arc::new(db.clone())),
+        }
+    }
+
     /// Get a descriptive string for the current database backend
     #[must_use]
     pub const fn backend_info(&self) -> &'static str {
@@ -133,6 +165,19 @@ impl Database {
         match self {
             Self::SQLite(_) => None,
             Self::PostgreSQL(db) => Some(db.pool()),
+        }
+    }
+
+    /// Get a reference to the underlying database as a `SecurityRepository`.
+    ///
+    /// Used during early initialization when the factory still owns the database
+    /// mutably and a `RepositoryRegistry` is not yet available.
+    #[must_use]
+    pub fn as_security_repository(&self) -> &dyn super::SecurityRepository {
+        match self {
+            Self::SQLite(db) => db,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db,
         }
     }
 

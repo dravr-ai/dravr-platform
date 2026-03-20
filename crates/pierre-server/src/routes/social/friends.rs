@@ -23,7 +23,6 @@ use crate::{
     services::social_insights,
 };
 use pierre_core::models::TenantId;
-use pierre_database::database::repositories::UserRepository;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 
@@ -260,7 +259,7 @@ impl SocialRoutes {
             };
 
             // Fetch friend's user info (social connections enforce tenant scope)
-            let friend_user = resources.database.get_global(friend_id).await?;
+            let friend_user = resources.repos.users.get_global(friend_id).await?;
             let (friend_display_name, friend_email) = match friend_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{friend_id}")),
@@ -310,7 +309,7 @@ impl SocialRoutes {
         #[cfg(feature = "client-notifications")]
         if let Some(service) = &resources.notification_service {
             if let Some(tenant_uuid) = auth.active_tenant_id {
-                let sender_user = resources.database.get_global(auth.user_id).await?;
+                let sender_user = resources.repos.users.get_global(auth.user_id).await?;
                 let sender_name = sender_user
                     .and_then(|u| u.display_name)
                     .unwrap_or_else(|| "Someone".to_owned());
@@ -346,7 +345,7 @@ impl SocialRoutes {
         let mut sent = Vec::with_capacity(sent_conns.len());
         for conn in sent_conns {
             let receiver_id_str = conn.receiver_id.to_string();
-            let receiver_user = resources.database.get_global(conn.receiver_id).await?;
+            let receiver_user = resources.repos.users.get_global(conn.receiver_id).await?;
             let (user_display_name, user_email) = match receiver_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{receiver_id_str}")),
@@ -370,7 +369,7 @@ impl SocialRoutes {
         let mut received = Vec::with_capacity(received_conns.len());
         for conn in received_conns {
             let initiator_id_str = conn.initiator_id.to_string();
-            let initiator_user = resources.database.get_global(conn.initiator_id).await?;
+            let initiator_user = resources.repos.users.get_global(conn.initiator_id).await?;
             let (user_display_name, user_email) = match initiator_user {
                 Some(user) => (user.display_name, user.email),
                 None => (None, format!("user-{initiator_id_str}")),
@@ -440,7 +439,7 @@ impl SocialRoutes {
         #[cfg(feature = "client-notifications")]
         if let Some(service) = &resources.notification_service {
             if let Some(tenant_uuid) = auth.active_tenant_id {
-                let accepter_user = resources.database.get_global(auth.user_id).await?;
+                let accepter_user = resources.repos.users.get_global(auth.user_id).await?;
                 let accepter_name = accepter_user
                     .and_then(|u| u.display_name)
                     .unwrap_or_else(|| "Someone".to_owned());

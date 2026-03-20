@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::admin::service::AdminConfigService;
 use crate::services::usage_counter::UsageCounterService;
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::UsageCounterRepository;
 
 /// Number of seconds in one hour
 const HOUR_SECONDS: u64 = 3_600;
@@ -33,7 +33,7 @@ const DEFAULT_RETENTION_DAYS: i64 = 90;
 /// 2. Prunes counters older than 90 days (configurable via admin config)
 /// 3. Repeats every hour
 pub fn start_usage_pruning_task(
-    database: Arc<Database>,
+    usage_counters: Arc<dyn UsageCounterRepository>,
     admin_config: Arc<AdminConfigService>,
 ) -> AbortHandle {
     let hour = Duration::from_secs(HOUR_SECONDS);
@@ -42,7 +42,7 @@ pub fn start_usage_pruning_task(
         let mut ticker = interval_at(Instant::now() + hour, hour);
         loop {
             ticker.tick().await;
-            run_pruning_cycle(&database, &admin_config).await;
+            run_pruning_cycle(usage_counters.as_ref(), &admin_config).await;
         }
     });
     let abort_handle = handle.abort_handle();
@@ -51,7 +51,10 @@ pub fn start_usage_pruning_task(
 }
 
 /// Execute a single pruning cycle: resolve retention config and prune old records
-async fn run_pruning_cycle(database: &Database, admin_config: &AdminConfigService) {
+async fn run_pruning_cycle(
+    usage_counters: &dyn UsageCounterRepository,
+    admin_config: &AdminConfigService,
+) {
     let retention_days = admin_config
         .get_value("usage_quotas.counter_retention_days", None)
         .await
@@ -60,7 +63,7 @@ async fn run_pruning_cycle(database: &Database, admin_config: &AdminConfigServic
         .and_then(|v| v.as_i64())
         .unwrap_or(DEFAULT_RETENTION_DAYS);
 
-    let usage_svc = UsageCounterService::new(database, admin_config);
+    let usage_svc = UsageCounterService::new(usage_counters, admin_config);
 
     match usage_svc.prune_old_counters(retention_days).await {
         Ok(0) => debug!("Usage counter pruning: no records to delete"),

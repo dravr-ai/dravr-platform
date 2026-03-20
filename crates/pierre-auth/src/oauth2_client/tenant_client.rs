@@ -13,7 +13,7 @@ use crate::tenant::TenantContext;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::models::TenantOAuthCredentials;
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -62,7 +62,8 @@ impl TenantOAuthClient {
         &self,
         tenant_context: &TenantContext,
         provider: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<OAuth2Client> {
         // Check rate limit first
         let manager = self.oauth_manager.lock().await;
@@ -82,7 +83,8 @@ impl TenantOAuthClient {
                 Some(tenant_context.user_id),
                 tenant_context.tenant_id,
                 provider,
-                database,
+                tenants,
+                oauth_tokens,
             )
             .await?;
         drop(manager);
@@ -108,10 +110,11 @@ impl TenantOAuthClient {
         tenant_context: &TenantContext,
         provider: &str,
         state: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<String> {
         let oauth_client = self
-            .get_oauth_client(tenant_context, provider, database)
+            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
         oauth_client.get_authorization_url(state).map_err(|e| {
             AppError::external_service(
@@ -132,10 +135,11 @@ impl TenantOAuthClient {
         provider: &str,
         state: &str,
         pkce: &PkceParams,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<String> {
         let oauth_client = self
-            .get_oauth_client(tenant_context, provider, database)
+            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
         oauth_client
             .get_authorization_url_with_pkce(state, pkce)
@@ -157,10 +161,11 @@ impl TenantOAuthClient {
         tenant_context: &TenantContext,
         provider: &str,
         code: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<OAuth2Token> {
         let oauth_client = self
-            .get_oauth_client(tenant_context, provider, database)
+            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
         let token = oauth_client.exchange_code(code).await.map_err(|e| {
             AppError::external_service("oauth2", format!("OAuth code exchange failed: {e}"))
@@ -193,10 +198,11 @@ impl TenantOAuthClient {
         provider: &str,
         code: &str,
         pkce: &PkceParams,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<OAuth2Token> {
         let oauth_client = self
-            .get_oauth_client(tenant_context, provider, database)
+            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
         let token = oauth_client
             .exchange_code_with_pkce(code, pkce)
@@ -234,10 +240,11 @@ impl TenantOAuthClient {
         tenant_context: &TenantContext,
         provider: &str,
         refresh_token: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<OAuth2Token> {
         let oauth_client = self
-            .get_oauth_client(tenant_context, provider, database)
+            .get_oauth_client(tenant_context, provider, tenants, oauth_tokens)
             .await?;
         let token = oauth_client
             .refresh_token(refresh_token)
@@ -285,11 +292,12 @@ impl TenantOAuthClient {
         &self,
         tenant_id: TenantId,
         provider: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<Option<TenantOAuthCredentials>> {
         let manager = self.oauth_manager.lock().await;
         manager
-            .get_credentials(tenant_id, provider, database)
+            .get_credentials(tenant_id, provider, tenants, oauth_tokens)
             .await
             .map(Some)
     }

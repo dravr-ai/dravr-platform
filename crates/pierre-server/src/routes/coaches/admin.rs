@@ -36,7 +36,7 @@ pub(super) async fn handle_admin_list(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -58,7 +58,7 @@ pub(super) async fn handle_admin_create(
     Json(body): Json<AdminCreateCoachBody>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -77,7 +77,7 @@ pub(super) async fn handle_admin_get(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -98,7 +98,7 @@ pub(super) async fn handle_admin_update(
     Json(body): Json<UpdateCoachBody>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -137,7 +137,7 @@ pub(super) async fn handle_admin_delete(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -161,7 +161,7 @@ pub(super) async fn handle_admin_assign(
     Json(body): Json<AssignCoachBody>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -174,7 +174,7 @@ pub(super) async fn handle_admin_assign(
 
     let result = coaches_service::bulk_assign_coach(
         manager,
-        resources.database.as_ref(),
+        resources.repos.tenants.as_ref(),
         &id,
         tenant_id,
         auth.user_id,
@@ -217,7 +217,7 @@ pub(super) async fn handle_admin_unassign(
     Json(body): Json<AssignCoachBody>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -230,7 +230,7 @@ pub(super) async fn handle_admin_unassign(
 
     let result = coaches_service::bulk_unassign_coach(
         manager,
-        resources.database.as_ref(),
+        resources.repos.tenants.as_ref(),
         &id,
         tenant_id,
         &body.user_ids,
@@ -252,7 +252,7 @@ pub(super) async fn handle_admin_list_assignments(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let manager = super::get_coaches_manager(&resources);
@@ -283,7 +283,7 @@ pub(super) async fn handle_admin_store_stats(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&resources);
@@ -307,7 +307,7 @@ pub(super) async fn handle_admin_review_queue(
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&resources);
@@ -336,7 +336,7 @@ pub(super) async fn handle_admin_published(
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
 
     let store_manager = super::get_store_manager(&resources);
     let sort_by = params.sort_by.as_deref();
@@ -365,7 +365,7 @@ pub(super) async fn handle_admin_rejected(
     Query(params): Query<StoreListParams>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&resources);
@@ -394,7 +394,7 @@ pub(super) async fn handle_admin_approve(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&resources);
@@ -419,7 +419,7 @@ pub(super) async fn handle_admin_reject(
     Json(body): Json<RejectCoachBody>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let rejection_reason =
@@ -446,7 +446,7 @@ pub(super) async fn handle_admin_unpublish(
     Path(id): Path<String>,
 ) -> Result<Response, AppError> {
     let auth = super::authenticate(&headers, &resources).await?;
-    require_admin(auth.user_id, &resources.database).await?;
+    require_admin(auth.user_id, &resources.repos.users).await?;
     let tenant_id = super::get_user_tenant(&auth)?;
 
     let store_manager = super::get_store_manager(&resources);

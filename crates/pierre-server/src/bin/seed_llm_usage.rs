@@ -23,8 +23,8 @@ use chrono::{Datelike, Duration, Timelike, Utc};
 use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::SeederRepository;
 use pierre_database::seed_models::SeedLlmUsageRecord;
+use pierre_database::RepositoryRegistry;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::env;
@@ -179,12 +179,13 @@ async fn main() -> AppResult<()> {
 
     info!("Connecting to database: {}", database_url);
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Find admin user and their tenant
     let admin = if let Some(ref email) = args.admin_email {
-        db.seed_find_user_by_email(email).await?
+        repos.seeder.seed_find_user_by_email(email).await?
     } else {
-        db.seed_get_admin_user().await?
+        repos.seeder.seed_get_admin_user().await?
     };
 
     let Some(admin) = admin else {
@@ -193,7 +194,7 @@ async fn main() -> AppResult<()> {
         ));
     };
 
-    let tenant_id_str = db.seed_get_user_tenant(admin.id).await?;
+    let tenant_id_str = repos.seeder.seed_get_user_tenant(admin.id).await?;
     let Some(tenant_id_str) = tenant_id_str else {
         return Err(AppError::config(format!(
             "User {} has no tenant_id",
@@ -209,14 +210,17 @@ async fn main() -> AppResult<()> {
     );
 
     // Clear existing LLM usage data for idempotent re-runs
-    let deleted = db.seed_delete_llm_usage_by_tenant(tenant_id).await?;
+    let deleted = repos
+        .seeder
+        .seed_delete_llm_usage_by_tenant(tenant_id)
+        .await?;
     if deleted > 0 {
         info!("Cleared {} existing llm_usage records for tenant", deleted);
     }
 
     // Generate usage data
     info!("Generating {} days of LLM usage data...", args.days);
-    let record_count = seed_llm_usage(&db, tenant_id, admin.id, args.days).await?;
+    let record_count = seed_llm_usage(&repos, tenant_id, admin.id, args.days).await?;
 
     info!("=== Seeding Complete ===");
     info!("LLM Usage Records: {}", record_count);
@@ -226,7 +230,7 @@ async fn main() -> AppResult<()> {
 
 /// Generate realistic LLM usage records over the specified number of days
 async fn seed_llm_usage(
-    db: &Database,
+    repos: &RepositoryRegistry,
     tenant_id: Uuid,
     user_id: Uuid,
     days: u32,
@@ -311,7 +315,7 @@ async fn seed_llm_usage(
                 created_at: timestamp,
             };
 
-            if db.seed_insert_llm_usage(&record).await.is_ok() {
+            if repos.seeder.seed_insert_llm_usage(&record).await.is_ok() {
                 total_records += 1;
             }
         }

@@ -25,7 +25,6 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::repositories::{TenantRepository, UserRepository};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -115,7 +114,7 @@ impl TenantRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let response = service::create_tenant(request, auth, resources.database.clone()).await?;
+        let response = service::create_tenant(request, auth, resources.repos.clone()).await?;
 
         Ok((StatusCode::CREATED, Json(response)).into_response())
     }
@@ -127,7 +126,7 @@ impl TenantRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
 
-        let response = service::list_tenants(auth, resources.database.clone()).await?;
+        let response = service::list_tenants(auth, resources.repos.clone()).await?;
 
         Ok((StatusCode::OK, Json(response)).into_response())
     }
@@ -157,7 +156,8 @@ impl TenantRoutes {
 
         // Verify user belongs to this tenant via tenant_users table
         let role_str = resources
-            .database
+            .repos
+            .tenants
             .get_user_role(auth.user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?
@@ -172,14 +172,16 @@ impl TenantRoutes {
 
         // Get tenant details
         let tenant = resources
-            .database
+            .repos
+            .tenants
             .get_by_id(tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenant: {e}")))?;
 
         // SECURITY: Global lookup — tenant JWT refresh, user verified via auth middleware
         let user = resources
-            .database
+            .repos
+            .users
             .get_global(auth.user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
@@ -226,7 +228,8 @@ impl TenantRoutes {
 
         // Get all tenants the user belongs to
         let tenants = resources
-            .database
+            .repos
+            .tenants
             .list_for_user(auth.user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to list user tenants: {e}")))?;
@@ -236,7 +239,8 @@ impl TenantRoutes {
         for tenant in tenants {
             // Get user's role in this tenant
             let role = resources
-                .database
+                .repos
+                .tenants
                 .get_user_role(auth.user_id, tenant.id)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get tenant role: {e}")))?

@@ -23,7 +23,8 @@ use crate::{
 use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::{AuthManager, AuthResult};
-use pierre_database::plugins::{factory::Database, UsageRepository};
+// UsageRepository dispatched through repos.usage
+use pierre_database::RepositoryRegistry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc};
@@ -88,7 +89,7 @@ pub enum WebSocketMessage {
 /// Manages WebSocket connections and message broadcasting
 #[derive(Clone)]
 pub struct WebSocketManager {
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
     auth_middleware: McpAuthMiddleware,
     clients: Arc<RwLock<HashMap<Uuid, ClientConnection>>>,
     broadcast_tx: broadcast::Sender<WebSocketMessage>,
@@ -105,7 +106,7 @@ impl WebSocketManager {
     /// Creates a new WebSocket manager instance
     #[must_use]
     pub fn new(
-        database: Arc<Database>,
+        repos: Arc<RepositoryRegistry>,
         auth_manager: &Arc<AuthManager>,
         jwks_manager: &Arc<JwksManager>,
         rate_limit_config: RateLimitConfig,
@@ -113,13 +114,13 @@ impl WebSocketManager {
         let (broadcast_tx, _) = broadcast::channel(WEBSOCKET_CHANNEL_CAPACITY);
         let auth_middleware = McpAuthMiddleware::new(
             (**auth_manager).clone(),
-            database.clone(),
+            repos.clone(),
             jwks_manager.clone(),
             rate_limit_config,
         ); // Safe: Arc clones for middleware creation
 
         Self {
-            database,
+            repos,
             auth_middleware,
             clients: Arc::new(RwLock::new(HashMap::new())),
             broadcast_tx,
@@ -383,7 +384,8 @@ impl WebSocketManager {
     async fn get_system_stats(&self) -> AppResult<SystemStats> {
         // Query the database for real statistics
         let (today_count, month_count) = self
-            .database
+            .repos
+            .usage
             .get_system_stats(None)
             .await
             .map_err(|e| AppError::database(e.to_string()))?;

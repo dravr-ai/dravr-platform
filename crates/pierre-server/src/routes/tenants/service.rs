@@ -9,7 +9,7 @@ use crate::{
     models::{Tenant, TenantId},
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::plugins::{factory::Database, TenantRepository, UserRepository};
+use pierre_database::RepositoryRegistry;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -87,12 +87,13 @@ pub struct TenantSummary {
 pub async fn create_tenant(
     tenant_request: CreateTenantRequest,
     auth_result: AuthResult,
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
 ) -> AppResult<CreateTenantResponse> {
     info!("Creating new tenant: {}", tenant_request.name);
 
     // SECURITY: Global lookup — creating a new tenant, no tenant context yet
-    database
+    repos
+        .users
         .get_global(auth_result.user_id)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
@@ -102,7 +103,7 @@ pub async fn create_tenant(
     let slug = tenant_request.slug.trim().to_lowercase();
 
     // Check if slug already exists
-    if let Ok(_existing) = database.get_by_slug(&slug).await {
+    if let Ok(_existing) = repos.tenants.get_by_slug(&slug).await {
         return Err(AppError::invalid_input(format!(
             "Tenant slug '{slug}' already exists"
         )));
@@ -120,7 +121,9 @@ pub async fn create_tenant(
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*database, &tenant_data)
+    repos
+        .tenants
+        .create(&tenant_data)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
 
@@ -148,11 +151,12 @@ pub async fn create_tenant(
 /// - User lacks permissions
 pub async fn list_tenants(
     auth_result: AuthResult,
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
 ) -> AppResult<TenantListResponse> {
     info!("Listing tenants for user: {}", auth_result.user_id);
 
-    let tenants = database
+    let tenants = repos
+        .tenants
         .list_for_user(auth_result.user_id)
         .await
         .map_err(|e| AppError::database(e.to_string()))?;
@@ -161,7 +165,8 @@ pub async fn list_tenants(
 
     for tenant in tenants {
         // Get OAuth providers for this tenant
-        let oauth_providers = database
+        let oauth_providers = repos
+            .tenants
             .get_oauth_providers(tenant.id)
             .await
             .unwrap_or_else(|e| {

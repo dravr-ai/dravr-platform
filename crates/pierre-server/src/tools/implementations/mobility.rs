@@ -31,7 +31,6 @@ use pierre_database::database::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
 };
-use pierre_database::plugins::MobilityRepository;
 
 /// Parse stretching category from string
 fn parse_stretching_category(cat_str: &str) -> Option<StretchingCategory> {
@@ -179,7 +178,7 @@ impl McpTool for ListStretchingExercisesTool {
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         tracing::debug!(user_id = %ctx.user_id, "Listing stretching exercises");
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
 
         let filter = ListStretchingFilter {
             category: args
@@ -282,7 +281,7 @@ impl McpTool for GetStretchingExerciseTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("exercise_id is required"))?;
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
         let exercise = repo.get_stretching_exercise(exercise_id).await?;
 
         let Some(exercise) = exercise else {
@@ -389,7 +388,7 @@ impl McpTool for SuggestStretchesForActivityTool {
             .and_then(Value::as_u64)
             .map_or(6_u32, |l| l as u32);
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
 
         // Get activity-muscle mapping for context
         let mapping = repo.get_activity_muscle_mapping(activity_type).await?;
@@ -555,7 +554,7 @@ impl McpTool for ListYogaPosesTool {
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         tracing::debug!(user_id = %ctx.user_id, "Listing yoga poses");
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
 
         let filter = ListYogaFilter {
             category: args
@@ -668,7 +667,7 @@ impl McpTool for GetYogaPoseTool {
             .and_then(Value::as_str)
             .ok_or_else(|| AppError::invalid_input("pose_id is required"))?;
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
         let pose = repo.get_yoga_pose(pose_id).await?;
 
         let Some(pose) = pose else {
@@ -800,7 +799,7 @@ impl McpTool for SuggestYogaSequenceTool {
 
         let focus_area = args.get("focus_area").and_then(Value::as_str);
 
-        let repo: &dyn MobilityRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.mobility.as_ref();
 
         // Get poses recommended for this recovery context
         let mut all_poses = repo.get_poses_for_recovery(purpose, Some(30)).await?;

@@ -26,7 +26,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use pierre_database::database::repositories::OAuthTokenRepository;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -132,7 +131,8 @@ impl UserOAuthAppRoutes {
         }
 
         resources
-            .database
+            .repos
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 &provider,
@@ -166,7 +166,11 @@ impl UserOAuthAppRoutes {
     ) -> Result<Response, AppError> {
         let user_id = auth.user_id;
 
-        let apps = resources.database.list_user_oauth_apps(user_id).await?;
+        let apps = resources
+            .repos
+            .oauth_tokens
+            .list_user_oauth_apps(user_id)
+            .await?;
 
         let summaries: Vec<UserOAuthAppSummary> = apps
             .into_iter()
@@ -195,7 +199,8 @@ impl UserOAuthAppRoutes {
         Self::validate_provider(&provider)?;
 
         let app = resources
-            .database
+            .repos
+            .oauth_tokens
             .get_user_oauth_app(user_id, &provider)
             .await?
             .ok_or_else(|| {
@@ -224,7 +229,8 @@ impl UserOAuthAppRoutes {
         Self::validate_provider(&provider)?;
 
         resources
-            .database
+            .repos
+            .oauth_tokens
             .remove_user_oauth_app(user_id, &provider)
             .await?;
 

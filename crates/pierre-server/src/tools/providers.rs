@@ -10,7 +10,7 @@ use crate::{
     models::TenantId,
     providers::CoreFitnessProvider,
 };
-use pierre_database::plugins::{factory::Database, OAuthTokenRepository, TenantRepository};
+use pierre_database::repositories::{OAuthTokenRepository, TenantRepository};
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter, Result as FmtResult},
@@ -97,7 +97,8 @@ type ProviderCache = RwLock<HashMap<(Uuid, ProviderType), Arc<Box<dyn CoreFitnes
 
 /// Unified provider manager
 pub struct ProviderManager {
-    database: Arc<Database>,
+    oauth_tokens: Arc<dyn OAuthTokenRepository>,
+    tenants: Arc<dyn TenantRepository>,
     /// Cache of authenticated providers per user
     provider_cache: ProviderCache,
 }
@@ -105,9 +106,13 @@ pub struct ProviderManager {
 impl ProviderManager {
     /// Create a new provider manager
     #[must_use]
-    pub fn new(database: Arc<Database>) -> Self {
+    pub fn new(
+        oauth_tokens: Arc<dyn OAuthTokenRepository>,
+        tenants: Arc<dyn TenantRepository>,
+    ) -> Self {
         Self {
-            database,
+            oauth_tokens,
+            tenants,
             provider_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -143,7 +148,7 @@ impl ProviderManager {
     ) -> Result<ProviderInfo, AppError> {
         // Get user's default tenant from tenant_users junction table
         let tenants = self
-            .database
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -154,14 +159,14 @@ impl ProviderManager {
 
         let token = match provider_type {
             ProviderType::Strava => self
-                .database
+                .oauth_tokens
                 .get_token(user_id, tenant_id, STRAVA)
                 .await
                 .map_err(|e| {
                     AppError::database(format!("Failed to get Strava OAuth token: {e}"))
                 })?,
             ProviderType::Fitbit => self
-                .database
+                .oauth_tokens
                 .get_token(user_id, tenant_id, FITBIT)
                 .await
                 .map_err(|e| {
@@ -197,7 +202,7 @@ impl ProviderManager {
 
         // Get last sync timestamp (scoped to tenant for multi-tenant isolation)
         let last_sync = self
-            .database
+            .oauth_tokens
             .get_provider_last_sync(user_id, tenant_id, &provider_type.to_string())
             .await
             .unwrap_or(None);
@@ -223,7 +228,7 @@ impl ProviderManager {
     ) -> Result<(), AppError> {
         // Get user's default tenant from tenant_users junction table
         let tenants = self
-            .database
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -235,7 +240,7 @@ impl ProviderManager {
         // Remove from database
         match provider_type {
             ProviderType::Strava => {
-                self.database
+                self.oauth_tokens
                     .delete_token(user_id, tenant_id, STRAVA)
                     .await
                     .map_err(|e| {
@@ -243,7 +248,7 @@ impl ProviderManager {
                     })?;
             }
             ProviderType::Fitbit => {
-                self.database
+                self.oauth_tokens
                     .delete_token(user_id, tenant_id, FITBIT)
                     .await
                     .map_err(|e| {
@@ -327,7 +332,7 @@ impl ProviderManager {
         provider_type: ProviderType,
     ) -> Result<(), AppError> {
         let tenants = self
-            .database
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -337,7 +342,7 @@ impl ProviderManager {
             .ok_or_else(|| AppError::invalid_input("User has no tenant"))?;
 
         let sync_time = chrono::Utc::now();
-        self.database
+        self.oauth_tokens
             .update_provider_last_sync(user_id, tenant_id, &provider_type.to_string(), sync_time)
             .await
             .map_err(|e| AppError::internal(format!("Failed to update sync timestamp: {e}")))?;
@@ -362,9 +367,13 @@ impl GlobalProviderManager {
     /// # Errors
     ///
     /// Returns an error if provider manager is already initialized
-    pub fn init(&self, database: Arc<Database>) -> Result<(), AppError> {
+    pub fn init(
+        &self,
+        oauth_tokens: Arc<dyn OAuthTokenRepository>,
+        tenants: Arc<dyn TenantRepository>,
+    ) -> Result<(), AppError> {
         self.inner
-            .set(ProviderManager::new(database))
+            .set(ProviderManager::new(oauth_tokens, tenants))
             .map_err(|_| {
                 error!(
                     "Attempted to initialize provider manager multiple times (programming error)"

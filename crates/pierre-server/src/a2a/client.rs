@@ -28,8 +28,8 @@ pub use pierre_a2a::client_types::{
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::crypto::A2AKeyManager;
 pub use pierre_core::models::a2a::{A2AClient, A2ASession, A2AUsage};
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{A2ARepository, ApiKeyRepository};
+// Trait methods are dispatched through repos.a2a / repos.api_keys Arc<dyn Trait>;
+use pierre_database::RepositoryRegistry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -38,7 +38,7 @@ use uuid::Uuid;
 
 /// A2A Client Manager
 pub struct A2AClientManager {
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
     system_user_service: Arc<A2ASystemUserService>,
     active_sessions: Arc<RwLock<HashMap<String, A2ASession>>>,
 }
@@ -46,9 +46,12 @@ pub struct A2AClientManager {
 impl A2AClientManager {
     /// Creates a new A2A client manager instance
     #[must_use]
-    pub fn new(database: Arc<Database>, system_user_service: Arc<A2ASystemUserService>) -> Self {
+    pub fn new(
+        repos: Arc<RepositoryRegistry>,
+        system_user_service: Arc<A2ASystemUserService>,
+    ) -> Self {
         Self {
-            database,
+            repos,
             system_user_service,
             active_sessions: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -187,7 +190,8 @@ impl A2AClientManager {
             .map_err(|e| A2AError::InternalError(format!("Failed to create API key: {e}")))?;
 
         // Store the API key in database
-        self.database
+        self.repos
+            .api_keys
             .create(&api_key_obj)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to store API key: {e}")))?;
@@ -198,7 +202,8 @@ impl A2AClientManager {
         );
 
         // Create A2A client entry linked to the API key
-        self.database
+        self.repos
+            .a2a
             .create_client(client, client_secret, &api_key_obj.id)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to create A2A client: {e}")))?;
@@ -219,7 +224,8 @@ impl A2AClientManager {
     ///
     /// Returns an error if database query fails
     pub async fn get_client(&self, client_id: &str) -> Result<Option<A2AClient>, A2AError> {
-        self.database
+        self.repos
+            .a2a
             .get_client(client_id)
             .await
             .map_err(map_db_error("Failed to get A2A client"))
@@ -234,7 +240,8 @@ impl A2AClientManager {
         &self,
         user_id: &uuid::Uuid,
     ) -> Result<Vec<A2AClient>, A2AError> {
-        self.database
+        self.repos
+            .a2a
             .list_clients(user_id)
             .await
             .map_err(map_db_error("Failed to list A2A clients"))
@@ -248,7 +255,8 @@ impl A2AClientManager {
     pub async fn list_all_clients(&self) -> Result<Vec<A2AClient>, A2AError> {
         // For system-wide listing, we use nil UUID to get all clients
         let system_user_id = uuid::Uuid::nil();
-        self.database
+        self.repos
+            .a2a
             .list_clients(&system_user_id)
             .await
             .map_err(map_db_error("Failed to list all A2A clients"))
@@ -268,13 +276,14 @@ impl A2AClientManager {
             .ok_or_else(|| A2AError::ClientNotRegistered(client_id.to_owned()))?;
 
         // Deactivate the client in the database
-        self.database
+        self.repos
+            .a2a
             .deactivate_client(client_id)
             .await
             .map_err(map_db_error("Failed to deactivate A2A client"))?;
 
         // Invalidate all active sessions for this client
-        if let Err(e) = self.database.invalidate_client_sessions(client_id).await {
+        if let Err(e) = self.repos.a2a.invalidate_client_sessions(client_id).await {
             error!(
                 "Failed to invalidate sessions for client {}: {}",
                 client_id, e
@@ -283,7 +292,7 @@ impl A2AClientManager {
         }
 
         // Deactivate associated API keys - this is critical for security
-        if let Err(e) = self.database.deactivate_client_api_keys(client_id).await {
+        if let Err(e) = self.repos.a2a.deactivate_client_api_keys(client_id).await {
             error!(
                 "Failed to deactivate API keys for client {}: {}",
                 client_id, e
@@ -306,7 +315,8 @@ impl A2AClientManager {
     pub async fn get_client_usage(&self, client_id: &str) -> Result<ClientUsageStats, A2AError> {
         // Get current month usage
         let requests_this_month = u64::from(
-            self.database
+            self.repos
+                .a2a
                 .get_client_current_usage(client_id)
                 .await
                 .map_err(map_db_error("Failed to get current usage"))?,
@@ -323,14 +333,16 @@ impl A2AClientManager {
         let end_of_day = chrono::Utc::now();
 
         let today_stats = self
-            .database
+            .repos
+            .a2a
             .get_usage_stats(client_id, start_of_day, end_of_day)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to get today's stats: {e}")))?;
 
         // Get last request from recent usage history
         let recent_usage = self
-            .database
+            .repos
+            .a2a
             .get_client_usage_history(client_id, 1)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to get recent usage: {e}")))?;
@@ -340,7 +352,8 @@ impl A2AClientManager {
         // Get total requests (use a long period to approximate total)
         let total_start = chrono::Utc::now() - chrono::Duration::days(365);
         let total_stats = self
-            .database
+            .repos
+            .a2a
             .get_usage_stats(client_id, total_start, chrono::Utc::now())
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to get total stats: {e}")))?;
@@ -369,7 +382,8 @@ impl A2AClientManager {
         let granted_scopes = vec!["fitness:read".into(), "analytics:read".into()];
 
         let session_token = self
-            .database
+            .repos
+            .a2a
             .create_session(client_id, user_uuid.as_ref(), &granted_scopes, 24)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to create A2A session: {e}")))?;
@@ -400,7 +414,8 @@ impl A2AClientManager {
     ///
     /// Returns an error if database update fails
     pub async fn update_session_activity(&self, session_token: &str) -> Result<(), A2AError> {
-        self.database
+        self.repos
+            .a2a
             .update_session_activity(session_token)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to update session activity: {e}")))
@@ -425,7 +440,7 @@ impl A2AClientManager {
         }
 
         // Query database for active sessions if cache is empty
-        match self.database.get_active_sessions(client_id).await {
+        match self.repos.a2a.get_active_sessions(client_id).await {
             Ok(db_sessions) => {
                 // Update cache with sessions from database
                 {
@@ -501,7 +516,8 @@ impl A2AClientManager {
             granted_scopes: params.granted_scopes,
         };
 
-        self.database
+        self.repos
+            .a2a
             .record_usage(&usage)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to record A2A usage: {e}")))?;
@@ -533,7 +549,8 @@ impl A2AClientManager {
             })
         } else {
             let current_usage = self
-                .database
+                .repos
+                .a2a
                 .get_client_current_usage(client_id)
                 .await
                 .map_err(|e| {
@@ -614,7 +631,8 @@ impl A2AClientManager {
     ) -> Result<Option<ClientCredentials>, A2AError> {
         // Fetch credentials from database
         let creds = self
-            .database
+            .repos
+            .a2a
             .get_client_credentials(client_id)
             .await
             .map_err(|e| A2AError::InternalError(format!("Database error: {e}")))?;

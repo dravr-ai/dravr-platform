@@ -7,9 +7,7 @@
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
 use pierre_database::database::CreateUserMcpTokenRequest;
-use pierre_database::plugins::{
-    factory::Database, SecurityRepository, TenantRepository, UserMcpTokenRepository, UserRepository,
-};
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::{
     constants::tiers,
     errors::{AppError, AppResult},
@@ -25,7 +23,7 @@ use crate::helpers::display::display_admin_user_success;
 
 /// Create or update admin user for frontend login
 pub async fn create(
-    database: &Database,
+    repos: &RepositoryRegistry,
     email: String,
     password: String,
     name: Option<String>,
@@ -40,9 +38,9 @@ pub async fn create(
     info!("User Creating {} user: {}", role_str, email);
 
     // Check if user already exists and handle accordingly
-    if let Ok(Some(existing_user)) = database.get_by_email(&email).await {
+    if let Ok(Some(existing_user)) = repos.users.get_by_email(&email).await {
         update_existing_admin_user(
-            database,
+            repos,
             existing_user,
             &email,
             &password,
@@ -52,11 +50,11 @@ pub async fn create(
         )
         .await?;
     } else {
-        create_new_admin_user(database, &email, &password, &display_name, super_admin).await?;
+        create_new_admin_user(repos, &email, &password, &display_name, super_admin).await?;
     }
 
     display_admin_user_success(&email, &display_name, &password, super_admin);
-    initialize_admin_jwt_secret(database).await?;
+    initialize_admin_jwt_secret(repos).await?;
 
     println!("\nSuccess Admin user is ready to use!");
 
@@ -64,7 +62,7 @@ pub async fn create(
 }
 
 async fn update_existing_admin_user(
-    database: &Database,
+    repos: &RepositoryRegistry,
     existing_user: User,
     email: &str,
     password: &str,
@@ -110,7 +108,7 @@ async fn update_existing_admin_user(
         auth_provider: existing_user.auth_provider,
     };
 
-    UserRepository::create(database, &updated_user).await?;
+    repos.users.create(&updated_user).await?;
     Ok(())
 }
 
@@ -132,13 +130,17 @@ fn display_existing_user_error(existing_user: &User) {
 
 /// Auto-create a default MCP token for a newly activated user.
 /// This is a non-fatal operation - failure is logged but does not propagate.
-async fn create_default_mcp_token_for_user(database: &Database, user_id: Uuid) {
+async fn create_default_mcp_token_for_user(repos: &RepositoryRegistry, user_id: Uuid) {
     let token_request = CreateUserMcpTokenRequest {
         name: "Default Token".to_owned(),
         expires_in_days: None, // Never expires
     };
 
-    match UserMcpTokenRepository::create_token(database, user_id, &token_request).await {
+    match repos
+        .user_mcp_tokens
+        .create_token(user_id, &token_request)
+        .await
+    {
         Ok(token_result) => {
             info!(
                 user_id = %user_id,
@@ -159,7 +161,7 @@ async fn create_default_mcp_token_for_user(database: &Database, user_id: Uuid) {
 
 /// Create a personal tenant for a user and link them to it
 async fn create_and_link_personal_tenant(
-    database: &Database,
+    repos: &RepositoryRegistry,
     user_id: Uuid,
     name: &str,
     slug_prefix: &str,
@@ -177,10 +179,10 @@ async fn create_and_link_personal_tenant(
         updated_at: Utc::now(),
     };
 
-    TenantRepository::create(database, &tenant).await?;
+    repos.tenants.create(&tenant).await?;
     info!("Created personal tenant: {} ({})", tenant.name, tenant_id);
 
-    database.update_tenant_id(user_id, tenant_id).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
 
     Ok(())
 }
@@ -216,7 +218,7 @@ fn build_admin_user(
 }
 
 async fn create_new_admin_user(
-    database: &Database,
+    repos: &RepositoryRegistry,
     email: &str,
     password: &str,
     name: &str,
@@ -236,19 +238,20 @@ async fn create_new_admin_user(
         .map_err(|e| AppError::internal(format!("bcrypt error: {e}")))?;
     let new_user = build_admin_user(user_id, email, password_hash, name, role);
 
-    UserRepository::create(database, &new_user).await?;
+    repos.users.create(&new_user).await?;
     info!("Created {} user: {}", role_str, email);
 
-    create_and_link_personal_tenant(database, user_id, name, "admin").await?;
+    create_and_link_personal_tenant(repos, user_id, name, "admin").await?;
 
-    create_default_mcp_token_for_user(database, new_user.id).await;
+    create_default_mcp_token_for_user(repos, new_user.id).await;
 
     Ok(())
 }
 
-async fn initialize_admin_jwt_secret(database: &Database) -> Result<()> {
+async fn initialize_admin_jwt_secret(repos: &RepositoryRegistry) -> Result<()> {
     info!("Ensuring admin JWT secret exists...");
-    database
+    repos
+        .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
     info!("Admin JWT signing key initialized successfully");

@@ -37,8 +37,8 @@ use crate::constants::{
 };
 use crate::errors::AppResult;
 use crate::utils::http_client::get_health_check_timeout_secs;
-use pierre_database::plugins::ApiKeyRepository;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{ApiKeyRepository, UserRepository};
 
 /// Errors that can occur during health probe operations
 #[derive(Debug)]
@@ -166,7 +166,9 @@ pub struct ComponentHealth {
 pub struct HealthChecker {
     /// Service start time
     start_time: Instant,
-    /// Database reference
+    /// User repository for health probes
+    users: Arc<dyn UserRepository>,
+    /// Database reference for inherent methods (`backend_info`, `database_type`) and API key cleanup
     database: Arc<Database>,
     /// Cached health status
     cached_status: RwLock<Option<(HealthResponse, Instant)>>,
@@ -179,10 +181,16 @@ pub struct HealthChecker {
 impl HealthChecker {
     /// Create a new health checker
     #[must_use]
-    pub fn new(database: Arc<Database>, strava_api_base_url: String) -> Self {
+    pub fn new(
+        users: Arc<dyn UserRepository>,
+        api_keys: Arc<dyn ApiKeyRepository>,
+        database: Arc<Database>,
+        strava_api_base_url: String,
+    ) -> Self {
         let health_checker = Self {
             start_time: Instant::now(),
-            database: database.clone(), // Safe: Arc clone needed for both struct and background task
+            users,
+            database,
             cached_status: RwLock::new(None),
             cache_ttl: Duration::from_secs(30), // Cache for 30 seconds
             strava_api_base_url,
@@ -190,14 +198,14 @@ impl HealthChecker {
 
         // Start background cleanup task for expired API keys
         tokio::spawn(async move {
-            Self::periodic_cleanup_task(database).await;
+            Self::periodic_cleanup_task(api_keys).await;
         });
 
         health_checker
     }
 
     /// Periodic task to clean up expired API keys
-    async fn periodic_cleanup_task(database: Arc<Database>) {
+    async fn periodic_cleanup_task(database: Arc<dyn ApiKeyRepository>) {
         let mut ticker = interval(Duration::from_secs(HOUR_SECONDS as u64)); // Run every hour
 
         loop {
@@ -506,7 +514,7 @@ impl HealthChecker {
         let start = Instant::now();
 
         // Perform an actual database connectivity test
-        let user_count = self.database.count().await?;
+        let user_count = self.users.count().await?;
 
         let query_duration = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 

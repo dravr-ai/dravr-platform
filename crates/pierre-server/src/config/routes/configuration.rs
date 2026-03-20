@@ -27,7 +27,7 @@ use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::types::json_schemas;
 use pierre_auth::auth::AuthResult;
-use pierre_database::plugins::UserRepository;
+// UserRepository methods dispatched through repos.users Arc<dyn Trait>
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -380,7 +380,7 @@ impl ConfigurationRoutes {
         let user_id = auth.user_id;
 
         // SECURITY: Global lookup — config route, tenant not in scope for user check
-        if let Err(e) = self.resources.database.get_global(user_id).await {
+        if let Err(e) = self.resources.repos.users.get_global(user_id).await {
             debug!("Database user lookup failed: {}", e);
         }
 
@@ -466,7 +466,7 @@ impl ConfigurationRoutes {
         }
 
         // SECURITY: Global lookup — config save, tenant not in scope for user check
-        if let Err(e) = self.resources.database.get_global(user_id).await {
+        if let Err(e) = self.resources.repos.users.get_global(user_id).await {
             debug!("Database user lookup failed during save: {}", e);
         }
 

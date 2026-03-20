@@ -27,8 +27,7 @@ use crate::{
     models::User,
 };
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
-use pierre_database::database::repositories::{AdminRepository, ApiKeyRepository, UserRepository};
-use pierre_database::plugins::factory::Database;
+use pierre_database::database::repositories::{AdminRepository, UserRepository};
 
 use super::types::{
     AdminResponse, ListApiKeysQuery, ProvisionApiKeyRequest, ProvisionApiKeyResponse,
@@ -71,8 +70,8 @@ fn validate_tier(tier_str: &str) -> Result<ApiKeyTier, String> {
 }
 
 /// Get existing user for API key provisioning (no automatic creation)
-async fn get_existing_user(database: &Database, email: &str) -> AppResult<User> {
-    database
+async fn get_existing_user(users: &dyn UserRepository, email: &str) -> AppResult<User> {
+    users
         .get_by_email(email)
         .await
         .map_err(|e| AppError::database(format!("Database error looking up user: {e}")))?
@@ -128,7 +127,7 @@ pub(super) async fn create_and_store_api_key(
         }
     }
 
-    if let Err(e) = ApiKeyRepository::create(ctx.database.as_ref(), &final_api_key).await {
+    if let Err(e) = ctx.repos.api_keys.create(&final_api_key).await {
         return Err(format!("Failed to create API key: {e}"));
     }
 
@@ -212,10 +211,10 @@ fn validate_tier_or_respond(
 
 /// Get user and return appropriate response on error
 async fn get_user_or_respond(
-    database: &Database,
+    users: &dyn UserRepository,
     email: &str,
 ) -> Result<User, (StatusCode, Json<AdminResponse>)> {
-    get_existing_user(database, email).await.map_err(|e| {
+    get_existing_user(users, email).await.map_err(|e| {
         (
             StatusCode::NOT_FOUND,
             Json(AdminResponse {
@@ -229,14 +228,14 @@ async fn get_user_or_respond(
 
 /// Record API key provisioning action in audit log
 async fn record_provisioning_audit(
-    database: &Database,
+    admin_repo: &dyn AdminRepository,
     admin_token: &ValidatedAdminToken,
     api_key: &ApiKey,
     user_email: &str,
     tier: &ApiKeyTier,
     period_name: &str,
 ) {
-    if let Err(e) = database
+    if let Err(e) = admin_repo
         .record_provisioned_key(
             &admin_token.token_id,
             &api_key.id,
@@ -278,7 +277,7 @@ pub(super) async fn handle_provision_api_key(
         Err(response) => return Ok(response),
     };
 
-    let user = match get_user_or_respond(&ctx.database, &request.user_email).await {
+    let user = match get_user_or_respond(ctx.repos.users.as_ref(), &request.user_email).await {
         Ok(u) => u,
         Err(response) => return Ok(response),
     };
@@ -308,7 +307,7 @@ pub(super) async fn handle_provision_api_key(
 
     let period_name = request.rate_limit_period.as_deref().unwrap_or("month");
     record_provisioning_audit(
-        &ctx.database,
+        ctx.repos.admin.as_ref(),
         &admin_token,
         &final_api_key,
         &user.email,
@@ -362,7 +361,12 @@ pub(super) async fn handle_revoke_api_key(
 
     let ctx = context.as_ref();
 
-    let api_key = match ctx.database.get_by_id(&request.api_key_id, None).await {
+    let api_key = match ctx
+        .repos
+        .api_keys
+        .get_by_id(&request.api_key_id, None)
+        .await
+    {
         Ok(Some(key)) => key,
         Ok(None) => {
             return Ok(json_response(
@@ -387,7 +391,8 @@ pub(super) async fn handle_revoke_api_key(
     };
 
     match ctx
-        .database
+        .repos
+        .api_keys
         .deactivate(&request.api_key_id, api_key.user_id)
         .await
     {
@@ -457,7 +462,8 @@ pub(super) async fn handle_list_api_keys(
         .map(|o| o.max(0));
 
     match ctx
-        .database
+        .repos
+        .api_keys
         .get_filtered(user_email, active_only, limit, offset)
         .await
     {

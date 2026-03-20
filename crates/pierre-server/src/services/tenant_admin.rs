@@ -11,8 +11,7 @@ use uuid::Uuid;
 use crate::constants::tiers;
 use crate::errors::{AppError, AppResult};
 use crate::models::{Tenant, TenantId};
-use pierre_database::database::repositories::{TenantRepository, UserRepository};
-use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 
 /// Reserved tenant slugs that cannot be used for user-created tenants
 const RESERVED_SLUGS: &[&str] = &[
@@ -88,7 +87,7 @@ pub fn validate_tenant_slug(slug: &str) -> AppResult<()> {
 ///
 /// Returns error if slug validation fails, slug is already in use, or database operation fails
 pub async fn create_tenant_for_user(
-    database: &Database,
+    database: &RepositoryRegistry,
     owner_user_id: Uuid,
     tenant_name: &str,
     tenant_slug: &str,
@@ -96,7 +95,7 @@ pub async fn create_tenant_for_user(
     let slug = tenant_slug.trim().to_lowercase();
     validate_tenant_slug(&slug)?;
 
-    if database.get_by_slug(&slug).await.is_ok() {
+    if database.tenants.get_by_slug(&slug).await.is_ok() {
         return Err(AppError::invalid_input(format!(
             "Tenant slug '{slug}' is already in use",
         )));
@@ -113,7 +112,9 @@ pub async fn create_tenant_for_user(
         updated_at: Utc::now(),
     };
 
-    TenantRepository::create(database, &tenant_data)
+    database
+        .tenants
+        .create(&tenant_data)
         .await
         .map_err(|e| AppError::database(format!("Failed to create tenant: {e}")))?;
 
@@ -129,7 +130,7 @@ pub async fn create_tenant_for_user(
 ///
 /// Returns error if tenant creation or user linking fails
 pub async fn provision_tenant_for_approval(
-    database: &Database,
+    database: &RepositoryRegistry,
     user_id: Uuid,
     user_email: &str,
     display_name: Option<&str>,
@@ -162,6 +163,7 @@ pub async fn provision_tenant_for_approval(
     );
 
     database
+        .users
         .update_tenant_id(user_id, tenant.id)
         .await
         .map_err(|e| {

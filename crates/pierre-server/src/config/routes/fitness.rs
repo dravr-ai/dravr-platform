@@ -10,7 +10,7 @@ use crate::mcp::resources::ServerResources;
 use crate::middleware::require_admin;
 use crate::models::TenantId;
 use pierre_auth::auth::AuthResult;
-use pierre_database::plugins::{FitnessConfigRepository, TenantRepository, UserRepository};
+// Trait methods dispatched through repos.fitness_config / repos.tenants / repos.users
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
@@ -119,7 +119,8 @@ impl FitnessConfigurationRoutes {
     async fn get_user_tenant(&self, user_id: Uuid) -> AppResult<TenantId> {
         // SECURITY: Global lookup — fitness config, resolving user's tenant
         self.resources
-            .database
+            .repos
+            .users
             .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user {user_id}: {e}")))?
@@ -128,7 +129,8 @@ impl FitnessConfigurationRoutes {
         // Get tenant from tenant_users junction table
         let tenants = self
             .resources
-            .database
+            .repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenants for user: {e}")))?;
@@ -172,7 +174,8 @@ impl FitnessConfigurationRoutes {
         // Get both user-specific and tenant-level configurations
         let mut configurations = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .list_user_configurations(tenant_id, &user_id_str)
             .await
             .map_err(|e| {
@@ -181,7 +184,8 @@ impl FitnessConfigurationRoutes {
 
         let tenant_configs = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .list_tenant_configurations(tenant_id)
             .await
             .map_err(|e| {
@@ -222,7 +226,8 @@ impl FitnessConfigurationRoutes {
         // Try user-specific first, then tenant-level, then default
         let config = match self
             .resources
-            .database
+            .repos
+            .fitness_config
             .get_user_config(tenant_id, &user_id_str, configuration_name)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user fitness config: {e}")))?
@@ -231,7 +236,8 @@ impl FitnessConfigurationRoutes {
             None => {
                 // If user-specific config not found, try tenant-level
                 self.resources
-                    .database
+                    .repos
+                    .fitness_config
                     .get_tenant_config(tenant_id, configuration_name)
                     .await
                     .map_err(|e| {
@@ -279,7 +285,8 @@ impl FitnessConfigurationRoutes {
 
         let config_id = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .save_user_config(
                 tenant_id,
                 &user_id_str,
@@ -315,7 +322,7 @@ impl FitnessConfigurationRoutes {
         let tenant_id = self.get_user_tenant(user_id).await?;
 
         // Verify admin privileges using centralized guard
-        require_admin(user_id, &self.resources.database).await?;
+        require_admin(user_id, &self.resources.repos.users).await?;
 
         let configuration_name = request
             .configuration_name
@@ -323,7 +330,8 @@ impl FitnessConfigurationRoutes {
 
         let config_id = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .save_tenant_config(tenant_id, &configuration_name, &request.configuration)
             .await
             .map_err(|e| {
@@ -357,7 +365,8 @@ impl FitnessConfigurationRoutes {
 
         let deleted = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .delete_config(tenant_id, Some(&user_id_str), configuration_name)
             .await
             .map_err(|e| AppError::database(format!("Failed to delete fitness config: {e}")))?;
@@ -393,11 +402,12 @@ impl FitnessConfigurationRoutes {
         let tenant_id = self.get_user_tenant(user_id).await?;
 
         // Verify admin privileges using centralized guard
-        require_admin(user_id, &self.resources.database).await?;
+        require_admin(user_id, &self.resources.repos.users).await?;
 
         let deleted = self
             .resources
-            .database
+            .repos
+            .fitness_config
             .delete_config(tenant_id, None, configuration_name)
             .await
             .map_err(|e| {

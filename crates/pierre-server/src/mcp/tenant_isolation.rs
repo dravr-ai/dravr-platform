@@ -14,8 +14,7 @@ use pierre_auth::auth::{AuthManager, Claims};
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::models::TenantId;
 use pierre_core::models::TenantOAuthCredentials;
-use pierre_database::plugins::{factory::Database, OAuthTokenRepository};
-use pierre_database::plugins::{TenantRepository, UserRepository};
+// Trait methods dispatched through repos.tenants / repos.users / repos.oauth_tokens
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
@@ -105,7 +104,8 @@ impl TenantIsolation {
     ) -> AppResult<()> {
         let role = self
             .resources
-            .database
+            .repos
+            .tenants
             .get_user_role(user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
@@ -126,7 +126,8 @@ impl TenantIsolation {
     pub async fn get_user_default_tenant(&self, user_id: Uuid) -> AppResult<TenantId> {
         let tenants = self
             .resources
-            .database
+            .repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -144,7 +145,8 @@ impl TenantIsolation {
     pub async fn get_user_with_tenant(&self, user_id: Uuid) -> AppResult<User> {
         // SECURITY: Global lookup — tenant isolation resolves user to find their tenant
         self.resources
-            .database
+            .repos
+            .users
             .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
@@ -164,7 +166,7 @@ impl TenantIsolation {
 
     /// Get tenant name by ID
     pub async fn get_tenant_name(&self, tenant_id: TenantId) -> String {
-        match self.resources.database.get_by_id(tenant_id).await {
+        match self.resources.repos.tenants.get_by_id(tenant_id).await {
             Ok(tenant) => tenant.name,
             Err(e) => {
                 warn!(
@@ -191,7 +193,8 @@ impl TenantIsolation {
         // Query tenant_users table for user's role in the tenant
         let role_str = self
             .resources
-            .database
+            .repos
+            .tenants
             .get_user_role(user_id, tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
@@ -315,7 +318,7 @@ impl TenantIsolation {
         // Create tenant-scoped resource accessor
         Ok(TenantResources {
             tenant_id,
-            database: self.resources.database.clone(),
+            repos: self.resources.repos.clone(),
         })
     }
 
@@ -362,8 +365,8 @@ impl TenantIsolation {
 pub struct TenantResources {
     /// Unique identifier for the tenant
     pub tenant_id: TenantId,
-    /// Database connection for tenant-scoped operations
-    pub database: Arc<Database>,
+    /// Repository registry for tenant-scoped operations
+    pub repos: Arc<pierre_database::RepositoryRegistry>,
 }
 
 impl TenantResources {
@@ -375,7 +378,8 @@ impl TenantResources {
         &self,
         provider: &str,
     ) -> AppResult<Option<TenantOAuthCredentials>> {
-        self.database
+        self.repos
+            .tenants
             .get_oauth_credentials(self.tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to get tenant OAuth credentials: {e}")))
@@ -397,7 +401,8 @@ impl TenantResources {
             )));
         }
 
-        self.database
+        self.repos
+            .tenants
             .store_oauth_credentials(credential)
             .await
             .map_err(|e| {
@@ -414,7 +419,8 @@ impl TenantResources {
         user_id: Uuid,
         provider: &str,
     ) -> AppResult<Option<UserOAuthToken>> {
-        self.database
+        self.repos
+            .oauth_tokens
             .get_token(user_id, self.tenant_id, provider)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user OAuth token: {e}")))
@@ -428,7 +434,8 @@ impl TenantResources {
         // Additional validation could be added here to ensure
         // the user belongs to this tenant
         // For now, store using the user's OAuth app approach
-        self.database
+        self.repos
+            .oauth_tokens
             .store_user_oauth_app(
                 token.user_id,
                 &token.provider,
@@ -463,7 +470,7 @@ pub async fn validate_jwt_token_for_mcp(
     token: &str,
     auth_manager: &AuthManager,
     jwks_manager: &JwksManager,
-    database: &Arc<Database>,
+    repos: &Arc<pierre_database::RepositoryRegistry>,
 ) -> AppResult<JwtValidationResult> {
     let claims = auth_manager
         .validate_token(token, jwks_manager)
@@ -476,7 +483,8 @@ pub async fn validate_jwt_token_for_mcp(
     })?;
 
     // SECURITY: Global lookup — tenant extraction from JWT, tenant not yet known
-    database
+    repos
+        .users
         .get_global(user_id)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
@@ -490,7 +498,8 @@ pub async fn validate_jwt_token_for_mcp(
         })?;
 
         // Verify user belongs to this tenant
-        let role = database
+        let role = repos
+            .tenants
             .get_user_role(user_id, tid)
             .await
             .map_err(|e| AppError::database(format!("Failed to check tenant membership: {e}")))?;
@@ -504,7 +513,8 @@ pub async fn validate_jwt_token_for_mcp(
         tid
     } else {
         // Get user's default tenant
-        let tenants = database
+        let tenants = repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
@@ -515,13 +525,14 @@ pub async fn validate_jwt_token_for_mcp(
             .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?
     };
 
-    let tenant_name = match database.get_by_id(tenant_id).await {
+    let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
         Ok(tenant) => tenant.name,
         _ => "Unknown Tenant".to_owned(),
     };
 
     // Get user's role in this tenant
-    let user_role = database
+    let user_role = repos
+        .tenants
         .get_user_role(user_id, tenant_id)
         .await
         .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?
@@ -556,7 +567,7 @@ pub async fn validate_jwt_token_for_mcp(
 /// # Errors
 /// Returns an error if tenant extraction fails
 pub async fn extract_tenant_context_internal(
-    database: &Arc<Database>,
+    repos: &Arc<pierre_database::RepositoryRegistry>,
     user_id: Option<Uuid>,
     tenant_id: Option<TenantId>,
     headers: Option<&HeaderMap>,
@@ -565,9 +576,13 @@ pub async fn extract_tenant_context_internal(
     if let Some(tenant_id) = tenant_id {
         // If user_id is provided, verify membership and get role
         let (user_role, verified_user_id) = if let Some(uid) = user_id {
-            let role_str = database.get_user_role(uid, tenant_id).await.map_err(|e| {
-                AppError::database(format!("Failed to check tenant membership: {e}"))
-            })?;
+            let role_str = repos
+                .tenants
+                .get_user_role(uid, tenant_id)
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to check tenant membership: {e}"))
+                })?;
 
             let role = role_str.map_or(TenantRole::Member, |r| TenantRole::from_db_string(&r));
             (role, uid)
@@ -575,7 +590,7 @@ pub async fn extract_tenant_context_internal(
             (TenantRole::Member, Uuid::nil())
         };
 
-        let tenant_name = match database.get_by_id(tenant_id).await {
+        let tenant_name = match repos.tenants.get_by_id(tenant_id).await {
             Ok(tenant) => tenant.name,
             _ => "Unknown Tenant".to_owned(),
         };
@@ -595,7 +610,8 @@ pub async fn extract_tenant_context_internal(
                 if let Ok(header_tenant_id) = tenant_id_str.parse::<TenantId>() {
                     // If user_id is provided, verify membership
                     let (user_role, verified_user_id) = if let Some(uid) = user_id {
-                        let role_str = database
+                        let role_str = repos
+                            .tenants
                             .get_user_role(uid, header_tenant_id)
                             .await
                             .map_err(|e| {
@@ -611,7 +627,7 @@ pub async fn extract_tenant_context_internal(
                         (TenantRole::Member, Uuid::nil())
                     };
 
-                    let tenant_name = match database.get_by_id(header_tenant_id).await {
+                    let tenant_name = match repos.tenants.get_by_id(header_tenant_id).await {
                         Ok(tenant) => tenant.name,
                         _ => "Unknown Tenant".to_owned(),
                     };
@@ -630,20 +646,23 @@ pub async fn extract_tenant_context_internal(
     // Try to extract from user's default tenant (via tenant_users table)
     if let Some(user_id) = user_id {
         // SECURITY: Global lookup — resolving user's default tenant
-        database
+        repos
+            .users
             .get_global(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User"))?;
 
         // Get user's tenants from tenant_users table
-        let tenants = database
+        let tenants = repos
+            .tenants
             .list_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;
 
         if let Some(default_tenant) = tenants.first() {
-            let user_role = database
+            let user_role = repos
+                .tenants
                 .get_user_role(user_id, default_tenant.id)
                 .await
                 .map_err(|e| AppError::database(format!("Failed to get user tenant role: {e}")))?

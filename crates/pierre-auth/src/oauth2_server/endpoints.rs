@@ -18,7 +18,6 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
@@ -113,24 +112,33 @@ pub struct OAuth2AuthorizationServer {
     client_manager: ClientRegistrationManager,
     auth_manager: Arc<AuthManager>,
     jwks_manager: Arc<JwksManager>,
-    database: Arc<Database>,
+    /// `OAuth2` server repository for auth codes, tokens, clients, and state
+    oauth2_server: Arc<dyn OAuth2ServerRepository>,
+    /// Tenant repository for user-tenant lookups during authorization
+    tenants: Arc<dyn TenantRepository>,
+    /// User repository for token validation user lookups
+    users: Arc<dyn UserRepository>,
 }
 
 impl OAuth2AuthorizationServer {
     /// Creates a new `OAuth2` authorization server instance
     #[must_use]
     pub fn new(
-        database: Arc<Database>,
+        oauth2_server: Arc<dyn OAuth2ServerRepository>,
+        tenants: Arc<dyn TenantRepository>,
+        users: Arc<dyn UserRepository>,
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
     ) -> Self {
-        let client_manager = ClientRegistrationManager::new(database.clone()); // Safe: Arc clone for manager construction
+        let client_manager = ClientRegistrationManager::new(oauth2_server.clone()); // Safe: Arc clone for manager construction
 
         Self {
             client_manager,
             auth_manager,
             jwks_manager,
-            database,
+            oauth2_server,
+            tenants,
+            users,
         }
     }
 
@@ -225,7 +233,7 @@ impl OAuth2AuthorizationServer {
             tid
         } else {
             // Resolve actual tenant from database - use first tenant user belongs to
-            let tenants = self.database.list_for_user(user_id).await.map_err(|e| {
+            let tenants = self.tenants.list_for_user(user_id).await.map_err(|e| {
                 error!("Failed to get tenants for user {}: {:#}", user_id, e);
                 OAuth2Error::invalid_request("Failed to resolve user tenant")
             })?;
@@ -546,7 +554,7 @@ impl OAuth2AuthorizationServer {
                 used: false,
             };
 
-            if let Err(e) = self.database.store_state(&oauth2_state).await {
+            if let Err(e) = self.oauth2_server.store_state(&oauth2_state).await {
                 error!(
                     "Failed to store OAuth2 state for client_id={}: {:#}",
                     params.client_id, e
@@ -575,7 +583,7 @@ impl OAuth2AuthorizationServer {
         // Atomically consume authorization code (prevents TOCTOU race conditions)
         // This validates client_id, redirect_uri, expiration, and used status in a single atomic operation
         let auth_code = self
-            .database
+            .oauth2_server
             .consume_auth_code(code, client_id, redirect_uri, Utc::now())
             .await
             .map_err(|e| {
@@ -622,7 +630,7 @@ impl OAuth2AuthorizationServer {
         //   - test_expired_state_rejection (line 190)
         if let Some(state_value) = &auth_code.state {
             let consumed_state = self
-                .database
+                .oauth2_server
                 .consume_state(state_value, client_id, Utc::now())
                 .await
                 .map_err(|e| {
@@ -737,7 +745,7 @@ impl OAuth2AuthorizationServer {
 
     /// Store authorization code (database operation)
     async fn store_auth_code(&self, auth_code: &OAuth2AuthCode) -> AppResult<()> {
-        self.database.store_auth_code(auth_code).await
+        self.oauth2_server.store_auth_code(auth_code).await
     }
 
     /// Generate refresh token with secure randomness
@@ -754,7 +762,7 @@ impl OAuth2AuthorizationServer {
         &self,
         refresh_token: &super::models::OAuth2RefreshToken,
     ) -> AppResult<()> {
-        self.database.store_refresh_token(refresh_token).await
+        self.oauth2_server.store_refresh_token(refresh_token).await
     }
 
     /// Validate and consume refresh token
@@ -766,7 +774,7 @@ impl OAuth2AuthorizationServer {
         // Atomically consume refresh token (prevents TOCTOU race conditions)
         // This validates client_id, revoked status, and expiration in a single atomic operation
         let refresh_token = self
-            .database
+            .oauth2_server
             .consume_refresh_token(token, client_id, Utc::now())
             .await
             .map_err(|e| {
@@ -823,7 +831,7 @@ impl OAuth2AuthorizationServer {
 
         match Uuid::parse_str(&claims.sub) {
             // SECURITY: Global lookup — OAuth2 token validation, no tenant context
-            Ok(user_id) => match self.database.get_global(user_id).await {
+            Ok(user_id) => match self.users.get_global(user_id).await {
                 Ok(Some(_user)) => Ok(ValidateRefreshResponse {
                     status: ValidationStatus::Valid,
                     expires_in: Some(claims.exp - Utc::now().timestamp()),
@@ -870,7 +878,7 @@ impl OAuth2AuthorizationServer {
     ) -> AppResult<String> {
         // Atomically consume the old refresh token
         let consumed = self
-            .database
+            .oauth2_server
             .consume_refresh_token(old_token_value, &old_token_data.client_id, Utc::now())
             .await
             .map_err(|e| {
@@ -1064,7 +1072,7 @@ impl OAuth2AuthorizationServer {
         // Look up refresh token in database
         // We need to find it without knowing the client_id
         let refresh_token = self
-            .database
+            .oauth2_server
             .get_refresh_token_by_value(refresh_token_value)
             .await
             .map_err(|e| {

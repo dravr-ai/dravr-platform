@@ -21,7 +21,6 @@ use crate::routes::create_chat_provider;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_database::plugins::factory::Database;
 
 /// Result of creating a new conversation, including validated model
 pub struct CreateConversationResult {
@@ -49,7 +48,7 @@ pub struct UserMessageResult {
 /// Returns `AppError::Config` if no model is specified and `PIERRE_LLM_MODEL` is not set.
 /// Returns database errors on conversation creation failure.
 pub async fn create_conversation(
-    database: &Database,
+    database: &dyn ChatRepository,
     user_id: &str,
     tenant_id: TenantId,
     title: &str,
@@ -82,7 +81,7 @@ pub async fn create_conversation(
 /// Returns `AppError::NotFound` if the conversation does not exist or belongs to another user.
 /// Returns database errors on message persistence failure.
 pub async fn persist_user_message(
-    database: &Database,
+    database: &dyn ChatRepository,
     conversation_id: &str,
     user_id: &str,
     tenant_id: TenantId,
@@ -121,7 +120,7 @@ pub async fn persist_user_message(
 ///
 /// Returns database errors on message retrieval failure.
 pub async fn get_conversation_history(
-    database: &Database,
+    database: &dyn ChatRepository,
     conversation_id: &str,
     user_id: &str,
 ) -> AppResult<Vec<MessageRecord>> {
@@ -138,7 +137,7 @@ pub async fn get_conversation_history(
 /// Returns `AppError::Internal` if the conversation cannot be retrieved after saving.
 /// Returns database errors on message persistence failure.
 pub async fn persist_assistant_response(
-    database: &Database,
+    database: &dyn ChatRepository,
     params: &AddMessageParams<'_>,
     tenant_id: TenantId,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
@@ -169,7 +168,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     tool_tenant_id: TenantId,
     content: &str,
 ) -> AppResult<String> {
-    let database = resources.database.as_ref();
+    let database: &dyn ChatRepository = resources.repos.chat.as_ref();
 
     // Persist user message (uses conversation tenant for DB lookup)
     let msg_result = persist_user_message(

@@ -328,8 +328,9 @@ async fn test_websocket_connection_scenarios() -> Result<()> {
     let database = create_test_database().await?;
     let auth_manager = common::create_test_auth_manager();
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let websocket_manager = WebSocketManager::new(
-        Arc::new((*database).clone()),
+        repos,
         &auth_manager,
         &jwks_manager,
         RateLimitConfig::default(),

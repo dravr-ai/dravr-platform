@@ -30,7 +30,6 @@ use crate::mcp::tool_selection::ToolSelectionService;
 use crate::models::User;
 use crate::providers::ProviderRegistry;
 use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::UserRepository;
 
 /// How the user authenticated for this request.
 ///
@@ -170,7 +169,8 @@ impl ToolExecutionContext {
         // SECURITY: Global lookup — tool context checks admin status before tenant is known
         let user: User = self
             .resources
-            .database
+            .repos
+            .users
             .get_global(self.user_id)
             .await?
             .ok_or_else(|| {

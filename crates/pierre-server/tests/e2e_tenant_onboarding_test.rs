@@ -316,10 +316,20 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
 
     // Step 10: Verify tenant isolation - check OAuth credentials
     let acme_oauth_creds = tenant_oauth_client
-        .get_tenant_credentials(acme_tenant_id, "strava", &database)
+        .get_tenant_credentials(
+            acme_tenant_id,
+            "strava",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
     let beta_oauth_creds = tenant_oauth_client
-        .get_tenant_credentials(beta_tenant_id, "strava", &database)
+        .get_tenant_credentials(
+            beta_tenant_id,
+            "strava",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
 
     assert!(acme_oauth_creds.is_some());
@@ -353,11 +363,23 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
 
     // Step 12: Test OAuth authorization URL generation for each tenant
     let acme_auth_url = tenant_oauth_client
-        .get_authorization_url(&acme_context, "strava", "acme_state_123", &database)
+        .get_authorization_url(
+            &acme_context,
+            "strava",
+            "acme_state_123",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
 
     let beta_auth_url = tenant_oauth_client
-        .get_authorization_url(&beta_context, "strava", "beta_state_456", &database)
+        .get_authorization_url(
+            &beta_context,
+            "strava",
+            "beta_state_456",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
 
     // Verify URLs contain tenant-specific client IDs
@@ -514,10 +536,20 @@ async fn test_tenant_context_switching() -> Result<()> {
     );
 
     let oauth1 = tenant_oauth_client
-        .get_oauth_client(&tenant1_context, "strava", &database)
+        .get_oauth_client(
+            &tenant1_context,
+            "strava",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
     let oauth2 = tenant_oauth_client
-        .get_oauth_client(&tenant2_context, "strava", &database)
+        .get_oauth_client(
+            &tenant2_context,
+            "strava",
+            database.as_ref(),
+            database.as_ref(),
+        )
         .await?;
 
     // Verify different configurations are used

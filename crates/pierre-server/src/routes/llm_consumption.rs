@@ -28,7 +28,6 @@ use crate::{
     models::TenantId, routes::usage::UsageRoutes,
 };
 use pierre_database::database::llm_usage::LlmUsageGroupBy;
-use pierre_database::database::repositories::{LlmUsageRepository, TenantRepository};
 
 /// Minimum days parameter value
 const MIN_DAYS: u16 = 1;
@@ -211,11 +210,13 @@ impl LlmConsumptionRoutes {
             .and_then(LlmUsageGroupBy::from_str_param);
 
         let aggregates = resources
-            .database
+            .repos
+            .llm_usage
             .get_llm_usage_aggregates(&tenant_id_str, &since)
             .await?;
         let daily = resources
-            .database
+            .repos
+            .llm_usage
             .get_llm_usage_daily_series(&tenant_id_str, &since)
             .await?;
 
@@ -235,7 +236,8 @@ impl LlmConsumptionRoutes {
 
         // Verify the calling user has admin privileges by checking their role
         let role = resources
-            .database
+            .repos
+            .tenants
             .get_user_role(auth.user_id, user_tenant_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
@@ -272,11 +274,13 @@ impl LlmConsumptionRoutes {
             .and_then(LlmUsageGroupBy::from_str_param);
 
         let aggregates = resources
-            .database
+            .repos
+            .llm_usage
             .get_llm_usage_aggregates(&tenant_id_str, &since)
             .await?;
         let daily = resources
-            .database
+            .repos
+            .llm_usage
             .get_llm_usage_daily_series(&tenant_id_str, &since)
             .await?;
 

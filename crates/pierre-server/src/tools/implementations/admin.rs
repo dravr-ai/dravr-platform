@@ -36,7 +36,6 @@ use pierre_core::models::coaches::{
     UpdateCoachRequest,
 };
 use pierre_database::database::repositories::CoachesRepository;
-use pierre_database::plugins::TenantRepository;
 
 // ============================================================================
 // Helper functions
@@ -64,7 +63,8 @@ async fn verify_user_in_tenant(
 ) -> AppResult<()> {
     let user_tenants = ctx
         .resources
-        .database
+        .repos
+        .tenants
         .list_for_user(target_user_id)
         .await
         .map_err(|e| {

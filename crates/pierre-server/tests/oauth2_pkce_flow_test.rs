@@ -62,8 +62,13 @@ async fn setup_test_env() -> (
     // Create JWKS manager for RS256 token signing
     let jwks_manager = common::get_shared_test_jwks();
 
-    let oauth_server =
-        OAuth2AuthorizationServer::new(database.clone(), auth_manager.clone(), jwks_manager);
+    let oauth_server = OAuth2AuthorizationServer::new(
+        database.clone(),
+        database.clone(),
+        database.clone(),
+        auth_manager.clone(),
+        jwks_manager,
+    );
 
     // Register a test client
     let registration_manager = ClientRegistrationManager::new(database.clone());

@@ -43,7 +43,7 @@ pub(super) async fn handle_list_pending_coaches(
         ));
     }
 
-    let repo: &dyn StoreListingsRepository = context.database.as_ref();
+    let repo: &dyn StoreListingsRepository = context.repos.store_listings.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
@@ -87,7 +87,7 @@ pub(super) async fn handle_approve_coach(
         ));
     }
 
-    let repo: &dyn StoreListingsRepository = context.database.as_ref();
+    let repo: &dyn StoreListingsRepository = context.repos.store_listings.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()
@@ -135,7 +135,7 @@ pub(super) async fn handle_reject_coach(
         ));
     }
 
-    let repo: &dyn StoreListingsRepository = context.database.as_ref();
+    let repo: &dyn StoreListingsRepository = context.repos.store_listings.as_ref();
     let tenant_id: TenantId = query
         .tenant_id
         .parse()

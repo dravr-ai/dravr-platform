@@ -36,7 +36,6 @@ use crate::providers::core::{ActivityQueryParams, FitnessProvider};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::plugins::ProfileRepository;
 
 // ============================================================================
 // Helper functions
@@ -412,7 +411,8 @@ impl McpTool for SetGoalTool {
 
         match context
             .resources
-            .database
+            .repos
+            .profiles
             .create_goal(context.user_id, goal_data)
             .await
         {
@@ -613,7 +613,8 @@ impl McpTool for TrackProgressTool {
         // Load and find goal from database
         let goals: Vec<Value> = context
             .resources
-            .database
+            .repos
+            .profiles
             .get_goals(context.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to load goals: {e}")))?;

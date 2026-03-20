@@ -42,8 +42,9 @@ impl WebSocketTestSetup {
         let rate_limit_config = RateLimitConfig::default();
 
         // Create WebSocket manager
+        let repos = Arc::new(database.repositories());
         let manager = Arc::new(WebSocketManager::new(
-            database,
+            repos,
             &auth_manager,
             &jwks_manager,
             rate_limit_config,

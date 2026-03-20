@@ -14,7 +14,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::{factory::Database, LlmCredentialRepository, SecurityRepository};
+use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
 use pierre_llm::config::LlmProviderType;
 
 /// Environment variable names for LLM provider API keys
@@ -178,24 +178,27 @@ impl TenantLlmManager {
         user_id: Option<Uuid>,
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
+        security: &dyn SecurityRepository,
     ) -> AppResult<LlmCredentials> {
         // Priority 1: User-specific credentials
         if let Some(uid) = user_id {
             if let Some(creds) =
-                Self::try_user_credentials(uid, tenant_id, provider, database).await
+                Self::try_user_credentials(uid, tenant_id, provider, llm_creds, security).await
             {
                 return Ok(creds);
             }
         }
 
         // Priority 2: Tenant-level default
-        if let Some(creds) = Self::try_tenant_credentials(tenant_id, provider, database).await {
+        if let Some(creds) =
+            Self::try_tenant_credentials(tenant_id, provider, llm_creds, security).await
+        {
             return Ok(creds);
         }
 
         // Priority 3: System-wide override (admin config)
-        if let Some(creds) = Self::try_system_override(tenant_id, provider, database).await {
+        if let Some(creds) = Self::try_system_override(tenant_id, provider, llm_creds).await {
             return Ok(creds);
         }
 
@@ -230,7 +233,8 @@ impl TenantLlmManager {
         tenant_id: TenantId,
         request: StoreLlmCredentialsRequest,
         created_by: Uuid,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
+        security: &dyn SecurityRepository,
     ) -> AppResult<Uuid> {
         let now = Utc::now().to_rfc3339();
         let id = Uuid::new_v4();
@@ -239,7 +243,7 @@ impl TenantLlmManager {
         let aad_context = Self::create_aad_context(tenant_id, user_id, request.provider);
 
         // Encrypt the API key
-        let api_key_encrypted = database.encrypt_data_with_aad(&request.api_key, &aad_context)?;
+        let api_key_encrypted = security.encrypt_data_with_aad(&request.api_key, &aad_context)?;
 
         let record = LlmCredentialRecord {
             id,
@@ -255,7 +259,7 @@ impl TenantLlmManager {
             created_by,
         };
 
-        database.store_credentials(&record).await?;
+        llm_creds.store_credentials(&record).await?;
 
         info!(
             "Stored {} LLM credentials for {} (tenant: {}, user: {:?})",
@@ -277,9 +281,9 @@ impl TenantLlmManager {
         user_id: Option<Uuid>,
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
     ) -> AppResult<bool> {
-        let deleted = database
+        let deleted = llm_creds
             .delete_credentials(tenant_id, user_id, provider.as_str())
             .await?;
 
@@ -303,9 +307,9 @@ impl TenantLlmManager {
     /// Returns an error if listing fails
     pub async fn list_tenant_credentials(
         tenant_id: TenantId,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
     ) -> AppResult<Vec<LlmCredentialSummary>> {
-        database.list_credentials(tenant_id).await
+        llm_creds.list_credentials(tenant_id).await
     }
 
     /// Check if credentials exist for a provider (without decrypting)
@@ -313,11 +317,11 @@ impl TenantLlmManager {
         user_id: Option<Uuid>,
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
     ) -> bool {
         // Check user-specific
         if let Some(uid) = user_id {
-            if database
+            if llm_creds
                 .get_credentials(tenant_id, Some(uid), provider.as_str())
                 .await
                 .ok()
@@ -329,7 +333,7 @@ impl TenantLlmManager {
         }
 
         // Check tenant-level
-        if database
+        if llm_creds
             .get_credentials(tenant_id, None, provider.as_str())
             .await
             .ok()
@@ -354,10 +358,10 @@ impl TenantLlmManager {
         user_id: Option<Uuid>,
         provider: LlmProvider,
         source: CredentialSource,
-        database: &Database,
+        security: &dyn SecurityRepository,
     ) -> Option<LlmCredentials> {
         let aad_context = Self::create_aad_context(tenant_id, user_id, provider);
-        match database.decrypt_data_with_aad(&record.api_key_encrypted, &aad_context) {
+        match security.decrypt_data_with_aad(&record.api_key_encrypted, &aad_context) {
             Ok(api_key) => Some(LlmCredentials {
                 tenant_id,
                 user_id,
@@ -379,9 +383,10 @@ impl TenantLlmManager {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
+        security: &dyn SecurityRepository,
     ) -> Option<LlmCredentials> {
-        let result = database
+        let result = llm_creds
             .get_credentials(tenant_id, Some(user_id), provider.as_str())
             .await;
 
@@ -393,7 +398,7 @@ impl TenantLlmManager {
                     Some(user_id),
                     provider,
                     CredentialSource::UserSpecific,
-                    database,
+                    security,
                 );
                 if creds.is_some() {
                     info!(
@@ -419,9 +424,10 @@ impl TenantLlmManager {
     async fn try_tenant_credentials(
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
+        security: &dyn SecurityRepository,
     ) -> Option<LlmCredentials> {
-        let result = database
+        let result = llm_creds
             .get_credentials(tenant_id, None, provider.as_str())
             .await;
 
@@ -433,7 +439,7 @@ impl TenantLlmManager {
                     None,
                     provider,
                     CredentialSource::TenantDefault,
-                    database,
+                    security,
                 );
                 if creds.is_some() {
                     info!("Using tenant-level {provider} credentials for tenant {tenant_id}");
@@ -455,12 +461,12 @@ impl TenantLlmManager {
     async fn try_system_override(
         tenant_id: TenantId,
         provider: LlmProvider,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
     ) -> Option<LlmCredentials> {
         // Config key format: llm.{provider}_api_key
         let config_key = format!("llm.{}_api_key", provider.as_str());
 
-        match database.get_admin_config_override(&config_key, None).await {
+        match llm_creds.get_admin_config_override(&config_key, None).await {
             Ok(Some(value)) => {
                 info!(
                     "Using system-wide {} API key override for tenant {}",
@@ -469,7 +475,7 @@ impl TenantLlmManager {
 
                 // Also try to get base_url and model for local provider
                 let base_url = if provider == LlmProvider::Local {
-                    database
+                    llm_creds
                         .get_admin_config_override("llm.local_base_url", None)
                         .await
                         .ok()
@@ -479,7 +485,7 @@ impl TenantLlmManager {
                 };
 
                 let default_model = if provider == LlmProvider::Local {
-                    database
+                    llm_creds
                         .get_admin_config_override("llm.local_model", None)
                         .await
                         .ok()

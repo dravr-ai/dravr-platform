@@ -27,11 +27,9 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_database::plugins::DatabaseProvider;
-use pierre_database::plugins::{
-    factory::Database, ApiKeyRepository, TenantRepository, UserRepository,
-};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -178,13 +176,14 @@ pub fn create_test_auth_manager() -> Arc<AuthManager> {
 /// Create test authentication middleware
 pub fn create_test_auth_middleware(
     auth_manager: &Arc<AuthManager>,
-    database: Arc<Database>,
+    database: &Database,
 ) -> Arc<McpAuthMiddleware> {
     // Use shared JWKS manager instead of generating new keys
     let jwks_manager = get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     Arc::new(McpAuthMiddleware::new(
         (**auth_manager).clone(),
-        database,
+        repos,
         jwks_manager,
         RateLimitConfig::default(),
     ))
@@ -221,7 +220,8 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    UserRepository::create(database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
@@ -236,10 +236,10 @@ pub async fn create_test_user(database: &Database) -> Result<(Uuid, User)> {
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(database, &tenant).await?;
+    repos.tenants.create(&tenant).await?;
 
     // Also update legacy tenant_id column for backward compatibility
-    database.update_tenant_id(user_id, tenant_id).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
 
     Ok((user_id, user))
 }
@@ -261,7 +261,8 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
     user.approved_at = Some(chrono::Utc::now());
 
     let user_id = user.id;
-    UserRepository::create(database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Create the tenant with this user as owner
     // The create_tenant function automatically adds the owner to tenant_users
@@ -276,10 +277,10 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(database, &tenant).await?;
+    repos.tenants.create(&tenant).await?;
 
     // Also update legacy tenant_id column for backward compatibility
-    database.update_tenant_id(user_id, tenant_id).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
 
     Ok((user_id, user))
 }
@@ -290,7 +291,8 @@ pub async fn create_test_user_with_email(database: &Database, email: &str) -> Re
 /// user's tenant. This helper looks up the user's tenant from the database and
 /// includes it in the generated token.
 pub async fn generate_test_token(resources: &Arc<ServerResources>, user: &User) -> String {
-    let tenants = resources.database.list_for_user(user.id).await.unwrap();
+    let repos = resources.database.repositories();
+    let tenants = repos.tenants.list_for_user(user.id).await.unwrap();
     let tenant_id = tenants.first().map(|t| t.id.to_string());
     resources
         .auth_manager
@@ -329,7 +331,8 @@ pub async fn create_and_store_test_api_key(
 
     let manager = ApiKeyManager::new();
     let (api_key, _) = manager.create_api_key(user_id, request)?;
-    ApiKeyRepository::create(database, &api_key).await?;
+    let repos = database.repositories();
+    repos.api_keys.create(&api_key).await?;
     Ok(api_key)
 }
 
@@ -344,7 +347,7 @@ pub async fn setup_test_environment() -> Result<(
 )> {
     let database = create_test_database().await?;
     let auth_manager = create_test_auth_manager();
-    let auth_middleware = create_test_auth_middleware(&auth_manager, database.clone());
+    let auth_middleware = create_test_auth_middleware(&auth_manager, &database);
 
     let (user_id, _user) = create_test_user(&database).await?;
     let api_key = create_test_api_key(&database, user_id, "test-key")?;
@@ -371,7 +374,8 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
     user.tier = tier;
     let user_id = user.id;
 
-    UserRepository::create(&*database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
     Ok((database, user_id))
 }
 
@@ -875,8 +879,9 @@ pub async fn create_test_tenant(
 
     // Look up user's tenant to include active_tenant_id in the JWT.
     // Route handlers require active_tenant_id in JWT claims.
-    let tenants = resources
-        .database
+    let repos = resources.database.repositories();
+    let tenants = repos
+        .tenants
         .list_for_user(user.id)
         .await
         .map_err(|e| anyhow::Error::msg(format!("Failed to get user tenants: {e}")))?;

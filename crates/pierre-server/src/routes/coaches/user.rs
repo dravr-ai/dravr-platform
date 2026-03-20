@@ -23,7 +23,7 @@ use pierre_core::models::coaches::{
     CoachCategory, CoachPrerequisites, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
 use pierre_database::database::coaches::compute_request_hash;
-use pierre_database::database::{repositories::OAuthTokenRepository, ChatManager};
+use pierre_database::database::ChatManager;
 use std::sync::Arc;
 
 use super::types::{
@@ -61,7 +61,8 @@ pub(super) async fn handle_list(
     let check_prereqs = query.check_prerequisites.unwrap_or(false);
     let user_providers = if check_prereqs {
         resources
-            .database
+            .repos
+            .oauth_tokens
             .get_tokens(auth.user_id, None)
             .await
             .map(|tokens| {

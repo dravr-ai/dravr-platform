@@ -34,7 +34,7 @@ use pierre_core::models::mobility::{
     YogaPose, YogaPoseType,
 };
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::{SeedTable, SeederRepository};
+use pierre_database::repositories::SeedTable;
 use std::env;
 use tracing::info;
 use uuid::Uuid;
@@ -832,14 +832,21 @@ async fn main() -> AppResult<()> {
 
     info!("Connecting to database: {}", database_url);
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Check if data already exists via SeederRepository
-    let stretch_count = db
+    let stretch_count = repos
+        .seeder
         .seed_count_table(SeedTable::StretchingExercises)
         .await
         .unwrap_or(0);
-    let yoga_count = db.seed_count_table(SeedTable::YogaPoses).await.unwrap_or(0);
-    let mapping_count = db
+    let yoga_count = repos
+        .seeder
+        .seed_count_table(SeedTable::YogaPoses)
+        .await
+        .unwrap_or(0);
+    let mapping_count = repos
+        .seeder
         .seed_count_table(SeedTable::ActivityMuscleMapping)
         .await
         .unwrap_or(0);
@@ -860,14 +867,17 @@ async fn main() -> AppResult<()> {
     );
     for data in STRETCHING_EXERCISES {
         let exercise = to_stretching_exercise(data, now);
-        db.seed_upsert_stretching_exercise(&exercise).await?;
+        repos
+            .seeder
+            .seed_upsert_stretching_exercise(&exercise)
+            .await?;
         info!("  + {}", data.name);
     }
 
     info!("Seeding {} yoga poses...", YOGA_POSES.len());
     for data in YOGA_POSES {
         let pose = to_yoga_pose(data, now);
-        db.seed_upsert_yoga_pose(&pose).await?;
+        repos.seeder.seed_upsert_yoga_pose(&pose).await?;
         info!("  + {}", data.english_name);
     }
 
@@ -877,7 +887,7 @@ async fn main() -> AppResult<()> {
     );
     for data in ACTIVITY_MAPPINGS {
         let mapping = to_activity_mapping(data, now);
-        db.seed_upsert_activity_mapping(&mapping).await?;
+        repos.seeder.seed_upsert_activity_mapping(&mapping).await?;
         info!("  + {}", data.activity_type);
     }
 

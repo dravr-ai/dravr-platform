@@ -24,9 +24,6 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::repositories::{
-    ImpersonationRepository, TenantRepository, UserRepository,
-};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::info;
@@ -124,7 +121,8 @@ impl ImpersonationRoutes {
 
         // Get user and check for super_admin role
         let user = resources
-            .database
+            .repos
+            .users
             // SECURITY: Global lookup — impersonation is super-admin, cross-tenant by design
             .get_global(auth.user_id)
             .await
@@ -161,7 +159,8 @@ impl ImpersonationRoutes {
 
         // Get target user
         let target_user = resources
-            .database
+            .repos
+            .users
             // SECURITY: Global lookup — impersonation target can be in any tenant
             .get_global(target_user_id)
             .await
@@ -178,7 +177,8 @@ impl ImpersonationRoutes {
 
         // End any existing active impersonation sessions for this impersonator
         resources
-            .database
+            .repos
+            .impersonation
             .end_all_sessions(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to end existing sessions: {e}")))?;
@@ -189,7 +189,8 @@ impl ImpersonationRoutes {
 
         // Store session in database
         resources
-            .database
+            .repos
+            .impersonation
             .create_session(&session)
             .await
             .map_err(|e| {
@@ -202,7 +203,8 @@ impl ImpersonationRoutes {
         // 2. The target_user has no active session/JWT from which to extract active_tenant_id
         // 3. The impersonator can switch tenants after starting the session if needed
         let active_tenant_id = resources
-            .database
+            .repos
+            .tenants
             .list_for_user(target_user.id)
             .await
             .ok()
@@ -261,7 +263,8 @@ impl ImpersonationRoutes {
         // (super admin ending via their own token) or the target user (using the
         // impersonation token whose sub is the target_user_id).
         let session = resources
-            .database
+            .repos
+            .impersonation
             .get_active_session(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get session: {e}")))?;
@@ -272,7 +275,8 @@ impl ImpersonationRoutes {
 
         // End the session
         resources
-            .database
+            .repos
+            .impersonation
             .end_session(&session.id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to end session: {e}")))?;
@@ -314,7 +318,8 @@ impl ImpersonationRoutes {
 
         // Fetch all sessions (not just active)
         let sessions = resources
-            .database
+            .repos
+            .impersonation
             .list_sessions(None, None, false, 100)
             .await
             .map_err(|e| AppError::internal(format!("Failed to list sessions: {e}")))?;
@@ -323,14 +328,16 @@ impl ImpersonationRoutes {
         let mut summaries = Vec::with_capacity(sessions.len());
         for session in &sessions {
             let impersonator_email = resources
-                .database
+                .repos
+                .users
                 .get_global(session.impersonator_id)
                 .await
                 .ok()
                 .flatten()
                 .map(|u| u.email);
             let target_email = resources
-                .database
+                .repos
+                .users
                 .get_global(session.target_user_id)
                 .await
                 .ok()
@@ -374,7 +381,8 @@ impl ImpersonationRoutes {
 
         // Get the session
         let session = resources
-            .database
+            .repos
+            .impersonation
             .get_session(&session_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get session: {e}")))?
@@ -382,14 +390,16 @@ impl ImpersonationRoutes {
 
         // Get user details
         let impersonator_email = resources
-            .database
+            .repos
+            .users
             .get_global(session.impersonator_id)
             .await
             .ok()
             .flatten()
             .map(|u| u.email);
         let target_email = resources
-            .database
+            .repos
+            .users
             .get_global(session.target_user_id)
             .await
             .ok()

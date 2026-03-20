@@ -12,8 +12,8 @@ use crate::models::{
 };
 use lru::LruCache;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{TenantRepository, ToolSelectionRepository};
+// ToolSelectionRepository dispatched through repos.tool_selection
+use pierre_database::RepositoryRegistry;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -39,7 +39,7 @@ struct CacheEntry {
 /// 3. **Tenant Override** - Admin-configured per-tenant settings
 /// 4. **Catalog Default** - Default enablement from `tool_catalog` table
 pub struct ToolSelectionService {
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
     cache: Arc<RwLock<LruCache<TenantId, CacheEntry>>>,
     cache_ttl: Duration,
     /// Global tool selection configuration from environment
@@ -51,9 +51,9 @@ impl ToolSelectionService {
     ///
     /// Loads tool selection configuration from environment variables.
     #[must_use]
-    pub fn new(database: Arc<Database>) -> Self {
+    pub fn new(repos: Arc<RepositoryRegistry>) -> Self {
         let config = ToolSelectionConfig::from_env();
-        Self::with_config(database, config)
+        Self::with_config(repos, config)
     }
 
     /// Create a new `ToolSelectionService` with explicit configuration
@@ -61,7 +61,7 @@ impl ToolSelectionService {
     /// This constructor is useful for testing or when configuration
     /// should be managed externally.
     #[must_use]
-    pub fn with_config(database: Arc<Database>, config: ToolSelectionConfig) -> Self {
+    pub fn with_config(repos: Arc<RepositoryRegistry>, config: ToolSelectionConfig) -> Self {
         if config.has_disabled_tools() {
             info!(
                 "Tool selection initialized with {} globally disabled tools: {:?}",
@@ -71,7 +71,7 @@ impl ToolSelectionService {
         }
 
         Self {
-            database,
+            repos,
             cache: Arc::new(RwLock::new(LruCache::new(CACHE_SIZE))),
             cache_ttl: Duration::from_secs(300),
             config,
@@ -80,10 +80,10 @@ impl ToolSelectionService {
 
     /// Create a new `ToolSelectionService` with custom cache TTL
     #[must_use]
-    pub fn with_ttl(database: Arc<Database>, cache_ttl: Duration) -> Self {
+    pub fn with_ttl(repos: Arc<RepositoryRegistry>, cache_ttl: Duration) -> Self {
         let config = ToolSelectionConfig::from_env();
         Self {
-            database,
+            repos,
             cache: Arc::new(RwLock::new(LruCache::new(CACHE_SIZE))),
             cache_ttl,
             config,
@@ -178,13 +178,14 @@ impl ToolSelectionService {
 
         // Cache miss - fetch just what we need for this tool
         let catalog_entry = self
-            .database
+            .repos
+            .tool_selection
             .get_tool_catalog_entry(tool_name)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
 
         // Try to get tenant; fall back to Enterprise plan if not found
-        let tenant_plan = match self.database.get_by_id(tenant_id).await {
+        let tenant_plan = match self.repos.tenants.get_by_id(tenant_id).await {
             Ok(tenant) => TenantPlan::parse_str(&tenant.plan).unwrap_or(TenantPlan::Enterprise),
             Err(_) => TenantPlan::Enterprise,
         };
@@ -195,7 +196,12 @@ impl ToolSelectionService {
         }
 
         // Check tenant override (only if tenant exists - ignore errors here)
-        if let Ok(Some(override_entry)) = self.database.get_override(tenant_id, tool_name).await {
+        if let Ok(Some(override_entry)) = self
+            .repos
+            .tool_selection
+            .get_override(tenant_id, tool_name)
+            .await
+        {
             return Ok(override_entry.is_enabled);
         }
 
@@ -219,14 +225,16 @@ impl ToolSelectionService {
         reason: Option<String>,
     ) -> AppResult<TenantToolOverride> {
         // Validate tool exists
-        self.database
+        self.repos
+            .tool_selection
             .get_tool_catalog_entry(tool_name)
             .await?
             .ok_or_else(|| AppError::not_found(format!("Tool '{tool_name}'")))?;
 
         // Upsert override
         let override_entry = self
-            .database
+            .repos
+            .tool_selection
             .upsert_override(
                 tenant_id,
                 tool_name,
@@ -252,7 +260,11 @@ impl ToolSelectionService {
         tenant_id: TenantId,
         tool_name: &str,
     ) -> AppResult<bool> {
-        let deleted = self.database.delete_override(tenant_id, tool_name).await?;
+        let deleted = self
+            .repos
+            .tool_selection
+            .delete_override(tenant_id, tool_name)
+            .await?;
 
         // Invalidate cache
         self.invalidate_tenant(tenant_id).await;
@@ -328,7 +340,7 @@ impl ToolSelectionService {
     ///
     /// Returns an error if database operations fail
     pub async fn get_catalog(&self) -> AppResult<Vec<ToolCatalogEntry>> {
-        self.database.get_tool_catalog().await
+        self.repos.tool_selection.get_tool_catalog().await
     }
 
     /// Compute effective tools for a tenant (no caching)
@@ -337,13 +349,13 @@ impl ToolSelectionService {
     /// with Enterprise plan (no plan restrictions, all tools available by default).
     async fn compute_effective_tools(&self, tenant_id: TenantId) -> AppResult<Vec<EffectiveTool>> {
         // Try to get tenant; fall back to Enterprise plan if tenant doesn't exist
-        let (tenant_plan, override_map) = match self.database.get_by_id(tenant_id).await {
+        let (tenant_plan, override_map) = match self.repos.tenants.get_by_id(tenant_id).await {
             Ok(tenant) => {
                 let plan = TenantPlan::parse_str(&tenant.plan).unwrap_or(TenantPlan::Enterprise);
 
                 // Load tenant overrides
                 let overrides: Vec<TenantToolOverride> =
-                    self.database.get_overrides(tenant_id).await?;
+                    self.repos.tool_selection.get_overrides(tenant_id).await?;
                 let map: HashMap<String, bool> = overrides
                     .into_iter()
                     .map(|o| (o.tool_name, o.is_enabled))
@@ -359,7 +371,7 @@ impl ToolSelectionService {
         };
 
         // Load full catalog
-        let catalog: Vec<ToolCatalogEntry> = self.database.get_tool_catalog().await?;
+        let catalog: Vec<ToolCatalogEntry> = self.repos.tool_selection.get_tool_catalog().await?;
 
         // Compute effective tools
         let effective_tools = catalog

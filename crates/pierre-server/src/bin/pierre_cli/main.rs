@@ -212,8 +212,11 @@ async fn main() -> Result<()> {
     info!("Running database migrations...");
     database.migrate().await?;
 
+    // Build repository registry for trait-object dispatch
+    let repos = database.repositories();
+
     // Initialize JWKS manager - loads RSA keys from database for server compatibility
-    let jwks_manager = initialize_jwks_manager(&database).await?;
+    let jwks_manager = initialize_jwks_manager(&repos).await?;
 
     // Execute command
     match cli.command {
@@ -225,8 +228,7 @@ async fn main() -> Result<()> {
                 force,
                 super_admin,
             } => {
-                commands::user::create(&database, email, password, name, force, super_admin)
-                    .await?;
+                commands::user::create(&repos, email, password, name, force, super_admin).await?;
             }
         },
         Command::Token { action } => match action {
@@ -238,7 +240,7 @@ async fn main() -> Result<()> {
                 permissions,
             } => {
                 commands::token::generate(
-                    &database,
+                    &repos,
                     &jwks_manager,
                     service,
                     description,
@@ -252,19 +254,19 @@ async fn main() -> Result<()> {
                 include_inactive,
                 detailed,
             } => {
-                commands::token::list(&database, include_inactive, detailed).await?;
+                commands::token::list(&repos, include_inactive, detailed).await?;
             }
             TokenCommand::Revoke { token_id } => {
-                commands::token::revoke(&database, token_id).await?;
+                commands::token::revoke(&repos, token_id).await?;
             }
             TokenCommand::Rotate {
                 token_id,
                 expires_days,
             } => {
-                commands::token::rotate(&database, &jwks_manager, token_id, expires_days).await?;
+                commands::token::rotate(&repos, &jwks_manager, token_id, expires_days).await?;
             }
             TokenCommand::Stats { token_id, days } => {
-                commands::token::stats(&database, token_id, days).await?;
+                commands::token::stats(&repos, token_id, days).await?;
             }
         },
     }

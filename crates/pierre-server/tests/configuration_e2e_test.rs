@@ -15,7 +15,6 @@ mod common;
 
 use pierre_auth::auth::AuthManager;
 use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::UserRepository;
 use pierre_mcp_server::cache::{factory::Cache, CacheConfig};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -114,7 +113,10 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
         "hashed_password".to_owned(),
         Some("Config Test User".to_owned()),
     );
-    let user_id = UserRepository::create(&*database, &test_user)
+    let repos = database.repositories();
+    let user_id = repos
+        .users
+        .create(&test_user)
         .await
         .expect("Failed to create test user");
 

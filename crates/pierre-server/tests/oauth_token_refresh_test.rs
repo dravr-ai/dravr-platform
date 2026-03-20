@@ -150,10 +150,7 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, OAuthTokenRepository, TenantRepository, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -580,7 +577,8 @@ async fn test_get_activities_with_expired_token() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Store expired token
     let expires_at = chrono::Utc::now() - chrono::Duration::hours(1); // Expired
@@ -593,7 +591,7 @@ async fn test_get_activities_with_expired_token() {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token).await.unwrap();
+    repos.oauth_tokens.upsert_token(&oauth_token).await.unwrap();
 
     // Set up environment for OAuth provider
     env::set_var("STRAVA_CLIENT_ID", "test_client");
@@ -666,7 +664,8 @@ async fn test_connection_status_with_oauth_manager() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Set up environment for OAuth providers
     env::set_var("STRAVA_CLIENT_ID", "test_client");
@@ -741,7 +740,8 @@ async fn test_analyze_activity_token_refresh() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Store token that will expire soon
     let expires_at = chrono::Utc::now() + chrono::Duration::minutes(3); // Expires in 3 minutes (within buffer)
@@ -754,7 +754,7 @@ async fn test_analyze_activity_token_refresh() {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token).await.unwrap();
+    repos.oauth_tokens.upsert_token(&oauth_token).await.unwrap();
 
     // Set up environment
     env::set_var("STRAVA_CLIENT_ID", "test_client");
@@ -836,7 +836,8 @@ async fn test_concurrent_token_operations() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Store valid token
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(1);
@@ -849,7 +850,7 @@ async fn test_concurrent_token_operations() {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token).await.unwrap();
+    repos.oauth_tokens.upsert_token(&oauth_token).await.unwrap();
 
     // Set up environment
     env::set_var("STRAVA_CLIENT_ID", "test_client");
@@ -915,7 +916,8 @@ async fn test_oauth_provider_init_failure() {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&*database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Create tenant with the user as owner
     let tenant = Tenant::new(
@@ -925,7 +927,7 @@ async fn test_oauth_provider_init_failure() {
         "starter".to_owned(),
         user_id, // User is now the owner
     );
-    TenantRepository::create(&*database, &tenant).await.unwrap();
+    repos.tenants.create(&tenant).await.unwrap();
 
     // Create request - explicitly request Strava provider which requires OAuth
     let request = UniversalRequest {

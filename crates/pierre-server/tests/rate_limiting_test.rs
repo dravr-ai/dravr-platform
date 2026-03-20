@@ -49,9 +49,10 @@ async fn create_test_setup() -> (Arc<Database>, ApiKeyManager, Arc<McpAuthMiddle
     // Create auth manager and middleware
     let auth_manager = AuthManager::new(24);
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         auth_manager,
-        database.clone(),
+        repos,
         jwks_manager,
         RateLimitConfig::default(),
     ));

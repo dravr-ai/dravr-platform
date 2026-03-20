@@ -66,7 +66,7 @@ impl AdminConfigState {
             .map_err(|e| AppError::auth_invalid(format!("Authentication failed: {e}")))?;
 
         // Verify admin privileges using centralized guard
-        let user = require_admin(auth.user_id, &self.resources.database).await?;
+        let user = require_admin(auth.user_id, &self.resources.repos.users).await?;
 
         Ok(AdminAuthInfo {
             user_id: auth.user_id.to_string(),

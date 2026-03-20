@@ -37,7 +37,6 @@ use pierre_core::constants::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::UserRepository;
 
 /// Response for checking system setup status
@@ -644,9 +643,12 @@ impl AuthManager {
     /// - Database connection fails
     /// - Database query execution fails
     /// - User data deserialization fails
-    pub async fn check_setup_status(&self, database: &Database) -> AppResult<SetupStatusResponse> {
+    pub async fn check_setup_status(
+        &self,
+        users: &dyn UserRepository,
+    ) -> AppResult<SetupStatusResponse> {
         // Check for any active user with is_admin=true (consistent with admin setup endpoint)
-        match database.get_by_status("active", None).await {
+        match users.get_by_status("active", None).await {
             Ok(users) => {
                 let admin_exists = users.iter().any(|u| u.is_admin);
                 if admin_exists {

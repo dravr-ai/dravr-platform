@@ -30,7 +30,6 @@ use crate::{
     middleware::redact_session_id,
     middleware::RequestId,
 };
-use pierre_database::database::repositories::UserRepository;
 
 /// Session data for MCP requests
 #[derive(Clone)]
@@ -303,7 +302,7 @@ impl McpRoutes {
             token,
             &state.resources.auth_manager,
             &state.resources.jwks_manager,
-            &state.resources.database,
+            &state.resources.repos,
         )
         .await
         else {
@@ -313,7 +312,8 @@ impl McpRoutes {
         // SECURITY: Global lookup — WebSocket session setup, tenant resolved later
         let Ok(Some(..)) = state
             .resources
-            .database
+            .repos
+            .users
             .get_global(jwt_result.user_id)
             .await
         else {

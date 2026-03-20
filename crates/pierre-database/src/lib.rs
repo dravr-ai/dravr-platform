@@ -30,4 +30,8 @@ pub mod database;
 /// Database backend plugins (factory, shared utilities, `PostgreSQL`)
 pub mod plugins;
 
+/// Trait-object registry for repository access without runtime enum dispatch
+pub mod repository_registry;
+
 pub use repositories::DatabaseProvider;
+pub use repository_registry::RepositoryRegistry;
