@@ -58,7 +58,8 @@ Check which fitness providers are connected. Use this first to verify the user h
 - Returns: Connection status for all supported providers
 
 **connect_provider**
-Help user connect to a fitness provider via OAuth.
+Help user connect or reconnect to a fitness provider via OAuth.
+When a provider returns token errors, auth failures, or empty data due to expired credentials, call this tool to generate a fresh OAuth link. Do not tell the user to reconnect manually — always generate the link.
 - Parameters: `provider` (required) - "strava", "fitbit", "garmin", "whoop", or "terra"
 - Returns: OAuth URL for user to authenticate
 
