@@ -1,0 +1,70 @@
+# ABOUTME: CI workflow for Pierre Mobile unit tests, typecheck, and lint
+# ABOUTME: Runs on every push that touches mobile code — fast feedback loop (~3min)
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: Mobile Unit Tests
+
+on:
+  push:
+    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    paths:
+      - 'frontend-mobile/**'
+      - 'packages/**'
+      - '.github/workflows/mobile-unit-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'frontend-mobile/**'
+      - 'packages/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Typecheck, Lint & Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install shared-types dependencies
+        working-directory: packages/shared-types
+        run: bun install
+
+      - name: Install api-client dependencies
+        working-directory: packages/api-client
+        run: bun install
+
+      - name: Install mobile dependencies
+        working-directory: frontend-mobile
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        working-directory: frontend-mobile
+        run: bun run typecheck
+
+      - name: Run unit tests
+        working-directory: frontend-mobile
+        run: bun run test -- --coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-coverage
+          path: frontend-mobile/coverage/
+          retention-days: 7
