@@ -23,6 +23,8 @@ use serde_json::{json, Map, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use pierre_database::plugins::TenantRepository;
+
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
@@ -33,10 +35,6 @@ use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::{TenantContext, TenantRole};
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{
-    OAuthClientStateRepository, OAuthTokenRepository, TenantRepository, UserRepository,
-};
 
 // ============================================================================
 // Helper functions for connection tools
@@ -63,7 +61,7 @@ fn build_oauth_state(user_id: Uuid, redirect_url: Option<&str>) -> String {
 
 /// Build tenant context from user and request context
 async fn build_tenant_context(
-    database: &Database,
+    tenants: &dyn TenantRepository,
     user_id: Uuid,
     user_default_tenant_id: Option<TenantId>,
     context_tenant_id: Option<TenantId>,
@@ -73,7 +71,7 @@ async fn build_tenant_context(
         .or(user_default_tenant_id)
         .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?;
 
-    let tenant_name = database
+    let tenant_name = tenants
         .get_by_id(tenant_id)
         .await
         .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
@@ -174,7 +172,7 @@ impl McpTool for ConnectProviderTool {
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let registry = context.provider_registry();
-        let database = context.database();
+        let repos = &context.resources.repos;
 
         // Extract and validate provider parameter
         let provider =
@@ -206,22 +204,27 @@ impl McpTool for ConnectProviderTool {
         }
 
         // SECURITY: Global lookup — connection tool, tenant resolved from user's membership
-        database.get_global(context.user_id).await?.ok_or_else(|| {
-            AppError::new(
-                ErrorCode::ResourceNotFound,
-                format!("User {} not found", context.user_id),
-            )
-        })?;
+        repos
+            .users
+            .get_global(context.user_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    ErrorCode::ResourceNotFound,
+                    format!("User {} not found", context.user_id),
+                )
+            })?;
 
         // Resolve user's default tenant from tenant_users junction table (fallback)
-        let user_default_tenant_id = database
+        let user_default_tenant_id = repos
+            .tenants
             .list_for_user(context.user_id)
             .await
             .ok()
             .and_then(|t| t.first().map(|tenant| tenant.id));
 
         let tenant_context = build_tenant_context(
-            database,
+            repos.tenants.as_ref(),
             context.user_id,
             user_default_tenant_id,
             context.tenant_id.map(TenantId::from),
@@ -234,7 +237,13 @@ impl McpTool for ConnectProviderTool {
         match context
             .resources
             .tenant_oauth_client
-            .get_authorization_url(&tenant_context, provider, &state, database)
+            .get_authorization_url(
+                &tenant_context,
+                provider,
+                &state,
+                context.resources.repos.tenants.as_ref(),
+                context.resources.repos.oauth_tokens.as_ref(),
+            )
             .await
         {
             Ok(url) => {
@@ -261,7 +270,11 @@ impl McpTool for ConnectProviderTool {
                     used: false,
                 };
 
-                if let Err(e) = database.store_oauth_client_state(&client_state).await {
+                if let Err(e) = repos
+                    .oauth_client_state
+                    .store_oauth_client_state(&client_state)
+                    .await
+                {
                     warn!("Failed to store OAuth state for CSRF protection: {}", e);
                     return Ok(build_oauth_error_response(
                         provider,
@@ -428,7 +441,6 @@ impl McpTool for DisconnectProviderTool {
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let registry = context.provider_registry();
-        let database = context.database();
 
         // Extract provider from parameters (required)
         let provider =
@@ -448,7 +460,10 @@ impl McpTool for DisconnectProviderTool {
         })?;
 
         // Disconnect by deleting the token directly
-        match database
+        match context
+            .resources
+            .repos
+            .oauth_tokens
             .delete_token(context.user_id, tenant_id, provider)
             .await
         {

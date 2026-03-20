@@ -63,9 +63,13 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
     // Create admin API context
     let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
     let database_arc = Arc::new(database.clone());
-    let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
+    let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
+        database_arc.repositories(),
+    )));
+    let repos_arc = Arc::new(database_arc.repositories());
     let admin_context = AdminApiContext::new(
         database_arc,
+        repos_arc,
         jwt_secret,
         Arc::new(auth_manager.clone()),
         jwks_manager.clone(),
@@ -264,9 +268,13 @@ async fn test_admin_token_management_workflow() -> Result<()> {
 
     let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
     let database_arc = Arc::new(database.clone());
-    let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
+    let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
+        database_arc.repositories(),
+    )));
+    let repos_arc = Arc::new(database_arc.repositories());
     let admin_context = AdminApiContext::new(
         database_arc,
+        repos_arc,
         jwt_secret,
         Arc::new(auth_manager),
         jwks_manager.clone(),
@@ -400,9 +408,13 @@ async fn test_admin_workflow_error_handling() -> Result<()> {
 
     let admin_api_key_monthly_limit = STARTER_MONTHLY_LIMIT;
     let database_arc = Arc::new(database);
-    let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
+    let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
+        database_arc.repositories(),
+    )));
+    let repos_arc = Arc::new(database_arc.repositories());
     let admin_context = AdminApiContext::new(
         database_arc,
+        repos_arc,
         jwt_secret,
         Arc::new(auth_manager),
         jwks_manager,
@@ -565,9 +577,13 @@ async fn test_user_approval_with_tenant_creation() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     let database_arc = Arc::new(database.clone());
-    let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
+    let tool_selection = Arc::new(ToolSelectionService::new(Arc::new(
+        database_arc.repositories(),
+    )));
+    let repos_arc = Arc::new(database_arc.repositories());
     let admin_context = AdminApiContext::new(
         database_arc,
+        repos_arc,
         jwt_secret,
         Arc::new(auth_manager.clone()),
         jwks_manager.clone(),

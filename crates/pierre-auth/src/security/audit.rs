@@ -14,7 +14,6 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::SecurityRepository;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -25,15 +24,15 @@ pub use pierre_core::models::{AuditEvent, AuditEventType, AuditSeverity};
 
 /// Audit logger for security events
 pub struct SecurityAuditor {
-    /// Database connection for storing audit events
-    database: Arc<Database>,
+    /// Security repository for storing audit events
+    security: Arc<dyn SecurityRepository>,
 }
 
 impl SecurityAuditor {
     /// Create new security auditor
     #[must_use]
-    pub const fn new(database: Arc<Database>) -> Self {
-        Self { database }
+    pub fn new(security: Arc<dyn SecurityRepository>) -> Self {
+        Self { security }
     }
 
     /// Log audit event to structured logger based on severity
@@ -125,7 +124,7 @@ impl SecurityAuditor {
     /// Store audit event in database
     async fn store_audit_event(&self, event: &AuditEvent) -> AppResult<()> {
         // Store audit event in database
-        self.database.store_audit_event(event).await?;
+        self.security.store_audit_event(event).await?;
 
         debug!(
             "Stored audit event {} in database: {}",

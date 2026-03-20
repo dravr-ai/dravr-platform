@@ -39,7 +39,6 @@ use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::plugins::ProfileRepository;
 
 // ============================================================================
 // Helper functions
@@ -376,7 +375,10 @@ impl McpTool for GetUserConfigurationTool {
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let user_id_str = ctx.user_id.to_string();
 
-        match (*ctx.resources.database)
+        match ctx
+            .resources
+            .repos
+            .profiles
             .get_configuration(&user_id_str)
             .await
         {
@@ -529,7 +531,9 @@ impl McpTool for UpdateUserConfigurationTool {
         let config_json = serde_json::to_string(&configuration)
             .map_err(|e| AppError::internal(format!("Failed to serialize config: {e}")))?;
 
-        (*ctx.resources.database)
+        ctx.resources
+            .repos
+            .profiles
             .save_configuration(&user_id_str, &config_json)
             .await
             .map_err(|e| AppError::internal(format!("Failed to update configuration: {e}")))?;

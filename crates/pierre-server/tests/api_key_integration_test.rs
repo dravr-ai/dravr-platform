@@ -55,9 +55,10 @@ async fn create_test_environment() -> (
 
     // Create auth middleware
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
-        database.clone(),
+        repos,
         jwks_manager,
         RateLimitConfig::default(),
     ));

@@ -146,12 +146,12 @@ async fn test_tenant_credential_isolation() -> Result<()> {
 
     // Get credentials for tenant A (should use server-level config)
     let env_creds = oauth_manager
-        .get_credentials(env_tenant_id, oauth_providers::STRAVA, &database)
+        .get_credentials(env_tenant_id, oauth_providers::STRAVA, &database, &database)
         .await?;
 
     // Get credentials for tenant B (should use tenant-specific credentials)
     let db_creds = oauth_manager
-        .get_credentials(db_tenant_id, oauth_providers::STRAVA, &database)
+        .get_credentials(db_tenant_id, oauth_providers::STRAVA, &database, &database)
         .await?;
 
     // Verify tenant A uses server-level credentials
@@ -528,7 +528,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
 
     // Get credentials for token refresh
     let refresh_creds = oauth_manager
-        .get_credentials(tenant_id, oauth_providers::STRAVA, &database)
+        .get_credentials(tenant_id, oauth_providers::STRAVA, &database, &database)
         .await?;
 
     // Verify correct credentials are returned for refresh
@@ -715,7 +715,12 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
         let creds = {
             let manager_guard = oauth_manager.read().await;
             manager_guard
-                .get_credentials(tenant_id, oauth_providers::STRAVA, &database)
+                .get_credentials(
+                    tenant_id,
+                    oauth_providers::STRAVA,
+                    database.as_ref(),
+                    database.as_ref(),
+                )
                 .await?
         };
         assert_eq!(

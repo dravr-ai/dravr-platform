@@ -28,7 +28,6 @@ use crate::{
     services::usage_counter::{LimitCheckResult, UsageCounterService},
 };
 use pierre_auth::auth::AuthResult;
-use pierre_database::database::repositories::{ChatRepository, TenantRepository};
 
 /// Usage status response containing all quota information
 #[derive(Debug, Serialize)]
@@ -100,7 +99,7 @@ impl UsageRoutes {
         user_id: uuid::Uuid,
         resources: &Arc<ServerResources>,
     ) -> Result<TenantId, AppError> {
-        let tenants = resources.database.list_for_user(user_id).await?;
+        let tenants = resources.repos.tenants.list_for_user(user_id).await?;
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(user_id), |t| t.id))
@@ -128,7 +127,8 @@ impl UsageRoutes {
                 resets_at: String::new(),
             };
             let conversation_count = resources
-                .database
+                .repos
+                .chat
                 .count_conversations(&user_id_str, tenant_id)
                 .await
                 .unwrap_or(0);
@@ -153,7 +153,8 @@ impl UsageRoutes {
             return Ok((StatusCode::OK, Json(response)).into_response());
         };
 
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         // Fetch all counter statuses in parallel-friendly sequence
         let daily_messages = usage_svc
@@ -177,7 +178,8 @@ impl UsageRoutes {
 
         // Get resource counts for conversations and coaches
         let conversation_count = resources
-            .database
+            .repos
+            .chat
             .count_conversations(&user_id_str, tenant_id)
             .await
             .unwrap_or(0);

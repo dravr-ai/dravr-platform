@@ -11,7 +11,7 @@ use crate::protocols::universal::{UniversalResponse, UniversalToolExecutor};
 use crate::providers::core::FitnessProvider;
 use crate::providers::{OAuth2Credentials, ProviderRegistry};
 use pierre_auth::tenant::TenantOAuthClient;
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,8 +28,10 @@ use uuid::Uuid;
 pub struct TenantCredentialContext<'a> {
     /// Tenant OAuth client for credential lookup
     pub tenant_oauth_client: &'a TenantOAuthClient,
-    /// Database for credential persistence queries
-    pub database: &'a Database,
+    /// Tenant repository for credential persistence queries
+    pub tenants: &'a dyn TenantRepository,
+    /// OAuth token repository for user-specific OAuth app lookups
+    pub oauth_tokens: &'a dyn OAuthTokenRepository,
     /// Tenant identifier for credential scoping
     pub tenant_id: TenantId,
     /// User identifier for user-specific credential lookup
@@ -110,7 +112,8 @@ pub async fn create_configured_provider_with_tenant(
                 Some(ctx.user_id),
                 ctx.tenant_id,
                 provider_name,
-                ctx.database,
+                ctx.tenants,
+                ctx.oauth_tokens,
             )
             .await
         {
@@ -386,7 +389,8 @@ pub async fn fetch_provider_activities(
                 .and_then(|tid| tid.parse::<TenantId>().ok())
                 .map(|tid| TenantCredentialContext {
                     tenant_oauth_client: &executor.resources.tenant_oauth_client,
-                    database: &executor.resources.database,
+                    tenants: executor.resources.repos.tenants.as_ref(),
+                    oauth_tokens: executor.resources.repos.oauth_tokens.as_ref(),
                     tenant_id: tid,
                     user_id: user_uuid,
                 });

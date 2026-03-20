@@ -46,8 +46,8 @@ use pierre_auth::auth::Claims;
 use pierre_auth::security::cookies::get_cookie_value;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use pierre_core::models::TenantId;
-use pierre_database::database::repositories::TenantRepository;
-use pierre_database::plugins::factory::Database;
+// TenantRepository dispatched through repos.tenants
+use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -226,10 +226,10 @@ async fn extract_tenant_from_token(
     };
 
     // Resolve tenant ID and build context
-    let database = &resources.database;
+    let repos = &resources.repos;
     let tenant_id =
-        resolve_tenant_id_from_claims(&claims, user_id, explicit_tenant_id, database).await?;
-    build_tenant_context(tenant_id, user_id, database).await
+        resolve_tenant_id_from_claims(&claims, user_id, explicit_tenant_id, repos).await?;
+    build_tenant_context(tenant_id, user_id, repos).await
 }
 
 /// Resolve the tenant ID from JWT claims, header, or fall back to user's default tenant
@@ -242,11 +242,11 @@ async fn resolve_tenant_id_from_claims(
     claims: &Claims,
     user_id: Uuid,
     explicit_tenant_id: Option<TenantId>,
-    database: &Arc<Database>,
+    repos: &Arc<RepositoryRegistry>,
 ) -> Option<TenantId> {
     // Priority 1: JWT claims active_tenant_id
     if let Some(tenant_id_str) = claims.active_tenant_id.as_deref() {
-        return resolve_explicit_tenant_id_from_str(tenant_id_str, user_id, database).await;
+        return resolve_explicit_tenant_id_from_str(tenant_id_str, user_id, repos).await;
     }
 
     // Priority 2: x-tenant-id header (already parsed as TenantId)
@@ -256,11 +256,11 @@ async fn resolve_tenant_id_from_claims(
             tenant_id = %header_tenant_id,
             "Using tenant ID from x-tenant-id header"
         );
-        return verify_tenant_membership(user_id, header_tenant_id, database).await;
+        return verify_tenant_membership(user_id, header_tenant_id, repos).await;
     }
 
     // Priority 3: User's default tenant
-    get_user_default_tenant(user_id, database).await
+    get_user_default_tenant(user_id, repos).await
 }
 
 /// Resolve an explicitly specified tenant ID from a string (JWT claims)
@@ -269,13 +269,13 @@ async fn resolve_tenant_id_from_claims(
 async fn resolve_explicit_tenant_id_from_str(
     tenant_id_str: &str,
     user_id: Uuid,
-    database: &Arc<Database>,
+    repos: &Arc<RepositoryRegistry>,
 ) -> Option<TenantId> {
     let Some(tid) = parse_tenant_id(tenant_id_str) else {
-        return get_user_default_tenant(user_id, database).await;
+        return get_user_default_tenant(user_id, repos).await;
     };
 
-    verify_tenant_membership(user_id, tid, database).await
+    verify_tenant_membership(user_id, tid, repos).await
 }
 
 /// Parse tenant ID string into `TenantId`, logging errors
@@ -297,9 +297,9 @@ fn parse_tenant_id(tenant_id_str: &str) -> Option<TenantId> {
 async fn verify_tenant_membership(
     user_id: Uuid,
     tenant_id: TenantId,
-    database: &Arc<Database>,
+    repos: &Arc<RepositoryRegistry>,
 ) -> Option<TenantId> {
-    match database.get_user_role(user_id, tenant_id).await {
+    match repos.tenants.get_user_role(user_id, tenant_id).await {
         Ok(Some(_)) => Some(tenant_id),
         Ok(None) => {
             warn!(
@@ -307,11 +307,11 @@ async fn verify_tenant_membership(
                 tenant_id = %tenant_id,
                 "User does not belong to tenant specified in JWT claims"
             );
-            get_user_default_tenant(user_id, database).await
+            get_user_default_tenant(user_id, repos).await
         }
         Err(e) => {
             warn!(error = %e, "Failed to verify tenant membership");
-            get_user_default_tenant(user_id, database).await
+            get_user_default_tenant(user_id, repos).await
         }
     }
 }
@@ -320,13 +320,13 @@ async fn verify_tenant_membership(
 async fn build_tenant_context(
     tenant_id: TenantId,
     user_id: Uuid,
-    database: &Arc<Database>,
+    repos: &Arc<RepositoryRegistry>,
 ) -> Option<TenantContext> {
     // Fetch tenant details
-    let tenant_name = fetch_tenant_name(tenant_id, database).await;
+    let tenant_name = fetch_tenant_name(tenant_id, repos).await;
 
     // Fetch user's role in this tenant
-    let user_role = fetch_user_role(user_id, tenant_id, database).await;
+    let user_role = fetch_user_role(user_id, tenant_id, repos).await;
 
     Some(TenantContext::new(
         tenant_id,
@@ -337,8 +337,8 @@ async fn build_tenant_context(
 }
 
 /// Fetch tenant name from database, with fallback to default
-async fn fetch_tenant_name(tenant_id: TenantId, database: &Arc<Database>) -> String {
-    match database.get_by_id(tenant_id).await {
+async fn fetch_tenant_name(tenant_id: TenantId, repos: &Arc<RepositoryRegistry>) -> String {
+    match repos.tenants.get_by_id(tenant_id).await {
         Ok(tenant) => tenant.name,
         Err(e) => {
             warn!(
@@ -355,9 +355,9 @@ async fn fetch_tenant_name(tenant_id: TenantId, database: &Arc<Database>) -> Str
 async fn fetch_user_role(
     user_id: Uuid,
     tenant_id: TenantId,
-    database: &Arc<Database>,
+    repos: &Arc<RepositoryRegistry>,
 ) -> TenantRole {
-    match database.get_user_role(user_id, tenant_id).await {
+    match repos.tenants.get_user_role(user_id, tenant_id).await {
         Ok(Some(role_str)) => TenantRole::from_db_string(&role_str),
         Ok(None) => {
             warn!(
@@ -378,8 +378,11 @@ async fn fetch_user_role(
 }
 
 /// Get user's default tenant from the database
-async fn get_user_default_tenant(user_id: Uuid, database: &Arc<Database>) -> Option<TenantId> {
-    match database.list_for_user(user_id).await {
+async fn get_user_default_tenant(
+    user_id: Uuid,
+    repos: &Arc<RepositoryRegistry>,
+) -> Option<TenantId> {
+    match repos.tenants.list_for_user(user_id).await {
         Ok(tenants) => {
             if tenants.is_empty() {
                 debug!(user_id = %user_id, "User does not belong to any tenant");

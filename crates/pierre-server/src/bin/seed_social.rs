@@ -28,11 +28,11 @@ use chrono::{Duration, Utc};
 use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::SeederRepository;
 use pierre_database::seed_models::{
     SeedAdaptedInsight, SeedFriendConnection, SeedInsightReaction, SeedSharedInsight,
     SeedSocialSettings,
 };
+use pierre_database::RepositoryRegistry;
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -195,9 +195,10 @@ async fn main() -> AppResult<()> {
 
     info!("Connecting to database: {}", database_url);
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Verify demo users exist
-    let user_count = db.seed_count_non_admin_users().await?;
+    let user_count = repos.seeder.seed_count_non_admin_users().await?;
     if user_count < 5 {
         return Err(AppError::config(format!(
             "Not enough demo users found ({user_count}). Run 'cargo run --bin seed-demo-data' first."
@@ -207,15 +208,15 @@ async fn main() -> AppResult<()> {
     // Reset if requested
     if args.reset {
         info!("Resetting social data...");
-        db.seed_reset_social_data().await?;
+        repos.seeder.seed_reset_social_data().await?;
     }
 
     // Get demo user IDs (non-admin)
-    let user_ids = db.seed_get_non_admin_user_ids().await?;
+    let user_ids = repos.seeder.seed_get_non_admin_user_ids().await?;
     info!("Found {} demo users", user_ids.len());
 
     // Get admin user ID for testing
-    let admin = db.seed_get_admin_user().await?;
+    let admin = repos.seeder.seed_get_admin_user().await?;
     let admin_id = admin.map(|a| a.id);
     if let Some(ref id) = admin_id {
         info!("Found admin user for social testing: {}", id);
@@ -223,9 +224,9 @@ async fn main() -> AppResult<()> {
 
     // Seed social settings
     info!("Step 1: Creating user social settings...");
-    let settings_count = seed_social_settings(&db, &user_ids).await?;
+    let settings_count = seed_social_settings(&repos, &user_ids).await?;
     let admin_settings = if let Some(ref id) = admin_id {
-        seed_social_settings(&db, &[*id]).await?
+        seed_social_settings(&repos, &[*id]).await?
     } else {
         0
     };
@@ -236,9 +237,9 @@ async fn main() -> AppResult<()> {
 
     // Seed friend connections
     info!("Step 2: Creating friend connections...");
-    let friend_count = seed_friend_connections(&db, &user_ids).await?;
+    let friend_count = seed_friend_connections(&repos, &user_ids).await?;
     let admin_friend_count = if let Some(ref id) = admin_id {
-        seed_admin_friend_connections(&db, id, &user_ids).await?
+        seed_admin_friend_connections(&repos, id, &user_ids).await?
     } else {
         0
     };
@@ -249,19 +250,19 @@ async fn main() -> AppResult<()> {
 
     // Seed shared insights
     info!("Step 3: Creating shared insights...");
-    let insight_count = seed_shared_insights(&db, &user_ids).await?;
+    let insight_count = seed_shared_insights(&repos, &user_ids).await?;
     info!("  Created {} shared insights", insight_count);
 
     // Seed reactions
     info!("Step 4: Creating insight reactions...");
-    let reaction_count = seed_reactions(&db, &user_ids).await?;
+    let reaction_count = seed_reactions(&repos, &user_ids).await?;
     info!("  Created {} reactions", reaction_count);
 
     // Seed adapted insights
     info!("Step 5: Creating adapted insights...");
-    let adapted_count = seed_adapted_insights(&db, &user_ids).await?;
+    let adapted_count = seed_adapted_insights(&repos, &user_ids).await?;
     let admin_adapted_count = if let Some(ref id) = admin_id {
-        seed_admin_adapted_insights(&db, id).await?
+        seed_admin_adapted_insights(&repos, id).await?
     } else {
         0
     };
@@ -278,7 +279,7 @@ async fn main() -> AppResult<()> {
 }
 
 /// Seed user social settings
-async fn seed_social_settings(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
+async fn seed_social_settings(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
@@ -300,7 +301,7 @@ async fn seed_social_settings(db: &Database, user_ids: &[Uuid]) -> AppResult<u32
             updated_at: now,
         };
 
-        if db.seed_upsert_social_settings(&settings).await? {
+        if repos.seeder.seed_upsert_social_settings(&settings).await? {
             count += 1;
         }
     }
@@ -309,7 +310,7 @@ async fn seed_social_settings(db: &Database, user_ids: &[Uuid]) -> AppResult<u32
 }
 
 /// Seed friend connections between demo users
-async fn seed_friend_connections(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
+async fn seed_friend_connections(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
@@ -345,7 +346,11 @@ async fn seed_friend_connections(db: &Database, user_ids: &[Uuid]) -> AppResult<
                 accepted_at,
             };
 
-            if db.seed_insert_friend_connection_if_absent(&conn).await? {
+            if repos
+                .seeder
+                .seed_insert_friend_connection_if_absent(&conn)
+                .await?
+            {
                 count += 1;
             }
         }
@@ -356,7 +361,7 @@ async fn seed_friend_connections(db: &Database, user_ids: &[Uuid]) -> AppResult<
 
 /// Seed friend connections between admin user and demo users
 async fn seed_admin_friend_connections(
-    db: &Database,
+    repos: &RepositoryRegistry,
     admin_id: &Uuid,
     user_ids: &[Uuid],
 ) -> AppResult<u32> {
@@ -380,7 +385,11 @@ async fn seed_admin_friend_connections(
             accepted_at: Some(accepted_at),
         };
 
-        if db.seed_insert_friend_connection_if_absent(&conn).await? {
+        if repos
+            .seeder
+            .seed_insert_friend_connection_if_absent(&conn)
+            .await?
+        {
             count += 1;
         }
     }
@@ -389,7 +398,7 @@ async fn seed_admin_friend_connections(
 }
 
 /// Seed shared insights from demo users
-async fn seed_shared_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
+async fn seed_shared_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let insights = get_sample_insights();
     let mut count: u32 = 0;
@@ -420,7 +429,12 @@ async fn seed_shared_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32
                 updated_at: created_at,
             };
 
-            if db.seed_insert_shared_insight(&shared).await.is_ok() {
+            if repos
+                .seeder
+                .seed_insert_shared_insight(&shared)
+                .await
+                .is_ok()
+            {
                 count += 1;
             }
         }
@@ -430,11 +444,11 @@ async fn seed_shared_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32
 }
 
 /// Seed reactions on shared insights
-async fn seed_reactions(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
+async fn seed_reactions(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let mut count: u32 = 0;
 
-    let insight_ids = db.seed_get_shared_insight_ids().await?;
+    let insight_ids = repos.seeder.seed_get_shared_insight_ids().await?;
 
     for insight_id in &insight_ids {
         let react_probability: f64 = rng.gen_range(0.3..0.6);
@@ -452,7 +466,11 @@ async fn seed_reactions(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
                 created_at: Utc::now(),
             };
 
-            if db.seed_insert_reaction_if_absent(&reaction).await? {
+            if repos
+                .seeder
+                .seed_insert_reaction_if_absent(&reaction)
+                .await?
+            {
                 count += 1;
             }
         }
@@ -462,12 +480,12 @@ async fn seed_reactions(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
 }
 
 /// Seed adapted insights
-async fn seed_adapted_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u32> {
+async fn seed_adapted_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
-    let insights = db.seed_get_shared_insights_with_authors().await?;
+    let insights = repos.seeder.seed_get_shared_insights_with_authors().await?;
 
     for (insight_id, author_id) in &insights {
         let adapt_probability: f64 = rng.gen_range(0.1..0.25);
@@ -492,7 +510,11 @@ async fn seed_adapted_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u3
                 created_at: Utc::now(),
             };
 
-            if db.seed_insert_adapted_insight_if_absent(&adapted).await? {
+            if repos
+                .seeder
+                .seed_insert_adapted_insight_if_absent(&adapted)
+                .await?
+            {
                 count += 1;
             }
         }
@@ -502,12 +524,16 @@ async fn seed_adapted_insights(db: &Database, user_ids: &[Uuid]) -> AppResult<u3
 }
 
 /// Seed adapted insights for admin user from demo users' shared insights
-async fn seed_admin_adapted_insights(db: &Database, admin_id: &Uuid) -> AppResult<u32> {
+async fn seed_admin_adapted_insights(
+    repos: &RepositoryRegistry,
+    admin_id: &Uuid,
+) -> AppResult<u32> {
     let mut rng = StdRng::from_entropy();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
-    let insight_ids = db
+    let insight_ids = repos
+        .seeder
         .seed_get_shared_insights_not_by_user(*admin_id, 10)
         .await?;
 
@@ -530,7 +556,11 @@ async fn seed_admin_adapted_insights(db: &Database, admin_id: &Uuid) -> AppResul
             created_at: Utc::now() - Duration::days(days_ago),
         };
 
-        if db.seed_insert_adapted_insight_if_absent(&adapted).await? {
+        if repos
+            .seeder
+            .seed_insert_adapted_insight_if_absent(&adapted)
+            .await?
+        {
             count += 1;
         }
     }

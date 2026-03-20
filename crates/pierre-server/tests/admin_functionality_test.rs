@@ -320,7 +320,7 @@ async fn test_admin_auth_service_construction() -> Result<()> {
 
     // Test that AdminAuthService can be constructed successfully
     let auth_service = AdminAuthService::new(
-        (*db).clone(),
+        db.repositories().admin.clone(),
         jwks_manager,
         AdminAuthService::DEFAULT_CACHE_TTL_SECS,
     );

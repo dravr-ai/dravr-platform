@@ -23,7 +23,7 @@ use crate::tools::context::{AuthMethod, ToolExecutionContext};
 use crate::types::json_schemas;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::models::OAuthAppCredentials;
-use pierre_database::plugins::{A2ARepository, OAuthTokenRepository};
+// Trait methods dispatched through repos.a2a / repos.oauth_tokens Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Number, Value};
 use std::collections::HashMap;
 use std::env::var;
@@ -289,7 +289,8 @@ impl A2AServer {
         resources: &Arc<ServerResources>,
     ) -> Result<Vec<String>, String> {
         resources
-            .database
+            .repos
+            .a2a
             .list_clients(user_id)
             .await
             .map(|clients| clients.into_iter().map(|c| c.id).collect())
@@ -361,7 +362,8 @@ impl A2AServer {
             // Use default redirect URI for A2A clients
             let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:a2a");
             resources
-                .database
+                .repos
+                .oauth_tokens
                 .store_user_oauth_app(
                     *user_id,
                     &provider,
@@ -474,7 +476,8 @@ impl A2AServer {
         request_id: Option<Value>,
     ) -> A2AResponse {
         let task_id = match resources
-            .database
+            .repos
+            .a2a
             .create_task(client_id, None, task_type, params_value)
             .await
         {
@@ -533,10 +536,8 @@ impl A2AServer {
         };
 
         let task_id = &task_params.task_id;
-        let database = &resources.database;
-
         // Get task from database
-        match database.get_task(task_id).await {
+        match resources.repos.a2a.get_task(task_id).await {
             Ok(Some(task)) => {
                 // Verify the task belongs to a client owned by the authenticated user
                 if let Err(err) = Self::verify_client_ownership(
@@ -578,7 +579,6 @@ impl A2AServer {
             }
         };
 
-        let database = &resources.database;
         let params_value = request.params.as_ref().unwrap_or(&Value::Null);
         let list_params = from_value::<json_schemas::A2ATaskListParams>(params_value.clone())
             .unwrap_or(json_schemas::A2ATaskListParams {
@@ -614,7 +614,9 @@ impl A2AServer {
                 _ => None,
             });
 
-        match database
+        match resources
+            .repos
+            .a2a
             .list_tasks(scoped_client_id, status_filter.as_ref(), limit, offset)
             .await
         {
@@ -702,23 +704,23 @@ impl A2AServer {
         let resources = resources.clone(); // Safe: Arc clone for server resources
 
         // Resolve tenant context — required for all A2A tool execution
-        let tenant_context =
-            match extract_tenant_context_internal(&resources.database, Some(user_id), None, None)
-                .await
-            {
-                Ok(Some(ctx)) => ctx,
-                Ok(None) => {
-                    return Self::a2a_error(
-                        -32001,
-                        "User does not belong to any tenant",
-                        request.id,
-                    );
-                }
-                Err(e) => {
-                    error!("Failed to resolve tenant context: {e}");
-                    return Self::a2a_error(-32603, "Failed to resolve tenant context", request.id);
-                }
-            };
+        let tenant_context = match extract_tenant_context_internal(
+            &resources.repos,
+            Some(user_id),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(Some(ctx)) => ctx,
+            Ok(None) => {
+                return Self::a2a_error(-32001, "User does not belong to any tenant", request.id);
+            }
+            Err(e) => {
+                error!("Failed to resolve tenant context: {e}");
+                return Self::a2a_error(-32603, "Failed to resolve tenant context", request.id);
+            }
+        };
 
         // Build tool execution context from authenticated user identity with tenant
         let tool_ctx = ToolExecutionContext::new(

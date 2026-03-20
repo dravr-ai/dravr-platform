@@ -59,7 +59,7 @@ pub async fn list_channel_configs(
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let tenant_id = resolve_tenant_id(&auth);
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     let configs = db.list_channel_configs(tenant_id).await?;
 
@@ -84,7 +84,7 @@ pub async fn get_channel_config(
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let channel_str = channel_type.to_string();
     let config = db.get_channel_config(tenant_id, &channel_str).await?;
 
@@ -135,7 +135,7 @@ pub async fn upsert_channel_config(
         is_active: body.enabled,
     };
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     db.upsert_channel_config(&params).await?;
 
     let has_credentials = api_key.is_some()
@@ -172,7 +172,7 @@ pub async fn delete_channel_config(
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let deleted = db.delete_channel_config(tenant_id, &channel).await?;
 
     let status = if deleted {

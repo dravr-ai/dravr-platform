@@ -276,7 +276,8 @@ async fn fetch_and_calculate_metrics(
         .and_then(|tid| tid.parse::<TenantId>().ok())
         .map(|tid| TenantCredentialContext {
             tenant_oauth_client: &executor.resources.tenant_oauth_client,
-            database: &executor.resources.database,
+            tenants: executor.resources.repos.tenants.as_ref(),
+            oauth_tokens: executor.resources.repos.oauth_tokens.as_ref(),
             tenant_id: tid,
             user_id: user_uuid,
         });

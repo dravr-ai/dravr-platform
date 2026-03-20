@@ -272,9 +272,10 @@ async fn test_multitenant_user_creation_and_isolation() -> Result<()> {
 async fn test_authentication_middleware_integration() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
-        database.clone(),
+        repos,
         jwks_manager.clone(),
         RateLimitConfig::default(),
     ));
@@ -707,9 +708,10 @@ async fn test_session_state_management() -> Result<()> {
 async fn test_concurrent_authentication_operations() -> Result<()> {
     let (_server, database, auth_manager) = create_test_multitenant_server().await?;
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         (*auth_manager).clone(),
-        database.clone(),
+        repos,
         jwks_manager.clone(),
         RateLimitConfig::default(),
     ));

@@ -26,10 +26,7 @@ use crate::{
     services::tenant_admin as tenant_admin_service,
 };
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
-use pierre_database::database::repositories::{
-    PasswordResetRepository, UsageRepository, UserRepository,
-};
-use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 
 use super::api_keys::json_response;
 use super::types::{
@@ -100,7 +97,8 @@ pub(super) async fn handle_list_users(
     let status = params.status.as_deref().unwrap_or("active");
 
     let users = ctx
-        .database
+        .repos
+        .users
         .get_by_status(status, None)
         .await
         .map_err(|e| {
@@ -165,7 +163,8 @@ pub(super) async fn handle_pending_users(
     let ctx = context.as_ref();
 
     let users = ctx
-        .database
+        .repos
+        .users
         .get_by_status("pending", None)
         .await
         .map_err(|e| {
@@ -207,7 +206,7 @@ pub(super) async fn handle_pending_users(
 ///
 /// Delegates to `TenantAdminService` for slug validation and tenant provisioning.
 async fn create_and_link_tenant(
-    database: &Database,
+    repos: &RepositoryRegistry,
     user_uuid: Uuid,
     user_email: &str,
     request: &ApproveUserRequest,
@@ -218,7 +217,7 @@ async fn create_and_link_tenant(
     }
 
     let tenant = tenant_admin_service::provision_tenant_for_approval(
-        database,
+        repos,
         user_uuid,
         user_email,
         display_name,
@@ -269,7 +268,8 @@ pub(super) async fn handle_approve_user(
     })?;
 
     let user = ctx
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| {
@@ -293,7 +293,8 @@ pub(super) async fn handle_approve_user(
     }
 
     let updated_user = ctx
-        .database
+        .repos
+        .users
         .update_status(user_uuid, UserStatus::Active, None)
         .await
         .map_err(|e| {
@@ -302,7 +303,7 @@ pub(super) async fn handle_approve_user(
         })?;
 
     let tenant_created = create_and_link_tenant(
-        &ctx.database,
+        &ctx.repos,
         user_uuid,
         &updated_user.email,
         &request,
@@ -367,7 +368,8 @@ pub(super) async fn handle_suspend_user(
     })?;
 
     let user = ctx
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| {
@@ -391,7 +393,8 @@ pub(super) async fn handle_suspend_user(
     }
 
     let updated_user = ctx
-        .database
+        .repos
+        .users
         .update_status(user_uuid, UserStatus::Suspended, None)
         .await
         .map_err(|e| {
@@ -459,7 +462,8 @@ pub(super) async fn handle_delete_user(
     })?;
 
     let user = ctx
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| {
@@ -473,7 +477,7 @@ pub(super) async fn handle_delete_user(
 
     let user_email = user.email.clone();
 
-    ctx.database.delete(user_uuid).await.map_err(|e| {
+    ctx.repos.users.delete(user_uuid).await.map_err(|e| {
         error!(error = %e, "Failed to delete user from database");
         AppError::internal(format!("Failed to delete user: {e}"))
     })?;
@@ -540,7 +544,8 @@ pub(super) async fn handle_reset_user_password(
     })?;
 
     let user = ctx
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| {
@@ -560,7 +565,8 @@ pub(super) async fn handle_reset_user_password(
 
     let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
 
-    ctx.database
+    ctx.repos
+        .password_reset
         .store_token(user_uuid, &token_hash, &admin_token.service_name)
         .await
         .map_err(|e| {
@@ -616,14 +622,16 @@ pub(super) async fn handle_get_user_rate_limit(
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
     let user = ctx
-        .database
+        .repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
     let monthly_used = ctx
-        .database
+        .repos
+        .usage
         .get_jwt_current_usage(user_uuid)
         .await
         .unwrap_or(0);
@@ -634,7 +642,8 @@ pub(super) async fn handle_get_user_rate_limit(
         .and_hms_opt(0, 0, 0)
         .map_or(now, |t| DateTime::<Utc>::from_naive_utc_and_offset(t, Utc));
     let daily_used = ctx
-        .database
+        .repos
+        .usage
         .get_top_tools_analysis(user_uuid, today_start, now)
         .await
         .map(|tools| {
@@ -710,7 +719,8 @@ pub(super) async fn handle_get_user_activity(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-    ctx.database
+    ctx.repos
+        .users
         .get_global(user_uuid)
         .await
         .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
@@ -721,7 +731,8 @@ pub(super) async fn handle_get_user_activity(
     let start_time = now - Duration::days(days);
 
     let top_tools_raw = ctx
-        .database
+        .repos
+        .usage
         .get_top_tools_analysis(user_uuid, start_time, now)
         .await
         .unwrap_or_default();

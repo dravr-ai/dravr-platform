@@ -46,7 +46,7 @@ pub fn start_outbound_worker(resources: Arc<ServerResources>) {
 
 /// Process one batch of pending outbound entries
 async fn process_pending_batch(resources: &Arc<ServerResources>) -> Result<(), AppError> {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let entries = db.get_all_pending_outbound(BATCH_SIZE).await?;
 
     if entries.is_empty() {

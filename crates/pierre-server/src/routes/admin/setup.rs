@@ -22,8 +22,7 @@ use crate::{
     models::{User, UserStatus},
 };
 use pierre_auth::auth::SetupStatusResponse;
-use pierre_database::database::repositories::{AdminRepository, UserRepository};
-use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 
 use super::api_keys::json_response;
 use super::types::{AdminResponse, AdminSetupRequest};
@@ -33,9 +32,9 @@ use super::AdminApiContext;
 ///
 /// Returns an error response if an admin already exists, or Ok(None) if setup can proceed
 async fn check_no_admin_exists(
-    database: &Database,
+    repos: &RepositoryRegistry,
 ) -> AppResult<Option<(StatusCode, Json<AdminResponse>)>> {
-    match database.get_by_status("active", None).await {
+    match repos.users.get_by_status("active", None).await {
         Ok(users) => {
             let admin_exists = users.iter().any(|u| u.is_admin);
             if admin_exists {
@@ -67,7 +66,7 @@ async fn check_no_admin_exists(
 
 /// Create admin user record with hashed password
 async fn create_admin_user_record(
-    database: &Database,
+    repos: &RepositoryRegistry,
     request: &AdminSetupRequest,
 ) -> Result<Uuid, (StatusCode, Json<AdminResponse>)> {
     let user_id = Uuid::new_v4();
@@ -96,7 +95,7 @@ async fn create_admin_user_record(
     admin_user.is_admin = true;
     admin_user.user_status = UserStatus::Active;
 
-    match UserRepository::create(database, &admin_user).await {
+    match repos.users.create(&admin_user).await {
         Ok(_) => {
             info!("Admin user created successfully: {}", request.email);
             Ok(user_id)
@@ -117,7 +116,7 @@ async fn create_admin_user_record(
 
 /// Generate initial admin token with full permissions
 async fn generate_initial_admin_token(
-    database: &Database,
+    repos: &RepositoryRegistry,
     admin_jwt_secret: &str,
     jwks_manager: &Arc<JwksManager>,
 ) -> Result<String, (StatusCode, Json<AdminResponse>)> {
@@ -137,8 +136,9 @@ async fn generate_initial_admin_token(
         expires_in_days: Some(365),
     };
 
-    match database
-        .create_token(&token_request, admin_jwt_secret, jwks_manager)
+    match repos
+        .admin
+        .create_token(&token_request, admin_jwt_secret, jwks_manager.as_ref())
         .await
     {
         Ok(generated_token) => Ok(generated_token.jwt_token),
@@ -165,17 +165,17 @@ pub(super) async fn handle_admin_setup(
 
     let ctx = context.as_ref();
 
-    if let Some(error_response) = check_no_admin_exists(&ctx.database).await? {
+    if let Some(error_response) = check_no_admin_exists(&ctx.repos).await? {
         return Ok(error_response);
     }
 
-    let user_id = match create_admin_user_record(&ctx.database, &request).await {
+    let user_id = match create_admin_user_record(&ctx.repos, &request).await {
         Ok(id) => id,
         Err(error_response) => return Ok(error_response),
     };
 
     let admin_token =
-        match generate_initial_admin_token(&ctx.database, &ctx.admin_jwt_secret, &ctx.jwks_manager)
+        match generate_initial_admin_token(&ctx.repos, &ctx.admin_jwt_secret, &ctx.jwks_manager)
             .await
         {
             Ok(token) => token,
@@ -207,7 +207,11 @@ pub(super) async fn handle_setup_status(
 
     let ctx = context.as_ref();
 
-    match ctx.auth_manager.check_setup_status(&ctx.database).await {
+    match ctx
+        .auth_manager
+        .check_setup_status(ctx.repos.users.as_ref())
+        .await
+    {
         Ok(setup_status) => {
             info!(
                 "Setup status check successful: needs_setup={}, admin_user_exists={}",

@@ -33,7 +33,7 @@ use pierre_auth::oauth2_server::{
     rate_limiting::OAuth2RateLimiter,
 };
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{factory::Database, OAuth2ServerRepository};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -46,8 +46,14 @@ use tracing::{debug, error, info, trace, warn};
 /// OAuth 2.0 server context shared across all handlers
 #[derive(Clone)]
 pub struct OAuth2Context {
-    /// Database for client and token storage
+    /// Database for lifecycle and system settings
     pub database: Arc<Database>,
+    /// `OAuth2` server repository for client registration, auth codes, and tokens
+    pub oauth2_server: Arc<dyn OAuth2ServerRepository>,
+    /// Tenant repository for user-tenant lookups
+    pub tenants: Arc<dyn TenantRepository>,
+    /// User repository for credential and profile lookups
+    pub users: Arc<dyn UserRepository>,
     /// Authentication manager for JWT operations
     pub auth_manager: Arc<AuthManager>,
     /// JWKS manager for public key operations
@@ -167,7 +173,7 @@ impl OAuth2Routes {
                 .into_response();
         }
 
-        let client_manager = ClientRegistrationManager::new(context.database);
+        let client_manager = ClientRegistrationManager::new(context.oauth2_server.clone());
 
         match client_manager.register_client(request).await {
             Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
@@ -275,7 +281,9 @@ impl OAuth2Routes {
         redirect_uri: String,
     ) -> Response {
         let auth_server = OAuth2AuthorizationServer::new(
-            context.database.clone(),
+            context.oauth2_server.clone(),
+            context.tenants.clone(),
+            context.users.clone(),
             context.auth_manager.clone(),
             context.jwks_manager.clone(),
         );
@@ -336,7 +344,9 @@ impl OAuth2Routes {
         };
 
         let auth_server = OAuth2AuthorizationServer::new(
-            context.database,
+            context.oauth2_server.clone(),
+            context.tenants.clone(),
+            context.users,
             context.auth_manager,
             context.jwks_manager,
         );
@@ -420,7 +430,9 @@ impl OAuth2Routes {
         );
 
         let auth_server = OAuth2AuthorizationServer::new(
-            context.database,
+            context.oauth2_server.clone(),
+            context.tenants.clone(),
+            context.users,
             context.auth_manager,
             context.jwks_manager,
         );
@@ -488,8 +500,11 @@ impl OAuth2Routes {
     }
 
     /// Validate `client_id` and return appropriate response
-    async fn validate_client_id_response(database: Arc<Database>, client_id: &str) -> Response {
-        let client_manager = ClientRegistrationManager::new(database);
+    async fn validate_client_id_response(
+        oauth2_server: Arc<dyn OAuth2ServerRepository>,
+        client_id: &str,
+    ) -> Response {
+        let client_manager = ClientRegistrationManager::new(oauth2_server);
         match client_manager.get_client(client_id).await {
             Ok(_) => {
                 info!(
@@ -528,7 +543,7 @@ impl OAuth2Routes {
 
         // Validate client_id if provided
         if let Some(cid) = client_id {
-            return Self::validate_client_id_response(context.database, cid).await;
+            return Self::validate_client_id_response(context.oauth2_server, cid).await;
         }
 
         if token_valid {
@@ -660,7 +675,8 @@ impl OAuth2Routes {
 
         // Authenticate user using database lookup and password verification
         match Self::authenticate_user_with_auth_manager(
-            context.database.clone(),
+            context.users.as_ref(),
+            context.tenants.as_ref(),
             email,
             password,
             &context.auth_manager,
@@ -1145,14 +1161,15 @@ impl OAuth2Routes {
 
     /// Authenticate user credentials using `AuthManager` (proper architecture)
     async fn authenticate_user_with_auth_manager(
-        database: Arc<Database>,
+        users: &dyn UserRepository,
+        tenants_repo: &dyn TenantRepository,
         email: &str,
         password: &str,
         auth_manager: &AuthManager,
         jwks_manager: &JwksManager,
     ) -> AppResult<String> {
         // Look up user by email
-        let user = database
+        let user = users
             .get_by_email(email)
             .await
             .map_err(|e| AppError::database(e.to_string()))?
@@ -1164,7 +1181,7 @@ impl OAuth2Routes {
         }
 
         // Look up user's default tenant to include in JWT as active_tenant_id
-        let tenants = database
+        let tenants = tenants_repo
             .list_for_user(user.id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user tenants: {e}")))?;

@@ -11,7 +11,6 @@ use pierre_database::database::mobility::{
     DifficultyLevel, ListStretchingFilter, ListYogaFilter, StretchingCategory, YogaCategory,
     YogaPoseType,
 };
-use pierre_database::plugins::MobilityRepository;
 use serde_json::{json, Value};
 use std::future::Future;
 use std::pin::Pin;
@@ -87,7 +86,7 @@ pub fn handle_list_stretching_exercises(
             offset,
         };
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
         let exercises = repo
             .list_stretching_exercises(&filter)
             .await
@@ -145,7 +144,7 @@ pub fn handle_get_stretching_exercise(
             .and_then(Value::as_str)
             .ok_or_else(|| ProtocolError::InvalidParameters("id is required".to_owned()))?;
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
         let exercise_opt = repo
             .get_stretching_exercise(id)
             .await
@@ -226,7 +225,7 @@ pub fn handle_suggest_stretches_for_activity(
             .and_then(Value::as_u64)
             .map(|d| d.min(240) as u32);
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
 
         // Get exercises recommended for this activity
         // Note: get_stretches_for_activity takes (activity_type, limit), difficulty filtering done post-query
@@ -365,7 +364,7 @@ pub fn handle_list_yoga_poses(
             offset,
         };
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
         let poses = repo
             .list_yoga_poses(&filter)
             .await
@@ -423,7 +422,7 @@ pub fn handle_get_yoga_pose(
             .and_then(Value::as_str)
             .ok_or_else(|| ProtocolError::InvalidParameters("id is required".to_owned()))?;
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
         let pose_opt = repo
             .get_yoga_pose(id)
             .await
@@ -510,7 +509,7 @@ pub fn handle_suggest_yoga_sequence(
             .and_then(Value::as_str)
             .map(DifficultyLevel::parse);
 
-        let repo: &dyn MobilityRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.mobility.as_ref();
 
         // Get poses for the recovery purpose
         let all_poses = repo

@@ -153,10 +153,7 @@ mod common;
 
 use chrono::Utc;
 use pierre_auth::auth::AuthManager;
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, A2ARepository, TenantRepository, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -221,7 +218,10 @@ impl A2ATestSetup {
             "hashed_password".to_owned(),
             Some("Test User".to_owned()),
         );
-        let user_id = UserRepository::create(&*database, &user)
+        let repos = database.repositories();
+        let user_id = repos
+            .users
+            .create(&user)
             .await
             .expect("Failed to create test user");
 
@@ -237,7 +237,9 @@ impl A2ATestSetup {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        TenantRepository::create(&*database, &tenant)
+        repos
+            .tenants
+            .create(&tenant)
             .await
             .expect("Failed to create test tenant");
 
@@ -322,7 +324,9 @@ impl A2ATestSetup {
     /// Create an authenticated A2A session token
     #[allow(dead_code)]
     async fn create_session_token(&self, client_id: &str, scopes: &[String]) -> String {
-        self.database
+        let repos = self.database.repositories();
+        repos
+            .a2a
             .create_session(client_id, None, scopes, 24)
             .await
             .expect("Failed to create A2A session")

@@ -38,9 +38,6 @@ use pierre_auth::auth::AuthResult;
 use pierre_core::models::coaches::DataRequirements;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::AddMessageParams;
-use pierre_database::database::repositories::{
-    ChatRepository, LlmUsageRepository, ProviderConnectionRepository, TenantRepository,
-};
 use pierre_database::database::{ConversationRecord, MessageRecord};
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
@@ -365,7 +362,7 @@ impl ChatRoutes {
         user_id: Uuid,
         resources: &Arc<ServerResources>,
     ) -> Result<TenantId, AppError> {
-        let tenants = resources.database.list_for_user(user_id).await?;
+        let tenants = resources.repos.tenants.list_for_user(user_id).await?;
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(user_id), |t| t.id))
@@ -387,7 +384,12 @@ impl ChatRoutes {
     /// are connected, so the LLM doesn't ask users to connect already-available providers.
     async fn build_provider_context(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
         // Get all provider connections (cross-tenant view, single source of truth)
-        let Ok(connections) = resources.database.get_for_user(user_id, None).await else {
+        let Ok(connections) = resources
+            .repos
+            .provider_connections
+            .get_for_user(user_id, None)
+            .await
+        else {
             return String::new();
         };
 
@@ -851,7 +853,8 @@ impl ChatRoutes {
                 .unwrap_or(2);
 
             let current_count = resources
-                .database
+                .repos
+                .chat
                 .count_conversations(&user_id_str, tenant_id)
                 .await?;
             if current_count >= max_conversations {
@@ -865,7 +868,7 @@ impl ChatRoutes {
         }
 
         let result = chat_orchestration::create_conversation(
-            resources.database.as_ref(),
+            resources.repos.chat.as_ref(),
             &user_id_str,
             tenant_id,
             &request.title,
@@ -898,7 +901,8 @@ impl ChatRoutes {
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
 
         let conversations = resources
-            .database
+            .repos
+            .chat
             .list_conversations(
                 &auth.user_id.to_string(),
                 tenant_id,
@@ -937,7 +941,8 @@ impl ChatRoutes {
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
 
         let conv = resources
-            .database
+            .repos
+            .chat
             .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found("Conversation not found"))?;
@@ -966,7 +971,8 @@ impl ChatRoutes {
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
 
         let updated = resources
-            .database
+            .repos
+            .chat
             .update_conversation_title(
                 &conversation_id,
                 &auth.user_id.to_string(),
@@ -981,7 +987,8 @@ impl ChatRoutes {
 
         // Fetch and return the updated conversation (proper REST response)
         let conv = resources
-            .database
+            .repos
+            .chat
             .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::internal("Conversation not found after update"))?;
@@ -1009,7 +1016,8 @@ impl ChatRoutes {
         let tenant_id = Self::get_tenant_id(auth.user_id, &resources).await?;
 
         let deleted = resources
-            .database
+            .repos
+            .chat
             .delete_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?;
 
@@ -1035,13 +1043,15 @@ impl ChatRoutes {
 
         // Verify user owns this conversation
         resources
-            .database
+            .repos
+            .chat
             .get_conversation(&conversation_id, &auth.user_id.to_string(), tenant_id)
             .await?
             .ok_or_else(|| AppError::not_found("Conversation not found"))?;
 
         let messages = resources
-            .database
+            .repos
+            .chat
             .get_messages(&conversation_id, &auth.user_id.to_string())
             .await?;
 
@@ -1087,7 +1097,7 @@ impl ChatRoutes {
 
         // Verify ownership and persist user message (crash-safe: saved before LLM dispatch)
         let msg_result = chat_orchestration::persist_user_message(
-            resources.database.as_ref(),
+            resources.repos.chat.as_ref(),
             &conversation_id,
             &user_id_str,
             tenant_id,
@@ -1100,7 +1110,7 @@ impl ChatRoutes {
 
         // Get conversation history for LLM context
         let history = chat_orchestration::get_conversation_history(
-            resources.database.as_ref(),
+            resources.repos.chat.as_ref(),
             &conversation_id,
             &user_id_str,
         )
@@ -1210,7 +1220,7 @@ impl ChatRoutes {
             model: Some(&conv.model),
         };
         let (assistant_msg, updated_conv) = chat_orchestration::persist_assistant_response(
-            resources.database.as_ref(),
+            resources.repos.chat.as_ref(),
             &assistant_params,
             tenant_id,
         )
@@ -1322,7 +1332,8 @@ impl ChatRoutes {
         // Admin role bypasses quota enforcement for debugging and testing.
         // Owners (tenant creators) remain subject to quotas as cost control.
         if let Ok(Some(role)) = resources
-            .database
+            .repos
+            .tenants
             .get_user_role(user_uuid, tenant_uuid)
             .await
         {
@@ -1332,7 +1343,8 @@ impl ChatRoutes {
             }
         }
 
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         // Check daily message quota (allows 1.5x burst)
         let daily_msg_check = usage_svc
@@ -1506,7 +1518,8 @@ impl ChatRoutes {
             return;
         };
 
-        let usage_svc = UsageCounterService::new(resources.database.as_ref(), admin_config);
+        let usage_svc =
+            UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
         // Build list of (counter_type, amount) pairs to increment
         let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
@@ -1545,7 +1558,8 @@ impl ChatRoutes {
         let exec_time = params.execution_time_ms as i64;
 
         if let Err(e) = resources
-            .database
+            .repos
+            .llm_usage
             .insert_llm_usage(&InsertLlmUsage {
                 tenant_id: &tenant_id_str,
                 user_id: params.user_id,

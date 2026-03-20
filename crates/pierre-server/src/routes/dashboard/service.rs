@@ -15,7 +15,6 @@ use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
 use pierre_auth::api_keys::ApiKeyTier;
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::{RequestLog, ToolUsage};
-use pierre_database::plugins::{ApiKeyRepository, UsageRepository};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -172,7 +171,8 @@ impl DashboardRoutes {
         // Get user's API keys
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -202,7 +202,8 @@ impl DashboardRoutes {
             // Today's usage
             let today_stats = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_stats(&api_key.id, today_start, Utc::now())
                 .await
                 .map_err(|e| {
@@ -213,7 +214,8 @@ impl DashboardRoutes {
             // This month's usage
             let month_stats = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_stats(&api_key.id, month_start, Utc::now())
                 .await
                 .map_err(|e| {
@@ -228,7 +230,8 @@ impl DashboardRoutes {
             let tier_name = format!("{:?}", api_key.tier).to_lowercase();
             let month_stats = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_stats(&api_key.id, month_start, Utc::now())
                 .await
                 .map_err(|e| {
@@ -297,7 +300,8 @@ impl DashboardRoutes {
 
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -317,7 +321,8 @@ impl DashboardRoutes {
             for api_key in &api_keys {
                 let stats = self
                     .resources
-                    .database
+                    .repos
+                    .usage
                     .get_api_key_stats(&api_key.id, day_start, day_end)
                     .await
                     .map_err(|e| {
@@ -412,7 +417,8 @@ impl DashboardRoutes {
 
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -421,7 +427,8 @@ impl DashboardRoutes {
         for api_key in api_keys {
             let current_usage = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_current(&api_key.id)
                 .await
                 .map_err(|e| {
@@ -481,7 +488,8 @@ impl DashboardRoutes {
     ) -> AppResult<Vec<RecentActivity>> {
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -492,7 +500,8 @@ impl DashboardRoutes {
             let start_time = Utc::now() - Duration::days(7); // Last 7 days
             let logs = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_request_logs(
                     Some(user_id),
                     Some(&api_key.id),
@@ -535,7 +544,8 @@ impl DashboardRoutes {
     ) -> AppResult<Vec<ToolUsage>> {
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -545,7 +555,8 @@ impl DashboardRoutes {
         for api_key in api_keys {
             let stats = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_stats(&api_key.id, start_date, end_date)
                 .await
                 .map_err(|e| {
@@ -652,7 +663,8 @@ impl DashboardRoutes {
         // Get user's API keys to filter by
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -675,7 +687,8 @@ impl DashboardRoutes {
         // Query real data from the database, scoped to the authenticated user
         let logs = self
             .resources
-            .database
+            .repos
+            .usage
             .get_request_logs(
                 Some(user_id),
                 api_key_id,
@@ -717,7 +730,8 @@ impl DashboardRoutes {
         // Get user's API keys
         let api_keys = self
             .resources
-            .database
+            .repos
+            .api_keys
             .get_for_user(user_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
@@ -752,7 +766,8 @@ impl DashboardRoutes {
         for api_key in keys_to_check {
             let stats = self
                 .resources
-                .database
+                .repos
+                .usage
                 .get_api_key_stats(&api_key.id, start_time, Utc::now())
                 .await
                 .map_err(|e| {

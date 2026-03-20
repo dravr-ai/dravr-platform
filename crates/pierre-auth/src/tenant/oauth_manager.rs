@@ -13,8 +13,7 @@ use pierre_core::constants::rate_limits::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
-use pierre_database::plugins::TenantRepository;
-use pierre_database::plugins::{factory::Database, OAuthTokenRepository};
+use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
@@ -68,9 +67,10 @@ impl TenantOAuthManager {
         &self,
         tenant_id: TenantId,
         provider: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<TenantOAuthCredentials> {
-        self.get_credentials_for_user(None, tenant_id, provider, database)
+        self.get_credentials_for_user(None, tenant_id, provider, tenants, oauth_tokens)
             .await
     }
 
@@ -89,12 +89,13 @@ impl TenantOAuthManager {
         user_id: Option<Uuid>,
         tenant_id: TenantId,
         provider: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> AppResult<TenantOAuthCredentials> {
         // Priority 1: Try user-specific credentials first (per-user OAuth app)
         if let Some(uid) = user_id {
             if let Some(credentials) = self
-                .try_user_specific_credentials(uid, tenant_id, provider, database)
+                .try_user_specific_credentials(uid, tenant_id, provider, oauth_tokens)
                 .await
             {
                 return Ok(credentials);
@@ -103,7 +104,7 @@ impl TenantOAuthManager {
 
         // Priority 2: Try tenant-specific credentials (in-memory cache, then database)
         if let Some(credentials) = self
-            .try_tenant_specific_credentials(tenant_id, provider, database)
+            .try_tenant_specific_credentials(tenant_id, provider, tenants)
             .await
         {
             return Ok(credentials);
@@ -426,9 +427,9 @@ impl TenantOAuthManager {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
-        database: &Database,
+        oauth_tokens: &dyn OAuthTokenRepository,
     ) -> Option<TenantOAuthCredentials> {
-        match database.get_user_oauth_app(user_id, provider).await {
+        match oauth_tokens.get_user_oauth_app(user_id, provider).await {
             Ok(Some(user_app)) => {
                 info!(
                     "Using user-specific {} OAuth credentials for user {} in tenant {} (client_id={})",
@@ -523,7 +524,7 @@ impl TenantOAuthManager {
         &self,
         tenant_id: TenantId,
         provider: &str,
-        database: &Database,
+        tenants: &dyn TenantRepository,
     ) -> Option<TenantOAuthCredentials> {
         // First check in-memory cache
         if let Some(credentials) = self
@@ -539,8 +540,7 @@ impl TenantOAuthManager {
         }
 
         // Then check database
-        if let Ok(Some(db_credentials)) = database.get_oauth_credentials(tenant_id, provider).await
-        {
+        if let Ok(Some(db_credentials)) = tenants.get_oauth_credentials(tenant_id, provider).await {
             info!(
                 "Using database-stored tenant-specific {} OAuth credentials for tenant {}",
                 provider, tenant_id

@@ -29,10 +29,11 @@ use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
 use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::{SeedTable, SeederRepository};
+use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant,
 };
+use pierre_database::RepositoryRegistry;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::env;
@@ -558,57 +559,64 @@ async fn main() -> AppResult<()> {
     // Initialize database via factory (handles connection pooling and migrations)
     info!("Connecting to database: {}", database_url);
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Find admin user
-    let (admin_id, admin_email) = find_admin_user(&db, args.admin_email.as_deref()).await?;
+    let (admin_id, admin_email) = find_admin_user(&repos, args.admin_email.as_deref()).await?;
     info!("Using admin user: {} ({})", admin_email, admin_id);
 
     // Reset if requested
     if args.reset {
         info!("Resetting usage data...");
-        db.seed_reset_table(SeedTable::ApiKeyUsage).await?;
-        db.seed_reset_table(SeedTable::A2AUsage).await?;
+        repos
+            .seeder
+            .seed_reset_table(SeedTable::ApiKeyUsage)
+            .await?;
+        repos.seeder.seed_reset_table(SeedTable::A2AUsage).await?;
     }
 
     // Seed demo users with direct DB operations (creates user + tenant)
     info!("Step 1: Creating demo users...");
-    let user_ids = seed_demo_users(&db).await?;
+    let user_ids = seed_demo_users(&repos).await?;
     info!("  Created/found {} demo users", user_ids.len());
 
     // Seed API keys (assign to admin + demo users)
     info!("Step 2: Creating API keys...");
-    let api_key_ids = seed_api_keys(&db, &admin_id, &user_ids).await?;
+    let api_key_ids = seed_api_keys(&repos, &admin_id, &user_ids).await?;
     info!("  Created/found {} API keys", api_key_ids.len());
 
     // Seed A2A clients
     info!("Step 3: Creating A2A clients...");
-    let a2a_client_ids = seed_a2a_clients(&db, &admin_id, &user_ids).await?;
+    let a2a_client_ids = seed_a2a_clients(&repos, &admin_id, &user_ids).await?;
     info!("  Created/found {} A2A clients", a2a_client_ids.len());
 
     // Generate usage data
     info!("Step 4: Generating API usage data ({} days)...", args.days);
-    let usage_count = seed_api_usage(&db, &api_key_ids, args.days).await?;
+    let usage_count = seed_api_usage(&repos, &api_key_ids, args.days).await?;
     info!("  Generated {} usage records", usage_count);
 
     // Generate A2A usage data
     info!("Step 5: Generating A2A usage data...");
-    let a2a_usage_count = seed_a2a_usage(&db, &a2a_client_ids, args.days / 2).await?;
+    let a2a_usage_count = seed_a2a_usage(&repos, &a2a_client_ids, args.days / 2).await?;
     info!("  Generated {} A2A usage records", a2a_usage_count);
 
     // Summary
     info!("");
     info!("=== Seeding Complete ===");
-    print_summary(&db).await?;
+    print_summary(&repos).await?;
 
     Ok(())
 }
 
 /// Find admin user by email or get first admin
-async fn find_admin_user(db: &Database, email: Option<&str>) -> AppResult<(Uuid, String)> {
+async fn find_admin_user(
+    repos: &RepositoryRegistry,
+    email: Option<&str>,
+) -> AppResult<(Uuid, String)> {
     let user = if let Some(email) = email {
-        db.seed_find_user_by_email(email).await?
+        repos.seeder.seed_find_user_by_email(email).await?
     } else {
-        db.seed_get_admin_user().await?
+        repos.seeder.seed_get_admin_user().await?
     };
 
     let Some(user) = user else {
@@ -624,19 +632,19 @@ async fn find_admin_user(db: &Database, email: Option<&str>) -> AppResult<(Uuid,
 /// Follows the same pattern as pierre-cli user creation: insert user row,
 /// create personal tenant, link via `tenant_users` junction table, and
 /// update the `tenant_id` column on users for backwards compatibility.
-async fn seed_demo_users(db: &Database) -> AppResult<Vec<Uuid>> {
+async fn seed_demo_users(repos: &RepositoryRegistry) -> AppResult<Vec<Uuid>> {
     let demo_users = get_demo_users();
     let mut user_ids = Vec::new();
 
     for user in &demo_users {
         // Check if user already exists
-        let existing = db.seed_check_user_exists(user.email).await?;
+        let existing = repos.seeder.seed_check_user_exists(user.email).await?;
 
         let user_id = if let Some(id) = existing {
             info!("  Found existing user: {}", user.email);
             id
         } else {
-            let id = create_demo_user(db, user).await?;
+            let id = create_demo_user(repos, user).await?;
             info!("  Created user: {} ({})", user.email, user.status);
             id
         };
@@ -648,7 +656,7 @@ async fn seed_demo_users(db: &Database) -> AppResult<Vec<Uuid>> {
 }
 
 /// Create a single demo user with tenant via [`SeederRepository`] operations
-async fn create_demo_user(db: &Database, user: &DemoUser) -> AppResult<Uuid> {
+async fn create_demo_user(repos: &RepositoryRegistry, user: &DemoUser) -> AppResult<Uuid> {
     let user_id = Uuid::new_v4();
     let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
     let password_hash =
@@ -667,7 +675,7 @@ async fn create_demo_user(db: &Database, user: &DemoUser) -> AppResult<Uuid> {
         is_admin: false,
         created_at: now,
     };
-    db.seed_insert_demo_user(&seed_user).await?;
+    repos.seeder.seed_insert_demo_user(&seed_user).await?;
 
     // Create personal tenant (plan matches user tier)
     let tenant_id = Uuid::new_v4();
@@ -683,28 +691,37 @@ async fn create_demo_user(db: &Database, user: &DemoUser) -> AppResult<Uuid> {
         created_at: now,
         updated_at: now,
     };
-    db.seed_insert_tenant(&seed_tenant).await?;
+    repos.seeder.seed_insert_tenant(&seed_tenant).await?;
 
     // Add user as tenant owner in junction table
     let tenant_user_id = Uuid::new_v4();
-    db.seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
+    repos
+        .seeder
+        .seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
         .await?;
 
     // Update tenant_id column on user for backwards compatibility
-    db.seed_update_user_tenant(user_id, tenant_id).await?;
+    repos
+        .seeder
+        .seed_update_user_tenant(user_id, tenant_id)
+        .await?;
 
     Ok(user_id)
 }
 
 /// Seed API keys
-async fn seed_api_keys(db: &Database, admin_id: &Uuid, user_ids: &[Uuid]) -> AppResult<Vec<Uuid>> {
+async fn seed_api_keys(
+    repos: &RepositoryRegistry,
+    admin_id: &Uuid,
+    user_ids: &[Uuid],
+) -> AppResult<Vec<Uuid>> {
     let api_keys = get_demo_api_keys();
     let mut key_ids = Vec::new();
     let mut rng = StdRng::from_entropy();
 
     for (i, key) in api_keys.iter().enumerate() {
         // Check if exists
-        let existing = db.seed_check_api_key_by_name(key.name).await?;
+        let existing = repos.seeder.seed_check_api_key_by_name(key.name).await?;
 
         let key_id = if let Some(id) = existing {
             info!("  Found existing API key: {}", key.name);
@@ -742,7 +759,7 @@ async fn seed_api_keys(db: &Database, admin_id: &Uuid, user_ids: &[Uuid]) -> App
                 expires_at,
                 created_at,
             };
-            db.seed_insert_api_key(&seed_key).await?;
+            repos.seeder.seed_insert_api_key(&seed_key).await?;
 
             info!("  Created API key: {} ({})", key.name, key.tier);
             id
@@ -756,7 +773,7 @@ async fn seed_api_keys(db: &Database, admin_id: &Uuid, user_ids: &[Uuid]) -> App
 
 /// Seed A2A clients
 async fn seed_a2a_clients(
-    db: &Database,
+    repos: &RepositoryRegistry,
     admin_id: &Uuid,
     user_ids: &[Uuid],
 ) -> AppResult<Vec<Uuid>> {
@@ -765,7 +782,10 @@ async fn seed_a2a_clients(
     let mut rng = StdRng::from_entropy();
 
     for (i, client) in clients.iter().enumerate() {
-        let existing = db.seed_check_a2a_client_by_name(client.name).await?;
+        let existing = repos
+            .seeder
+            .seed_check_a2a_client_by_name(client.name)
+            .await?;
 
         let client_id = if let Some(id) = existing {
             info!("  Found existing A2A client: {}", client.name);
@@ -796,7 +816,7 @@ async fn seed_a2a_clients(
                 created_at,
                 updated_at,
             };
-            db.seed_insert_a2a_client(&seed_client).await?;
+            repos.seeder.seed_insert_a2a_client(&seed_client).await?;
 
             info!("  Created A2A client: {}", client.name);
             id
@@ -809,7 +829,11 @@ async fn seed_a2a_clients(
 }
 
 /// Seed API usage data with realistic patterns
-async fn seed_api_usage(db: &Database, api_key_ids: &[Uuid], days: u32) -> AppResult<u64> {
+async fn seed_api_usage(
+    repos: &RepositoryRegistry,
+    api_key_ids: &[Uuid],
+    days: u32,
+) -> AppResult<u64> {
     let mut rng = StdRng::from_entropy();
     let mut total_records: u64 = 0;
 
@@ -867,7 +891,7 @@ async fn seed_api_usage(db: &Database, api_key_ids: &[Uuid], days: u32) -> AppRe
                     status_code,
                     response_time_ms: response_time,
                 };
-                if db.seed_insert_api_key_usage(&usage).await.is_ok() {
+                if repos.seeder.seed_insert_api_key_usage(&usage).await.is_ok() {
                     total_records += 1;
                 }
             }
@@ -879,7 +903,11 @@ async fn seed_api_usage(db: &Database, api_key_ids: &[Uuid], days: u32) -> AppRe
 }
 
 /// Seed A2A usage data
-async fn seed_a2a_usage(db: &Database, client_ids: &[Uuid], days: u32) -> AppResult<u64> {
+async fn seed_a2a_usage(
+    repos: &RepositoryRegistry,
+    client_ids: &[Uuid],
+    days: u32,
+) -> AppResult<u64> {
     let mut rng = StdRng::from_entropy();
     let mut total_records: u64 = 0;
 
@@ -914,7 +942,7 @@ async fn seed_a2a_usage(db: &Database, client_ids: &[Uuid], days: u32) -> AppRes
                     status_code,
                     response_time_ms: response_time,
                 };
-                if db.seed_insert_a2a_usage(&usage).await.is_ok() {
+                if repos.seeder.seed_insert_a2a_usage(&usage).await.is_ok() {
                     total_records += 1;
                 }
             }
@@ -938,7 +966,7 @@ fn print_test_credentials() {
 }
 
 /// Print summary statistics
-async fn print_summary(db: &Database) -> AppResult<()> {
+async fn print_summary(repos: &RepositoryRegistry) -> AppResult<()> {
     let tables: &[(&str, SeedTable)] = &[
         ("Users", SeedTable::Users),
         ("API Keys", SeedTable::ApiKeys),
@@ -948,7 +976,7 @@ async fn print_summary(db: &Database) -> AppResult<()> {
     ];
 
     for (label, table) in tables {
-        let count = db.seed_count_table(*table).await?;
+        let count = repos.seeder.seed_count_table(*table).await?;
         info!("{label}: {count}");
     }
 

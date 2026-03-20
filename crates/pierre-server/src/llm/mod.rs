@@ -26,7 +26,7 @@ use crate::errors::AppError;
 use pierre_auth::tenant::llm_manager::{
     LlmCredentials, LlmProvider as TenantLlmProvider, TenantLlmManager,
 };
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
 
 /// Create a `ChatProvider` for a specific tenant and user
 ///
@@ -42,10 +42,12 @@ pub async fn chat_provider_from_tenant(
     user_id: Option<Uuid>,
     tenant_id: TenantId,
     provider: TenantLlmProvider,
-    database: &Database,
+    llm_creds: &dyn LlmCredentialRepository,
+    security: &dyn SecurityRepository,
 ) -> Result<ChatProvider, AppError> {
     let credentials =
-        TenantLlmManager::get_credentials(user_id, tenant_id, provider, database).await?;
+        TenantLlmManager::get_credentials(user_id, tenant_id, provider, llm_creds, security)
+            .await?;
 
     chat_provider_from_credentials(credentials)
 }

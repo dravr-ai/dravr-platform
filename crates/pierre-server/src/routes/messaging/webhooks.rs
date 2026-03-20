@@ -154,7 +154,7 @@ pub async fn verify_webhook(
         )));
     }
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type(&channel).await?;
 
     if configs.is_empty() {
@@ -318,7 +318,7 @@ async fn parse_and_verify(
     let channel_type = ChannelType::from_str(channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let configs = db.get_configs_by_channel_type(channel).await?;
 
     if configs.is_empty() {
@@ -477,7 +477,7 @@ async fn handle_linking_command(
     sender_id: &str,
     code: &str,
 ) -> OutgoingMessage {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
     let response_text = consume_and_link(db, tenant_id, channel, sender_id, code).await;
 
@@ -503,7 +503,7 @@ async fn resolve_linked_session(
     sender_id: &str,
     channel_conversation_id: Option<&str>,
 ) -> Result<Option<ResolvedSession>, AppError> {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Check for existing session first (fast path)
     if let Some(session) = db
@@ -551,7 +551,7 @@ async fn resolve_linked_session(
     // Create a new conversation and session for this linked user
     let title = format!("Messaging: {channel_type}");
     let conversation = chat_orchestration::create_conversation(
-        resources.database.as_ref(),
+        resources.repos.chat.as_ref(),
         &user_id,
         tenant_id,
         &title,
@@ -674,7 +674,7 @@ async fn handle_logout(
     channel: &str,
     sender_id: &str,
 ) -> OutgoingMessage {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     if let Err(e) = db
         .logout_channel_sender(tenant_id, channel, sender_id)
@@ -751,7 +751,7 @@ async fn handle_otp_flow(
     sender_id: &str,
     content: &MessageContent,
 ) -> Option<OutgoingMessage> {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Handle cancel command: invalidate any active flow
     if is_cancel_command(content) {
@@ -827,7 +827,7 @@ async fn validate_email_user(
     sender_id: &str,
     email: &str,
 ) -> Result<User, OutgoingMessage> {
-    let db_user: &dyn UserRepository = &*resources.database;
+    let db_user: &dyn UserRepository = resources.repos.users.as_ref();
 
     // Cross-tenant user lookup by email
     let user = match db_user.get_by_email(email).await {
@@ -859,7 +859,7 @@ async fn validate_email_user(
     };
 
     // Verify user belongs to a tenant (shared bot model: accept any tenant the user belongs to)
-    let db_tenant: &dyn TenantRepository = &*resources.database;
+    let db_tenant: &dyn TenantRepository = resources.repos.tenants.as_ref();
     let tenants = match db_tenant.list_for_user(user.id).await {
         Ok(t) => t,
         Err(e) => {
@@ -894,7 +894,7 @@ async fn generate_and_send_otp(
     state_id: &str,
     email: &str,
 ) -> Result<String, OutgoingMessage> {
-    let db_msg: &dyn MessagingRepository = &*resources.database;
+    let db_msg: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     let otp_code = generate_otp();
     let otp_hashed = hash_otp(&otp_code);
@@ -1035,8 +1035,8 @@ async fn handle_otp_mismatch(
 async fn create_verified_channel_link(
     params: &OtpVerificationParams<'_>,
 ) -> Result<User, OutgoingMessage> {
-    let db_user: &dyn UserRepository = &*params.resources.database;
-    let db_msg: &dyn MessagingRepository = &*params.resources.database;
+    let db_user: &dyn UserRepository = params.resources.repos.users.as_ref();
+    let db_msg: &dyn MessagingRepository = params.resources.repos.messaging.as_ref();
 
     let Ok(Some(user)) = db_user.get_by_email(params.email).await else {
         return Err(otp_reply(
@@ -1095,7 +1095,7 @@ async fn handle_otp_verification_step(
         );
     }
 
-    let db_msg: &dyn MessagingRepository = &*params.resources.database;
+    let db_msg: &dyn MessagingRepository = params.resources.repos.messaging.as_ref();
 
     // Hash input and compare against stored hash
     let input_hash = hash_otp(trimmed);
@@ -1288,7 +1288,7 @@ async fn persist_single_message(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) -> Result<PersistOutcome, ()> {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
     if let LinkingAction::LinkCode(code) = detect_linking_code(channel_type, &message.content) {
@@ -1524,7 +1524,7 @@ async fn resolve_user_tenant(
     let Ok(user_uuid) = user_id.parse::<Uuid>() else {
         return fallback_tenant_id;
     };
-    let db: &dyn TenantRepository = &*resources.database;
+    let db: &dyn TenantRepository = resources.repos.tenants.as_ref();
     match db.list_for_user(user_uuid).await {
         Ok(tenants) if !tenants.is_empty() => {
             let resolved = tenants[0].id;
@@ -1590,7 +1590,7 @@ async fn dispatch_and_respond(dispatch: PendingDispatch) {
 
 /// Load channel config, send outbound message, and persist the result
 async fn send_outbound_response(dispatch: &PendingDispatch, outgoing: &OutgoingMessage) {
-    let db: &dyn MessagingRepository = &*dispatch.resources.database;
+    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
 
     let Some(channel_config) =
         load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await

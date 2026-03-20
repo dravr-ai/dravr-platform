@@ -145,7 +145,7 @@ pub async fn init_channel_link(
     let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Fetch channel config for building the linking URL
     let config = db
@@ -213,7 +213,7 @@ pub async fn link_callback(
         .as_deref()
         .ok_or_else(|| AppError::invalid_input("Missing channel_user_id parameter"))?;
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Non-consuming lookup to extract tenant_id for the tenant-scoped consumption
     let preview = db
@@ -286,7 +286,7 @@ pub async fn list_channel_links(
     let tenant_id = resolve_tenant_id(&auth);
     let user_id = auth.user_id.to_string();
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let links = db.list_user_channel_links(tenant_id, &user_id).await?;
 
     let response: Vec<ChannelLinkResponse> = links
@@ -326,7 +326,7 @@ pub async fn delete_channel_link(
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let deleted = db
         .delete_channel_link(tenant_id, &user_id, &channel)
         .await?;
@@ -380,7 +380,7 @@ pub async fn channel_link_page(
     State(resources): State<Arc<ServerResources>>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     let Some(link_state) = db.get_link_state(&code).await.ok().flatten() else {
         return templates::render_link_error_page(
@@ -403,7 +403,7 @@ pub async fn channel_link_auth(
     State(resources): State<Arc<ServerResources>>,
     Form(form): Form<ChannelLinkAuthForm>,
 ) -> impl IntoResponse {
-    let db: &dyn MessagingRepository = &*resources.database;
+    let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
     // Validate the link code is still valid
     let Some(link_state) = db.get_link_state(&form.code).await.ok().flatten() else {
@@ -447,7 +447,7 @@ pub async fn channel_link_auth(
     // For login (existing user), verify they belong to the link state's tenant.
     // For register (new user), skip — they were just created and have no tenants yet.
     if form.action != "register" {
-        let tenant_repo: &dyn TenantRepository = &*resources.database;
+        let tenant_repo: &dyn TenantRepository = resources.repos.tenants.as_ref();
         let has_role = tenant_repo
             .get_user_role(user_id, tenant_id)
             .await
@@ -552,7 +552,7 @@ async fn authenticate_user(
     email: &str,
     password: &str,
 ) -> Result<Uuid, String> {
-    let user_repo: &dyn UserRepository = &*resources.database;
+    let user_repo: &dyn UserRepository = resources.repos.users.as_ref();
 
     let user = user_repo
         .get_by_email(email)
@@ -586,7 +586,7 @@ async fn register_user(
     resources: &ServerResources,
     form: &ChannelLinkAuthForm,
 ) -> Result<Uuid, String> {
-    let user_repo: &dyn UserRepository = &*resources.database;
+    let user_repo: &dyn UserRepository = resources.repos.users.as_ref();
 
     // Check for existing user
     let existing = user_repo.get_by_email(&form.email).await.map_err(|e| {

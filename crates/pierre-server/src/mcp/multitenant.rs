@@ -40,7 +40,8 @@ use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
-use pierre_database::plugins::{factory::Database, NotificationRepository, OAuthTokenRepository};
+use pierre_database::plugins::factory::Database;
+// Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
 use std::env;
 use std::fmt::Write;
@@ -62,6 +63,7 @@ use axum::middleware;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
 use pierre_database::plugins::UsageRepository;
+use pierre_database::RepositoryRegistry;
 use tokio::net::TcpListener;
 use tower::layer::util::Identity;
 
@@ -195,7 +197,7 @@ impl MultiTenantMcpServer {
     ///
     /// Returns an error if the usage cannot be recorded in the database
     pub async fn record_api_key_usage(
-        database: &Arc<Database>,
+        database: &dyn UsageRepository,
         api_key_id: &str,
         tool_name: &str,
         response_time: Duration,
@@ -359,7 +361,7 @@ impl MultiTenantMcpServer {
 
     /// Handle tenant-aware connection status
     #[tracing::instrument(
-        skip(tenant_oauth_client, database, request_id, credentials, config),
+        skip(tenant_oauth_client, repos, request_id, credentials, config),
         fields(
             tenant_id = %tenant_context.tenant_id,
             tenant_name = %tenant_context.tenant_name,
@@ -369,7 +371,7 @@ impl MultiTenantMcpServer {
     pub async fn handle_tenant_connection_status(
         tenant_context: &TenantContext,
         tenant_oauth_client: &Arc<TenantOAuthClient>,
-        database: &Arc<Database>,
+        repos: &Arc<RepositoryRegistry>,
         request_id: Value,
         credentials: McpOAuthCredentials<'_>,
         http_port: u16,
@@ -390,14 +392,14 @@ impl MultiTenantMcpServer {
         .await;
 
         let base_url = Self::build_oauth_base_url(http_port);
-        let connection_status = Self::check_provider_connections(tenant_context, database).await;
+        let connection_status = Self::check_provider_connections(tenant_context, repos).await;
         let notifications_text =
-            Self::build_notifications_text(database, tenant_context.user_id).await;
+            Self::build_notifications_text(repos, tenant_context.user_id).await;
         let structured_data = Self::build_structured_connection_data(
             tenant_context,
             &connection_status,
             &base_url,
-            database,
+            repos,
         )
         .await;
         let text_content = Self::build_text_content(
@@ -436,7 +438,7 @@ impl MultiTenantMcpServer {
     /// Check connection status for all providers
     async fn check_provider_connections(
         tenant_context: &TenantContext,
-        database: &Arc<Database>,
+        repos: &Arc<RepositoryRegistry>,
     ) -> ProviderConnectionStatus {
         let user_id = tenant_context.user_id;
         let tenant_id_str = tenant_context.tenant_id.to_string();
@@ -446,7 +448,8 @@ impl MultiTenantMcpServer {
             "Checking Strava token for user_id={}, tenant_id={}, provider=strava",
             user_id, tenant_id_str
         );
-        let strava_connected = database
+        let strava_connected = repos
+            .oauth_tokens
             .get_token(user_id, tenant_context.tenant_id, "strava")
             .await
             .map_or_else(
@@ -462,7 +465,8 @@ impl MultiTenantMcpServer {
             );
 
         // Check Fitbit connection status
-        let fitbit_connected = database
+        let fitbit_connected = repos
+            .oauth_tokens
             .get_token(user_id, tenant_context.tenant_id, "fitbit")
             .await
             .is_ok_and(|token| token.is_some());
@@ -474,11 +478,15 @@ impl MultiTenantMcpServer {
     }
 
     /// Build notifications text from unread notifications
-    async fn build_notifications_text(database: &Arc<Database>, user_id: Uuid) -> String {
-        let unread_notifications = database.get_unread(user_id).await.unwrap_or_else(|e| {
-            warn!("Failed to fetch unread notifications: {e}");
-            Vec::new()
-        });
+    async fn build_notifications_text(repos: &Arc<RepositoryRegistry>, user_id: Uuid) -> String {
+        let unread_notifications = repos
+            .notifications
+            .get_unread(user_id)
+            .await
+            .unwrap_or_else(|e| {
+                warn!("Failed to fetch unread notifications: {e}");
+                Vec::new()
+            });
 
         if unread_notifications.is_empty() {
             String::new()
@@ -507,9 +515,10 @@ impl MultiTenantMcpServer {
         tenant_context: &TenantContext,
         connection_status: &ProviderConnectionStatus,
         base_url: &str,
-        database: &Arc<Database>,
+        repos: &Arc<RepositoryRegistry>,
     ) -> Value {
-        let unread_notifications = database
+        let unread_notifications = repos
+            .notifications
             .get_unread(tenant_context.user_id)
             .await
             .unwrap_or_else(|e| {
@@ -1026,6 +1035,7 @@ impl MultiTenantMcpServer {
             let admin_token_cache_ttl = resources.config.auth.admin_token_cache_ttl_secs;
             let mut admin_context = AdminApiContext::new(
                 resources.database.clone(),
+                resources.repos.clone(),
                 &resources.admin_jwt_secret,
                 resources.auth_manager.clone(),
                 resources.jwks_manager.clone(),
@@ -1067,6 +1077,9 @@ impl MultiTenantMcpServer {
         let app = {
             let oauth2_context = OAuth2Context {
                 database: resources.database.clone(),
+                oauth2_server: resources.repos.oauth2_server.clone(),
+                tenants: resources.repos.tenants.clone(),
+                users: resources.repos.users.clone(),
                 auth_manager: resources.auth_manager.clone(),
                 jwks_manager: resources.jwks_manager.clone(),
                 config: resources.config.clone(),

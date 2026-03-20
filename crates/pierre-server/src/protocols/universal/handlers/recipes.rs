@@ -15,7 +15,6 @@ use crate::protocols::universal::{UniversalRequest, UniversalResponse, Universal
 use crate::protocols::ProtocolError;
 use crate::utils::uuid::parse_user_id_for_protocol;
 use chrono::Utc;
-use pierre_database::plugins::RecipeRepository;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::future::Future;
@@ -590,7 +589,7 @@ pub fn handle_save_recipe(
         recipe = recipe.with_ingredients(ingredients);
 
         // Save to database
-        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.recipes.as_ref();
         let recipe_id = repo
             .create(user_id, tenant_id, &recipe)
             .await
@@ -663,7 +662,7 @@ pub fn handle_list_recipes(
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.recipes.as_ref();
         let recipes = repo
             .list(user_id, tenant_id, meal_timing, Some(limit), offset)
             .await
@@ -743,7 +742,7 @@ pub fn handle_get_recipe(
                 ProtocolError::InvalidRequest("Missing required parameter: recipe_id".to_owned())
             })?;
 
-        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.recipes.as_ref();
         let recipe = repo
             .get_by_id(recipe_id, user_id, tenant_id)
             .await
@@ -831,7 +830,7 @@ pub fn handle_delete_recipe(
                 ProtocolError::InvalidRequest("Missing required parameter: recipe_id".to_owned())
             })?;
 
-        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.recipes.as_ref();
         let deleted = repo
             .delete(recipe_id, user_id, tenant_id)
             .await
@@ -908,7 +907,7 @@ pub fn handle_search_recipes(
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let repo: &dyn RecipeRepository = executor.resources.database.as_ref();
+        let repo = executor.resources.repos.recipes.as_ref();
         let recipes = repo
             .search(user_id, tenant_id, query, Some(limit), offset)
             .await

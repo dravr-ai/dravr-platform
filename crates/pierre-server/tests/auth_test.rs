@@ -178,9 +178,10 @@ async fn test_mcp_auth_middleware() {
     UserRepository::create(&*database, &user).await.unwrap();
 
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let middleware = McpAuthMiddleware::new(
         auth_manager,
-        database,
+        repos,
         jwks_manager.clone(),
         RateLimitConfig::default(),
     );
@@ -221,9 +222,10 @@ async fn test_mcp_auth_middleware_invalid_header() {
     let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
 
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let middleware = McpAuthMiddleware::new(
         auth_manager,
-        database,
+        repos,
         jwks_manager,
         RateLimitConfig::default(),
     );
@@ -259,9 +261,10 @@ async fn test_provider_access_check() {
     let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
 
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let middleware = McpAuthMiddleware::new(
         auth_manager,
-        database,
+        repos,
         jwks_manager.clone(),
         RateLimitConfig::default(),
     );
@@ -692,9 +695,10 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
         user.email = format!("tier_test_{i}@example.com"); // Unique email for each user
         UserRepository::create(&*database, &user).await.unwrap();
 
+        let repos = Arc::new(database.repositories());
         let middleware = McpAuthMiddleware::new(
             auth_manager.clone(),
-            database.clone(),
+            repos,
             jwks_manager.clone(),
             RateLimitConfig::default(),
         );

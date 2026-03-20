@@ -36,7 +36,6 @@ use crate::utils::uuid::parse_user_id_for_protocol;
 use chrono::{DateTime, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
-use pierre_database::plugins::factory::Database;
 use serde_json::{from_value, json, Value as JsonValue};
 use std::collections::HashMap;
 use std::future::Future;
@@ -321,7 +320,10 @@ pub fn handle_set_goal(
             "created_at": created_at.to_rfc3339()
         });
 
-        let goal_id = (*executor.resources.database)
+        let goal_id = executor
+            .resources
+            .repos
+            .profiles
             .create_goal(user_uuid, goal_data)
             .await
             .map_err(|e| ProtocolError::InternalError(format!("Database error: {e}")))?;
@@ -350,12 +352,12 @@ pub fn handle_set_goal(
 /// # Returns
 /// `UserFitnessProfile` (either from DB or calculated fallback)
 async fn load_user_profile(
-    database: &Database,
+    profiles: &dyn ProfileRepository,
     user_uuid: Uuid,
     user_id: &str,
     activities: &[Activity],
 ) -> UserFitnessProfile {
-    match database.get_profile(user_uuid).await {
+    match profiles.get_profile(user_uuid).await {
         Ok(Some(profile_json)) => from_value(profile_json).unwrap_or_else(|e| {
             warn!(
                 user_id = %user_id,
@@ -482,7 +484,7 @@ pub fn handle_suggest_goals(
         // Generate goal suggestions
         let goal_engine = AdvancedGoalEngine::new();
         let user_profile = load_user_profile(
-            &executor.resources.database,
+            executor.resources.repos.profiles.as_ref(),
             user_uuid,
             &request.user_id,
             &activities,
@@ -1132,11 +1134,11 @@ async fn fetch_progress_activities(
 /// # Returns
 /// Result containing validated `GoalDetails` or error response
 async fn fetch_and_validate_goal(
-    database: &Database,
+    profiles: &dyn ProfileRepository,
     user_uuid: Uuid,
     goal_id: &str,
 ) -> Result<GoalDetails, UniversalResponse> {
-    let goals = match database.get_goals(user_uuid).await {
+    let goals = match profiles.get_goals(user_uuid).await {
         Ok(goals) => goals,
         Err(e) => {
             return Err(UniversalResponse {
@@ -1266,7 +1268,7 @@ pub fn handle_track_progress(
 
         // Fetch and validate goal
         let details = match fetch_and_validate_goal(
-            &executor.resources.database,
+            executor.resources.repos.profiles.as_ref(),
             user_uuid,
             &goal_id,
         )

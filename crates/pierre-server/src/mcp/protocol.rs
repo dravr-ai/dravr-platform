@@ -29,7 +29,7 @@ use crate::models::AuthRequest;
 use crate::types::json_schemas;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::{NotificationRepository, OAuthTokenRepository};
+// Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -334,7 +334,7 @@ impl ProtocolHandler {
         match uri.as_str() {
             "oauth://notifications" => {
                 // Get unread notifications
-                match resources.database.get_unread(user_id).await {
+                match resources.repos.notifications.get_unread(user_id).await {
                     Ok(notifications) => {
                         let response_data = serde_json::json!({
                             "contents": [{
@@ -466,7 +466,8 @@ impl ProtocolHandler {
             // Use default redirect URI for MCP clients
             let redirect_uri = format!("urn:ietf:wg:oauth:2.0:oob:{provider}:mcp");
             resources
-                .database
+                .repos
+                .oauth_tokens
                 .store_user_oauth_app(
                     *user_id,
                     &provider,

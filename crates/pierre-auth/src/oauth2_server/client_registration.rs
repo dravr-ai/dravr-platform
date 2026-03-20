@@ -14,7 +14,6 @@ use argon2::{
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::env;
@@ -24,14 +23,14 @@ use uuid::Uuid;
 
 /// OAuth 2.0 Client Registration Manager
 pub struct ClientRegistrationManager {
-    database: Arc<Database>,
+    oauth2: Arc<dyn OAuth2ServerRepository>,
 }
 
 impl ClientRegistrationManager {
     /// Creates a new client registration manager
     #[must_use]
-    pub const fn new(database: Arc<Database>) -> Self {
-        Self { database }
+    pub fn new(oauth2: Arc<dyn OAuth2ServerRepository>) -> Self {
+        Self { oauth2 }
     }
 
     /// Register a new OAuth 2.0 client (RFC 7591)
@@ -179,7 +178,7 @@ impl ClientRegistrationManager {
     /// # Errors
     /// Returns an error if client is not found in the database
     pub async fn get_client(&self, client_id: &str) -> AppResult<OAuth2Client> {
-        self.database
+        self.oauth2
             .get_client(client_id)
             .await?
             .ok_or_else(|| AppError::not_found("OAuth2 client not found"))
@@ -187,7 +186,7 @@ impl ClientRegistrationManager {
 
     /// Store client in database
     async fn store_client(&self, client: &OAuth2Client) -> AppResult<()> {
-        self.database.store_client(client).await
+        self.oauth2.store_client(client).await
     }
 
     /// Validate registration request

@@ -14,7 +14,8 @@ use tracing::info;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::{factory::Database, SecurityRepository};
+use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::SecurityRepository;
 
 /// Master Encryption Key (MEK) - Tier 1
 /// Loaded from environment variable or external key management system
@@ -244,9 +245,9 @@ impl KeyManager {
     }
 
     /// Store encrypted DEK in database
-    async fn store_dek(database: &Database, encrypted_dek: &[u8]) -> AppResult<()> {
+    async fn store_dek(security: &dyn SecurityRepository, encrypted_dek: &[u8]) -> AppResult<()> {
         let encrypted_dek_base64 = Base64Standard.encode(encrypted_dek);
-        database
+        security
             .update_system_secret("database_encryption_key", &encrypted_dek_base64)
             .await
     }
@@ -266,8 +267,10 @@ impl KeyManager {
     pub async fn complete_initialization(&mut self, database: &mut Database) -> AppResult<()> {
         info!("Completing two-tier key management initialization");
 
+        // Use Database as SecurityRepository for secret retrieval
+        let security = database.as_security_repository();
         if let Ok(encrypted_dek_base64) =
-            database.get_system_secret("database_encryption_key").await
+            security.get_system_secret("database_encryption_key").await
         {
             self.load_existing_dek(&encrypted_dek_base64)?;
             // Update the database's encryption key to use the loaded DEK
@@ -276,7 +279,8 @@ impl KeyManager {
             database.update_encryption_key(self.dek.as_bytes().to_vec());
             info!("Database encryption key updated to use loaded DEK");
         } else {
-            self.store_new_dek(database).await?;
+            self.store_new_dek(database.as_security_repository())
+                .await?;
         }
 
         info!("Two-tier key management system fully initialized");
@@ -301,10 +305,10 @@ impl KeyManager {
         Ok(())
     }
 
-    async fn store_new_dek(&self, database: &Database) -> AppResult<()> {
+    async fn store_new_dek(&self, security: &dyn SecurityRepository) -> AppResult<()> {
         info!("No existing DEK found, storing current Database Encryption Key");
         let encrypted_dek = self.dek.encrypt_with_mek(&self.mek)?;
-        Self::store_dek(database, &encrypted_dek).await?;
+        Self::store_dek(security, &encrypted_dek).await?;
         info!("Database Encryption Key stored successfully");
         Ok(())
     }

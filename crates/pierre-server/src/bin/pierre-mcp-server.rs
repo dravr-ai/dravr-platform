@@ -15,7 +15,8 @@
 use clap::{error::ErrorKind, Parser};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
-use pierre_database::plugins::{factory::Database, SecurityRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 #[cfg(feature = "provider-synthetic")]
 use pierre_mcp_server::providers::set_synthetic_database_pool;
 use pierre_mcp_server::{
@@ -380,7 +381,8 @@ async fn initialize_core_systems(config: &ServerConfig) -> Result<(Database, Aut
     key_manager.complete_initialization(&mut database).await?;
     info!("Two-tier key management system fully initialized");
 
-    let jwt_secret_string = initialize_jwt_secret(&database, config).await?;
+    let repos = database.repositories();
+    let jwt_secret_string = initialize_jwt_secret(&database, &repos, config).await?;
     let auth_manager = create_auth_manager(config);
 
     Ok((database, auth_manager, jwt_secret_string))
@@ -428,8 +430,8 @@ fn log_missing_admin_warning(auto_approve: bool) {
 }
 
 /// Check admin user status and log appropriate startup message
-async fn check_admin_status(database: &Database, auto_approve: bool) {
-    match database.get_by_status("active", None).await {
+async fn check_admin_status(repos: &RepositoryRegistry, auto_approve: bool) {
+    match repos.users.get_by_status("active", None).await {
         Ok(users) => {
             let admin_exists = users.iter().any(|u| u.is_admin);
             if admin_exists {
@@ -444,8 +446,13 @@ async fn check_admin_status(database: &Database, auto_approve: bool) {
     }
 }
 
-async fn initialize_jwt_secret(database: &Database, config: &ServerConfig) -> Result<String> {
-    let jwt_secret_string = database
+async fn initialize_jwt_secret(
+    database: &Database,
+    repos: &RepositoryRegistry,
+    config: &ServerConfig,
+) -> Result<String> {
+    let jwt_secret_string = repos
+        .security
         .get_or_create_system_secret("admin_jwt_secret")
         .await?;
 
@@ -464,7 +471,7 @@ async fn initialize_jwt_secret(database: &Database, config: &ServerConfig) -> Re
             .unwrap_or(config.app_behavior.auto_approve_users)
     };
 
-    check_admin_status(database, auto_approve).await;
+    check_admin_status(repos, auto_approve).await;
 
     let domains = &config.app_behavior.auto_approve_domains;
     if !domains.is_empty() {
@@ -501,7 +508,8 @@ async fn create_server(
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::messaging_seed;
-        messaging_seed::seed_from_env(&database).await;
+        let repos = database.repositories();
+        messaging_seed::seed_from_env(&repos).await;
     }
 
     let resources_instance = ServerResources::new(

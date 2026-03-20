@@ -17,7 +17,6 @@ use axum::{
     Router,
 };
 use futures_util::stream::Stream;
-use pierre_database::plugins::A2ARepository;
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
@@ -322,7 +321,8 @@ impl SseRoutes {
 
         // Verify task exists in database
         let task = resources
-            .database
+            .repos
+            .a2a
             .get_task(&task_id)
             .await
             .map_err(|e| {

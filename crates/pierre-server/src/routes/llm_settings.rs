@@ -26,8 +26,7 @@ use pierre_auth::tenant::llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
 use pierre_core::models::LlmCredentialSummary;
-use pierre_database::database::repositories::TenantRepository;
-use pierre_database::plugins::factory::Database;
+use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
 
 /// Request to save LLM credentials
 #[derive(Debug, Deserialize)]
@@ -156,7 +155,7 @@ impl LlmSettingsRoutes {
             return Ok(TenantId::from(tenant_id));
         }
         // Fall back to user's first tenant (single-tenant users or tokens without active_tenant_id)
-        let tenants = resources.database.list_for_user(auth.user_id).await?;
+        let tenants = resources.repos.tenants.list_for_user(auth.user_id).await?;
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(auth.user_id), |t| t.id))
@@ -170,11 +169,12 @@ impl LlmSettingsRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
-        let database = &*resources.database;
+        let llm_creds = resources.repos.llm_credentials.as_ref();
+        let security = resources.repos.security.as_ref();
 
         // Get user's credentials
         let all_credentials =
-            TenantLlmManager::list_tenant_credentials(tenant_id, database).await?;
+            TenantLlmManager::list_tenant_credentials(tenant_id, llm_creds).await?;
 
         let user_credentials: Vec<_> = all_credentials
             .iter()
@@ -196,7 +196,8 @@ impl LlmSettingsRoutes {
                 LlmProvider::Gemini,
                 user_id,
                 tenant_id,
-                database,
+                llm_creds,
+                security,
             )
             .await,
             Self::build_provider_status(
@@ -205,7 +206,8 @@ impl LlmSettingsRoutes {
                 LlmProvider::Groq,
                 user_id,
                 tenant_id,
-                database,
+                llm_creds,
+                security,
             )
             .await,
             Self::build_provider_status(
@@ -214,7 +216,8 @@ impl LlmSettingsRoutes {
                 LlmProvider::Local,
                 user_id,
                 tenant_id,
-                database,
+                llm_creds,
+                security,
             )
             .await,
         ];
@@ -240,15 +243,22 @@ impl LlmSettingsRoutes {
         provider: LlmProvider,
         user_id: Uuid,
         tenant_id: TenantId,
-        database: &Database,
+        llm_creds: &dyn LlmCredentialRepository,
+        security: &dyn SecurityRepository,
     ) -> ProviderStatus {
         let has_credentials =
-            TenantLlmManager::has_credentials(Some(user_id), tenant_id, provider, database).await;
+            TenantLlmManager::has_credentials(Some(user_id), tenant_id, provider, llm_creds).await;
 
         // Determine credential source if available
         let credential_source = if has_credentials {
-            match TenantLlmManager::get_credentials(Some(user_id), tenant_id, provider, database)
-                .await
+            match TenantLlmManager::get_credentials(
+                Some(user_id),
+                tenant_id,
+                provider,
+                llm_creds,
+                security,
+            )
+            .await
             {
                 Ok(creds) => Some(creds.source.to_string()),
                 Err(_) => None,
@@ -275,7 +285,8 @@ impl LlmSettingsRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
-        let database = &*resources.database;
+        let llm_creds = resources.repos.llm_credentials.as_ref();
+        let security = resources.repos.security.as_ref();
 
         // Parse provider
         let provider = LlmProvider::parse_str(&request.provider).ok_or_else(|| {
@@ -300,7 +311,8 @@ impl LlmSettingsRoutes {
             // In multi-tenant mode, check the user's role in the tenant.
             if tenant_id.as_uuid() != user_id {
                 let role = resources
-                    .database
+                    .repos
+                    .tenants
                     .get_user_role(user_id, tenant_id)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to check tenant role: {e}")))?;
@@ -333,7 +345,8 @@ impl LlmSettingsRoutes {
             tenant_id,
             store_request,
             user_id,
-            database,
+            llm_creds,
+            security,
         )
         .await?;
 
@@ -434,7 +447,7 @@ impl LlmSettingsRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let user_id = auth.user_id;
         let tenant_id = Self::get_tenant_id(&auth, &resources).await?;
-        let database = &*resources.database;
+        let llm_creds = resources.repos.llm_credentials.as_ref();
 
         // Parse provider
         let provider = LlmProvider::parse_str(&provider_name).ok_or_else(|| {
@@ -445,7 +458,7 @@ impl LlmSettingsRoutes {
 
         // Delete user's credentials for this provider
         let deleted =
-            TenantLlmManager::delete_credentials(Some(user_id), tenant_id, provider, database)
+            TenantLlmManager::delete_credentials(Some(user_id), tenant_id, provider, llm_creds)
                 .await?;
 
         if deleted {

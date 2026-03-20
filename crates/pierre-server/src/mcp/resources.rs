@@ -52,7 +52,8 @@ use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
 };
 use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{SecurityRepository, StoreListingsRepository};
+use pierre_database::plugins::StoreListingsRepository;
+use pierre_database::RepositoryRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "client-notifications")]
@@ -126,8 +127,17 @@ impl ServerResourcesOptions {
 /// of recreating expensive objects like `AuthManager` and excessive Arc cloning.
 #[derive(Clone)]
 pub struct ServerResources {
-    /// Database connection pool for persistent storage operations
+    /// Database connection pool for persistent storage operations.
+    ///
+    /// Retained for lifecycle (migrations, encryption key updates), system settings,
+    /// and pool access (`NotificationService`, `AdminConfigService`).
+    /// Data access should go through `repos` instead.
     pub database: Arc<Database>,
+    /// Trait-object repository registry — the primary data access layer.
+    ///
+    /// Each field holds `Arc<dyn XRepository>`, constructed once at startup
+    /// from whichever backend the database enum wraps.
+    pub repos: Arc<RepositoryRegistry>,
     /// Authentication manager for user identity verification
     pub auth_manager: Arc<AuthManager>,
     /// JSON Web Key Set manager for RS256 JWT signing and verification
@@ -222,6 +232,7 @@ impl ServerResources {
         let llm_provider = options.llm_provider;
 
         let database_arc = Arc::new(database);
+        let repos = Arc::new(database_arc.repositories());
         let auth_manager_arc = Arc::new(auth_manager);
 
         // Create tenant OAuth client and provider registry once
@@ -235,10 +246,10 @@ impl ServerResources {
 
         // Create A2A services for agent-to-agent communication
         #[cfg(feature = "protocol-a2a")]
-        let a2a_system_user_service = Arc::new(A2ASystemUserService::new(database_arc.clone()));
+        let a2a_system_user_service = Arc::new(A2ASystemUserService::new(repos.users.clone()));
         #[cfg(feature = "protocol-a2a")]
         let a2a_client_manager = Arc::new(A2AClientManager::new(
-            database_arc.clone(),
+            repos.clone(),
             a2a_system_user_service.clone(),
         ));
 
@@ -259,7 +270,7 @@ impl ServerResources {
         // Create websocket manager after jwks_manager is initialized
         #[cfg(feature = "transport-websocket")]
         let websocket_manager = Arc::new(WebSocketManager::new(
-            database_arc.clone(),
+            repos.clone(),
             &auth_manager_arc,
             &jwks_manager_arc,
             config.rate_limiting.clone(),
@@ -272,7 +283,7 @@ impl ServerResources {
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(McpAuthMiddleware::new(
             (*auth_manager_arc).clone(),
-            database_arc.clone(),
+            repos.clone(),
             jwks_manager_arc.clone(),
             config.rate_limiting.clone(),
         ));
@@ -300,12 +311,12 @@ impl ServerResources {
         let admin_config = Self::init_admin_config_service(&database_arc).await;
 
         // Start background usage counter pruning task (hourly, removes records older than 90 days)
-        let pruning_abort_handle = admin_config
-            .as_ref()
-            .map(|config| start_usage_pruning_task(Arc::clone(&database_arc), Arc::clone(config)));
+        let pruning_abort_handle = admin_config.as_ref().map(|config| {
+            start_usage_pruning_task(Arc::clone(&repos.usage_counters), Arc::clone(config))
+        });
 
         // Create tool selection service for per-tenant tool filtering
-        let tool_selection = Arc::new(ToolSelectionService::new(database_arc.clone()));
+        let tool_selection = Arc::new(ToolSelectionService::new(repos.clone()));
 
         // Create email service if Resend credentials are configured
         let email_service = config
@@ -333,6 +344,7 @@ impl ServerResources {
 
         Self {
             database: database_arc,
+            repos,
             auth_manager: auth_manager_arc,
             jwks_manager: jwks_manager_arc,
             auth_middleware,
@@ -456,6 +468,7 @@ impl ServerResources {
         let public_pem = key.export_public_key_pem()?;
 
         database
+            .as_security_repository()
             .save_rsa_keypair(
                 &kid,
                 &private_pem,
@@ -542,7 +555,7 @@ impl ServerResources {
     ) -> AppResult<JwksManager> {
         let mut jwks_manager = JwksManager::new();
 
-        match database.load_rsa_keypairs().await {
+        match database.as_security_repository().load_rsa_keypairs().await {
             Ok(keypairs) if !keypairs.is_empty() => {
                 Self::load_existing_keys(&mut jwks_manager, keypairs)?;
             }
@@ -658,61 +671,49 @@ impl ServerResources {
         ServerResourcesBuilder::new()
     }
 
-    /// Get a coaches repository backed by the active database backend.
-    ///
-    /// The returned trait object dispatches to `SQLite` or `PostgreSQL`
-    /// depending on the database configuration.
+    /// Get the coaches repository
     #[must_use]
     pub fn coaches_manager(&self) -> &dyn CoachesRepository {
-        self.database.as_ref()
+        self.repos.coaches.as_ref()
     }
 
-    /// Get the database as a `StoreListingsRepository` trait object.
-    ///
-    /// Works on both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    /// Get the store listings repository
     #[must_use]
     pub fn store_listings_repository(&self) -> &dyn StoreListingsRepository {
-        self.database.as_ref()
+        self.repos.store_listings.as_ref()
     }
 
-    /// Get the database as a `RecipeRepository` trait object.
-    ///
-    /// Works on both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    /// Get the recipe repository
     #[must_use]
     pub fn recipe_repository(&self) -> &dyn RecipeRepository {
-        self.database.as_ref()
+        self.repos.recipes.as_ref()
     }
 
-    /// Get the `SQLite` database as a `CoachesRepository` trait object.
+    /// Get the coaches repository (alias for compatibility)
     ///
     /// # Errors
     ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
+    /// This method is infallible but returns `AppResult` for API compatibility.
     pub fn coaches_repository(&self) -> AppResult<&dyn CoachesRepository> {
-        self.database
-            .sqlite_database()
-            .map(|db| db as &dyn CoachesRepository)
-            .ok_or_else(|| AppError::internal("SQLite database required for coaches"))
+        Ok(self.repos.coaches.as_ref())
     }
 
-    /// Get the database as a `MobilityRepository` trait object.
-    ///
-    /// Works with both `SQLite` and `PostgreSQL` backends via factory dispatch.
+    /// Get the mobility repository
     #[must_use]
     pub fn mobility_repository(&self) -> &dyn MobilityRepository {
-        self.database.as_ref()
+        self.repos.mobility.as_ref()
     }
 
-    /// Get the `SQLite` database as a `SocialRepository` trait object.
+    /// Get the social repository.
     ///
     /// # Errors
     ///
-    /// Returns `AppError` if the database backend is not `SQLite`.
+    /// Returns `AppError` if the backend is `PostgreSQL` (SQLite-only feature).
     pub fn social_repository(&self) -> AppResult<&dyn SocialRepository> {
-        self.database
-            .sqlite_database()
-            .map(|db| db as &dyn SocialRepository)
-            .ok_or_else(|| AppError::internal("SQLite database required for social"))
+        self.repos
+            .social
+            .as_deref()
+            .ok_or_else(|| AppError::internal("SocialRepository is not available on PostgreSQL"))
     }
 
     /// Get the messaging channel registry

@@ -111,6 +111,7 @@ impl From<&ServerResources> for ServerContext {
 
         let data = DataContext::new(
             resources.database.clone(),
+            resources.repos.clone(),
             resources.cache.clone(),
             resources.provider_registry.clone(),
             resources.activity_intelligence.clone(),

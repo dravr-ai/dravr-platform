@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_database::plugins::{factory::Database, AdminRepository, SecurityRepository};
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::{
     admin::models::{AdminPermission, CreateAdminTokenRequest},
     errors::{AppError, AppResult},
@@ -19,7 +19,7 @@ use crate::helpers::display::display_generated_token;
 
 /// Generate a new admin token
 pub async fn generate(
-    database: &Database,
+    repos: &RepositoryRegistry,
     jwks_manager: &JwksManager,
     service: String,
     description: Option<String>,
@@ -30,7 +30,7 @@ pub async fn generate(
     info!("Key Generating admin token for service: {}", service);
 
     // Check for existing active token
-    check_existing_token(database, &service).await?;
+    check_existing_token(repos, &service).await?;
 
     // Build token request
     let mut request = build_token_request(service, description, expires_days, super_admin);
@@ -39,10 +39,11 @@ pub async fn generate(
     apply_custom_permissions(&mut request, permissions, super_admin)?;
 
     // Load JWT secret
-    let jwt_secret = load_jwt_secret(database).await?;
+    let jwt_secret = load_jwt_secret(repos).await?;
 
     // Generate and display token
-    let generated_token = database
+    let generated_token = repos
+        .admin
         .create_token(&request, &jwt_secret, jwks_manager)
         .await?;
 
@@ -51,8 +52,8 @@ pub async fn generate(
     Ok(())
 }
 
-async fn check_existing_token(database: &Database, service: &str) -> Result<()> {
-    if let Ok(existing_tokens) = database.list_tokens(false).await {
+async fn check_existing_token(repos: &RepositoryRegistry, service: &str) -> Result<()> {
+    if let Ok(existing_tokens) = repos.admin.list_tokens(false).await {
         if existing_tokens
             .iter()
             .any(|t| t.service_name == service && t.is_active)
@@ -163,9 +164,9 @@ fn print_valid_permissions() {
     }
 }
 
-async fn load_jwt_secret(database: &Database) -> Result<String> {
+async fn load_jwt_secret(repos: &RepositoryRegistry) -> Result<String> {
     info!("Loading JWT secret from database for token generation...");
-    let Ok(jwt_secret) = database.get_system_secret("admin_jwt_secret").await else {
+    let Ok(jwt_secret) = repos.security.get_system_secret("admin_jwt_secret").await else {
         log_jwt_secret_error();
         return Err(AppError::config(
             "Admin JWT secret not found. Run pierre-cli user create first.",
@@ -183,13 +184,17 @@ fn log_jwt_secret_error() {
 }
 
 /// List all admin tokens
-pub async fn list(database: &Database, include_inactive: bool, detailed: bool) -> Result<()> {
+pub async fn list(
+    repos: &RepositoryRegistry,
+    include_inactive: bool,
+    detailed: bool,
+) -> Result<()> {
     info!(
         "List Listing admin tokens (include_inactive: {})",
         include_inactive
     );
 
-    let tokens = database.list_tokens(include_inactive).await?;
+    let tokens = repos.admin.list_tokens(include_inactive).await?;
 
     if tokens.is_empty() {
         println!("No admin tokens found.");
@@ -258,11 +263,12 @@ pub async fn list(database: &Database, include_inactive: bool, detailed: bool) -
 }
 
 /// Revoke an admin token
-pub async fn revoke(database: &Database, token_id: String) -> Result<()> {
+pub async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> {
     info!("Revoking admin token: {}", token_id);
 
     // Check if token exists
-    let token = database
+    let token = repos
+        .admin
         .get_token_by_id(&token_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
@@ -273,7 +279,7 @@ pub async fn revoke(database: &Database, token_id: String) -> Result<()> {
     }
 
     // Revoke token
-    database.deactivate_token(&token_id).await?;
+    repos.admin.deactivate_token(&token_id).await?;
 
     println!("Success Admin token revoked successfully!");
     println!("   Token ID: {token_id}");
@@ -285,7 +291,7 @@ pub async fn revoke(database: &Database, token_id: String) -> Result<()> {
 
 /// Rotate an admin token (create new, revoke old)
 pub async fn rotate(
-    database: &Database,
+    repos: &RepositoryRegistry,
     jwks_manager: &JwksManager,
     token_id: String,
     expires_days: Option<u64>,
@@ -293,7 +299,8 @@ pub async fn rotate(
     info!("Rotating admin token: {}", token_id);
 
     // Get existing token
-    let old_token = database
+    let old_token = repos
+        .admin
         .get_token_by_id(&token_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
@@ -316,7 +323,7 @@ pub async fn rotate(
     }
 
     // Load JWT secret from database (must exist - created by user create)
-    let Ok(jwt_secret) = database.get_system_secret("admin_jwt_secret").await else {
+    let Ok(jwt_secret) = repos.security.get_system_secret("admin_jwt_secret").await else {
         error!("Admin JWT secret not found in database!");
         return Err(AppError::config(
             "Admin JWT secret not found. Run pierre-cli user create first.",
@@ -324,12 +331,13 @@ pub async fn rotate(
     };
 
     // Generate new token using RS256 asymmetric signing
-    let new_token = database
+    let new_token = repos
+        .admin
         .create_token(&request, &jwt_secret, jwks_manager)
         .await?;
 
     // Revoke old token
-    database.deactivate_token(&token_id).await?;
+    repos.admin.deactivate_token(&token_id).await?;
 
     println!("Token rotation completed successfully!");
     println!("   Old Token: {token_id} (revoked)");
@@ -342,14 +350,15 @@ pub async fn rotate(
 }
 
 /// Show token usage statistics
-pub async fn stats(database: &Database, token_id: Option<String>, days: u32) -> Result<()> {
+pub async fn stats(repos: &RepositoryRegistry, token_id: Option<String>, days: u32) -> Result<()> {
     let start_date = chrono::Utc::now() - chrono::Duration::days(i64::from(days));
     let end_date = chrono::Utc::now();
 
     if let Some(id) = token_id {
         info!("Token usage statistics for: {} ({} days)", id, days);
 
-        let usage_history = database
+        let usage_history = repos
+            .admin
             .get_token_usage_history(&id, start_date, end_date)
             .await?;
 
@@ -407,7 +416,7 @@ pub async fn stats(database: &Database, token_id: Option<String>, days: u32) -> 
     } else {
         info!("Overall admin token statistics ({} days)", days);
 
-        let tokens = database.list_tokens(true).await?;
+        let tokens = repos.admin.list_tokens(true).await?;
 
         println!("\nAdmin Token Overview");
         println!("{}", "=".repeat(60));

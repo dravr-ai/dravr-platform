@@ -8,6 +8,7 @@ use crate::cache::factory::Cache;
 use crate::intelligence::ActivityIntelligence;
 use crate::providers::ProviderRegistry;
 use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 
 /// Data context containing database, cache, and provider dependencies
@@ -16,13 +17,15 @@ use std::sync::Arc;
 /// database operations, caching, provider integration, and activity intelligence.
 ///
 /// # Dependencies
-/// - `database`: Primary database interface for all persistence operations
+/// - `database`: Lifecycle and system settings only
+/// - `repos`: Primary data access through trait-object registry
 /// - `cache`: Cache layer for performance optimization
 /// - `provider_registry`: Registry of external service providers
 /// - `activity_intelligence`: AI/ML services for activity analysis
 #[derive(Clone)]
 pub struct DataContext {
     database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
     cache: Arc<Cache>,
     provider_registry: Arc<ProviderRegistry>,
     activity_intelligence: Arc<ActivityIntelligence>,
@@ -31,24 +34,32 @@ pub struct DataContext {
 impl DataContext {
     /// Create new data context
     #[must_use]
-    pub const fn new(
+    pub fn new(
         database: Arc<Database>,
+        repos: Arc<RepositoryRegistry>,
         cache: Arc<Cache>,
         provider_registry: Arc<ProviderRegistry>,
         activity_intelligence: Arc<ActivityIntelligence>,
     ) -> Self {
         Self {
             database,
+            repos,
             cache,
             provider_registry,
             activity_intelligence,
         }
     }
 
-    /// Get database for persistence operations
+    /// Get database for lifecycle and system settings
     #[must_use]
-    pub const fn database(&self) -> &Arc<Database> {
+    pub fn database(&self) -> &Arc<Database> {
         &self.database
+    }
+
+    /// Get repository registry for data access
+    #[must_use]
+    pub fn repos(&self) -> &Arc<RepositoryRegistry> {
+        &self.repos
     }
 
     /// Get cache for performance optimization

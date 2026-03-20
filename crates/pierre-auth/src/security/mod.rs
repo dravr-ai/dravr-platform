@@ -15,7 +15,6 @@
 use crate::security::key_rotation::KeyVersion;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::SecurityRepository;
 use ring::{
     aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM},
@@ -149,8 +148,8 @@ pub struct TenantEncryptionManager {
     derived_keys_cache: RwLock<HashMap<Uuid, [u8; 32]>>,
     /// Random number generator
     rng: SystemRandom,
-    /// Database connection for key versioning
-    database: Option<Arc<Database>>,
+    /// Security repository for key versioning
+    security: Option<Arc<dyn SecurityRepository>>,
     /// Current key version (global)
     current_version: RwLock<u32>,
 }
@@ -189,19 +188,19 @@ impl TenantEncryptionManager {
             master_key,
             derived_keys_cache: RwLock::new(HashMap::new()),
             rng: SystemRandom::new(),
-            database: None,
+            security: None,
             current_version: RwLock::new(1),
         }
     }
 
-    /// Create new encryption manager with database connection for key versioning
+    /// Create new encryption manager with security repository for key versioning
     #[must_use]
-    pub fn new_with_database(master_key: [u8; 32], database: Arc<Database>) -> Self {
+    pub fn new_with_security(master_key: [u8; 32], security: Arc<dyn SecurityRepository>) -> Self {
         Self {
             master_key,
             derived_keys_cache: RwLock::new(HashMap::new()),
             rng: SystemRandom::new(),
-            database: Some(database),
+            security: Some(security),
             current_version: RwLock::new(1),
         }
     }
@@ -430,7 +429,7 @@ impl TenantEncryptionManager {
         let new_version = old_version + 1;
 
         // Update key version in database if available
-        if let Some(database) = &self.database {
+        if let Some(security) = &self.security {
             // Create new key version record
             let key_version = KeyVersion {
                 tenant_id: Some(tenant_id),
@@ -441,7 +440,7 @@ impl TenantEncryptionManager {
                 algorithm: "HKDF-SHA256".to_owned(),
             };
 
-            database.store_key_version(&key_version).await?;
+            security.store_key_version(&key_version).await?;
 
             // Re-encrypt existing OAuth tokens and sensitive data with new key
             // This is a complex operation that requires careful implementation
@@ -452,12 +451,12 @@ impl TenantEncryptionManager {
             );
 
             // Activate the new key version
-            database
+            security
                 .update_key_version_status(Some(tenant_id), new_version, true)
                 .await?;
 
             // Deactivate old version
-            database
+            security
                 .update_key_version_status(Some(tenant_id), old_version, false)
                 .await?;
         }

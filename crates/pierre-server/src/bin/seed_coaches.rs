@@ -36,10 +36,10 @@ use glob::glob;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::SeederRepository;
 use pierre_database::seed_models::{
     SeedCoach, SeedCoachAuthor, SeedCoachRelation, SeedStoreListing,
 };
+use pierre_database::RepositoryRegistry;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -118,22 +118,23 @@ async fn main() -> AppResult<()> {
     // Connect to database
     info!("Connecting to database: {}", database_url);
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // Find admin user
-    let admin = find_admin_user(&db).await?;
+    let admin = find_admin_user(&repos).await?;
     info!(
         "Using admin user: {} (tenant: {})",
         admin.email, admin.tenant_id
     );
 
     // Pass 1: Upsert coaches
-    let (mut stats, slug_to_id) = sync_coaches(&db, &coaches, &admin, args.dry_run).await;
+    let (mut stats, slug_to_id) = sync_coaches(&repos, &coaches, &admin, args.dry_run).await;
 
     // Pass 2: Create relations
-    sync_relations(&db, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
+    sync_relations(&repos, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
 
     // Pass 3: Publish system coaches to the store
-    publish_to_store(&db, &slug_to_id, &admin, &mut stats, args.dry_run).await;
+    publish_to_store(&repos, &slug_to_id, &admin, &mut stats, args.dry_run).await;
 
     // Summary
     print_summary(&stats, args.dry_run);
@@ -150,7 +151,7 @@ async fn main() -> AppResult<()> {
 
 /// Sync all coaches to the database (Pass 1)
 async fn sync_coaches(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coaches: &[CoachDefinition],
     admin: &AdminUser,
     dry_run: bool,
@@ -161,7 +162,7 @@ async fn sync_coaches(
     let mut slug_to_id: HashMap<String, String> = HashMap::new();
 
     for coach in coaches {
-        match upsert_coach(db, coach, admin, dry_run).await {
+        match upsert_coach(repos, coach, admin, dry_run).await {
             Ok((coach_id, action)) => {
                 slug_to_id.insert(coach.frontmatter.name.clone(), coach_id);
                 log_upsert_result(&coach.frontmatter.title, &action, &mut stats);
@@ -198,7 +199,7 @@ fn log_upsert_result(title: &str, action: &UpsertAction, stats: &mut SeedStats) 
 
 /// Sync coach relations to the database (Pass 2)
 async fn sync_relations(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coaches: &[CoachDefinition],
     slug_to_id: &HashMap<String, String>,
     stats: &mut SeedStats,
@@ -208,7 +209,7 @@ async fn sync_relations(
     info!("=== Pass 2: Syncing Relations ===");
 
     for coach in coaches {
-        process_coach_relations(db, coach, slug_to_id, stats, dry_run).await;
+        process_coach_relations(repos, coach, slug_to_id, stats, dry_run).await;
     }
 
     log_relations_created(stats.relations_created);
@@ -216,7 +217,7 @@ async fn sync_relations(
 
 /// Process all relations for a single coach
 async fn process_coach_relations(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coach: &CoachDefinition,
     slug_to_id: &HashMap<String, String>,
     stats: &mut SeedStats,
@@ -228,7 +229,7 @@ async fn process_coach_relations(
 
     for relation in &coach.sections.related_coaches {
         process_single_relation(
-            db,
+            repos,
             coach_id,
             &coach.frontmatter.name,
             relation,
@@ -249,7 +250,7 @@ fn log_relations_created(count: u32) {
 
 /// Process a single coach relation
 async fn process_single_relation(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coach_id: &str,
     coach_name: &str,
     relation: &RelatedCoach,
@@ -270,7 +271,7 @@ async fn process_single_relation(
         return;
     }
 
-    let relation_created = create_relation(db, coach_id, related_id, relation.relation_type)
+    let relation_created = create_relation(repos, coach_id, related_id, relation.relation_type)
         .await
         .unwrap_or(false);
     if relation_created {
@@ -334,7 +335,7 @@ fn log_dry_run_status(dry_run: bool) {
 /// System coaches are auto-published so they appear in the Discover tab.
 /// Uses INSERT OR IGNORE to be idempotent on re-runs.
 async fn publish_to_store(
-    db: &Database,
+    repos: &RepositoryRegistry,
     slug_to_id: &HashMap<String, String>,
     admin: &AdminUser,
     stats: &mut SeedStats,
@@ -344,13 +345,13 @@ async fn publish_to_store(
     info!("=== Pass 3: Publishing to Store ===");
 
     for (slug, coach_id) in slug_to_id {
-        publish_or_skip(db, slug, coach_id, admin, stats, dry_run).await;
+        publish_or_skip(repos, slug, coach_id, admin, stats, dry_run).await;
     }
 }
 
 /// Publish one coach or log skip in dry-run mode
 async fn publish_or_skip(
-    db: &Database,
+    repos: &RepositoryRegistry,
     slug: &str,
     coach_id: &str,
     admin: &AdminUser,
@@ -363,7 +364,7 @@ async fn publish_or_skip(
         return;
     }
 
-    let result = publish_single_coach(db, coach_id, admin).await;
+    let result = publish_single_coach(repos, coach_id, admin).await;
     log_publish_result(slug, result, stats);
 }
 
@@ -387,7 +388,11 @@ fn log_publish_result(slug: &str, result: AppResult<bool>, stats: &mut SeedStats
 }
 
 /// Publish a single coach to the store, returning true if newly published
-async fn publish_single_coach(db: &Database, coach_id: &str, admin: &AdminUser) -> AppResult<bool> {
+async fn publish_single_coach(
+    repos: &RepositoryRegistry,
+    coach_id: &str,
+    admin: &AdminUser,
+) -> AppResult<bool> {
     let listing = SeedStoreListing {
         id: Uuid::new_v4().to_string(),
         coach_id: coach_id.to_owned(),
@@ -396,7 +401,10 @@ async fn publish_single_coach(db: &Database, coach_id: &str, admin: &AdminUser) 
         created_at: Utc::now(),
     };
 
-    db.seed_insert_store_listing_if_absent(&listing).await
+    repos
+        .seeder
+        .seed_insert_store_listing_if_absent(&listing)
+        .await
 }
 
 /// Discover and parse all coach markdown files
@@ -454,16 +462,20 @@ struct AdminUser {
 }
 
 /// Find the first admin user and their tenant, ensuring a `coach_authors` row exists
-async fn find_admin_user(db: &Database) -> AppResult<AdminUser> {
-    let user = db.seed_get_admin_user().await?.ok_or_else(|| {
+async fn find_admin_user(repos: &RepositoryRegistry) -> AppResult<AdminUser> {
+    let user = repos.seeder.seed_get_admin_user().await?.ok_or_else(|| {
         AppError::config(
             "No admin user found. Run 'cargo run --bin pierre-cli -- user create' first.",
         )
     })?;
 
-    let tenant_id_str = db.seed_get_user_tenant(user.id).await?.ok_or_else(|| {
-        AppError::config("Admin user has no tenant_id. Please assign a tenant first.")
-    })?;
+    let tenant_id_str = repos
+        .seeder
+        .seed_get_user_tenant(user.id)
+        .await?
+        .ok_or_else(|| {
+            AppError::config("Admin user has no tenant_id. Please assign a tenant first.")
+        })?;
 
     let tenant_id = tenant_id_str
         .parse::<TenantId>()
@@ -479,7 +491,7 @@ async fn find_admin_user(db: &Database) -> AppResult<AdminUser> {
         created_at: now,
         updated_at: now,
     };
-    let coach_author_id = db.seed_upsert_coach_author(&coach_author).await?;
+    let coach_author_id = repos.seeder.seed_upsert_coach_author(&coach_author).await?;
     info!("Coach author profile: {coach_author_id}");
 
     Ok(AdminUser {
@@ -499,7 +511,7 @@ enum UpsertAction {
 
 /// Upsert a coach into the database
 async fn upsert_coach(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coach: &CoachDefinition,
     admin: &AdminUser,
     dry_run: bool,
@@ -508,7 +520,8 @@ async fn upsert_coach(
     let slug = &coach.frontmatter.name;
 
     // Check if coach exists by slug
-    let existing = db
+    let existing = repos
+        .seeder
         .seed_find_coach_by_slug(slug, &admin.tenant_id.to_string())
         .await?;
 
@@ -520,7 +533,7 @@ async fn upsert_coach(
 
         if !dry_run {
             let seed_coach = build_seed_coach(&existing_id, coach, admin, now)?;
-            db.seed_update_coach(&seed_coach).await?;
+            repos.seeder.seed_update_coach(&seed_coach).await?;
         }
         (existing_id, UpsertAction::Updated)
     } else {
@@ -529,7 +542,7 @@ async fn upsert_coach(
 
         if !dry_run {
             let seed_coach = build_seed_coach(&new_id, coach, admin, now)?;
-            db.seed_insert_coach(&seed_coach).await?;
+            repos.seeder.seed_insert_coach(&seed_coach).await?;
         }
         (new_id, UpsertAction::Created)
     };
@@ -604,7 +617,7 @@ fn build_seed_coach(
 
 /// Create a relation between two coaches
 async fn create_relation(
-    db: &Database,
+    repos: &RepositoryRegistry,
     coach_id: &str,
     related_id: &str,
     relation_type: RelationType,
@@ -624,5 +637,8 @@ async fn create_relation(
         created_at: Utc::now(),
     };
 
-    db.seed_insert_coach_relation_if_absent(&relation).await
+    repos
+        .seeder
+        .seed_insert_coach_relation_if_absent(&relation)
+        .await
 }

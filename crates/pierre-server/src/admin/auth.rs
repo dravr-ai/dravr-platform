@@ -26,12 +26,12 @@ use crate::admin::{
 };
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::utils::auth::extract_bearer_token_owned;
-use pierre_database::plugins::{factory::Database, AdminRepository};
+use pierre_database::plugins::AdminRepository;
 
 /// Admin authentication service
 #[derive(Clone)]
 pub struct AdminAuthService {
-    database: Database,
+    admin: Arc<dyn AdminRepository>,
     jwt_manager: AdminJwtManager,
     jwks_manager: Arc<JwksManager>,
     // TTL cache for validated tokens with automatic expiration
@@ -48,9 +48,13 @@ impl AdminAuthService {
     ///
     /// The `cache_ttl_secs` parameter should come from `ServerConfig.auth.admin_token_cache_ttl_secs`.
     #[must_use]
-    pub fn new(database: Database, jwks_manager: Arc<JwksManager>, cache_ttl_secs: u64) -> Self {
+    pub fn new(
+        admin: Arc<dyn AdminRepository>,
+        jwks_manager: Arc<JwksManager>,
+        cache_ttl_secs: u64,
+    ) -> Self {
         Self {
-            database,
+            admin,
             jwt_manager: AdminJwtManager::new(),
             jwks_manager,
             token_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -118,7 +122,7 @@ impl AdminAuthService {
 
         // Step 2: Check if token exists and is active in database
         let stored_token = self
-            .database
+            .admin
             .get_token_by_id(&validated_token.token_id)
             .await?
             .ok_or_else(|| {
@@ -239,7 +243,7 @@ impl AdminAuthService {
             response_time_ms: None,
         };
 
-        self.database.record_token_usage(&usage).await?;
+        self.admin.record_token_usage(&usage).await?;
         Ok(())
     }
 

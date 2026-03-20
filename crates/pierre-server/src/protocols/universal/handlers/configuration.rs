@@ -20,7 +20,6 @@ use crate::intelligence::physiological_constants::physiological_defaults::{
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::utils::uuid::parse_user_id_for_protocol;
-use pierre_database::database::repositories::ProfileRepository;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -190,7 +189,10 @@ pub fn handle_get_user_configuration(
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
         // Get user configuration from database
-        match (*executor.resources.database)
+        match executor
+            .resources
+            .repos
+            .profiles
             .get_configuration(&user_uuid.to_string())
             .await
         {
@@ -287,7 +289,10 @@ pub fn handle_update_user_configuration(
             ProtocolError::SerializationError(format!("Failed to serialize config: {e}"))
         })?;
 
-        match (*executor.resources.database)
+        match executor
+            .resources
+            .repos
+            .profiles
             .save_configuration(&user_uuid.to_string(), &config_json)
             .await
         {

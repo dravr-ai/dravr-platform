@@ -279,7 +279,7 @@ impl McpRequestProcessor {
         active_tenant_id: Option<TenantId>,
     ) -> Vec<ToolSchema> {
         if let Ok(Some(tenant_ctx)) = extract_tenant_context_internal(
-            &self.resources.database,
+            &self.resources.repos,
             Some(user_id),
             active_tenant_id,
             None,

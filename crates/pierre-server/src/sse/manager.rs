@@ -138,7 +138,7 @@ impl SseManager {
                     token,
                     &resources.auth_manager,
                     &resources.jwks_manager,
-                    &resources.database,
+                    &resources.repos,
                 )
                 .await
                 {

@@ -14,16 +14,15 @@
 //!
 //! ```rust,no_run
 //! use pierre_auth::auth::AuthResult;
-//! use pierre_database::plugins::factory::Database;
+//! use pierre_database::database::repositories::UserRepository;
 //! use pierre_mcp_server::middleware::admin_guard::require_admin;
 //! use std::sync::Arc;
 //!
 //! async fn admin_handler(
 //!     auth: AuthResult,
-//!     database: Arc<Database>,
+//!     users: Arc<dyn UserRepository>,
 //! ) -> Result<String, pierre_mcp_server::errors::AppError> {
-//!     // This verifies admin role and returns the User if authorized
-//!     let admin_user = require_admin(auth.user_id, &database).await?;
+//!     let admin_user = require_admin(auth.user_id, &users).await?;
 //!     Ok(format!("Welcome admin: {}", admin_user.email))
 //! }
 //! ```
@@ -31,7 +30,6 @@
 use crate::errors::{AppError, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::database::repositories::UserRepository;
-use pierre_database::plugins::factory::Database;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -43,7 +41,7 @@ use uuid::Uuid;
 /// # Arguments
 ///
 /// * `user_id` - The authenticated user's ID (from `AuthResult.user_id`)
-/// * `database` - Database connection for user lookup
+/// * `users` - User repository for user lookup
 ///
 /// # Errors
 ///
@@ -58,15 +56,18 @@ use uuid::Uuid;
 /// use pierre_auth::auth::AuthResult;
 /// use pierre_mcp_server::middleware::admin_guard::require_admin;
 ///
-/// # async fn example(auth: AuthResult, db: std::sync::Arc<pierre_database::plugins::factory::Database>) -> Result<(), pierre_mcp_server::errors::AppError> {
-/// let admin = require_admin(auth.user_id, &db).await?;
+/// # async fn example(auth: AuthResult, users: std::sync::Arc<dyn pierre_database::database::repositories::UserRepository>) -> Result<(), pierre_mcp_server::errors::AppError> {
+/// let admin = require_admin(auth.user_id, &users).await?;
 /// println!("Admin {} authorized", admin.email);
 /// # Ok(())
 /// # }
 /// ```
-pub async fn require_admin(user_id: Uuid, database: &Arc<Database>) -> Result<User, AppError> {
+pub async fn require_admin(
+    user_id: Uuid,
+    users: &Arc<dyn UserRepository>,
+) -> Result<User, AppError> {
     // SECURITY: Global lookup — admin guard runs before tenant context is resolved
-    let user = database
+    let user = users
         .get_global(user_id)
         .await
         .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?

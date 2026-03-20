@@ -29,8 +29,8 @@ use chrono::Utc;
 use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::plugins::factory::Database;
-use pierre_database::repositories::SeederRepository;
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant};
+use pierre_database::RepositoryRegistry;
 use std::env;
 use tracing::info;
 use uuid::Uuid;
@@ -106,7 +106,7 @@ const DEMO_USERS: &[BootstrapUser] = &[
 
 /// Update password hash and role for an existing user (upsert via ON CONFLICT)
 async fn upsert_user_credentials(
-    db: &Database,
+    repos: &RepositoryRegistry,
     email: &str,
     display_name: &str,
     password: &str,
@@ -129,13 +129,13 @@ async fn upsert_user_credentials(
         is_admin,
         created_at: now,
     };
-    db.seed_insert_demo_user(&seed_user).await?;
+    repos.seeder.seed_insert_demo_user(&seed_user).await?;
     Ok(())
 }
 
 /// Create a single user with a personal tenant (reuses the `seed_demo_data` pattern)
 async fn create_user(
-    db: &Database,
+    repos: &RepositoryRegistry,
     email: &str,
     display_name: &str,
     password: &str,
@@ -158,7 +158,7 @@ async fn create_user(
         is_admin,
         created_at: now,
     };
-    db.seed_insert_demo_user(&seed_user).await?;
+    repos.seeder.seed_insert_demo_user(&seed_user).await?;
 
     // Create personal tenant (plan matches user tier)
     let tenant_id = Uuid::new_v4();
@@ -174,15 +174,20 @@ async fn create_user(
         created_at: now,
         updated_at: now,
     };
-    db.seed_insert_tenant(&seed_tenant).await?;
+    repos.seeder.seed_insert_tenant(&seed_tenant).await?;
 
     // Add user as tenant owner in junction table
     let tenant_user_id = Uuid::new_v4();
-    db.seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
+    repos
+        .seeder
+        .seed_insert_tenant_user(tenant_user_id, tenant_id, user_id, now)
         .await?;
 
     // Update tenant_id column on user for backwards compatibility
-    db.seed_update_user_tenant(user_id, tenant_id).await?;
+    repos
+        .seeder
+        .seed_update_user_tenant(user_id, tenant_id)
+        .await?;
 
     Ok(user_id)
 }
@@ -203,14 +208,15 @@ async fn main() -> AppResult<()> {
 
     info!("Connecting to database...");
     let db = Database::init_for_seeding(&database_url).await?;
+    let repos = db.repositories();
 
     // --- Admin user ---
     let admin_email = &args.admin_email;
-    let existing_admin = db.seed_check_user_exists(admin_email).await?;
+    let existing_admin = repos.seeder.seed_check_user_exists(admin_email).await?;
     if let Some(id) = existing_admin {
         // Update password/role for existing admin (upsert via ON CONFLICT)
         upsert_user_credentials(
-            &db,
+            &repos,
             admin_email,
             "Admin",
             &args.admin_password,
@@ -221,7 +227,7 @@ async fn main() -> AppResult<()> {
         info!("Updated admin user credentials: {admin_email} ({id})");
     } else {
         let id = create_user(
-            &db,
+            &repos,
             admin_email,
             "Admin",
             &args.admin_password,
@@ -235,11 +241,11 @@ async fn main() -> AppResult<()> {
     // --- Demo users ---
     for user in DEMO_USERS {
         let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
-        let existing = db.seed_check_user_exists(user.email).await?;
+        let existing = repos.seeder.seed_check_user_exists(user.email).await?;
         if let Some(id) = existing {
             // Update password/role for existing demo user (upsert via ON CONFLICT)
             upsert_user_credentials(
-                &db,
+                &repos,
                 user.email,
                 user.display_name,
                 password,
@@ -250,7 +256,7 @@ async fn main() -> AppResult<()> {
             info!("Updated demo user credentials: {} ({id})", user.email);
         } else {
             let id = create_user(
-                &db,
+                &repos,
                 user.email,
                 user.display_name,
                 password,

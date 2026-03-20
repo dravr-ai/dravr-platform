@@ -10,7 +10,6 @@
 use crate::constants::get_server_config;
 use crate::errors::{AppError, AppResult};
 use crate::models::User;
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::UserRepository;
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -18,14 +17,14 @@ use uuid::Uuid;
 
 /// Service for managing A2A system users
 pub struct A2ASystemUserService {
-    database: Arc<Database>,
+    users: Arc<dyn UserRepository>,
 }
 
 impl A2ASystemUserService {
     /// Create a new system user service
     #[must_use]
-    pub const fn new(database: Arc<Database>) -> Self {
-        Self { database }
+    pub fn new(users: Arc<dyn UserRepository>) -> Self {
+        Self { users }
     }
 
     /// Create or get a system user for an A2A client
@@ -44,7 +43,7 @@ impl A2ASystemUserService {
 
         // Check if system user already exists
         if let Some(existing_user) = self
-            .database
+            .users
             .get_by_email(&system_email)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?
@@ -75,7 +74,7 @@ impl A2ASystemUserService {
         );
 
         let user_id = self
-            .database
+            .users
             .create(&system_user)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -125,7 +124,7 @@ impl A2ASystemUserService {
     /// Returns an error if database operations fail
     pub async fn is_system_user(&self, user_id: Uuid) -> AppResult<bool> {
         if let Some(user) = self
-            .database
+            .users
             // SECURITY: Global lookup — A2A system user validation, cross-tenant by design
             .get_global(user_id)
             .await
@@ -145,7 +144,7 @@ impl A2ASystemUserService {
     /// Returns an error if database operations fail
     pub async fn get_client_id_for_system_user(&self, user_id: Uuid) -> AppResult<Option<String>> {
         if let Some(user) = self
-            .database
+            .users
             // SECURITY: Global lookup — A2A system user validation, cross-tenant by design
             .get_global(user_id)
             .await
@@ -172,7 +171,7 @@ impl A2ASystemUserService {
         let system_email = format!("a2a-system-{client_id}@pierre.ai");
 
         if let Some(user) = self
-            .database
+            .users
             .get_by_email(&system_email)
             .await
             .map_err(|e| AppError::database(format!("Failed to get user by email: {e}")))?

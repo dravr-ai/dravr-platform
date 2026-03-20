@@ -37,8 +37,12 @@ async fn test_basic_health_check() {
     let database = Database::new("sqlite::memory:", encryption_key)
         .await
         .unwrap();
+    let database = Arc::new(database);
+    let repos = database.repositories();
     let health_checker = HealthChecker::new(
-        Arc::new(database),
+        repos.users.clone(),
+        repos.api_keys.clone(),
+        database,
         "https://www.strava.com/api/v3".to_owned(),
     );
 
@@ -68,8 +72,12 @@ async fn test_comprehensive_health_check() {
     let database = Database::new("sqlite::memory:", encryption_key)
         .await
         .unwrap();
+    let database = Arc::new(database);
+    let repos = database.repositories();
     let health_checker = HealthChecker::new(
-        Arc::new(database),
+        repos.users.clone(),
+        repos.api_keys.clone(),
+        database,
         "https://www.strava.com/api/v3".to_owned(),
     );
 
@@ -101,8 +109,12 @@ async fn test_readiness_check() {
     let database = Database::new("sqlite::memory:", encryption_key)
         .await
         .unwrap();
+    let database = Arc::new(database);
+    let repos = database.repositories();
     let health_checker = HealthChecker::new(
-        Arc::new(database),
+        repos.users.clone(),
+        repos.api_keys.clone(),
+        database,
         "https://www.strava.com/api/v3".to_owned(),
     );
 

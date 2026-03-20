@@ -17,7 +17,7 @@ pub use pierre_a2a::client_types::A2AToken;
 use pierre_auth::auth::{AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 pub use pierre_core::models::a2a::A2AClient;
-use pierre_database::plugins::{A2ARepository, TenantRepository};
+// Trait methods are dispatched through repos.a2a / repos.tenants Arc<dyn Trait>;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -137,7 +137,8 @@ impl A2AAuthenticator {
     /// Returns an error if database query fails
     async fn get_a2a_client_by_api_key(&self, api_key_id: &str) -> AppResult<Option<A2AClient>> {
         self.resources
-            .database
+            .repos
+            .a2a
             .get_client_by_api_key_id(api_key_id)
             .await
             .map_err(|e| AppError::database(format!("Failed to lookup A2A client by API key: {e}")))
@@ -201,7 +202,8 @@ impl A2AAuthenticator {
         // Resolve user's default tenant — A2A clients are single-tenant by design
         let active_tenant_id = self
             .resources
-            .database
+            .repos
+            .tenants
             .list_for_user(client.user_id)
             .await
             .map_err(|e| {
@@ -262,7 +264,8 @@ impl A2AAuthenticator {
     /// Returns an error if database query fails
     pub async fn get_client(&self, client_id: &str) -> Result<Option<A2AClient>, A2AError> {
         self.resources
-            .database
+            .repos
+            .a2a
             .get_client(client_id)
             .await
             .map_err(|e| A2AError::InternalError(format!("Failed to get A2A client: {e}")))

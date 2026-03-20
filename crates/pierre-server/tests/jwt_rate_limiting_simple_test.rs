@@ -43,9 +43,10 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
     // Create auth manager and middleware
     let auth_manager = AuthManager::new(24);
     let jwks_manager = common::get_shared_test_jwks();
+    let repos = Arc::new(database.repositories());
     let auth_middleware = Arc::new(McpAuthMiddleware::new(
         auth_manager,
-        database.clone(),
+        repos,
         jwks_manager.clone(),
         RateLimitConfig::default(),
     ));

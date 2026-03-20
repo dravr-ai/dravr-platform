@@ -78,8 +78,9 @@ impl TestServer {
 
         let rate_limit_config = RateLimitConfig::default();
 
+        let repos = Arc::new(self.database.repositories());
         let ws_manager = Arc::new(WebSocketManager::new(
-            self.database.clone(),
+            repos,
             &self.auth_manager,
             &jwks_manager,
             rate_limit_config,

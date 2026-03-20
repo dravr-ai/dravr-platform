@@ -44,12 +44,15 @@ use crate::{
 };
 use pierre_auth::auth::AuthManager;
 use pierre_database::plugins::factory::Database;
+use pierre_database::RepositoryRegistry;
 
 /// Admin API context shared across all endpoints
 #[derive(Clone)]
 pub struct AdminApiContext {
-    /// Database connection for persistence operations
+    /// Database connection for persistence operations (lifecycle, system settings, pool access)
     pub database: Arc<Database>,
+    /// Repository registry for data access via trait objects
+    pub repos: Arc<RepositoryRegistry>,
     /// Admin authentication service
     pub auth_service: AdminAuthService,
     /// Authentication manager for token operations
@@ -68,8 +71,10 @@ pub struct AdminApiContext {
 
 impl AdminApiContext {
     /// Creates a new admin API context
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         database: Arc<Database>,
+        repos: Arc<RepositoryRegistry>,
         jwt_secret: &str,
         auth_manager: Arc<AuthManager>,
         jwks_manager: Arc<JwksManager>,
@@ -79,12 +84,13 @@ impl AdminApiContext {
     ) -> Self {
         info!("AdminApiContext initialized with JWT signing key");
         let auth_service = AdminAuthService::new(
-            (*database).clone(),
+            Arc::clone(&repos.admin),
             jwks_manager.clone(),
             admin_token_cache_ttl_secs,
         );
         Self {
             database,
+            repos,
             auth_service,
             auth_manager,
             admin_jwt_secret: jwt_secret.to_owned(),

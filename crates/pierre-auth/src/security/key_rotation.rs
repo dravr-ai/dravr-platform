@@ -16,7 +16,6 @@ use chrono::{Duration as ChronoDuration, Timelike, Utc};
 use pierre_core::constants::time;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::{SecurityRepository, TenantRepository};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
@@ -34,8 +33,10 @@ pub use pierre_core::models::{KeyRotationConfig, KeyVersion, RotationStatus};
 pub struct KeyRotationManager {
     /// Encryption manager for performing key operations
     encryption_manager: Arc<super::TenantEncryptionManager>,
-    /// Database for storing key metadata
-    database: Arc<Database>,
+    /// Security repository for storing key metadata
+    security: Arc<dyn SecurityRepository>,
+    /// Tenant repository for listing all tenants during rotation checks
+    tenants: Arc<dyn TenantRepository>,
     /// Audit logger
     auditor: Arc<super::audit::SecurityAuditor>,
     /// Rotation configuration
@@ -51,13 +52,15 @@ impl KeyRotationManager {
     #[must_use]
     pub fn new(
         encryption_manager: Arc<super::TenantEncryptionManager>,
-        database: Arc<Database>,
+        security: Arc<dyn SecurityRepository>,
+        tenants: Arc<dyn TenantRepository>,
         auditor: Arc<super::audit::SecurityAuditor>,
         config: KeyRotationConfig,
     ) -> Self {
         Self {
             encryption_manager,
-            database,
+            security,
+            tenants,
             auditor,
             config,
             key_versions: RwLock::new(HashMap::new()),
@@ -105,7 +108,7 @@ impl KeyRotationManager {
         info!("Checking for keys that need rotation");
 
         // Get all tenants from database
-        let tenants = self.database.get_all().await?;
+        let tenants = self.tenants.get_all().await?;
 
         // Check global keys first
         self.check_key_rotation(None).await?;
@@ -303,7 +306,7 @@ impl KeyRotationManager {
         version: u32,
     ) -> AppResult<()> {
         // Update database first
-        self.database
+        self.security
             .update_key_version_status(tenant_id, version, true)
             .await?;
 
@@ -327,7 +330,7 @@ impl KeyRotationManager {
     async fn cleanup_old_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<()> {
         // Delete old key versions from database
         let deleted_count = self
-            .database
+            .security
             .delete_old_key_versions(tenant_id, self.config.key_versions_to_retain)
             .await?;
 
@@ -338,7 +341,7 @@ impl KeyRotationManager {
             );
 
             // Update in-memory cache by reloading from database
-            let updated_versions = self.database.get_key_versions(tenant_id).await?;
+            let updated_versions = self.security.get_key_versions(tenant_id).await?;
             {
                 let mut cache = self.key_versions.write().await;
                 cache.insert(tenant_id, updated_versions);
@@ -381,7 +384,7 @@ impl KeyRotationManager {
     /// Get all key versions for a tenant
     async fn get_key_versions(&self, tenant_id: Option<TenantId>) -> AppResult<Vec<KeyVersion>> {
         // First try to get from database
-        if let Ok(versions) = self.database.get_key_versions(tenant_id).await {
+        if let Ok(versions) = self.security.get_key_versions(tenant_id).await {
             // Update in-memory cache
             {
                 let mut cache = self.key_versions.write().await;
@@ -399,7 +402,7 @@ impl KeyRotationManager {
     fn store_key_version(&self, version: &KeyVersion) -> AppResult<()> {
         // Use async runtime to call the database method
         let rt = runtime::Handle::current();
-        rt.block_on(self.database.store_key_version(version))
+        rt.block_on(self.security.store_key_version(version))
     }
 
     /// Get rotation status for a tenant

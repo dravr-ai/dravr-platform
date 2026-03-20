@@ -17,10 +17,8 @@ use pierre_auth::api_keys::ApiKeyManager;
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_auth::security::cookies::get_cookie_value;
-use pierre_database::database::repositories::{
-    ApiKeyRepository, TenantRepository, UsageRepository, UserRepository,
-};
-use pierre_database::plugins::factory::Database;
+// Trait methods dispatched through repos.api_keys / repos.tenants / repos.usage / repos.users
+use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
@@ -31,7 +29,7 @@ pub struct McpAuthMiddleware {
     auth_manager: AuthManager,
     api_key_manager: ApiKeyManager,
     rate_limit_calculator: UnifiedRateLimitCalculator,
-    database: Arc<Database>,
+    repos: Arc<RepositoryRegistry>,
     jwks_manager: Arc<JwksManager>,
 }
 
@@ -40,7 +38,7 @@ impl McpAuthMiddleware {
     #[must_use]
     pub fn new(
         auth_manager: AuthManager,
-        database: Arc<Database>,
+        repos: Arc<RepositoryRegistry>,
         jwks_manager: Arc<JwksManager>,
         rate_limit_config: RateLimitConfig,
     ) -> Self {
@@ -48,7 +46,7 @@ impl McpAuthMiddleware {
             auth_manager,
             api_key_manager: ApiKeyManager::new(),
             rate_limit_calculator: UnifiedRateLimitCalculator::new_with_config(rate_limit_config),
-            database,
+            repos,
             jwks_manager,
         }
     }
@@ -224,7 +222,8 @@ impl McpAuthMiddleware {
 
         // Look up the API key in database
         let db_key = self
-            .database
+            .repos
+            .api_keys
             .get_by_prefix(&key_prefix, &key_hash)
             .await?
             .ok_or_else(|| {
@@ -235,7 +234,7 @@ impl McpAuthMiddleware {
         self.api_key_manager.is_key_valid(&db_key)?;
 
         // Get current usage for rate limiting
-        let current_usage = self.database.get_api_key_current(&db_key.id).await?;
+        let current_usage = self.repos.usage.get_api_key_current(&db_key.id).await?;
         let rate_limit = self
             .rate_limit_calculator
             .calculate_api_key_rate_limit(&db_key, current_usage);
@@ -262,11 +261,12 @@ impl McpAuthMiddleware {
         }
 
         // Update last used timestamp
-        self.database.update_last_used(&db_key.id).await?;
+        self.repos.api_keys.update_last_used(&db_key.id).await?;
 
         // Resolve user's default tenant — API keys are single-tenant by design
         let active_tenant_id = self
-            .database
+            .repos
+            .tenants
             .list_for_user(db_key.user_id)
             .await
             .map_err(|e| {
@@ -314,7 +314,8 @@ impl McpAuthMiddleware {
 
         // SECURITY: Global lookup — JWT validation, no tenant context yet
         let user = self
-            .database
+            .repos
+            .users
             .get_global(user_id)
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
@@ -339,7 +340,7 @@ impl McpAuthMiddleware {
         }
 
         // Get current usage for rate limiting
-        let current_usage = self.database.get_jwt_current_usage(user_id).await?;
+        let current_usage = self.repos.usage.get_jwt_current_usage(user_id).await?;
         let rate_limit = self
             .rate_limit_calculator
             .calculate_jwt_rate_limit(&user, current_usage);

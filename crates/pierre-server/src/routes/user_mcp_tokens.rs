@@ -17,7 +17,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use pierre_database::database::repositories::UserMcpTokenRepository;
 use pierre_database::database::CreateUserMcpTokenRequest;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -107,7 +106,8 @@ impl UserMcpTokenRoutes {
         };
 
         let result = resources
-            .database
+            .repos
+            .user_mcp_tokens
             .create_token(auth.user_id, &db_request)
             .await?;
 
@@ -131,7 +131,11 @@ impl UserMcpTokenRoutes {
         let auth = auth.into_inner();
 
         // List tokens
-        let tokens = resources.database.list_tokens(auth.user_id).await?;
+        let tokens = resources
+            .repos
+            .user_mcp_tokens
+            .list_tokens(auth.user_id)
+            .await?;
 
         let response = TokenListResponse {
             tokens: tokens
@@ -162,7 +166,8 @@ impl UserMcpTokenRoutes {
 
         // Revoke token
         resources
-            .database
+            .repos
+            .user_mcp_tokens
             .revoke_token(&token_id, auth.user_id)
             .await?;
 

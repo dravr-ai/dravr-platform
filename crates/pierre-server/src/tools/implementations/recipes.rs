@@ -34,7 +34,6 @@ use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::plugins::RecipeRepository;
 
 // ============================================================================
 // Helper functions
@@ -739,7 +738,7 @@ impl McpTool for SaveRecipeTool {
         }
         recipe = recipe.with_ingredients(ingredients);
 
-        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.recipes.as_ref();
         let recipe_id = repo.create(ctx.user_id, tenant_id, &recipe).await?;
 
         Ok(ToolResult::ok(json!({
@@ -827,7 +826,7 @@ impl McpTool for ListRecipesTool {
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.recipes.as_ref();
         let recipes = repo
             .list(ctx.user_id, tenant_id, meal_timing, Some(limit), offset)
             .await?;
@@ -908,7 +907,7 @@ impl McpTool for GetRecipeTool {
             .ok_or_else(|| AppError::invalid_input("recipe_id is required"))?;
 
         let tenant_id = get_tenant_id(ctx);
-        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.recipes.as_ref();
         let recipe = repo.get_by_id(recipe_id, ctx.user_id, tenant_id).await?;
 
         match recipe {
@@ -994,7 +993,7 @@ impl McpTool for DeleteRecipeTool {
             .ok_or_else(|| AppError::invalid_input("recipe_id is required"))?;
 
         let tenant_id = get_tenant_id(ctx);
-        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.recipes.as_ref();
         let deleted = repo.delete(recipe_id, ctx.user_id, tenant_id).await?;
 
         if deleted {
@@ -1084,7 +1083,7 @@ impl McpTool for SearchRecipesTool {
                 .or_else(|| v.as_f64().map(|f| f as u32))
         });
 
-        let repo: &dyn RecipeRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.recipes.as_ref();
         let recipes = repo
             .search(ctx.user_id, tenant_id, query, Some(limit), offset)
             .await?;

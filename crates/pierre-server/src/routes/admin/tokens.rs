@@ -24,7 +24,6 @@ use crate::{
     },
     errors::{AppError, AppResult},
 };
-use pierre_database::database::repositories::AdminRepository;
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
@@ -120,7 +119,8 @@ pub(super) async fn handle_create_admin_token(
     };
 
     let generated_token = ctx
-        .database
+        .repos
+        .admin
         .create_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
         .await
         .map_err(|e| {
@@ -174,7 +174,7 @@ pub(super) async fn handle_list_admin_tokens(
 
     let ctx = context.as_ref();
 
-    let tokens = ctx.database.list_tokens(false).await.map_err(|e| {
+    let tokens = ctx.repos.admin.list_tokens(false).await.map_err(|e| {
         error!(error = %e, "Failed to list admin tokens");
         AppError::internal(format!("Failed to list admin tokens: {e}"))
     })?;
@@ -225,7 +225,7 @@ pub(super) async fn handle_get_admin_token(
 
     let ctx = context.as_ref();
 
-    let token = match ctx.database.get_token_by_id(&token_id).await {
+    let token = match ctx.repos.admin.get_token_by_id(&token_id).await {
         Ok(Some(token)) => token,
         Ok(None) => {
             return Ok(json_response(
@@ -289,7 +289,8 @@ pub(super) async fn handle_revoke_admin_token(
 
     let ctx = context.as_ref();
 
-    ctx.database
+    ctx.repos
+        .admin
         .deactivate_token(&token_id)
         .await
         .map_err(|e| {
@@ -340,7 +341,8 @@ pub(super) async fn handle_rotate_admin_token(
     let ctx = context.as_ref();
 
     let existing_token = ctx
-        .database
+        .repos
+        .admin
         .get_token_by_id(&token_id)
         .await
         .map_err(|e| {
@@ -349,7 +351,8 @@ pub(super) async fn handle_rotate_admin_token(
         })?
         .ok_or_else(|| AppError::not_found("Admin token not found"))?;
 
-    ctx.database
+    ctx.repos
+        .admin
         .deactivate_token(&token_id)
         .await
         .map_err(|e| {
@@ -366,7 +369,8 @@ pub(super) async fn handle_rotate_admin_token(
     };
 
     let new_token = ctx
-        .database
+        .repos
+        .admin
         .create_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
         .await
         .map_err(|e| {

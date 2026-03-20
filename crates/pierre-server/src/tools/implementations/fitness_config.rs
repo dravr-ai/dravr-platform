@@ -27,7 +27,6 @@ use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_database::plugins::FitnessConfigRepository;
 
 /// Get tenant ID (falls back to `user_id` if no tenant)
 fn get_tenant_id(ctx: &ToolExecutionContext) -> TenantId {
@@ -89,7 +88,7 @@ impl McpTool for GetFitnessConfigTool {
             "Getting fitness configuration"
         );
 
-        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.fitness_config.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
@@ -204,7 +203,7 @@ impl McpTool for SetFitnessConfigTool {
         let fitness_config: FitnessConfig = serde_json::from_value(config_json.clone())
             .map_err(|e| AppError::invalid_input(format!("Invalid fitness config format: {e}")))?;
 
-        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.fitness_config.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
@@ -279,7 +278,7 @@ impl McpTool for ListFitnessConfigsTool {
             "Listing fitness configurations"
         );
 
-        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.fitness_config.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 
@@ -380,7 +379,7 @@ impl McpTool for DeleteFitnessConfigTool {
             "Deleting fitness configuration"
         );
 
-        let repo: &dyn FitnessConfigRepository = ctx.resources.database.as_ref();
+        let repo = ctx.resources.repos.fitness_config.as_ref();
         let user_id_str = ctx.user_id.to_string();
         let tenant_id = get_tenant_id(ctx);
 

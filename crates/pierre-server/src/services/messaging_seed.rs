@@ -7,9 +7,9 @@
 use std::env;
 
 use pierre_core::models::TenantId;
-use pierre_database::plugins::{
-    MessagingRepository, TenantRepository, UpsertChannelConfigParams, UserRepository,
-};
+use pierre_database::plugins::UpsertChannelConfigParams;
+use pierre_database::repositories::MessagingRepository;
+use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -18,28 +18,25 @@ use uuid::Uuid;
 /// Reads channel credentials from env vars and upserts them into the database.
 /// Resolves the admin user's tenant as the owning tenant for all channel configs.
 /// Skipped silently when no messaging env vars are set.
-pub async fn seed_from_env<D>(database: &D)
-where
-    D: MessagingRepository + UserRepository + TenantRepository,
-{
+pub async fn seed_from_env(repos: &RepositoryRegistry) {
     let admin_email = env::var("ADMIN_EMAIL").unwrap_or_else(|_| "admin@example.com".to_owned());
-    let Some(tenant_id) = resolve_admin_tenant(database, &admin_email).await else {
+    let Some(tenant_id) = resolve_admin_tenant(repos, &admin_email).await else {
         // No admin user yet — skip seeding (server may be starting fresh before bootstrap)
         return;
     };
 
     let mut seeded = 0;
 
-    if let Some(count) = seed_slack(database, tenant_id).await {
+    if let Some(count) = seed_slack(&*repos.messaging, tenant_id).await {
         seeded += count;
     }
-    if let Some(count) = seed_telegram(database, tenant_id).await {
+    if let Some(count) = seed_telegram(&*repos.messaging, tenant_id).await {
         seeded += count;
     }
-    if let Some(count) = seed_whatsapp(database, tenant_id).await {
+    if let Some(count) = seed_whatsapp(&*repos.messaging, tenant_id).await {
         seeded += count;
     }
-    if let Some(count) = seed_messenger(database, tenant_id).await {
+    if let Some(count) = seed_messenger(&*repos.messaging, tenant_id).await {
         seeded += count;
     }
 
@@ -52,12 +49,9 @@ where
 }
 
 /// Resolve the admin user's primary tenant
-async fn resolve_admin_tenant<D>(database: &D, admin_email: &str) -> Option<TenantId>
-where
-    D: UserRepository + TenantRepository,
-{
-    let user = database.get_by_email(admin_email).await.ok()??;
-    let tenants = database.list_for_user(user.id).await.ok()?;
+async fn resolve_admin_tenant(repos: &RepositoryRegistry, admin_email: &str) -> Option<TenantId> {
+    let user = repos.users.get_by_email(admin_email).await.ok()??;
+    let tenants = repos.tenants.list_for_user(user.id).await.ok()?;
     let tenant = tenants.first()?;
     Some(tenant.id)
 }

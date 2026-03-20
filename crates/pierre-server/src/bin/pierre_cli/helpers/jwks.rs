@@ -5,13 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_database::plugins::{factory::Database, SecurityRepository};
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::errors::AppError;
 use tracing::{info, warn};
 
 /// Generate a new RSA keypair and persist it to the database
 pub async fn generate_and_persist_keypair(
-    database: &Database,
+    repos: &RepositoryRegistry,
     jwks_manager: &mut JwksManager,
 ) -> Result<(), AppError> {
     info!("No persisted RSA keys found, generating new keypair");
@@ -22,7 +22,8 @@ pub async fn generate_and_persist_keypair(
     let private_pem = key_pair.export_private_key_pem()?;
     let public_pem = key_pair.export_public_key_pem()?;
     let created_at = chrono::Utc::now();
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 4096)
         .await?;
     info!("Generated and persisted new RSA keypair: {}", kid);
@@ -55,16 +56,16 @@ pub fn generate_ephemeral_keys(
 
 /// Initialize JWKS manager by loading keys from database or generating new ones
 /// This ensures the CLI uses the same RSA keys as the running server
-pub async fn initialize_jwks_manager(database: &Database) -> Result<JwksManager, AppError> {
+pub async fn initialize_jwks_manager(repos: &RepositoryRegistry) -> Result<JwksManager, AppError> {
     info!("Initializing JWKS manager for RS256 admin tokens...");
     let mut jwks_manager = JwksManager::new();
 
-    match database.load_rsa_keypairs().await {
+    match repos.security.load_rsa_keypairs().await {
         Ok(keypairs) if !keypairs.is_empty() => {
             load_existing_keypairs(&mut jwks_manager, keypairs)?;
         }
         Ok(_) => {
-            generate_and_persist_keypair(database, &mut jwks_manager).await?;
+            generate_and_persist_keypair(repos, &mut jwks_manager).await?;
         }
         Err(e) => {
             generate_ephemeral_keys(&mut jwks_manager, &e)?;

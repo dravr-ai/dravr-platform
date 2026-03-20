@@ -94,7 +94,7 @@ pub struct BulkAssignmentResult {
 ///
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
-pub async fn bulk_assign_coach<DB: TenantRepository>(
+pub async fn bulk_assign_coach<DB: TenantRepository + ?Sized>(
     manager: &dyn CoachesRepository,
     database: &DB,
     coach_id: &str,
@@ -133,7 +133,7 @@ pub async fn bulk_assign_coach<DB: TenantRepository>(
 ///
 /// Returns error if any user ID is invalid, any user doesn't belong to the tenant,
 /// or any database operation fails
-pub async fn bulk_unassign_coach<DB: TenantRepository>(
+pub async fn bulk_unassign_coach<DB: TenantRepository + ?Sized>(
     manager: &dyn CoachesRepository,
     database: &DB,
     coach_id: &str,
@@ -164,7 +164,7 @@ pub async fn bulk_unassign_coach<DB: TenantRepository>(
 /// # Errors
 ///
 /// Returns error if the user is not a member of the specified tenant
-async fn verify_tenant_membership<DB: TenantRepository>(
+async fn verify_tenant_membership<DB: TenantRepository + ?Sized>(
     database: &DB,
     user_id: Uuid,
     tenant_id: TenantId,
