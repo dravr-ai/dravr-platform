@@ -19,9 +19,7 @@ use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{
-        factory::Database, DatabaseProvider, OAuthTokenRepository, TenantRepository, UserRepository,
-    },
+    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -76,9 +74,13 @@ async fn create_test_user(database: &Database, email: &str, tenant_id: TenantId)
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(database, &user).await?;
+    database.repositories().users.create(&user).await?;
     // Associate user with tenant via tenant_users junction table
-    database.update_tenant_id(user_id, tenant_id).await?;
+    database
+        .repositories()
+        .users
+        .update_tenant_id(user_id, tenant_id)
+        .await?;
     Ok(user_id)
 }
 
@@ -119,6 +121,8 @@ async fn test_store_and_get_user_oauth_app() -> Result<()> {
 
     // Store user OAuth app
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -130,6 +134,8 @@ async fn test_store_and_get_user_oauth_app() -> Result<()> {
 
     // Retrieve and verify
     let app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_id, "strava")
         .await?
         .expect("User OAuth app should exist");
@@ -153,6 +159,8 @@ async fn test_list_user_oauth_apps() -> Result<()> {
 
     // Store multiple OAuth apps
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -162,6 +170,8 @@ async fn test_list_user_oauth_apps() -> Result<()> {
         )
         .await?;
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "fitbit",
@@ -171,6 +181,8 @@ async fn test_list_user_oauth_apps() -> Result<()> {
         )
         .await?;
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "whoop",
@@ -181,7 +193,11 @@ async fn test_list_user_oauth_apps() -> Result<()> {
         .await?;
 
     // List and verify
-    let apps = database.list_user_oauth_apps(user_id).await?;
+    let apps = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(user_id)
+        .await?;
     assert_eq!(apps.len(), 3);
 
     let providers: Vec<&str> = apps.iter().map(|a| a.provider.as_str()).collect();
@@ -202,6 +218,8 @@ async fn test_remove_user_oauth_app() -> Result<()> {
 
     // Store and then remove
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -212,14 +230,26 @@ async fn test_remove_user_oauth_app() -> Result<()> {
         .await?;
 
     // Verify it exists
-    let app = database.get_user_oauth_app(user_id, "strava").await?;
+    let app = database
+        .repositories()
+        .oauth_tokens
+        .get_user_oauth_app(user_id, "strava")
+        .await?;
     assert!(app.is_some());
 
     // Remove it
-    database.remove_user_oauth_app(user_id, "strava").await?;
+    database
+        .repositories()
+        .oauth_tokens
+        .remove_user_oauth_app(user_id, "strava")
+        .await?;
 
     // Verify it's gone
-    let app = database.get_user_oauth_app(user_id, "strava").await?;
+    let app = database
+        .repositories()
+        .oauth_tokens
+        .get_user_oauth_app(user_id, "strava")
+        .await?;
     assert!(app.is_none());
 
     Ok(())
@@ -237,6 +267,8 @@ async fn test_user_oauth_app_isolation() -> Result<()> {
 
     // User A stores Strava app
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_a,
             "strava",
@@ -248,6 +280,8 @@ async fn test_user_oauth_app_isolation() -> Result<()> {
 
     // User B stores different Strava app
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_b,
             "strava",
@@ -259,10 +293,14 @@ async fn test_user_oauth_app_isolation() -> Result<()> {
 
     // Verify isolation
     let user_a_app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_a, "strava")
         .await?
         .expect("User A app should exist");
     let user_b_app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_b, "strava")
         .await?
         .expect("User B app should exist");
@@ -286,6 +324,8 @@ async fn test_all_supported_providers() -> Result<()> {
 
     for provider in &providers {
         database
+            .repositories()
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
@@ -297,11 +337,17 @@ async fn test_all_supported_providers() -> Result<()> {
     }
 
     // Verify all stored
-    let apps = database.list_user_oauth_apps(user_id).await?;
+    let apps = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(user_id)
+        .await?;
     assert_eq!(apps.len(), 5, "All 5 providers should be stored");
 
     for provider in &providers {
         let app = database
+            .repositories()
+            .oauth_tokens
             .get_user_oauth_app(user_id, provider)
             .await?
             .unwrap_or_else(|| panic!("App for {provider} should exist"));
@@ -329,6 +375,8 @@ async fn test_user_credentials_priority_over_server() -> Result<()> {
 
     // Store user-specific credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -340,7 +388,13 @@ async fn test_user_credentials_priority_over_server() -> Result<()> {
 
     // Get credentials with user_id - should return user-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -365,7 +419,13 @@ async fn test_fallback_to_server_credentials() -> Result<()> {
 
     // Get credentials - should fall back to server-level
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -388,7 +448,12 @@ async fn test_backward_compatible_get_credentials() -> Result<()> {
 
     // Use the original get_credentials (no user_id)
     let credentials = oauth_manager
-        .get_credentials(tenant_id, "strava", &database, &database)
+        .get_credentials(
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -413,7 +478,13 @@ async fn test_error_when_no_credentials() -> Result<()> {
 
     // Should fail for garmin (no credentials anywhere)
     let result = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "garmin", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "garmin",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await;
 
     assert!(result.is_err(), "Should error when no credentials exist");
@@ -437,6 +508,8 @@ async fn test_different_users_different_credentials() -> Result<()> {
 
     // User A has custom credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_a,
             "strava",
@@ -450,13 +523,25 @@ async fn test_different_users_different_credentials() -> Result<()> {
 
     // User A should get their own credentials
     let creds_a = oauth_manager
-        .get_credentials_for_user(Some(user_a), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_a),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(creds_a.client_id, "user_a_client_id");
 
     // User B should get server-level credentials
     let creds_b = oauth_manager
-        .get_credentials_for_user(Some(user_b), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_b),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(creds_b.client_id, "server_strava_id");
 
@@ -479,7 +564,7 @@ async fn test_tenant_credentials_priority() -> Result<()> {
         "professional".to_owned(),
         user_id, // owner_user_id
     );
-    TenantRepository::create(&database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Set up server-level credentials
     let oauth_config = Arc::new(create_test_oauth_config());
@@ -497,7 +582,13 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // With no user credentials, should get tenant-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -507,6 +598,8 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // Now add user-specific credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -518,7 +611,13 @@ async fn test_tenant_credentials_priority() -> Result<()> {
 
     // Should now prefer user-specific over tenant-specific
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -546,6 +645,8 @@ async fn test_user_credentials_default_scopes() -> Result<()> {
 
     // Store user credentials for WHOOP
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "whoop",
@@ -556,7 +657,13 @@ async fn test_user_credentials_default_scopes() -> Result<()> {
         .await?;
 
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "whoop", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "whoop",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     // Should have WHOOP default scopes
@@ -586,6 +693,8 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
 
     // Store user credentials for Strava
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -596,7 +705,13 @@ async fn test_user_credentials_default_rate_limits() -> Result<()> {
         .await?;
 
     let credentials = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     // Strava has a higher default rate limit (15000/day)
@@ -622,6 +737,8 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
 
     // Store initial credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -633,6 +750,8 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
 
     // Verify initial
     let app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_id, "strava")
         .await?
         .unwrap();
@@ -640,6 +759,8 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
 
     // Store updated credentials for same provider
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -651,6 +772,8 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
 
     // Verify update
     let app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_id, "strava")
         .await?
         .unwrap();
@@ -659,7 +782,11 @@ async fn test_upsert_user_oauth_app() -> Result<()> {
     assert_eq!(app.redirect_uri, "http://updated.com/callback");
 
     // Should still only have one app for this provider
-    let apps = database.list_user_oauth_apps(user_id).await?;
+    let apps = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(user_id)
+        .await?;
     let strava_app_count = apps.iter().filter(|a| a.provider == "strava").count();
     assert_eq!(
         strava_app_count, 1,
@@ -677,6 +804,8 @@ async fn test_get_oauth_app_non_existent_user() -> Result<()> {
     let non_existent_user_id = Uuid::new_v4();
 
     let result = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(non_existent_user_id, "strava")
         .await?;
 
@@ -692,7 +821,11 @@ async fn test_list_oauth_apps_non_existent_user() -> Result<()> {
     let database = setup_test_database().await?;
     let non_existent_user_id = Uuid::new_v4();
 
-    let apps = database.list_user_oauth_apps(non_existent_user_id).await?;
+    let apps = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(non_existent_user_id)
+        .await?;
 
     assert!(
         apps.is_empty(),
@@ -711,7 +844,11 @@ async fn test_remove_non_existent_oauth_app() -> Result<()> {
     let user_id = create_test_user(&database, "user@example.com", tenant_id).await?;
 
     // Remove app that doesn't exist - should not error
-    let result = database.remove_user_oauth_app(user_id, "strava").await;
+    let result = database
+        .repositories()
+        .oauth_tokens
+        .remove_user_oauth_app(user_id, "strava")
+        .await;
 
     assert!(result.is_ok(), "Removing non-existent app should not error");
 
@@ -733,6 +870,8 @@ async fn test_cross_tenant_isolation() -> Result<()> {
 
     // User A stores Strava credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_a,
             "strava",
@@ -744,6 +883,8 @@ async fn test_cross_tenant_isolation() -> Result<()> {
 
     // User B stores Strava credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_b,
             "strava",
@@ -755,10 +896,14 @@ async fn test_cross_tenant_isolation() -> Result<()> {
 
     // Verify each user only sees their own credentials
     let app_a = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_a, "strava")
         .await?
         .unwrap();
     let app_b = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_b, "strava")
         .await?
         .unwrap();
@@ -767,7 +912,11 @@ async fn test_cross_tenant_isolation() -> Result<()> {
     assert_eq!(app_b.client_id, "tenant_b_strava_id");
 
     // User A's list only shows their apps
-    let apps_a = database.list_user_oauth_apps(user_a).await?;
+    let apps_a = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(user_a)
+        .await?;
     assert_eq!(apps_a.len(), 1);
     assert_eq!(apps_a[0].client_id, "tenant_a_strava_id");
 
@@ -785,6 +934,8 @@ async fn test_oauth_app_timestamps() -> Result<()> {
     let before = chrono::Utc::now();
 
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -797,6 +948,8 @@ async fn test_oauth_app_timestamps() -> Result<()> {
     let after = chrono::Utc::now();
 
     let app = database
+        .repositories()
+        .oauth_tokens
         .get_user_oauth_app(user_id, "strava")
         .await?
         .unwrap();
@@ -841,6 +994,8 @@ async fn test_all_provider_rate_limits() -> Result<()> {
     for (provider, expected_limit) in &expected_rate_limits {
         // Store user credentials for this provider
         database
+            .repositories()
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
@@ -851,7 +1006,13 @@ async fn test_all_provider_rate_limits() -> Result<()> {
             .await?;
 
         let credentials = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
+            .get_credentials_for_user(
+                Some(user_id),
+                tenant_id,
+                provider,
+                &*database.repositories().tenants,
+                &*database.repositories().oauth_tokens,
+            )
             .await?;
 
         assert_eq!(
@@ -892,6 +1053,8 @@ async fn test_all_provider_default_scopes() -> Result<()> {
     for (provider, required_scopes) in &expected_scopes {
         // Store user credentials
         database
+            .repositories()
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
@@ -902,7 +1065,13 @@ async fn test_all_provider_default_scopes() -> Result<()> {
             .await?;
 
         let credentials = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
+            .get_credentials_for_user(
+                Some(user_id),
+                tenant_id,
+                provider,
+                &*database.repositories().tenants,
+                &*database.repositories().oauth_tokens,
+            )
             .await?;
 
         for scope in required_scopes {
@@ -933,6 +1102,8 @@ async fn test_valid_providers_accepted() -> Result<()> {
 
     for provider in &valid_providers {
         let result = database
+            .repositories()
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
@@ -972,7 +1143,7 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         "professional".to_owned(),
         user_id,
     );
-    TenantRepository::create(&database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Level 3: Server credentials
     let oauth_config = Arc::new(create_test_oauth_config());
@@ -980,7 +1151,13 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
 
     // Test with only server credentials
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(
         creds.client_id, "server_strava_id",
@@ -998,7 +1175,13 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
     oauth_manager.store_credentials(tenant_id, "strava", tenant_creds)?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(
         creds.client_id, "tenant_strava_id",
@@ -1007,6 +1190,8 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
 
     // Level 1: Add user credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -1017,7 +1202,13 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
         .await?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(
         creds.client_id, "user_strava_id",
@@ -1025,10 +1216,20 @@ async fn test_complete_three_tier_resolution() -> Result<()> {
     );
 
     // Remove user credentials, should fall back to tenant
-    database.remove_user_oauth_app(user_id, "strava").await?;
+    database
+        .repositories()
+        .oauth_tokens
+        .remove_user_oauth_app(user_id, "strava")
+        .await?;
 
     let creds = oauth_manager
-        .get_credentials_for_user(Some(user_id), tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            Some(user_id),
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
     assert_eq!(
         creds.client_id, "tenant_strava_id",
@@ -1048,6 +1249,8 @@ async fn test_none_user_id_skips_user_lookup() -> Result<()> {
 
     // Store user credentials
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -1063,7 +1266,13 @@ async fn test_none_user_id_skips_user_lookup() -> Result<()> {
 
     // With None user_id, should skip user lookup and use server
     let creds = oauth_manager
-        .get_credentials_for_user(None, tenant_id, "strava", &database, &database)
+        .get_credentials_for_user(
+            None,
+            tenant_id,
+            "strava",
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     assert_eq!(
@@ -1094,6 +1303,8 @@ async fn test_user_with_all_providers() -> Result<()> {
     // Store unique credentials for each provider
     for provider in &providers {
         database
+            .repositories()
+            .oauth_tokens
             .store_user_oauth_app(
                 user_id,
                 provider,
@@ -1107,7 +1318,13 @@ async fn test_user_with_all_providers() -> Result<()> {
     // Verify each provider returns correct credentials
     for provider in &providers {
         let creds = oauth_manager
-            .get_credentials_for_user(Some(user_id), tenant_id, provider, &database, &database)
+            .get_credentials_for_user(
+                Some(user_id),
+                tenant_id,
+                provider,
+                &*database.repositories().tenants,
+                &*database.repositories().oauth_tokens,
+            )
             .await?;
 
         assert_eq!(
@@ -1118,7 +1335,11 @@ async fn test_user_with_all_providers() -> Result<()> {
     }
 
     // List should show all 5
-    let apps = database.list_user_oauth_apps(user_id).await?;
+    let apps = database
+        .repositories()
+        .oauth_tokens
+        .list_user_oauth_apps(user_id)
+        .await?;
     assert_eq!(apps.len(), 5, "User should have all 5 providers");
 
     Ok(())
@@ -1140,13 +1361,14 @@ async fn test_error_unsupported_provider() -> Result<()> {
     let oauth_manager = TenantOAuthManager::new(oauth_config);
 
     // Request credentials for unsupported provider
+    let repos = database.repositories();
     let result = oauth_manager
         .get_credentials_for_user(
             Some(user_id),
             tenant_id,
             "unsupported_provider",
-            &database,
-            &database,
+            &*repos.tenants,
+            &*repos.oauth_tokens,
         )
         .await;
 
@@ -1165,6 +1387,8 @@ async fn test_provider_case_sensitivity() -> Result<()> {
 
     // Store with lowercase
     database
+        .repositories()
+        .oauth_tokens
         .store_user_oauth_app(
             user_id,
             "strava",
@@ -1175,7 +1399,11 @@ async fn test_provider_case_sensitivity() -> Result<()> {
         .await?;
 
     // Retrieve with lowercase (should work)
-    let app = database.get_user_oauth_app(user_id, "strava").await?;
+    let app = database
+        .repositories()
+        .oauth_tokens
+        .get_user_oauth_app(user_id, "strava")
+        .await?;
     assert!(app.is_some(), "Should find app with exact case match");
 
     Ok(())

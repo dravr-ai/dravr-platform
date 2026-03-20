@@ -19,10 +19,7 @@ use pierre_auth::{
     },
     auth::AuthManager,
 };
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, ApiKeyRepository, UsageRepository, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -76,7 +73,7 @@ async fn test_starter_tier_rate_limiting() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create Starter tier API key with low limit for testing
     let full_key = "pk_live_ratelimitstarterkey1234567890123"; // 40 chars total
@@ -96,7 +93,10 @@ async fn test_starter_tier_rate_limiting() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -126,7 +126,12 @@ async fn test_starter_tier_rate_limiting() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Next request should be rate limited
@@ -141,7 +146,7 @@ async fn test_professional_tier_rate_limiting() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create Professional tier API key
     let full_key = "pk_live_professionallimitkey123456789012"; // 40 chars total
@@ -161,7 +166,10 @@ async fn test_professional_tier_rate_limiting() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -191,11 +199,21 @@ async fn test_professional_tier_rate_limiting() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Should still be under limit
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
     assert!(!rate_limit_status.is_rate_limited);
     assert_eq!(rate_limit_status.remaining, Some(99_000));
@@ -206,7 +224,7 @@ async fn test_enterprise_tier_unlimited() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create Enterprise tier API key
     let full_key = "pk_live_enterpriseunlimitedkey1234567890"; // 40 chars total
@@ -226,7 +244,10 @@ async fn test_enterprise_tier_unlimited() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -257,11 +278,21 @@ async fn test_enterprise_tier_unlimited() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Should still be unlimited
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     assert_eq!(current_usage, 10_000);
 
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
@@ -282,7 +313,7 @@ async fn test_rate_limit_reset_timing() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create test API key
     let api_key = ApiKey {
@@ -301,7 +332,10 @@ async fn test_rate_limit_reset_timing() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -346,7 +380,7 @@ async fn test_monthly_usage_calculation() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create an API key first
     let full_key = "pk_live_monthlyusagecalckey123456789012"; // 40 chars total
@@ -366,7 +400,10 @@ async fn test_monthly_usage_calculation() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
     let api_key_id = api_key.id;
@@ -390,7 +427,12 @@ async fn test_monthly_usage_calculation() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Last month usage (should not count)
@@ -408,11 +450,21 @@ async fn test_monthly_usage_calculation() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Get current month usage
-    let current_usage = database.get_api_key_current(&api_key_id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key_id)
+        .await
+        .unwrap();
 
     // Should only count current month (5 requests)
     assert_eq!(current_usage, 5, "Should only count current month usage");
@@ -423,7 +475,7 @@ async fn test_rate_limit_edge_cases() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Test rate limit at exactly the limit
     let api_key = ApiKey {
@@ -442,7 +494,10 @@ async fn test_rate_limit_edge_cases() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
     let full_key = "pk_live_edgecaselimitkey123456789012345";
@@ -462,11 +517,21 @@ async fn test_rate_limit_edge_cases() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // At the limit, should be rate limited
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     assert_eq!(current_usage, 10);
 
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
@@ -483,7 +548,7 @@ async fn test_rate_limit_with_mixed_status_codes() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     let full_key = "pk_live_mixedstatuskey123456789012345678"; // 40 chars total
     let api_key = ApiKey {
@@ -502,7 +567,10 @@ async fn test_rate_limit_with_mixed_status_codes() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -526,11 +594,21 @@ async fn test_rate_limit_with_mixed_status_codes() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // All requests should count toward rate limit, regardless of status code
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     assert_eq!(current_usage, 8);
 
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
@@ -541,6 +619,8 @@ async fn test_rate_limit_with_mixed_status_codes() {
     let start_date = Utc::now() - Duration::hours(1);
     let end_date = Utc::now() + Duration::hours(1);
     let stats = database
+        .repositories()
+        .usage
         .get_api_key_stats(&api_key.id, start_date, end_date)
         .await
         .unwrap();
@@ -555,7 +635,7 @@ async fn test_trial_tier_rate_limiting() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create Trial tier API key with default settings
     let full_key = "pk_live_trialtierlimitkey123456789012345"; // 40 chars total (use pk_live_ for consistency)
@@ -575,7 +655,10 @@ async fn test_trial_tier_rate_limiting() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -605,11 +688,21 @@ async fn test_trial_tier_rate_limiting() {
             ip_address: None,
             user_agent: None,
         };
-        database.record_api_key(&usage).await.unwrap();
+        database
+            .repositories()
+            .usage
+            .record_api_key(&usage)
+            .await
+            .unwrap();
     }
 
     // Should be at limit
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     assert_eq!(current_usage, 1_000);
 
     let rate_limit_status = api_key_manager.rate_limit_status(&api_key, current_usage);
@@ -626,7 +719,7 @@ async fn test_tier_conversion_scenarios() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Test conversion from Trial to Starter
     let trial_key = ApiKey {
@@ -645,7 +738,10 @@ async fn test_tier_conversion_scenarios() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &trial_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&trial_key)
         .await
         .unwrap();
 
@@ -671,7 +767,10 @@ async fn test_tier_conversion_scenarios() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &starter_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&starter_key)
         .await
         .unwrap();
 
@@ -697,7 +796,10 @@ async fn test_tier_conversion_scenarios() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &professional_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&professional_key)
         .await
         .unwrap();
 
@@ -723,7 +825,10 @@ async fn test_tier_conversion_scenarios() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &enterprise_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&enterprise_key)
         .await
         .unwrap();
 
@@ -759,7 +864,7 @@ async fn test_legacy_conversion_functionality() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Test legacy API key creation using the old CreateApiKeyRequest format
     let legacy_request = CreateApiKeyRequest {
@@ -830,13 +935,22 @@ async fn test_legacy_conversion_functionality() {
     assert!(api_key_manager.is_trial_key(&trial_full_key));
 
     // Store all keys in database
-    ApiKeyRepository::create(&*database, &legacy_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&legacy_key)
         .await
         .unwrap();
-    ApiKeyRepository::create(&*database, &simple_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&simple_key)
         .await
         .unwrap();
-    ApiKeyRepository::create(&*database, &trial_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&trial_key)
         .await
         .unwrap();
 
@@ -851,7 +965,7 @@ async fn test_monthly_reset_calculations() {
     let (database, api_key_manager, _auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Test reset calculations for different times of the month
     let test_dates = [
@@ -904,7 +1018,10 @@ async fn test_monthly_reset_calculations() {
             created_at: *test_date,
         };
 
-        ApiKeyRepository::create(&*database, &api_key)
+        database
+            .repositories()
+            .api_keys
+            .create(&api_key)
             .await
             .unwrap();
 
@@ -941,7 +1058,7 @@ async fn test_enterprise_unlimited_comprehensive() {
     let (database, api_key_manager, auth_middleware, user) = create_test_setup().await;
 
     // Store the user in the database first
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create Enterprise tier API key
     let full_key = "pk_live_enterprisecomprehensivekey123456"; // 40 chars total
@@ -961,7 +1078,10 @@ async fn test_enterprise_unlimited_comprehensive() {
         created_at: Utc::now(),
     };
 
-    ApiKeyRepository::create(&*database, &api_key)
+    database
+        .repositories()
+        .api_keys
+        .create(&api_key)
         .await
         .unwrap();
 
@@ -985,7 +1105,12 @@ async fn test_enterprise_unlimited_comprehensive() {
                 ip_address: None,
                 user_agent: None,
             };
-            database.record_api_key(&usage_record).await.unwrap();
+            database
+                .repositories()
+                .usage
+                .record_api_key(&usage_record)
+                .await
+                .unwrap();
         }
 
         // Test rate limit status
@@ -1013,12 +1138,19 @@ async fn test_enterprise_unlimited_comprehensive() {
     assert_eq!(api_key.tier.default_trial_days(), None);
 
     // Verify usage statistics still work with enterprise keys
-    let current_usage = database.get_api_key_current(&api_key.id).await.unwrap();
+    let current_usage = database
+        .repositories()
+        .usage
+        .get_api_key_current(&api_key.id)
+        .await
+        .unwrap();
     assert!(current_usage > 0); // Should have recorded usage
 
     let start_date = Utc::now() - Duration::hours(24);
     let end_date = Utc::now() + Duration::hours(1);
     let stats = database
+        .repositories()
+        .usage
         .get_api_key_stats(&api_key.id, start_date, end_date)
         .await
         .unwrap();

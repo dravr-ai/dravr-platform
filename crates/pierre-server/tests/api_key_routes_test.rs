@@ -16,7 +16,7 @@ use pierre_auth::api_keys::{ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, AuthMethod, AuthResult};
 use pierre_auth::rate_limiting::UnifiedRateLimitInfo;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,
@@ -80,7 +80,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
         "hashed_password".to_owned(),
         Some("Test User".to_owned()),
     );
-    let user_id = UserRepository::create(&database, &user).await.unwrap();
+    let user_id = database.repositories().users.create(&user).await.unwrap();
 
     // Generate JWT token for the user
     let jwks_manager = common::get_shared_test_jwks();

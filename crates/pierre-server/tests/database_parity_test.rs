@@ -10,11 +10,7 @@
 
 use chrono::Utc;
 use pierre_database::{
-    database::AddMessageParams,
-    plugins::{
-        factory::Database, ChatRepository, TenantRepository, ToolSelectionRepository,
-        UserRepository,
-    },
+    database::AddMessageParams, plugins::factory::Database, repository_registry::RepositoryRegistry,
 };
 use pierre_mcp_server::{
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
@@ -36,13 +32,17 @@ async fn test_parity_tool_catalog() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
-    let sqlite_catalog = sqlite_db
+    let sqlite_catalog = sqlite_repos
+        .tool_selection
         .get_tool_catalog()
         .await
         .expect("SQLite: Failed to get catalog");
 
-    let pg_catalog = pg_db
+    let pg_catalog = pg_repos
+        .tool_selection
         .get_tool_catalog()
         .await
         .expect("PostgreSQL: Failed to get catalog");
@@ -75,15 +75,19 @@ async fn test_parity_get_tool_catalog_entry() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
     let tool_name = "get_activities";
 
-    let sqlite_entry = sqlite_db
+    let sqlite_entry = sqlite_repos
+        .tool_selection
         .get_tool_catalog_entry(tool_name)
         .await
         .expect("SQLite: Failed to get entry");
 
-    let pg_entry = pg_db
+    let pg_entry = pg_repos
+        .tool_selection
         .get_tool_catalog_entry(tool_name)
         .await
         .expect("PostgreSQL: Failed to get entry");
@@ -125,6 +129,8 @@ async fn test_parity_tools_by_category() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
     for category in [
         ToolCategory::Fitness,
@@ -132,12 +138,14 @@ async fn test_parity_tools_by_category() {
         ToolCategory::Nutrition,
         ToolCategory::Configuration,
     ] {
-        let sqlite_tools = sqlite_db
+        let sqlite_tools = sqlite_repos
+            .tool_selection
             .get_tools_by_category(category)
             .await
             .expect("SQLite: Failed to get tools by category");
 
-        let pg_tools = pg_db
+        let pg_tools = pg_repos
+            .tool_selection
             .get_tools_by_category(category)
             .await
             .expect("PostgreSQL: Failed to get tools by category");
@@ -160,18 +168,22 @@ async fn test_parity_tools_by_min_plan() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
     for plan in [
         TenantPlan::Starter,
         TenantPlan::Professional,
         TenantPlan::Enterprise,
     ] {
-        let sqlite_tools = sqlite_db
+        let sqlite_tools = sqlite_repos
+            .tool_selection
             .get_tools_by_min_plan(plan)
             .await
             .expect("SQLite: Failed to get tools by plan");
 
-        let pg_tools = pg_db
+        let pg_tools = pg_repos
+            .tool_selection
             .get_tools_by_min_plan(plan)
             .await
             .expect("PostgreSQL: Failed to get tools by plan");
@@ -194,21 +206,25 @@ async fn test_parity_tenant_tool_overrides() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
     // Create identical tenants and users in both databases
     let tenant_id = TenantId::new();
-    let sqlite_user_id = create_test_user(&sqlite_db).await;
-    let pg_user_id = create_test_user(&pg_db).await;
+    let sqlite_user_id = create_test_user(&sqlite_repos).await;
+    let pg_user_id = create_test_user(&pg_repos).await;
 
-    create_test_tenant(&sqlite_db, tenant_id, sqlite_user_id).await;
-    create_test_tenant(&pg_db, tenant_id, pg_user_id).await;
+    create_test_tenant(&sqlite_repos, tenant_id, sqlite_user_id).await;
+    create_test_tenant(&pg_repos, tenant_id, pg_user_id).await;
 
     // Both should start with empty overrides
-    let sqlite_overrides = sqlite_db
+    let sqlite_overrides = sqlite_repos
+        .tool_selection
         .get_overrides(tenant_id)
         .await
         .expect("SQLite: Failed to get overrides");
-    let pg_overrides = pg_db
+    let pg_overrides = pg_repos
+        .tool_selection
         .get_overrides(tenant_id)
         .await
         .expect("PostgreSQL: Failed to get overrides");
@@ -223,7 +239,8 @@ async fn test_parity_tenant_tool_overrides() {
     );
 
     // Create same override in both
-    let sqlite_created = sqlite_db
+    let sqlite_created = sqlite_repos
+        .tool_selection
         .upsert_override(
             tenant_id,
             "get_activities",
@@ -234,7 +251,8 @@ async fn test_parity_tenant_tool_overrides() {
         .await
         .expect("SQLite: Failed to create override");
 
-    let pg_created = pg_db
+    let pg_created = pg_repos
+        .tool_selection
         .upsert_override(
             tenant_id,
             "get_activities",
@@ -250,11 +268,13 @@ async fn test_parity_tenant_tool_overrides() {
     assert_eq!(sqlite_created.is_enabled, pg_created.is_enabled);
 
     // Delete in both
-    let sqlite_deleted = sqlite_db
+    let sqlite_deleted = sqlite_repos
+        .tool_selection
         .delete_override(tenant_id, "get_activities")
         .await
         .expect("SQLite: Failed to delete override");
-    let pg_deleted = pg_db
+    let pg_deleted = pg_repos
+        .tool_selection
         .delete_override(tenant_id, "get_activities")
         .await
         .expect("PostgreSQL: Failed to delete override");
@@ -274,12 +294,15 @@ async fn test_parity_chat_create_conversation() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_db).await;
-    let pg_user_id = create_test_user(&pg_db).await;
+    let sqlite_user_id = create_test_user(&sqlite_repos).await;
+    let pg_user_id = create_test_user(&pg_repos).await;
     let tenant_id = TenantId::new();
 
-    let sqlite_conv = sqlite_db
+    let sqlite_conv = sqlite_repos
+        .chat
         .create_conversation(
             &sqlite_user_id.to_string(),
             tenant_id,
@@ -290,7 +313,8 @@ async fn test_parity_chat_create_conversation() {
         .await
         .expect("SQLite: Failed to create conversation");
 
-    let pg_conv = pg_db
+    let pg_conv = pg_repos
+        .chat
         .create_conversation(
             &pg_user_id.to_string(),
             tenant_id,
@@ -321,13 +345,16 @@ async fn test_parity_chat_messages() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_db).await;
-    let pg_user_id = create_test_user(&pg_db).await;
+    let sqlite_user_id = create_test_user(&sqlite_repos).await;
+    let pg_user_id = create_test_user(&pg_repos).await;
     let tenant_id = TenantId::new();
 
     // Create conversations
-    let sqlite_conv = sqlite_db
+    let sqlite_conv = sqlite_repos
+        .chat
         .create_conversation(
             &sqlite_user_id.to_string(),
             tenant_id,
@@ -338,7 +365,8 @@ async fn test_parity_chat_messages() {
         .await
         .expect("SQLite: Failed to create conversation");
 
-    let pg_conv = pg_db
+    let pg_conv = pg_repos
+        .chat
         .create_conversation(
             &pg_user_id.to_string(),
             tenant_id,
@@ -370,7 +398,8 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
         };
-        sqlite_db
+        sqlite_repos
+            .chat
             .add_message(&sqlite_params)
             .await
             .expect("SQLite: Failed to add message");
@@ -385,19 +414,22 @@ async fn test_parity_chat_messages() {
             prompt_tokens: None,
             model: None,
         };
-        pg_db
+        pg_repos
+            .chat
             .add_message(&pg_params)
             .await
             .expect("PostgreSQL: Failed to add message");
     }
 
     // Get all messages
-    let sqlite_messages = sqlite_db
+    let sqlite_messages = sqlite_repos
+        .chat
         .get_messages(&sqlite_conv.id, &sqlite_uid)
         .await
         .expect("SQLite: Failed to get messages");
 
-    let pg_messages = pg_db
+    let pg_messages = pg_repos
+        .chat
         .get_messages(&pg_conv.id, &pg_uid)
         .await
         .expect("PostgreSQL: Failed to get messages");
@@ -423,12 +455,14 @@ async fn test_parity_chat_messages() {
     }
 
     // Compare message counts
-    let sqlite_count = sqlite_db
+    let sqlite_count = sqlite_repos
+        .chat
         .get_message_count(&sqlite_conv.id, &sqlite_uid)
         .await
         .expect("SQLite: Failed to get count");
 
-    let pg_count = pg_db
+    let pg_count = pg_repos
+        .chat
         .get_message_count(&pg_conv.id, &pg_uid)
         .await
         .expect("PostgreSQL: Failed to get count");
@@ -443,14 +477,17 @@ async fn test_parity_chat_list_conversations() {
         eprintln!("Skipping parity test: PostgreSQL not available");
         return;
     };
+    let sqlite_repos = sqlite_db.repositories();
+    let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_db).await;
-    let pg_user_id = create_test_user(&pg_db).await;
+    let sqlite_user_id = create_test_user(&sqlite_repos).await;
+    let pg_user_id = create_test_user(&pg_repos).await;
     let tenant_id = TenantId::new();
 
     // Create same conversations in both
     for i in 1..=5 {
-        sqlite_db
+        sqlite_repos
+            .chat
             .create_conversation(
                 &sqlite_user_id.to_string(),
                 tenant_id,
@@ -461,7 +498,8 @@ async fn test_parity_chat_list_conversations() {
             .await
             .expect("SQLite: Failed to create conversation");
 
-        pg_db
+        pg_repos
+            .chat
             .create_conversation(
                 &pg_user_id.to_string(),
                 tenant_id,
@@ -474,12 +512,14 @@ async fn test_parity_chat_list_conversations() {
     }
 
     // Test pagination works the same
-    let sqlite_list = sqlite_db
+    let sqlite_list = sqlite_repos
+        .chat
         .list_conversations(&sqlite_user_id.to_string(), tenant_id, 3, 0)
         .await
         .expect("SQLite: Failed to list");
 
-    let pg_list = pg_db
+    let pg_list = pg_repos
+        .chat
         .list_conversations(&pg_user_id.to_string(), tenant_id, 3, 0)
         .await
         .expect("PostgreSQL: Failed to list");
@@ -491,12 +531,14 @@ async fn test_parity_chat_list_conversations() {
     );
 
     // Test delete all works the same
-    let sqlite_deleted = sqlite_db
+    let sqlite_deleted = sqlite_repos
+        .chat
         .delete_all_user_conversations(&sqlite_user_id.to_string(), tenant_id)
         .await
         .expect("SQLite: Failed to delete all");
 
-    let pg_deleted = pg_db
+    let pg_deleted = pg_repos
+        .chat
         .delete_all_user_conversations(&pg_user_id.to_string(), tenant_id)
         .await
         .expect("PostgreSQL: Failed to delete all");
@@ -540,7 +582,7 @@ async fn create_both_databases(
     Some((sqlite_db, pg_db, pg_handle))
 }
 
-async fn create_test_user(db: &Database) -> Uuid {
+async fn create_test_user(repos: &RepositoryRegistry) -> Uuid {
     let user_id = Uuid::new_v4();
     let user = User {
         id: user_id,
@@ -562,13 +604,15 @@ async fn create_test_user(db: &Database) -> Uuid {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(db, &user)
+    repos
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
     user_id
 }
 
-async fn create_test_tenant(db: &Database, tenant_id: TenantId, owner_id: Uuid) {
+async fn create_test_tenant(repos: &RepositoryRegistry, tenant_id: TenantId, owner_id: Uuid) {
     let tenant = Tenant {
         id: tenant_id,
         name: "Parity Test Tenant".to_owned(),
@@ -580,7 +624,9 @@ async fn create_test_tenant(db: &Database, tenant_id: TenantId, owner_id: Uuid) 
         updated_at: Utc::now(),
     };
 
-    TenantRepository::create(db, &tenant)
+    repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 }

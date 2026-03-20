@@ -7,10 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
-use pierre_database::plugins::{
-    factory::Database, DatabaseProvider, InsightRepository, OAuthTokenRepository,
-    ProfileRepository, UsageRepository, UserRepository,
-};
+use pierre_database::plugins::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -71,7 +68,9 @@ async fn create_test_user(db: &Database) -> Uuid {
         auth_provider: String::new(),
     };
 
-    UserRepository::create(db, &user)
+    db.repositories()
+        .users
+        .create(&user)
         .await
         .expect("Failed to create user");
     user_id
@@ -108,8 +107,14 @@ async fn test_user_management() {
     // Test user creation
     let user_id = create_test_user(&db).await;
 
+    let repos = db.repositories();
+
     // Test user retrieval
-    let retrieved_user = db.get_global(user_id).await.expect("Failed to get user");
+    let retrieved_user = repos
+        .users
+        .get_global(user_id)
+        .await
+        .expect("Failed to get user");
     assert!(retrieved_user.is_some(), "User should exist");
 
     let user = retrieved_user.unwrap();
@@ -117,7 +122,8 @@ async fn test_user_management() {
     assert_eq!(user.display_name, Some("Test User".to_owned()));
 
     // Test user by email
-    let user_by_email = db
+    let user_by_email = repos
+        .users
         .get_by_email("test@example.com")
         .await
         .expect("Failed to get user by email");
@@ -125,7 +131,7 @@ async fn test_user_management() {
     assert_eq!(user_by_email.unwrap().id, user_id);
 
     // Test user count
-    let count = db.count().await.expect("Failed to get user count");
+    let count = repos.users.count().await.expect("Failed to get user count");
     assert_eq!(count, 1, "Should have exactly one user");
 }
 
@@ -146,12 +152,16 @@ async fn test_oauth_token_management() {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    db.upsert_token(&oauth_token)
+    let repos = db.repositories();
+    repos
+        .oauth_tokens
+        .upsert_token(&oauth_token)
         .await
         .expect("Failed to update Strava token");
 
     // Test retrieving Strava token
-    let token = db
+    let token = repos
+        .oauth_tokens
         .get_token(user_id, test_tenant_id, oauth_providers::STRAVA)
         .await
         .expect("Failed to get Strava token");
@@ -163,11 +173,14 @@ async fn test_oauth_token_management() {
     assert_eq!(token.scope, Some("read,activity:read_all".to_owned()));
 
     // Test clearing Strava token
-    db.delete_token(user_id, test_tenant_id, oauth_providers::STRAVA)
+    repos
+        .oauth_tokens
+        .delete_token(user_id, test_tenant_id, oauth_providers::STRAVA)
         .await
         .expect("Failed to clear Strava token");
 
-    let cleared_token = db
+    let cleared_token = repos
+        .oauth_tokens
         .get_token(user_id, test_tenant_id, oauth_providers::STRAVA)
         .await
         .expect("Failed to get Strava token after clear");
@@ -189,12 +202,16 @@ async fn test_user_profile_management() {
         }
     });
 
-    db.upsert_profile(user_id, profile_data.clone())
+    let repos = db.repositories();
+    repos
+        .profiles
+        .upsert_profile(user_id, profile_data.clone())
         .await
         .expect("Failed to upsert user profile");
 
     // Test retrieving user profile
-    let retrieved_profile = db
+    let retrieved_profile = repos
+        .profiles
         .get_profile(user_id)
         .await
         .expect("Failed to get user profile");
@@ -220,7 +237,9 @@ async fn test_goal_management() {
         "deadline": "2024-12-31"
     });
 
-    let goal_id = db
+    let repos = db.repositories();
+    let goal_id = repos
+        .profiles
         .create_goal(user_id, goal_data.clone())
         .await
         .expect("Failed to create goal");
@@ -228,7 +247,8 @@ async fn test_goal_management() {
     assert!(!goal_id.is_empty(), "Goal ID should not be empty");
 
     // Test retrieving user goals
-    let goals = db
+    let goals = repos
+        .profiles
         .get_goals(user_id)
         .await
         .expect("Failed to get user goals");
@@ -239,7 +259,9 @@ async fn test_goal_management() {
     assert_eq!(goal["target"], 100.0);
 
     // Test updating goal progress
-    db.update_goal_progress(&goal_id, user_id, 50.0)
+    repos
+        .profiles
+        .update_goal_progress(&goal_id, user_id, 50.0)
         .await
         .expect("Failed to update goal progress");
 }
@@ -259,7 +281,9 @@ async fn test_insight_management() {
         }
     });
 
-    let insight_id = db
+    let repos = db.repositories();
+    let insight_id = repos
+        .insights
         .store(user_id, insight_data.clone())
         .await
         .expect("Failed to store insight");
@@ -267,7 +291,8 @@ async fn test_insight_management() {
     assert!(!insight_id.is_empty(), "Insight ID should not be empty");
 
     // Test retrieving insights
-    let insights = db
+    let insights = repos
+        .insights
         .get_for_user(user_id, None, Some(10))
         .await
         .expect("Failed to get user insights");
@@ -275,7 +300,8 @@ async fn test_insight_management() {
     assert_eq!(insights.len(), 1, "Should have exactly one insight");
 
     // Test retrieving insights with type filter (Note: this depends on the implementation)
-    let filtered_insights = db
+    let filtered_insights = repos
+        .insights
         .get_for_user(user_id, Some("performance"), Some(10))
         .await
         .expect("Failed to get filtered insights");
@@ -295,7 +321,12 @@ async fn test_database_trait_abstraction() {
     let _user_id = create_test_user(&db).await;
 
     // Test async trait methods work correctly
-    let user_count = db.count().await.expect("Failed to get user count");
+    let user_count = db
+        .repositories()
+        .users
+        .count()
+        .await
+        .expect("Failed to get user count");
     assert!(user_count > 0, "Should have at least one user");
 
     // Test that the database can handle concurrent operations
@@ -325,7 +356,7 @@ async fn test_database_trait_abstraction() {
                 auth_provider: String::new(),
             };
 
-            UserRepository::create(&db_clone, &user).await
+            db_clone.repositories().users.create(&user).await
         });
         handles.push(handle);
     }
@@ -339,7 +370,12 @@ async fn test_database_trait_abstraction() {
     }
 
     // Verify all users were created
-    let final_count = db.count().await.expect("Failed to get final user count");
+    let final_count = db
+        .repositories()
+        .users
+        .count()
+        .await
+        .expect("Failed to get final user count");
     assert_eq!(final_count, 6, "Should have 6 users total (1 + 5)");
 }
 
@@ -370,13 +406,17 @@ async fn test_system_stats() {
             auth_provider: String::new(),
         };
 
-        UserRepository::create(&db, &user)
+        db.repositories()
+            .users
+            .create(&user)
             .await
             .expect("Failed to create user");
     }
 
     // Test system stats (user_count, api_key_count)
     let (user_count, api_key_count) = db
+        .repositories()
+        .usage
         .get_system_stats(None)
         .await
         .expect("Failed to get system stats");

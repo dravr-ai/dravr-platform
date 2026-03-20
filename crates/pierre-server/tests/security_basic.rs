@@ -17,7 +17,6 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
 };
-use pierre_database::plugins::{ApiKeyRepository, UserRepository};
 use std::collections::HashSet;
 use tokio::time::{sleep, Duration as TokioDuration};
 use uuid::Uuid;
@@ -31,7 +30,12 @@ async fn test_jwt_token_security() -> Result<()> {
     // Create test user
     let (user_id, _) =
         common::create_test_user_with_email(&database, "jwt_test@example.com").await?;
-    let user = database.get_global(user_id).await?.unwrap();
+    let user = database
+        .repositories()
+        .users
+        .get_global(user_id)
+        .await?
+        .unwrap();
 
     // Generate valid JWT token
     let jwks_manager = common::get_shared_test_jwks();
@@ -90,11 +94,12 @@ async fn test_api_key_user_isolation() -> Result<()> {
     let (user1_api_key, _user1_key_string) =
         api_key_manager.create_api_key(user1_id, create_request)?;
 
-    ApiKeyRepository::create(&*database, &user1_api_key).await?;
+    let repos = database.repositories();
+    repos.api_keys.create(&user1_api_key).await?;
 
     // Verify user isolation
-    let user1_keys = database.get_for_user(user1_id).await?;
-    let user2_keys = database.get_for_user(user2_id).await?;
+    let user1_keys = repos.api_keys.get_for_user(user1_id).await?;
+    let user2_keys = repos.api_keys.get_for_user(user2_id).await?;
 
     assert_eq!(user1_keys.len(), 1, "User 1 should have exactly 1 API key");
     assert_eq!(user2_keys.len(), 0, "User 2 should have no API keys");
@@ -154,7 +159,11 @@ async fn test_error_message_security() -> Result<()> {
     let auth_manager = AuthManager::new(24);
 
     // Test non-existent user lookup
-    let non_existent_user = database.get_by_email("nonexistent@example.com").await;
+    let non_existent_user = database
+        .repositories()
+        .users
+        .get_by_email("nonexistent@example.com")
+        .await;
 
     match non_existent_user {
         Ok(None) => {
@@ -202,7 +211,12 @@ async fn test_token_uniqueness() -> Result<()> {
     // Create test user
     let (user_id, _) =
         common::create_test_user_with_email(&database, "unique_test@example.com").await?;
-    let user = database.get_global(user_id).await?.unwrap();
+    let user = database
+        .repositories()
+        .users
+        .get_global(user_id)
+        .await?
+        .unwrap();
 
     // Generate multiple tokens and verify uniqueness
     let mut tokens = HashSet::new();

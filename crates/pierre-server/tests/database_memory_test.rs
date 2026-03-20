@@ -11,7 +11,7 @@
 
 use anyhow::Result;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::models::User;
@@ -62,8 +62,9 @@ async fn test_memory_database_no_physical_files() -> Result<()> {
         Some("Memory Test User".to_owned()),
     );
 
-    let user_id = UserRepository::create(&database, &user).await?;
-    let retrieved_user = database.get_global(user_id).await?.unwrap();
+    let repos = database.repositories();
+    let user_id = repos.users.create(&user).await?;
+    let retrieved_user = repos.users.get_global(user_id).await?.unwrap();
 
     assert_eq!(retrieved_user.email, "test@memory.test");
     assert_eq!(
@@ -115,16 +116,28 @@ async fn test_multiple_memory_databases_isolated() -> Result<()> {
         Some("User 2".to_owned()),
     );
 
-    let user1_id = UserRepository::create(&database1, &user1).await?;
-    let user2_id = UserRepository::create(&database2, &user2).await?;
+    let repos1 = database1.repositories();
+    let repos2 = database2.repositories();
+    let user1_id = repos1.users.create(&user1).await?;
+    let user2_id = repos2.users.create(&user2).await?;
 
     // Verify isolation - each database only contains its own user
-    assert!(database1.get_global(user1_id).await?.is_some());
-    assert!(database2.get_global(user2_id).await?.is_some());
+    assert!(repos1.users.get_global(user1_id).await?.is_some());
+    assert!(repos2.users.get_global(user2_id).await?.is_some());
 
     // User1 should not exist in database2 and vice versa
-    assert!(database2.get_global(user1_id).await?.is_none());
-    assert!(database1.get_global(user2_id).await?.is_none());
+    assert!(database2
+        .repositories()
+        .users
+        .get_global(user1_id)
+        .await?
+        .is_none());
+    assert!(database1
+        .repositories()
+        .users
+        .get_global(user2_id)
+        .await?
+        .is_none());
 
     Ok(())
 }

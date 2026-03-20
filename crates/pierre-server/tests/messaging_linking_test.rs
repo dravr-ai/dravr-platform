@@ -18,9 +18,7 @@
 )]
 
 use chrono::{Duration, Utc};
-use pierre_database::plugins::{
-    factory::Database, CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository,
-};
+use pierre_database::plugins::{factory::Database, CreateChannelLinkParams, CreateLinkStateParams};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::models::TenantId;
@@ -75,10 +73,19 @@ async fn test_create_and_consume_link_state() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Consume should succeed
-    let state = db.consume_link_state(&code, tenant_id).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap();
     assert_eq!(state["user_id"].as_str().unwrap(), "user-123");
     assert_eq!(state["channel_type"].as_str().unwrap(), "telegram");
     assert_eq!(state["method"].as_str().unwrap(), "deep_link");
@@ -102,13 +109,26 @@ async fn test_consume_link_state_already_used() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // First consumption succeeds
-    db.consume_link_state(&code, tenant_id).await.unwrap();
+    db.repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap();
 
     // Second consumption should fail (already used)
-    let err = db.consume_link_state(&code, tenant_id).await.unwrap_err();
+    let err = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("already been used"),
         "Expected 'already used' error, got: {err}"
@@ -134,10 +154,19 @@ async fn test_consume_link_state_expired() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Should fail (expired)
-    let err = db.consume_link_state(&code, tenant_id).await.unwrap_err();
+    let err = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("expired"),
         "Expected 'expired' error, got: {err}"
@@ -149,6 +178,8 @@ async fn test_consume_link_state_nonexistent() {
     let db = create_test_db().await;
 
     let err = db
+        .repositories()
+        .messaging
         .consume_link_state("nonexistent-code", test_tenant_id())
         .await
         .unwrap_err();
@@ -175,10 +206,16 @@ async fn test_create_and_get_channel_link() {
         channel_user_id: "tg-user-42",
         display_name: Some("Alice"),
     };
-    db.create_channel_link(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 
     // Get by channel identity
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_id, "telegram", "tg-user-42")
         .await
         .unwrap()
@@ -196,6 +233,8 @@ async fn test_channel_link_not_found() {
     let tenant_id = test_tenant_id();
 
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_id, "telegram", "nonexistent")
         .await
         .unwrap();
@@ -215,7 +254,11 @@ async fn test_channel_link_duplicate_rejected() {
         channel_user_id: "slack-user-1",
         display_name: None,
     };
-    db.create_channel_link(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 
     // Duplicate should fail
     let params2 = CreateChannelLinkParams {
@@ -226,7 +269,12 @@ async fn test_channel_link_duplicate_rejected() {
         channel_user_id: "slack-user-1",
         display_name: None,
     };
-    let err = db.create_channel_link(&params2).await.unwrap_err();
+    let err = db
+        .repositories()
+        .messaging
+        .create_channel_link(&params2)
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("already linked"),
         "Expected 'already linked' error, got: {err}"
@@ -247,7 +295,11 @@ async fn test_list_user_channel_links() {
         channel_user_id: "tg-400",
         display_name: Some("Bob TG"),
     };
-    db.create_channel_link(&params1).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params1)
+        .await
+        .unwrap();
 
     let params2 = CreateChannelLinkParams {
         id: &Uuid::new_v4().to_string(),
@@ -257,9 +309,15 @@ async fn test_list_user_channel_links() {
         channel_user_id: "wa-400",
         display_name: Some("Bob WA"),
     };
-    db.create_channel_link(&params2).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params2)
+        .await
+        .unwrap();
 
     let links = db
+        .repositories()
+        .messaging
         .list_user_channel_links(tenant_id, "user-400")
         .await
         .unwrap();
@@ -272,6 +330,8 @@ async fn test_list_user_channel_links_empty() {
     let tenant_id = test_tenant_id();
 
     let links = db
+        .repositories()
+        .messaging
         .list_user_channel_links(tenant_id, "nonexistent-user")
         .await
         .unwrap();
@@ -291,10 +351,16 @@ async fn test_delete_channel_link() {
         channel_user_id: "discord-500",
         display_name: None,
     };
-    db.create_channel_link(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 
     // Delete should succeed
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_link(tenant_id, "user-500", "discord")
         .await
         .unwrap();
@@ -302,6 +368,8 @@ async fn test_delete_channel_link() {
 
     // Verify it's gone
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_id, "discord", "discord-500")
         .await
         .unwrap();
@@ -314,6 +382,8 @@ async fn test_delete_channel_link_not_found() {
     let tenant_id = test_tenant_id();
 
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_link(tenant_id, "user-600", "telegram")
         .await
         .unwrap();
@@ -339,10 +409,16 @@ async fn test_channel_link_tenant_isolation() {
         channel_user_id: "tg-iso",
         display_name: None,
     };
-    db.create_channel_link(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 
     // Tenant A can see it
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_a, "telegram", "tg-iso")
         .await
         .unwrap();
@@ -350,6 +426,8 @@ async fn test_channel_link_tenant_isolation() {
 
     // Tenant B cannot see it
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_b, "telegram", "tg-iso")
         .await
         .unwrap();
@@ -371,7 +449,11 @@ async fn test_channel_link_different_tenants_same_channel_user() {
         channel_user_id: "shared-slack-id",
         display_name: None,
     };
-    db.create_channel_link(&params_a).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params_a)
+        .await
+        .unwrap();
 
     let params_b = CreateChannelLinkParams {
         id: &Uuid::new_v4().to_string(),
@@ -381,10 +463,16 @@ async fn test_channel_link_different_tenants_same_channel_user() {
         channel_user_id: "shared-slack-id",
         display_name: None,
     };
-    db.create_channel_link(&params_b).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params_b)
+        .await
+        .unwrap();
 
     // Each tenant sees their own link
     let link_a = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_a, "slack", "shared-slack-id")
         .await
         .unwrap()
@@ -392,6 +480,8 @@ async fn test_channel_link_different_tenants_same_channel_user() {
     assert_eq!(link_a["user_id"].as_str().unwrap(), "user-a");
 
     let link_b = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_b, "slack", "shared-slack-id")
         .await
         .unwrap()
@@ -413,10 +503,16 @@ async fn test_delete_channel_link_tenant_isolation() {
         channel_user_id: "msn-del-iso",
         display_name: None,
     };
-    db.create_channel_link(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&params)
+        .await
+        .unwrap();
 
     // Tenant B trying to delete tenant A's link should fail
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_link(tenant_b, "user-del-iso", "messenger")
         .await
         .unwrap();
@@ -424,6 +520,8 @@ async fn test_delete_channel_link_tenant_isolation() {
 
     // Tenant A's link should still exist
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_a, "messenger", "msn-del-iso")
         .await
         .unwrap();
@@ -453,10 +551,19 @@ async fn test_full_linking_flow() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&state_params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&state_params)
+        .await
+        .unwrap();
 
     // Step 2: Consume the code
-    let consumed = db.consume_link_state(&code, tenant_id).await.unwrap();
+    let consumed = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap();
     let user_id = consumed["user_id"].as_str().unwrap();
 
     // Step 3: Create the channel link
@@ -468,10 +575,16 @@ async fn test_full_linking_flow() {
         channel_user_id: "tg-e2e-user",
         display_name: Some("E2E User"),
     };
-    db.create_channel_link(&link_params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_channel_link(&link_params)
+        .await
+        .unwrap();
 
     // Step 4: Verify the link exists
     let link = db
+        .repositories()
+        .messaging
         .get_channel_link(tenant_id, "telegram", "tg-e2e-user")
         .await
         .unwrap()
@@ -480,6 +593,8 @@ async fn test_full_linking_flow() {
 
     // Step 5: List user's links
     let links = db
+        .repositories()
+        .messaging
         .list_user_channel_links(tenant_id, "user-e2e")
         .await
         .unwrap();
@@ -488,6 +603,8 @@ async fn test_full_linking_flow() {
 
     // Step 6: Unlink
     let deleted = db
+        .repositories()
+        .messaging
         .delete_channel_link(tenant_id, "user-e2e", "telegram")
         .await
         .unwrap();
@@ -495,6 +612,8 @@ async fn test_full_linking_flow() {
 
     // Step 7: Verify gone
     let links = db
+        .repositories()
+        .messaging
         .list_user_channel_links(tenant_id, "user-e2e")
         .await
         .unwrap();
@@ -523,10 +642,19 @@ async fn test_create_link_state_without_user_id() {
         sender_name: Some("Alice"),
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Should be readable via get_link_state
-    let state = db.get_link_state(&code).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
     assert!(state.is_some(), "Link state should be readable");
     let state = state.unwrap();
     assert!(state["user_id"].is_null(), "user_id should be null");
@@ -553,9 +681,18 @@ async fn test_get_link_state_valid() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
-    let state = db.get_link_state(&code).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
     assert!(state.is_some());
 }
 
@@ -577,9 +714,18 @@ async fn test_get_link_state_expired() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
-    let state = db.get_link_state(&code).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
     assert!(state.is_none(), "Expired link state should not be returned");
 }
 
@@ -601,13 +747,26 @@ async fn test_get_link_state_used() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Consume it
-    db.consume_link_state(&code, tenant_id).await.unwrap();
+    db.repositories()
+        .messaging
+        .consume_link_state(&code, tenant_id)
+        .await
+        .unwrap();
 
     // get_link_state should return None (used)
-    let state = db.get_link_state(&code).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
     assert!(state.is_none(), "Used link state should not be returned");
 }
 
@@ -629,16 +788,30 @@ async fn test_complete_link_state_success() {
         sender_name: Some("Bob"),
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Complete should succeed and set user_id
-    let result = db.complete_link_state(&code, "new-user-id").await.unwrap();
+    let result = db
+        .repositories()
+        .messaging
+        .complete_link_state(&code, "new-user-id")
+        .await
+        .unwrap();
     assert_eq!(result["user_id"].as_str().unwrap(), "new-user-id");
     assert_eq!(result["channel_user_id"].as_str().unwrap(), "tg-42");
     assert_eq!(result["sender_name"].as_str().unwrap(), "Bob");
 
     // Should no longer be gettable (it's now used)
-    let state = db.get_link_state(&code).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .get_link_state(&code)
+        .await
+        .unwrap();
     assert!(state.is_none(), "Completed link state should be consumed");
 }
 
@@ -660,13 +833,26 @@ async fn test_complete_link_state_already_used() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Complete first time
-    db.complete_link_state(&code, "user-1").await.unwrap();
+    db.repositories()
+        .messaging
+        .complete_link_state(&code, "user-1")
+        .await
+        .unwrap();
 
     // Second attempt should fail
-    let err = db.complete_link_state(&code, "user-2").await.unwrap_err();
+    let err = db
+        .repositories()
+        .messaging
+        .complete_link_state(&code, "user-2")
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("already been used"),
         "Expected 'already used' error, got: {err}"
@@ -691,9 +877,15 @@ async fn test_complete_link_state_expired() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     let err = db
+        .repositories()
+        .messaging
         .complete_link_state(&code, "some-user")
         .await
         .unwrap_err();
@@ -722,10 +914,16 @@ async fn test_complete_link_state_already_has_user() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // complete_link_state should fail because user_id is already set
     let err = db
+        .repositories()
+        .messaging
         .complete_link_state(&code, "another-user")
         .await
         .unwrap_err();
@@ -759,10 +957,19 @@ async fn test_consume_link_state_requires_tenant_id() {
         sender_name: None,
         expires_at: &expires_at,
     };
-    db.create_link_state(&params).await.unwrap();
+    db.repositories()
+        .messaging
+        .create_link_state(&params)
+        .await
+        .unwrap();
 
     // Consuming with tenant B should fail (cross-tenant)
-    let err = db.consume_link_state(&code, tenant_b).await.unwrap_err();
+    let err = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_b)
+        .await
+        .unwrap_err();
     assert!(
         err.to_string().contains("expired")
             || err.to_string().contains("not found")
@@ -771,7 +978,12 @@ async fn test_consume_link_state_requires_tenant_id() {
     );
 
     // Consuming with tenant A (correct tenant) should succeed
-    let state = db.consume_link_state(&code, tenant_a).await.unwrap();
+    let state = db
+        .repositories()
+        .messaging
+        .consume_link_state(&code, tenant_a)
+        .await
+        .unwrap();
     assert_eq!(state["user_id"].as_str().unwrap(), "user-tenant-a");
     assert_eq!(state["channel_type"].as_str().unwrap(), "telegram");
 }

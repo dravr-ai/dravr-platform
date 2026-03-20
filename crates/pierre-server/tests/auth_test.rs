@@ -14,10 +14,7 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{generate_jwt_secret, AuthManager, AuthMethod, Claims, JwtValidationError},
 };
-use pierre_database::{
-    database::generate_encryption_key,
-    plugins::{factory::Database, UserRepository},
-};
+use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -175,7 +172,7 @@ async fn test_mcp_auth_middleware() {
     let database = Arc::new(Database::new(database_url, encryption_key).await.unwrap());
 
     // Create the user in the database first (required for JWT rate limiting)
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     let jwks_manager = common::get_shared_test_jwks();
     let repos = Arc::new(database.repositories());
@@ -623,11 +620,18 @@ async fn test_check_setup_status_admin_exists() {
     admin_user.is_admin = true;
     admin_user.user_status = UserStatus::Active;
 
-    UserRepository::create(&database, &admin_user)
+    database
+        .repositories()
+        .users
+        .create(&admin_user)
         .await
         .unwrap();
 
-    let setup_status = auth_manager.check_setup_status(&database).await.unwrap();
+    let repos = database.repositories();
+    let setup_status = auth_manager
+        .check_setup_status(&*repos.users)
+        .await
+        .unwrap();
     assert!(!setup_status.needs_setup);
     assert!(setup_status.admin_user_exists);
     assert!(setup_status.message.is_none());
@@ -649,7 +653,11 @@ async fn test_check_setup_status_no_admin() {
     #[cfg(not(feature = "postgresql"))]
     let database = Database::new(database_url, encryption_key).await.unwrap();
 
-    let setup_status = auth_manager.check_setup_status(&database).await.unwrap();
+    let repos = database.repositories();
+    let setup_status = auth_manager
+        .check_setup_status(&*repos.users)
+        .await
+        .unwrap();
     assert!(setup_status.needs_setup);
     assert!(!setup_status.admin_user_exists);
     assert!(setup_status.message.is_some());
@@ -693,7 +701,7 @@ async fn test_mcp_auth_middleware_different_user_tiers() {
     {
         let mut user = create_test_user_with_tier(tier.clone());
         user.email = format!("tier_test_{i}@example.com"); // Unique email for each user
-        UserRepository::create(&*database, &user).await.unwrap();
+        database.repositories().users.create(&user).await.unwrap();
 
         let repos = Arc::new(database.repositories());
         let middleware = McpAuthMiddleware::new(

@@ -147,7 +147,7 @@ mod common;
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::{factory::Database, OAuthTokenRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
     config::environment::{
@@ -399,7 +399,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
     let user_id = Uuid::parse_str(&register_response.user_id)?;
 
     // Verify user exists in database
-    let user = database.get_global(user_id).await?.unwrap();
+    let repos = database.repositories();
+    let user = repos.users.get_global(user_id).await?.unwrap();
     assert_eq!(user.email, "test@multitenant.com");
     assert_eq!(user.display_name, Some("Multi-Tenant User".to_owned()));
     assert!(user.is_active);
@@ -426,10 +427,11 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(&database, &admin_user).await?;
+    repos.users.create(&admin_user).await?;
 
     // Approve the user with admin's UUID
-    database
+    repos
+        .users
         .update_status(user_id, UserStatus::Active, Some(admin_id))
         .await?;
 
@@ -513,7 +515,8 @@ async fn test_database_encryption() -> Result<()> {
         "bcrypt_hashed_password".to_owned(),
         Some("Encryption Test".to_owned()),
     );
-    let user_id = UserRepository::create(&database, &user).await?;
+    let repos = database.repositories();
+    let user_id = repos.users.create(&user).await?;
 
     // Store encrypted Strava token
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -526,10 +529,11 @@ async fn test_database_encryption() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token).await?;
+    repos.oauth_tokens.upsert_token(&oauth_token).await?;
 
     // Retrieve and decrypt token
-    let decrypted_token = database
+    let decrypted_token = repos
+        .oauth_tokens
         .get_token(
             user_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -605,20 +609,22 @@ async fn test_user_isolation() -> Result<()> {
     #[cfg(not(feature = "postgresql"))]
     let database = Database::new(&database_url, encryption_key).await?;
 
+    let repos = database.repositories();
+
     // Create two users
     let user1 = User::new(
         "user1@isolation.test".to_owned(),
         "password1".to_owned(),
         Some("User One".to_owned()),
     );
-    let user1_id = UserRepository::create(&database, &user1).await?;
+    let user1_id = repos.users.create(&user1).await?;
 
     let user2 = User::new(
         "user2@isolation.test".to_owned(),
         "password2".to_owned(),
         Some("User Two".to_owned()),
     );
-    let user2_id = UserRepository::create(&database, &user2).await?;
+    let user2_id = repos.users.create(&user2).await?;
 
     // Store tokens for each user
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(6);
@@ -632,7 +638,7 @@ async fn test_user_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token1).await?;
+    repos.oauth_tokens.upsert_token(&oauth_token1).await?;
 
     let oauth_token2 = UserOAuthToken::new(
         user2_id,
@@ -643,10 +649,11 @@ async fn test_user_isolation() -> Result<()> {
         Some(expires_at),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&oauth_token2).await?;
+    repos.oauth_tokens.upsert_token(&oauth_token2).await?;
 
     // Verify user isolation - each user can only access their own tokens
-    let user1_token = database
+    let user1_token = repos
+        .oauth_tokens
         .get_token(
             user1_id,
             TenantId::from_uuid(Uuid::nil()),
@@ -656,7 +663,8 @@ async fn test_user_isolation() -> Result<()> {
         .unwrap();
     assert_eq!(user1_token.access_token, "user1_access_token");
 
-    let user2_token = database
+    let user2_token = repos
+        .oauth_tokens
         .get_token(
             user2_id,
             TenantId::from_uuid(Uuid::nil()),

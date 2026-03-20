@@ -19,9 +19,7 @@ use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{
-        factory::Database, DatabaseProvider, OAuthTokenRepository, TenantRepository, UserRepository,
-    },
+    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -74,9 +72,10 @@ async fn create_test_user(database: &Database, email: &str, tenant_id: TenantId)
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
     // Associate user with tenant via tenant_users junction table
-    database.update_tenant_id(user_id, tenant_id).await?;
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
     Ok(user_id)
 }
 
@@ -118,7 +117,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         "professional".to_owned(),
         env_tenant_owner,
     );
-    TenantRepository::create(&database, &env_tenant).await?;
+    database.repositories().tenants.create(&env_tenant).await?;
 
     // Create tenant B (will use tenant-specific credentials)
     let db_tenant_owner = create_test_user(&database, "owner_b@example.com", db_tenant_id).await?;
@@ -129,7 +128,7 @@ async fn test_tenant_credential_isolation() -> Result<()> {
         "professional".to_owned(),
         db_tenant_owner,
     );
-    TenantRepository::create(&database, &db_tenant).await?;
+    database.repositories().tenants.create(&db_tenant).await?;
 
     // Store different credentials for tenant B in memory (simulating database storage)
     oauth_manager.store_credentials(
@@ -146,12 +145,22 @@ async fn test_tenant_credential_isolation() -> Result<()> {
 
     // Get credentials for tenant A (should use server-level config)
     let env_creds = oauth_manager
-        .get_credentials(env_tenant_id, oauth_providers::STRAVA, &database, &database)
+        .get_credentials(
+            env_tenant_id,
+            oauth_providers::STRAVA,
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     // Get credentials for tenant B (should use tenant-specific credentials)
     let db_creds = oauth_manager
-        .get_credentials(db_tenant_id, oauth_providers::STRAVA, &database, &database)
+        .get_credentials(
+            db_tenant_id,
+            oauth_providers::STRAVA,
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     // Verify tenant A uses server-level credentials
@@ -226,7 +235,11 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
         "professional".to_owned(),
         first_owner,
     );
-    TenantRepository::create(&database, &first_tenant).await?;
+    database
+        .repositories()
+        .tenants
+        .create(&first_tenant)
+        .await?;
 
     let second_tenant = Tenant::new(
         "Tenant B".to_owned(),
@@ -235,7 +248,11 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
         "professional".to_owned(),
         second_owner,
     );
-    TenantRepository::create(&database, &second_tenant).await?;
+    database
+        .repositories()
+        .tenants
+        .create(&second_tenant)
+        .await?;
 
     // Initial rate limit check - both should be zero
     let (first_usage_initial, first_limit) =
@@ -320,7 +337,7 @@ async fn create_tenant_with_token(
         "professional".to_owned(),
         user_id,
     );
-    TenantRepository::create(database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     let token = UserOAuthToken::new(
         user_id,
@@ -331,7 +348,11 @@ async fn create_tenant_with_token(
         Some(Utc::now() + chrono::Duration::hours(6)),
         Some("read,activity:read_all".to_owned()),
     );
-    database.upsert_token(&token).await?;
+    database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&token)
+        .await?;
 
     Ok((tenant_id, user_id))
 }
@@ -365,11 +386,15 @@ async fn test_cross_tenant_oauth_token_isolation() -> Result<()> {
 
     // Retrieve token for user1 in tenant A
     let retrieved_token1 = database
+        .repositories()
+        .oauth_tokens
         .get_token(user1_id, alpha_tenant_id, oauth_providers::STRAVA)
         .await?;
 
     // Retrieve token for user2 in tenant B
     let retrieved_token2 = database
+        .repositories()
+        .oauth_tokens
         .get_token(user2_id, beta_tenant_id, oauth_providers::STRAVA)
         .await?;
 
@@ -414,6 +439,8 @@ async fn test_cross_tenant_oauth_token_isolation() -> Result<()> {
 
     // Cross-tenant access attempt: Try to get user1's token with tenant B's ID
     let cross_tenant_attempt = database
+        .repositories()
+        .oauth_tokens
         .get_token(user1_id, beta_tenant_id, oauth_providers::STRAVA)
         .await?;
 
@@ -424,6 +451,8 @@ async fn test_cross_tenant_oauth_token_isolation() -> Result<()> {
 
     // Cross-user access attempt: Try to get user1's token with user2's ID
     let cross_user_attempt = database
+        .repositories()
+        .oauth_tokens
         .get_token(user2_id, alpha_tenant_id, oauth_providers::STRAVA)
         .await?;
 
@@ -454,7 +483,7 @@ async fn test_oauth_callback_tenant_preservation() -> Result<()> {
         "professional".to_owned(),
         user_id,
     );
-    TenantRepository::create(&database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Simulate OAuth authorization state parameter
     // In real implementation, this would be generated by the OAuth flow
@@ -511,7 +540,7 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
         "professional".to_owned(),
         user_id,
     );
-    TenantRepository::create(&database, &tenant).await?;
+    database.repositories().tenants.create(&tenant).await?;
 
     // Store tenant-specific credentials
     oauth_manager.store_credentials(
@@ -528,7 +557,12 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
 
     // Get credentials for token refresh
     let refresh_creds = oauth_manager
-        .get_credentials(tenant_id, oauth_providers::STRAVA, &database, &database)
+        .get_credentials(
+            tenant_id,
+            oauth_providers::STRAVA,
+            &*database.repositories().tenants,
+            &*database.repositories().oauth_tokens,
+        )
         .await?;
 
     // Verify correct credentials are returned for refresh
@@ -575,7 +609,11 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         "professional".to_owned(),
         owner_standard,
     );
-    TenantRepository::create(&database, &standard_tenant).await?;
+    database
+        .repositories()
+        .tenants
+        .create(&standard_tenant)
+        .await?;
 
     // Enterprise tenant owner (uses custom credentials)
     let owner_enterprise =
@@ -587,7 +625,11 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         "enterprise".to_owned(),
         owner_enterprise,
     );
-    TenantRepository::create(&database, &enterprise_tenant).await?;
+    database
+        .repositories()
+        .tenants
+        .create(&enterprise_tenant)
+        .await?;
 
     // Standard tenant uses default rate limits (via environment)
     env::set_var("STRAVA_CLIENT_ID", "163846");
@@ -663,7 +705,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                 "professional".to_owned(),
                 user_id,
             );
-            TenantRepository::create(&*db, &tenant).await?;
+            db.repositories().tenants.create(&tenant).await?;
 
             // Store credentials
             manager.write().await.store_credentials(
@@ -688,7 +730,7 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
                 Some(Utc::now() + chrono::Duration::hours(6)),
                 Some("read,activity:read_all".to_owned()),
             );
-            db.upsert_token(&token).await?;
+            db.repositories().oauth_tokens.upsert_token(&token).await?;
 
             // Simulate API calls
             manager
@@ -714,12 +756,13 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
         // Check credentials
         let creds = {
             let manager_guard = oauth_manager.read().await;
+            let repos = database.repositories();
             manager_guard
                 .get_credentials(
                     tenant_id,
                     oauth_providers::STRAVA,
-                    database.as_ref(),
-                    database.as_ref(),
+                    &*repos.tenants,
+                    &*repos.oauth_tokens,
                 )
                 .await?
         };
@@ -737,6 +780,8 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
 
         // Check token
         let token = database
+            .repositories()
+            .oauth_tokens
             .get_token(user_id, tenant_id, oauth_providers::STRAVA)
             .await?;
         assert!(token.is_some(), "Token should exist for user/tenant pair");

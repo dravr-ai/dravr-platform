@@ -152,7 +152,7 @@
 mod common;
 
 use anyhow::Result;
-use pierre_database::plugins::{factory::Database, AdminRepository, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     admin::{
         models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken},
@@ -382,7 +382,7 @@ async fn create_approved_user(database: &Database, email: &str) -> Result<User> 
     approved_user.user_status = UserStatus::Active;
     approved_user.approved_at = Some(chrono::Utc::now());
 
-    database.create(&approved_user).await?;
+    database.repositories().users.create(&approved_user).await?;
     Ok(approved_user)
 }
 
@@ -1092,7 +1092,8 @@ async fn test_revoke_admin_token() -> Result<()> {
 
     let token_to_revoke = setup
         .context
-        .database
+        .repos
+        .admin
         .create_token(
             &revoke_request,
             TEST_JWT_SECRET,
@@ -1139,7 +1140,8 @@ async fn test_rotate_admin_token() -> Result<()> {
 
     let token_to_rotate = setup
         .context
-        .database
+        .repos
+        .admin
         .create_token(
             &rotate_request,
             TEST_JWT_SECRET,

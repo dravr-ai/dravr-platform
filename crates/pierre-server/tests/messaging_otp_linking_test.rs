@@ -28,8 +28,7 @@ mod messaging_otp_linking_tests {
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
     use pierre_database::plugins::{
-        CreateLinkStateParams, MessagingRepository, TenantRepository, UpsertChannelConfigParams,
-        UserRepository,
+        CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerResources;
@@ -83,8 +82,7 @@ mod messaging_otp_linking_tests {
         user.approved_at = Some(Utc::now());
 
         let user_id = user.id;
-        let user_repo: &dyn UserRepository = &*resources.database;
-        user_repo.create(&user).await.unwrap();
+        resources.repos.users.create(&user).await.unwrap();
 
         let tenant_id = TenantId::new();
         let tenant = Tenant {
@@ -97,8 +95,7 @@ mod messaging_otp_linking_tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        let tenant_repo: &dyn TenantRepository = &*resources.database;
-        tenant_repo.create(&tenant).await.unwrap();
+        resources.repos.tenants.create(&tenant).await.unwrap();
 
         (user_id, tenant_id)
     }
@@ -249,7 +246,7 @@ mod messaging_otp_linking_tests {
     #[tokio::test]
     async fn test_db_otp_link_state_lifecycle() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "db_otp@example.com", "DbOtp123!").await;
 
@@ -326,7 +323,7 @@ mod messaging_otp_linking_tests {
     #[tokio::test]
     async fn test_db_expired_otp_link_state_not_returned() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "db_expired@example.com", "Expired123!").await;
 
@@ -364,7 +361,7 @@ mod messaging_otp_linking_tests {
     #[tokio::test]
     async fn test_unlinked_user_no_email_service_gets_link_url() {
         let resources = create_test_server_resources().await.unwrap();
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "nomail@example.com", "NoMail123!").await;
 
@@ -405,7 +402,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "withmail@example.com", "WithMail123!").await;
 
@@ -447,7 +444,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "bademail_owner@example.com", "BadEmail123!").await;
 
@@ -490,7 +487,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) = create_otp_test_user(
             &resources,
             "emailnotfound_owner@example.com",
@@ -532,7 +529,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "send_fail@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "SendFail123!").await;
 
@@ -577,7 +574,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "wrongcode@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "WrongCode123!").await;
 
@@ -622,7 +619,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "maxattempts@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "MaxAttempts123!").await;
 
@@ -665,7 +662,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "nonnumeric@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "NonNumeric123!").await;
 
@@ -706,7 +703,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "cancel@example.com", "Cancel123!").await;
 
@@ -746,7 +743,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "cancelcase@example.com", "CancelCase123!").await;
 
@@ -781,7 +778,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "happy@example.com";
         let (user_id, tenant_id) = create_otp_test_user(&resources, email, "Happy123!").await;
 
@@ -849,7 +846,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "linked@example.com";
         let (user_id, tenant_id) = create_otp_test_user(&resources, email, "Linked123!").await;
 
@@ -897,7 +894,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "expired_otp@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "Expired123!").await;
 
@@ -964,7 +961,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let (_, tenant_id) =
             create_otp_test_user(&resources, "noflow_cancel@example.com", "NoFlow123!").await;
 
@@ -1002,7 +999,7 @@ mod messaging_otp_linking_tests {
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);
 
-        let db: &dyn MessagingRepository = &*resources.database;
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let email = "retry_ok@example.com";
         let (_, tenant_id) = create_otp_test_user(&resources, email, "RetryOk123!").await;
 

@@ -13,7 +13,6 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::{TenantRepository, UserRepository};
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
     config::environment::{self, *},
@@ -379,7 +378,7 @@ async fn test_connect_strava_tool() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -389,7 +388,7 @@ async fn test_connect_strava_tool() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     // Test with explicit strava provider to verify OAuth error handling
     // Default provider is "synthetic" which doesn't need OAuth
@@ -809,7 +808,7 @@ async fn test_compare_activities_tool() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -819,7 +818,7 @@ async fn test_compare_activities_tool() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "compare_activities".to_owned(),
@@ -1465,7 +1464,7 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1475,7 +1474,7 @@ async fn test_get_activities_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_activities".to_owned(),
@@ -1516,7 +1515,7 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1526,7 +1525,7 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_athlete".to_owned(),
@@ -1568,7 +1567,7 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         Some("Test User".to_owned()),
     );
     user.id = user_id;
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Create tenant with user as owner
     let tenant = Tenant::new(
@@ -1578,7 +1577,7 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         "starter".to_owned(),
         user_id, // Owner
     );
-    TenantRepository::create(&*executor.resources.database, &tenant).await?;
+    executor.resources.repos.tenants.create(&tenant).await?;
 
     let request = UniversalRequest {
         tool_name: "get_stats".to_owned(),

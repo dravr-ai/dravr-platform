@@ -16,7 +16,7 @@ mod common;
 
 use pierre_auth::auth::AuthManager;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::config::environment::RateLimitConfig;
@@ -57,7 +57,7 @@ async fn test_jwt_tokens_now_have_rate_limiting() {
         "hashed_password".to_owned(),
         Some("JWT Test User".to_owned()),
     );
-    UserRepository::create(&*database, &user).await.unwrap();
+    database.repositories().users.create(&user).await.unwrap();
 
     // Create a JWT token for the user (using same secret for consistency)
     let token_auth_manager = AuthManager::new(24);

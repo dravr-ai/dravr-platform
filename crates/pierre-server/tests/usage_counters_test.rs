@@ -7,7 +7,6 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
-use pierre_database::database::repositories::UsageCounterRepository;
 use pierre_database::database::test_utils::create_test_db;
 
 #[tokio::test]
@@ -15,6 +14,8 @@ async fn test_increment_counter_creates_new() {
     let db = create_test_db().await.unwrap();
 
     let record = db
+        .repositories()
+        .usage_counters
         .increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 1)
         .await
         .unwrap();
@@ -30,11 +31,15 @@ async fn test_increment_counter_creates_new() {
 async fn test_increment_counter_upserts_existing() {
     let db = create_test_db().await.unwrap();
 
-    db.increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 5)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 5)
         .await
         .unwrap();
 
     let record = db
+        .repositories()
+        .usage_counters
         .increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 3)
         .await
         .unwrap();
@@ -47,6 +52,8 @@ async fn test_get_counter_returns_zero_when_missing() {
     let db = create_test_db().await.unwrap();
 
     let record = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-1", "user-1", "messages", "2026-02-17")
         .await
         .unwrap();
@@ -60,11 +67,15 @@ async fn test_get_counter_returns_zero_when_missing() {
 async fn test_get_counter_returns_current_value() {
     let db = create_test_db().await.unwrap();
 
-    db.increment_counter("tenant-1", "user-1", "tool_calls", "2026-W08", 10)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-1", "user-1", "tool_calls", "2026-W08", 10)
         .await
         .unwrap();
 
     let record = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-1", "user-1", "tool_calls", "2026-W08")
         .await
         .unwrap();
@@ -77,22 +88,35 @@ async fn test_delete_old_counters() {
     let db = create_test_db().await.unwrap();
 
     // Create counters across multiple periods
-    db.increment_counter("tenant-1", "user-1", "messages", "2026-02-10", 5)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-1", "user-1", "messages", "2026-02-10", 5)
         .await
         .unwrap();
-    db.increment_counter("tenant-1", "user-1", "messages", "2026-02-15", 10)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-1", "user-1", "messages", "2026-02-15", 10)
         .await
         .unwrap();
-    db.increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 3)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-1", "user-1", "messages", "2026-02-17", 3)
         .await
         .unwrap();
 
     // Delete counters older than 2026-02-16
-    let deleted = db.delete_old_counters("2026-02-16").await.unwrap();
+    let deleted = db
+        .repositories()
+        .usage_counters
+        .delete_old_counters("2026-02-16")
+        .await
+        .unwrap();
     assert_eq!(deleted, 2);
 
     // Verify the remaining counter
     let remaining = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-1", "user-1", "messages", "2026-02-17")
         .await
         .unwrap();
@@ -100,6 +124,8 @@ async fn test_delete_old_counters() {
 
     // Verify old counters are gone
     let gone = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-1", "user-1", "messages", "2026-02-10")
         .await
         .unwrap();
@@ -110,18 +136,26 @@ async fn test_delete_old_counters() {
 async fn test_counters_isolated_by_tenant() {
     let db = create_test_db().await.unwrap();
 
-    db.increment_counter("tenant-a", "user-1", "messages", "2026-02-17", 10)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-a", "user-1", "messages", "2026-02-17", 10)
         .await
         .unwrap();
-    db.increment_counter("tenant-b", "user-1", "messages", "2026-02-17", 20)
+    db.repositories()
+        .usage_counters
+        .increment_counter("tenant-b", "user-1", "messages", "2026-02-17", 20)
         .await
         .unwrap();
 
     let a = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-a", "user-1", "messages", "2026-02-17")
         .await
         .unwrap();
     let b = db
+        .repositories()
+        .usage_counters
         .get_counter("tenant-b", "user-1", "messages", "2026-02-17")
         .await
         .unwrap();

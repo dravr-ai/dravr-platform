@@ -18,7 +18,6 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::PasswordResetRepository;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -234,7 +233,8 @@ async fn test_forgot_password_full_flow() {
     // Store a known token via the repository directly
     setup
         .resources
-        .database
+        .repos
+        .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 15)
         .await
         .expect("Failed to store test token");
@@ -307,7 +307,8 @@ async fn test_forgot_password_code_single_use() {
     let code_hash = format!("{:x}", Sha256::digest(test_code.as_bytes()));
     setup
         .resources
-        .database
+        .repos
+        .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 15)
         .await
         .expect("Failed to store test token");
@@ -355,7 +356,8 @@ async fn test_forgot_password_expired_code_rejected() {
     let code_hash = format!("{:x}", Sha256::digest(test_code.as_bytes()));
     setup
         .resources
-        .database
+        .repos
+        .password_reset
         .store_token_with_ttl(user_id, &code_hash, "self_service", 0)
         .await
         .expect("Failed to store test token");

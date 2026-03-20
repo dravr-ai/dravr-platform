@@ -12,10 +12,7 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-use pierre_database::{
-    database,
-    plugins::{factory::Database, SecurityRepository},
-};
+use pierre_database::{database, plugins::factory::Database};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
@@ -48,6 +45,7 @@ async fn create_rsa_test_database() -> Result<Database> {
 #[tokio::test]
 async fn test_rsa_keypair_persistence() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // Generate a key and save it
     let mut jwks_manager = JwksManager::new();
@@ -60,12 +58,13 @@ async fn test_rsa_keypair_persistence() -> Result<()> {
     let created_at = Utc::now();
 
     // Save to database
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 2048)
         .await?;
 
     // Load from database
-    let loaded_keys = database.load_rsa_keypairs().await?;
+    let loaded_keys = repos.security.load_rsa_keypairs().await?;
 
     assert_eq!(loaded_keys.len(), 1, "Should have exactly one key");
     let (loaded_kid, loaded_private, loaded_public, _, loaded_active) = &loaded_keys[0];
@@ -81,6 +80,7 @@ async fn test_rsa_keypair_persistence() -> Result<()> {
 #[tokio::test]
 async fn test_jwks_manager_loads_from_database() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // Create and save a key (simulates CLI pierre-cli)
     let mut original_jwks = JwksManager::new();
@@ -92,13 +92,14 @@ async fn test_jwks_manager_loads_from_database() -> Result<()> {
     let public_pem = key_pair.export_public_key_pem()?;
     let created_at = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 2048)
         .await?;
 
     // Create a new JWKS manager and load from database (simulates server startup)
     let mut loaded_jwks = JwksManager::new();
-    let keypairs = database.load_rsa_keypairs().await?;
+    let keypairs = repos.security.load_rsa_keypairs().await?;
     loaded_jwks.load_keys_from_database(keypairs)?;
 
     // Verify the loaded key matches
@@ -113,6 +114,7 @@ async fn test_jwks_manager_loads_from_database() -> Result<()> {
 #[tokio::test]
 async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // === CLI SIDE (pierre-cli) ===
     // CLI generates key and saves to database
@@ -125,7 +127,8 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
     let public_pem = key_pair.export_public_key_pem()?;
     let created_at = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 2048)
         .await?;
 
@@ -148,7 +151,7 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
     // === SERVER SIDE ===
     // Server loads keys from database (same database)
     let mut server_jwks = JwksManager::new();
-    let keypairs = database.load_rsa_keypairs().await?;
+    let keypairs = repos.security.load_rsa_keypairs().await?;
     server_jwks.load_keys_from_database(keypairs)?;
 
     let server_jwks_arc = Arc::new(server_jwks);
@@ -170,6 +173,7 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
 #[tokio::test]
 async fn test_user_session_token_with_persisted_keys() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // Process 1: Generate and save key
     let mut process1_jwks = JwksManager::new();
@@ -181,7 +185,8 @@ async fn test_user_session_token_with_persisted_keys() -> Result<()> {
     let public_pem = key_pair.export_public_key_pem()?;
     let created_at = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 2048)
         .await?;
 
@@ -199,7 +204,7 @@ async fn test_user_session_token_with_persisted_keys() -> Result<()> {
 
     // Process 2: Load keys from database and validate
     let mut process2_jwks = JwksManager::new();
-    let keypairs = database.load_rsa_keypairs().await?;
+    let keypairs = repos.security.load_rsa_keypairs().await?;
     process2_jwks.load_keys_from_database(keypairs)?;
 
     let process2_jwks_arc = Arc::new(process2_jwks);
@@ -251,6 +256,7 @@ async fn test_ephemeral_keys_fail_cross_process() -> Result<()> {
 #[tokio::test]
 async fn test_multiple_persisted_keys() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // Save first key (inactive)
     let mut jwks1 = JwksManager::new();
@@ -262,7 +268,8 @@ async fn test_multiple_persisted_keys() -> Result<()> {
     let public_pem1 = key_pair1.export_public_key_pem()?;
     let created_at1 = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid1, &private_pem1, &public_pem1, created_at1, false, 2048)
         .await?;
 
@@ -279,12 +286,13 @@ async fn test_multiple_persisted_keys() -> Result<()> {
     let public_pem2 = key_pair2.export_public_key_pem()?;
     let created_at2 = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid2, &private_pem2, &public_pem2, created_at2, true, 2048)
         .await?;
 
     // Load all keys
-    let loaded_keys = database.load_rsa_keypairs().await?;
+    let loaded_keys = repos.security.load_rsa_keypairs().await?;
     assert_eq!(loaded_keys.len(), 2, "Should have two keys");
 
     // Load into JWKS manager
@@ -312,6 +320,7 @@ async fn test_multiple_persisted_keys() -> Result<()> {
 #[tokio::test]
 async fn test_super_admin_token_persistence() -> Result<()> {
     let database = create_rsa_test_database().await?;
+    let repos = database.repositories();
 
     // Generate and save key
     let mut jwks = JwksManager::new();
@@ -323,7 +332,8 @@ async fn test_super_admin_token_persistence() -> Result<()> {
     let public_pem = key_pair.export_public_key_pem()?;
     let created_at = Utc::now();
 
-    database
+    repos
+        .security
         .save_rsa_keypair(&kid, &private_pem, &public_pem, created_at, true, 2048)
         .await?;
 
@@ -343,7 +353,7 @@ async fn test_super_admin_token_persistence() -> Result<()> {
 
     // Load keys in "different process" and validate
     let mut loaded_jwks = JwksManager::new();
-    let keypairs = database.load_rsa_keypairs().await?;
+    let keypairs = repos.security.load_rsa_keypairs().await?;
     loaded_jwks.load_keys_from_database(keypairs)?;
 
     let loaded_jwks_arc = Arc::new(loaded_jwks);

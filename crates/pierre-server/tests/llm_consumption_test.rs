@@ -24,7 +24,7 @@ struct TestUsageParams<'a> {
 }
 
 /// Insert test usage data for a given tenant/user with specified provider, model, and `call_type`
-async fn insert_test_usage(db: &impl LlmUsageRepository, params: &TestUsageParams<'_>) {
+async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams<'_>) {
     let insert = InsertLlmUsage {
         tenant_id: params.tenant_id,
         user_id: params.user_id,
@@ -44,8 +44,10 @@ async fn insert_test_usage(db: &impl LlmUsageRepository, params: &TestUsageParam
 #[tokio::test]
 async fn test_aggregates_empty_when_no_data() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
-    let aggregates = db
+    let aggregates = repos
+        .llm_usage
         .get_llm_usage_aggregates("tenant-1", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -54,7 +56,8 @@ async fn test_aggregates_empty_when_no_data() {
         "Expected empty aggregates for no data"
     );
 
-    let daily = db
+    let daily = repos
+        .llm_usage
         .get_llm_usage_daily_series("tenant-1", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -64,6 +67,7 @@ async fn test_aggregates_empty_when_no_data() {
 #[tokio::test]
 async fn test_aggregates_single_provider() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     // Insert 3 chat calls from the same provider/model
     let params = TestUsageParams {
@@ -76,10 +80,11 @@ async fn test_aggregates_single_provider() {
         completion_tokens: 50,
     };
     for _ in 0..3 {
-        insert_test_usage(&db, &params).await;
+        insert_test_usage(repos.llm_usage.as_ref(), &params).await;
     }
 
-    let aggregates = db
+    let aggregates = repos
+        .llm_usage
         .get_llm_usage_aggregates("t1", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -98,10 +103,11 @@ async fn test_aggregates_single_provider() {
 #[tokio::test]
 async fn test_aggregates_multiple_providers_and_call_types() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     // Gemini chat calls
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "t1",
             user_id: "u1",
@@ -114,7 +120,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
     )
     .await;
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "t1",
             user_id: "u1",
@@ -129,7 +135,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
 
     // Gemini insight calls
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "t1",
             user_id: "u1",
@@ -144,7 +150,7 @@ async fn test_aggregates_multiple_providers_and_call_types() {
 
     // Groq chat calls
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "t1",
             user_id: "u1",
@@ -157,7 +163,8 @@ async fn test_aggregates_multiple_providers_and_call_types() {
     )
     .await;
 
-    let aggregates = db
+    let aggregates = repos
+        .llm_usage
         .get_llm_usage_aggregates("t1", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -191,10 +198,11 @@ async fn test_aggregates_multiple_providers_and_call_types() {
 #[tokio::test]
 async fn test_tenant_isolation() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     // Insert data for two tenants
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "tenant-a",
             user_id: "u1",
@@ -207,7 +215,7 @@ async fn test_tenant_isolation() {
     )
     .await;
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "tenant-b",
             user_id: "u2",
@@ -221,7 +229,8 @@ async fn test_tenant_isolation() {
     .await;
 
     // Query tenant-a — should only see tenant-a's data
-    let agg_a = db
+    let agg_a = repos
+        .llm_usage
         .get_llm_usage_aggregates("tenant-a", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -229,7 +238,8 @@ async fn test_tenant_isolation() {
     assert_eq!(agg_a[0].total_tokens, 150);
 
     // Query tenant-b — should only see tenant-b's data
-    let agg_b = db
+    let agg_b = repos
+        .llm_usage
         .get_llm_usage_aggregates("tenant-b", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -240,6 +250,7 @@ async fn test_tenant_isolation() {
 #[tokio::test]
 async fn test_daily_series_groups_by_date() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     // Insert multiple records (all on the same day since created_at is "now")
     let params = TestUsageParams {
@@ -252,10 +263,11 @@ async fn test_daily_series_groups_by_date() {
         completion_tokens: 50,
     };
     for _ in 0..5 {
-        insert_test_usage(&db, &params).await;
+        insert_test_usage(repos.llm_usage.as_ref(), &params).await;
     }
 
-    let daily = db
+    let daily = repos
+        .llm_usage
         .get_llm_usage_daily_series("t1", "2020-01-01T00:00:00+00:00")
         .await
         .unwrap();
@@ -270,10 +282,11 @@ async fn test_daily_series_groups_by_date() {
 #[tokio::test]
 async fn test_date_range_filtering() {
     let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
 
     // Insert a record "now"
     insert_test_usage(
-        &db,
+        repos.llm_usage.as_ref(),
         &TestUsageParams {
             tenant_id: "t1",
             user_id: "u1",
@@ -288,7 +301,8 @@ async fn test_date_range_filtering() {
 
     // Query with a future since date — should get no results
     let future_since = "2099-01-01T00:00:00+00:00";
-    let aggregates = db
+    let aggregates = repos
+        .llm_usage
         .get_llm_usage_aggregates("t1", future_since)
         .await
         .unwrap();
@@ -299,7 +313,11 @@ async fn test_date_range_filtering() {
 
     // Query with a past since date — should get results
     let past_since = "2020-01-01T00:00:00+00:00";
-    let aggregates = db.get_llm_usage_aggregates("t1", past_since).await.unwrap();
+    let aggregates = repos
+        .llm_usage
+        .get_llm_usage_aggregates("t1", past_since)
+        .await
+        .unwrap();
     assert_eq!(aggregates.len(), 1, "Past since date should return results");
 }
 

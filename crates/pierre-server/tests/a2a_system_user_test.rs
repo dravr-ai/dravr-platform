@@ -7,13 +7,18 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_database::plugins::{factory::Database, DatabaseProvider};
+use pierre_database::plugins::{factory::Database, DatabaseProvider, UserRepository};
 use pierre_mcp_server::a2a::system_user::A2ASystemUserService;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::constants::init_server_config;
 use std::env;
 use std::sync::{Arc, Once};
+
+/// Build the users repository from a `Database` factory enum.
+fn users_repo(db: &Database) -> Arc<dyn UserRepository> {
+    db.repositories().users
+}
 
 static INIT: Once = Once::new();
 
@@ -49,7 +54,7 @@ async fn create_test_database() -> Arc<Database> {
 #[tokio::test]
 async fn test_create_system_user() {
     let database = create_test_database().await;
-    let service = A2ASystemUserService::new(database);
+    let service = A2ASystemUserService::new(users_repo(&database));
 
     let client_id = "test-client-123";
 
@@ -75,7 +80,7 @@ async fn test_create_system_user() {
 #[tokio::test]
 async fn test_get_existing_system_user() {
     let database = create_test_database().await;
-    let service = A2ASystemUserService::new(database);
+    let service = A2ASystemUserService::new(users_repo(&database));
 
     let client_id = "test-client-456";
 
@@ -115,7 +120,7 @@ async fn test_password_generation() {
 
     database.migrate().await.expect("Failed to run migrations");
     let database = Arc::new(database);
-    let _service = A2ASystemUserService::new(database);
+    let _service = A2ASystemUserService::new(users_repo(&database));
 
     let password1 = A2ASystemUserService::generate_secure_system_password();
     let password2 = A2ASystemUserService::generate_secure_system_password();

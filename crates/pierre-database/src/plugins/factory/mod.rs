@@ -8,25 +8,6 @@
 //! This module provides automatic database type detection and creation
 //! based on connection strings.
 
-// Factory dispatch modules — retained temporarily for test backwards compatibility.
-// Production code uses RepositoryRegistry (resources.repos) instead.
-mod a2a;
-mod admin;
-mod api_key;
-mod chat;
-mod coaches;
-mod messaging;
-mod mobility;
-mod oauth;
-mod recipes;
-mod security;
-mod seeder;
-mod social;
-mod store_listings;
-mod tenant;
-mod usage;
-mod user;
-
 use super::DatabaseProvider;
 use async_trait::async_trait;
 use pierre_core::config::social::SocialInsightsConfig;
@@ -458,46 +439,6 @@ impl DatabaseProvider for Database {
             Self::SQLite(db) => db.migrate().await,
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.migrate().await,
-        }
-    }
-}
-
-// Implement HasEncryption for the factory Database enum
-// Delegates to the appropriate backend for HMAC-SHA256 hashing and AES-256-GCM encryption
-impl super::shared::encryption::HasEncryption for Database {
-    fn encrypt_data_with_aad(&self, data: &str, aad: &str) -> AppResult<String> {
-        match self {
-            // SQLite Database has an inherent method that takes priority, no ambiguity
-            Self::SQLite(db) => db.encrypt_data_with_aad(data, aad),
-            // PostgresDatabase implements both DatabaseProvider and HasEncryption traits
-            // with the same method name, so we must disambiguate via UFCS
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                use super::shared::encryption::HasEncryption as HE;
-                HE::encrypt_data_with_aad(db, data, aad)
-            }
-        }
-    }
-
-    fn decrypt_data_with_aad(&self, encrypted: &str, aad: &str) -> AppResult<String> {
-        match self {
-            Self::SQLite(db) => db.decrypt_data_with_aad(encrypted, aad),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                use super::shared::encryption::HasEncryption as HE;
-                HE::decrypt_data_with_aad(db, encrypted, aad)
-            }
-        }
-    }
-
-    fn hash_token_for_storage(&self, token: &str) -> AppResult<String> {
-        match self {
-            Self::SQLite(db) => db.hash_token_for_storage(token),
-            #[cfg(feature = "postgresql")]
-            Self::PostgreSQL(db) => {
-                use super::shared::encryption::HasEncryption as HE;
-                HE::hash_token_for_storage(db, token)
-            }
         }
     }
 }

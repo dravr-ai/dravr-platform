@@ -13,7 +13,6 @@
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::UserRepository;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
     config::environment::*,
@@ -274,7 +273,7 @@ async fn test_analyze_sleep_quality_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Sleep Test User".to_owned()),
     );
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test with optimal sleep data
     let sleep_data = json!({
@@ -377,7 +376,7 @@ async fn test_calculate_recovery_score_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Recovery Test User".to_owned()),
     );
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test with explicit activity_provider parameter (new cross-provider API)
     let request = UniversalRequest {
@@ -455,7 +454,7 @@ async fn test_suggest_rest_day_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Rest Day Test User".to_owned()),
     );
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test recommendation for rest day
     let sleep_data = json!({
@@ -606,7 +605,7 @@ async fn test_track_sleep_trends_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Trends Test User".to_owned()),
     );
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     let sleep_history = generate_test_sleep_history();
 
@@ -653,7 +652,7 @@ async fn test_optimize_sleep_schedule_tool() -> Result<()> {
         "password_hash".to_owned(),
         Some("Optimize Test User".to_owned()),
     );
-    UserRepository::create(&*executor.resources.database, &user).await?;
+    executor.resources.repos.users.create(&user).await?;
 
     // Test with sleep history and training schedule
     let sleep_history = vec![

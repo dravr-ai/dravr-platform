@@ -17,7 +17,6 @@ mod common;
 mod helpers;
 
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::{TenantRepository, UserRepository};
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -243,7 +242,11 @@ async fn test_create_tenant_duplicate_slug() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create first tenant");
 
@@ -287,7 +290,11 @@ async fn test_list_tenants_success() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -419,7 +426,11 @@ async fn test_tenant_ownership() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -458,7 +469,11 @@ async fn test_switch_tenant_success() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -550,7 +565,11 @@ async fn test_switch_tenant_non_member() {
         "password_hash".to_owned(),
         Some("Other User".to_owned()),
     );
-    UserRepository::create(&*setup.resources.database, &other_user)
+    setup
+        .resources
+        .repos
+        .users
+        .create(&other_user)
         .await
         .expect("Failed to create other user");
 
@@ -568,7 +587,11 @@ async fn test_switch_tenant_non_member() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant)
         .await
         .expect("Failed to create tenant");
 
@@ -634,11 +657,19 @@ async fn test_switch_between_multiple_tenants() {
         updated_at: chrono::Utc::now(),
     };
 
-    TenantRepository::create(&*setup.resources.database, &tenant1)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant1)
         .await
         .expect("Failed to create tenant1");
 
-    TenantRepository::create(&*setup.resources.database, &tenant2)
+    setup
+        .resources
+        .repos
+        .tenants
+        .create(&tenant2)
         .await
         .expect("Failed to create tenant2");
 

@@ -20,7 +20,7 @@ use pierre_auth::{
 };
 use pierre_database::{
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider, TenantRepository, UserRepository},
+    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -62,16 +62,15 @@ async fn setup_test_env() -> (
     // Create JWKS manager for RS256 token signing
     let jwks_manager = common::get_shared_test_jwks();
 
+    let repos = database.repositories();
     let oauth_server = OAuth2AuthorizationServer::new(
-        database.clone(),
-        database.clone(),
-        database.clone(),
+        repos.oauth2_server.clone(),
+        repos.tenants.clone(),
+        repos.users.clone(),
         auth_manager.clone(),
         jwks_manager,
     );
-
-    // Register a test client
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let registration_request = ClientRegistrationRequest {
         redirect_uris: vec!["https://example.com/callback".to_owned()],
         client_name: Some("Test Client".to_owned()),
@@ -119,7 +118,8 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         "hash".to_owned(),
         Some("Test User".to_owned()),
     );
-    UserRepository::create(database, &user).await.unwrap();
+    let repos = database.repositories();
+    repos.users.create(&user).await.unwrap();
 
     // Create tenant with user as owner - this adds user to tenant_users table
     let tenant = Tenant {
@@ -132,7 +132,7 @@ async fn create_test_user_with_tenant(database: &Database, email: &str) -> User 
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),
     };
-    TenantRepository::create(database, &tenant).await.unwrap();
+    repos.tenants.create(&tenant).await.unwrap();
 
     user
 }
@@ -379,7 +379,8 @@ async fn test_auth_code_client_binding() {
     let (database, _auth_manager, oauth_server, client_id, _client_secret) = setup_test_env().await;
 
     // Register a SECOND client
-    let registration_manager = ClientRegistrationManager::new(database.clone());
+    let repos = database.repositories();
+    let registration_manager = ClientRegistrationManager::new(repos.oauth2_server.clone());
     let second_client_request = ClientRegistrationRequest {
         redirect_uris: vec!["https://example2.com/callback".to_owned()],
         client_name: Some("Second Client".to_owned()),

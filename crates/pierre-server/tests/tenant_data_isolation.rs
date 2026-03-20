@@ -17,9 +17,7 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
 };
-use pierre_database::plugins::{
-    factory::Database, ApiKeyRepository, DatabaseProvider, UserRepository,
-};
+use pierre_database::plugins::{factory::Database, DatabaseProvider};
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,
@@ -181,7 +179,10 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    UserRepository::create(database, &user)
+    database
+        .repositories()
+        .users
+        .create(&user)
         .await
         .map_err(Into::into)
 }
@@ -212,14 +213,26 @@ async fn test_cross_tenant_api_key_access_blocked() -> Result<()> {
         api_key_manager.create_api_key(user1_id, create_request)?;
 
     // Store the API key in database
-    ApiKeyRepository::create(&database, &user1_api_key).await?;
+    database
+        .repositories()
+        .api_keys
+        .create(&user1_api_key)
+        .await?;
 
     // User 2 tries to access User 1's API key by ID
-    let user2_keys = database.get_for_user(user2_id).await?;
+    let user2_keys = database
+        .repositories()
+        .api_keys
+        .get_for_user(user2_id)
+        .await?;
     assert!(user2_keys.is_empty(), "User 2 should not see any API keys");
 
     // Try to access User 1's API key directly by ID (should fail)
-    let unauthorized_access = database.get_by_id(&user1_api_key.id, None).await?;
+    let unauthorized_access = database
+        .repositories()
+        .api_keys
+        .get_by_id(&user1_api_key.id, None)
+        .await?;
 
     // This should succeed (the key exists) but we need to verify it belongs to user1
     if let Some(retrieved_key) = unauthorized_access {
@@ -235,8 +248,16 @@ async fn test_cross_tenant_api_key_access_blocked() -> Result<()> {
     }
 
     // Verify user isolation at the API level
-    let user1_keys = database.get_for_user(user1_id).await?;
-    let user2_keys = database.get_for_user(user2_id).await?;
+    let user1_keys = database
+        .repositories()
+        .api_keys
+        .get_for_user(user1_id)
+        .await?;
+    let user2_keys = database
+        .repositories()
+        .api_keys
+        .get_for_user(user2_id)
+        .await?;
 
     assert_eq!(user1_keys.len(), 1, "User 1 should have exactly 1 API key");
     assert_eq!(user2_keys.len(), 0, "User 2 should have no API keys");
@@ -257,8 +278,8 @@ async fn test_oauth_token_isolation() -> Result<()> {
         create_test_tenant_user(&database, "oauth2@example.com", UserTier::Starter).await?;
 
     // Verify users are isolated - each user can only access their own data
-    let user1 = database.get_global(user1_id).await?;
-    let user2 = database.get_global(user2_id).await?;
+    let user1 = database.repositories().users.get_global(user1_id).await?;
+    let user2 = database.repositories().users.get_global(user2_id).await?;
 
     assert!(user1.is_some(), "User 1 should exist");
     assert!(user2.is_some(), "User 2 should exist");
@@ -310,12 +331,20 @@ async fn test_admin_cross_tenant_access_prevention() -> Result<()> {
     let (key1, _) = api_key_manager.create_api_key(user1_id, create_request1)?;
     let (key2, _) = api_key_manager.create_api_key(user2_id, create_request2)?;
 
-    ApiKeyRepository::create(&database, &key1).await?;
-    ApiKeyRepository::create(&database, &key2).await?;
+    database.repositories().api_keys.create(&key1).await?;
+    database.repositories().api_keys.create(&key2).await?;
 
     // Admin queries should be user-scoped
-    let tenant1_keys = database.get_for_user(user1_id).await?;
-    let tenant2_keys = database.get_for_user(user2_id).await?;
+    let tenant1_keys = database
+        .repositories()
+        .api_keys
+        .get_for_user(user1_id)
+        .await?;
+    let tenant2_keys = database
+        .repositories()
+        .api_keys
+        .get_for_user(user2_id)
+        .await?;
 
     assert_eq!(tenant1_keys.len(), 1);
     assert_eq!(tenant2_keys.len(), 1);
@@ -365,7 +394,7 @@ async fn test_concurrent_tenant_isolation() -> Result<()> {
             };
 
             let (api_key, _) = manager.create_api_key(user_id, create_request)?;
-            ApiKeyRepository::create(&*db, &api_key).await?;
+            db.repositories().api_keys.create(&api_key).await?;
 
             // Return user_id and key_id for verification
             Ok::<(Uuid, String), anyhow::Error>((user_id, api_key.id))
@@ -380,7 +409,11 @@ async fn test_concurrent_tenant_isolation() -> Result<()> {
 
     // Verify each user only sees their own key
     for (user_id, expected_key_id) in user_key_pairs {
-        let user_keys = database.get_for_user(user_id).await?;
+        let user_keys = database
+            .repositories()
+            .api_keys
+            .get_for_user(user_id)
+            .await?;
 
         assert_eq!(user_keys.len(), 1, "Each user should have exactly 1 key");
         assert_eq!(
@@ -429,8 +462,8 @@ async fn test_database_encryption_isolation() -> Result<()> {
         create_test_tenant_user(&database2, "encrypted2@example.com", UserTier::Starter).await?;
 
     // Verify users exist in their respective databases
-    let user1_from_db1 = database1.get_global(user1_id).await?;
-    let user2_from_db2 = database2.get_global(user2_id).await?;
+    let user1_from_db1 = database1.repositories().users.get_global(user1_id).await?;
+    let user2_from_db2 = database2.repositories().users.get_global(user2_id).await?;
 
     assert!(
         user1_from_db1.is_some(),
@@ -442,8 +475,8 @@ async fn test_database_encryption_isolation() -> Result<()> {
     );
 
     // Cross-database access should fail (user doesn't exist)
-    let user1_from_db2 = database2.get_global(user1_id).await?;
-    let user2_from_db1 = database1.get_global(user2_id).await?;
+    let user1_from_db2 = database2.repositories().users.get_global(user1_id).await?;
+    let user2_from_db1 = database1.repositories().users.get_global(user2_id).await?;
 
     assert!(
         user1_from_db2.is_none(),
@@ -491,8 +524,18 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
         create_test_tenant_user(&database, "mcp2@example.com", UserTier::Professional).await?;
 
     // Get users for token generation
-    let user1 = database.get_global(user1_id).await?.unwrap();
-    let user2 = database.get_global(user2_id).await?.unwrap();
+    let user1 = database
+        .repositories()
+        .users
+        .get_global(user1_id)
+        .await?
+        .unwrap();
+    let user2 = database
+        .repositories()
+        .users
+        .get_global(user2_id)
+        .await?
+        .unwrap();
 
     // Generate JWT tokens for both users
     let jwks_manager = common::get_shared_test_jwks();

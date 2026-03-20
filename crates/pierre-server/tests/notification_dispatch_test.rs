@@ -25,7 +25,6 @@ mod dispatch_tests {
         CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
     };
     use pierre_core::models::TenantId;
-    use pierre_database::repositories::TenantRepository;
     use pierre_notifications::{
         triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
         SuppressionReason,
@@ -46,7 +45,12 @@ mod dispatch_tests {
             .unwrap();
 
         // Get tenant ID from user's tenants
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         // Use the notification service from resources if available, else create a new one
@@ -124,7 +128,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "suppressed@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -163,7 +172,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "diff_cat@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -205,7 +219,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "freq_cap@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -282,7 +301,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "quiet@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -326,7 +350,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "count_test@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -401,7 +430,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "activity_sync@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -443,7 +477,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "load_alert@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -469,7 +508,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "recovery_low@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -495,7 +539,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "overtrain@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -520,7 +569,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "pr_detect@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -554,7 +608,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "milestone@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -583,7 +642,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "fitness_impr@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -620,9 +684,19 @@ mod dispatch_tests {
             .await
             .unwrap();
 
-        let tenants_a = resources.database.list_for_user(user_a.id).await.unwrap();
+        let tenants_a = resources
+            .repos
+            .tenants
+            .list_for_user(user_a.id)
+            .await
+            .unwrap();
         let tenant_id_a = tenants_a[0].id;
-        let tenants_b = resources.database.list_for_user(user_b.id).await.unwrap();
+        let tenants_b = resources
+            .repos
+            .tenants
+            .list_for_user(user_b.id)
+            .await
+            .unwrap();
         let tenant_id_b = tenants_b[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -662,7 +736,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "no_persist@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -710,7 +789,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "friend_req@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -750,7 +834,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "friend_accept@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -788,7 +877,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "kudos@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -826,7 +920,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "insight_share@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -866,7 +965,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "coach_msg@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -902,7 +1006,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "plan_update@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -937,7 +1046,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "coach_feedback@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -979,7 +1093,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "bypass_cap@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -1068,7 +1187,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "bypass_quiet@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -1120,7 +1244,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "bypass_disabled@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
@@ -1171,7 +1300,12 @@ mod dispatch_tests {
         let (user, _token) = create_test_tenant(&resources, "coach_bypass@example.com")
             .await
             .unwrap();
-        let tenants = resources.database.list_for_user(user.id).await.unwrap();
+        let tenants = resources
+            .repos
+            .tenants
+            .list_for_user(user.id)
+            .await
+            .unwrap();
         let tenant_id = tenants[0].id;
 
         let pool = resources.database.sqlite_pool().unwrap().clone();

@@ -10,7 +10,6 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_database::database::oauth_notifications::OAuthNotification;
-use pierre_database::plugins::NotificationRepository;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -23,6 +22,8 @@ async fn test_oauth_notification_storage_and_retrieval() -> Result<()> {
 
     // Store OAuth notification
     database
+        .repositories()
+        .notifications
         .store(
             user_id,
             "strava",
@@ -33,7 +34,11 @@ async fn test_oauth_notification_storage_and_retrieval() -> Result<()> {
         .await?;
 
     // Retrieve unread notifications
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 1);
     assert_eq!(notifications[0].provider, "strava");
     assert_eq!(
@@ -52,6 +57,8 @@ async fn test_oauth_notification_mark_as_read() -> Result<()> {
 
     // Store OAuth notification
     database
+        .repositories()
+        .notifications
         .store(
             user_id,
             "strava",
@@ -62,15 +69,27 @@ async fn test_oauth_notification_mark_as_read() -> Result<()> {
         .await?;
 
     // Get unread notifications
-    let unread_notifications = database.get_unread(user_id).await?;
+    let unread_notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(unread_notifications.len(), 1);
     let notification_id = &unread_notifications[0].id;
 
     // Mark as read
-    database.mark_read(notification_id, user_id).await?;
+    database
+        .repositories()
+        .notifications
+        .mark_read(notification_id, user_id)
+        .await?;
 
     // Verify no unread notifications remain
-    let remaining_unread = database.get_unread(user_id).await?;
+    let remaining_unread = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(remaining_unread.len(), 0);
 
     Ok(())
@@ -85,6 +104,8 @@ async fn test_oauth_notification_with_expiry() -> Result<()> {
 
     // Store OAuth notification with expiry
     database
+        .repositories()
+        .notifications
         .store(
             user_id,
             "strava",
@@ -95,7 +116,11 @@ async fn test_oauth_notification_with_expiry() -> Result<()> {
         .await?;
 
     // Retrieve and verify expiry is set
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 1);
     assert!(notifications[0].expires_at.is_some());
 
@@ -109,15 +134,23 @@ async fn test_multiple_provider_notifications() -> Result<()> {
 
     // Store notifications from different providers
     database
+        .repositories()
+        .notifications
         .store(user_id, "strava", true, "Connected to Strava", None)
         .await?;
 
     database
+        .repositories()
+        .notifications
         .store(user_id, "fitbit", true, "Connected to Fitbit", None)
         .await?;
 
     // Verify both notifications are stored
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 2);
 
     let providers: Vec<&str> = notifications.iter().map(|n| n.provider.as_str()).collect();
@@ -136,17 +169,29 @@ async fn test_oauth_notification_user_isolation() -> Result<()> {
 
     // Store notification for user 1
     database
+        .repositories()
+        .notifications
         .store(user_id_1, "strava", true, "User 1 notification", None)
         .await?;
 
     // Store notification for user 2
     database
+        .repositories()
+        .notifications
         .store(user_id_2, "strava", true, "User 2 notification", None)
         .await?;
 
     // Verify user isolation
-    let user_1_notifications = database.get_unread(user_id_1).await?;
-    let user_2_notifications = database.get_unread(user_id_2).await?;
+    let user_1_notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id_1)
+        .await?;
+    let user_2_notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id_2)
+        .await?;
 
     assert_eq!(user_1_notifications.len(), 1);
     assert_eq!(user_2_notifications.len(), 1);
@@ -164,21 +209,35 @@ async fn test_oauth_notification_cleanup() -> Result<()> {
     // Store multiple notifications
     for i in 0..5 {
         database
+            .repositories()
+            .notifications
             .store(user_id, "strava", true, &format!("Notification {i}"), None)
             .await?;
     }
 
     // Verify all notifications are stored
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 5);
 
     // Mark some as read
     for notification in notifications.iter().take(3) {
-        database.mark_read(&notification.id, user_id).await?;
+        database
+            .repositories()
+            .notifications
+            .mark_read(&notification.id, user_id)
+            .await?;
     }
 
     // Verify only unread notifications remain
-    let remaining = database.get_unread(user_id).await?;
+    let remaining = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(remaining.len(), 2);
 
     Ok(())
@@ -191,6 +250,8 @@ async fn test_oauth_notification_error_handling() -> Result<()> {
 
     // Store OAuth notification with error status
     database
+        .repositories()
+        .notifications
         .store(
             user_id,
             "strava",
@@ -201,7 +262,11 @@ async fn test_oauth_notification_error_handling() -> Result<()> {
         .await?;
 
     // Retrieve and verify error notification
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 1);
     assert!(notifications[0].message.contains("failed"));
 
@@ -219,14 +284,16 @@ async fn test_oauth_notification_concurrent_access() -> Result<()> {
     for i in 0..10 {
         let db = database.clone();
         let handle = tokio::spawn(async move {
-            db.store(
-                user_id,
-                "strava",
-                true,
-                &format!("Concurrent notification {i}"),
-                None,
-            )
-            .await
+            db.repositories()
+                .notifications
+                .store(
+                    user_id,
+                    "strava",
+                    true,
+                    &format!("Concurrent notification {i}"),
+                    None,
+                )
+                .await
         });
         handles.push(handle);
     }
@@ -237,7 +304,11 @@ async fn test_oauth_notification_concurrent_access() -> Result<()> {
     }
 
     // Verify all notifications were stored
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 10);
 
     Ok(())
@@ -252,11 +323,17 @@ async fn test_oauth_notification_with_special_characters() -> Result<()> {
 
     // Store notification with special characters
     database
+        .repositories()
+        .notifications
         .store(user_id, "strava", true, special_message, None)
         .await?;
 
     // Retrieve and verify special characters are preserved
-    let notifications = database.get_unread(user_id).await?;
+    let notifications = database
+        .repositories()
+        .notifications
+        .get_unread(user_id)
+        .await?;
     assert_eq!(notifications.len(), 1);
     assert_eq!(notifications[0].message, special_message);
 

@@ -148,7 +148,6 @@
 //! which currently has no test coverage
 
 use anyhow::Result;
-use pierre_database::plugins::UserRepository;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     models::User,
@@ -192,7 +191,8 @@ async fn test_websocket_authentication_flow() -> Result<()> {
         "password123".to_owned(),
         Some("WebSocket Test User".to_owned()),
     );
-    UserRepository::create(&*database, &user).await?;
+    let repos = database.repositories();
+    repos.users.create(&user).await?;
 
     // Generate auth token
     let jwks_manager = common::get_shared_test_jwks();
@@ -416,7 +416,8 @@ async fn test_websocket_concurrent_client_management() -> Result<()> {
                 "password".to_owned(),
                 Some(format!("Concurrent User {i}")),
             );
-            UserRepository::create(&*db_clone, &user).await.unwrap();
+            let repos = db_clone.repositories();
+            repos.users.create(&user).await.unwrap();
 
             let jwks_manager = common::get_shared_test_jwks();
             let token = auth_clone.generate_token(&user, &jwks_manager).unwrap();

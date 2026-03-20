@@ -21,7 +21,7 @@ mod helpers;
 
 use chrono::{Timelike, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::{factory::Database, UserRepository};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
@@ -120,7 +120,7 @@ impl LoginAlgorithmTestSetup {
             user.approved_at = Some(Utc::now());
         }
 
-        UserRepository::create(&*self.database, &user).await?;
+        self.database.repositories().users.create(&user).await?;
         Ok(user)
     }
 }
@@ -463,6 +463,8 @@ async fn test_login_updates_last_active_timestamp() {
     // Fetch the updated user from database
     let updated_user = setup
         .database
+        .repositories()
+        .users
         .get_global(user.id)
         .await
         .expect("Failed to get user")
@@ -491,6 +493,8 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Get initial last_active
     let initial_user = setup
         .database
+        .repositories()
+        .users
         .get_global(user.id)
         .await
         .expect("Failed to get user")
@@ -519,6 +523,8 @@ async fn test_failed_login_does_not_update_timestamp() {
     // Verify timestamp was NOT updated
     let after_user = setup
         .database
+        .repositories()
+        .users
         .get_global(user.id)
         .await
         .expect("Failed to get user")

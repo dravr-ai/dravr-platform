@@ -19,7 +19,6 @@ mod common;
 
 use anyhow::Result;
 use chrono::Utc;
-use pierre_database::plugins::AdminRepository;
 use pierre_mcp_server::admin::{
     auth::AdminAuthService,
     jwt::AdminJwtManager,
@@ -125,6 +124,7 @@ async fn test_admin_permissions_system() -> Result<()> {
 #[serial]
 async fn test_admin_token_database_operations() -> Result<()> {
     let db = common::create_test_database().await?;
+    let repos = db.repositories();
 
     // Create admin token request
     let request = CreateAdminTokenRequest {
@@ -142,7 +142,8 @@ async fn test_admin_token_database_operations() -> Result<()> {
     let jwks_manager = common::get_shared_test_jwks();
 
     // Create admin token
-    let generated_token = db
+    let generated_token = repos
+        .admin
         .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
     assert_eq!(generated_token.service_name, "test_service");
@@ -151,27 +152,37 @@ async fn test_admin_token_database_operations() -> Result<()> {
     assert!(!generated_token.jwt_token.is_empty());
 
     // Retrieve admin token by ID
-    let retrieved_token = db.get_token_by_id(&generated_token.token_id).await?;
+    let retrieved_token = repos
+        .admin
+        .get_token_by_id(&generated_token.token_id)
+        .await?;
     assert!(retrieved_token.is_some());
     let token = retrieved_token.unwrap();
     assert_eq!(token.service_name, "test_service");
     assert_eq!(token.id, generated_token.token_id);
 
     // Retrieve by prefix
-    let prefix_token = db
+    let prefix_token = repos
+        .admin
         .get_token_by_prefix(&generated_token.token_prefix)
         .await?;
     assert!(prefix_token.is_some());
     assert_eq!(prefix_token.unwrap().id, generated_token.token_id);
 
     // List tokens
-    let tokens = db.list_tokens(true).await?;
+    let tokens = repos.admin.list_tokens(true).await?;
     assert!(!tokens.is_empty());
     assert!(tokens.iter().any(|t| t.id == generated_token.token_id));
 
     // Deactivate token
-    db.deactivate_token(&generated_token.token_id).await?;
-    let deactivated_token = db.get_token_by_id(&generated_token.token_id).await?;
+    repos
+        .admin
+        .deactivate_token(&generated_token.token_id)
+        .await?;
+    let deactivated_token = repos
+        .admin
+        .get_token_by_id(&generated_token.token_id)
+        .await?;
     assert!(deactivated_token.is_some());
     assert!(!deactivated_token.unwrap().is_active);
 
@@ -182,6 +193,7 @@ async fn test_admin_token_database_operations() -> Result<()> {
 #[serial]
 async fn test_admin_token_usage_tracking() -> Result<()> {
     let db = common::create_test_database().await?;
+    let repos = db.repositories();
 
     // Create admin token
     let request = CreateAdminTokenRequest {
@@ -195,17 +207,23 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
     // Initialize JWKS manager for RS256 admin token signing
     let jwks_manager = common::get_shared_test_jwks();
 
-    let generated_token = db
+    let generated_token = repos
+        .admin
         .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
 
     // Update last used
     let ip_address = "192.168.1.100";
-    db.update_token_last_used(&generated_token.token_id, Some(ip_address))
+    repos
+        .admin
+        .update_token_last_used(&generated_token.token_id, Some(ip_address))
         .await?;
 
     // Verify last used was updated
-    let updated_token = db.get_token_by_id(&generated_token.token_id).await?;
+    let updated_token = repos
+        .admin
+        .get_token_by_id(&generated_token.token_id)
+        .await?;
     assert!(updated_token.is_some());
     let token = updated_token.unwrap();
     assert!(token.last_used_at.is_some());
@@ -227,12 +245,13 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
         response_time_ms: Some(150),
     };
 
-    db.record_token_usage(&usage).await?;
+    repos.admin.record_token_usage(&usage).await?;
 
     // Get usage history
     let start_date = Utc::now() - chrono::Duration::hours(1);
     let end_date = Utc::now() + chrono::Duration::hours(1);
-    let usage_history = db
+    let usage_history = repos
+        .admin
         .get_token_usage_history(&generated_token.token_id, start_date, end_date)
         .await?;
 
@@ -253,6 +272,7 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
 #[serial]
 async fn test_admin_provisioned_keys_tracking() -> Result<()> {
     let db = common::create_test_database().await?;
+    let repos = db.repositories();
 
     // Create admin token
     let request = CreateAdminTokenRequest {
@@ -266,7 +286,8 @@ async fn test_admin_provisioned_keys_tracking() -> Result<()> {
     // Initialize JWKS manager for RS256 admin token signing
     let jwks_manager = common::get_shared_test_jwks();
 
-    let admin_token = db
+    let admin_token = repos
+        .admin
         .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
 
@@ -275,22 +296,25 @@ async fn test_admin_provisioned_keys_tracking() -> Result<()> {
     let api_key = common::create_and_store_test_api_key(&db, user_id, "Test Key").await?;
 
     // Record provisioned key
-    db.record_provisioned_key(
-        &admin_token.token_id,
-        &api_key.id,
-        &user.email,
-        "starter",
-        100,
-        "day",
-    )
-    .await?;
+    repos
+        .admin
+        .record_provisioned_key(
+            &admin_token.token_id,
+            &api_key.id,
+            &user.email,
+            "starter",
+            100,
+            "day",
+        )
+        .await?;
 
     // Get provisioned keys history
     let start_date = Utc::now() - chrono::Duration::hours(1);
     let end_date = Utc::now() + chrono::Duration::hours(1);
 
     // Test with specific admin token filter
-    let filtered_keys = db
+    let filtered_keys = repos
+        .admin
         .get_provisioned_keys(Some(&admin_token.token_id), start_date, end_date)
         .await?;
 
@@ -302,7 +326,10 @@ async fn test_admin_provisioned_keys_tracking() -> Result<()> {
     assert_eq!(provisioned_key["requested_tier"], "starter");
 
     // Test without admin token filter (all keys)
-    let all_keys = db.get_provisioned_keys(None, start_date, end_date).await?;
+    let all_keys = repos
+        .admin
+        .get_provisioned_keys(None, start_date, end_date)
+        .await?;
 
     assert!(!all_keys.is_empty());
     assert!(all_keys.iter().any(|k| k["api_key_id"] == api_key.id));
@@ -419,21 +446,23 @@ async fn test_admin_permissions_serialization() -> Result<()> {
 #[serial]
 async fn test_admin_database_error_handling() -> Result<()> {
     let db = common::create_test_database().await?;
+    let repos = db.repositories();
 
     // Test getting non-existent admin token
-    let non_existent = db.get_token_by_id("non_existent_token").await?;
+    let non_existent = repos.admin.get_token_by_id("non_existent_token").await?;
     assert!(non_existent.is_none());
 
     // Test getting by invalid prefix
-    let invalid_prefix = db.get_token_by_prefix("invalid_prefix").await?;
+    let invalid_prefix = repos.admin.get_token_by_prefix("invalid_prefix").await?;
     assert!(invalid_prefix.is_none());
 
     // Test deactivating non-existent token (should not error)
-    let deactivate_result = db.deactivate_token("non_existent").await;
+    let deactivate_result = repos.admin.deactivate_token("non_existent").await;
     assert!(deactivate_result.is_ok());
 
     // Test usage tracking for non-existent token (should not error)
-    let usage_result = db
+    let usage_result = repos
+        .admin
         .update_token_last_used("non_existent", Some("127.0.0.1"))
         .await;
     assert!(usage_result.is_ok());
@@ -445,6 +474,7 @@ async fn test_admin_database_error_handling() -> Result<()> {
 #[serial]
 async fn test_admin_super_admin_privileges() -> Result<()> {
     let db = common::create_test_database().await?;
+    let repos = db.repositories();
 
     // Create super admin token
     let request = CreateAdminTokenRequest {
@@ -458,13 +488,17 @@ async fn test_admin_super_admin_privileges() -> Result<()> {
     // Initialize JWKS manager for RS256 admin token signing
     let jwks_manager = common::get_shared_test_jwks();
 
-    let super_admin_token = db
+    let super_admin_token = repos
+        .admin
         .create_token(&request, TEST_JWT_SECRET, &jwks_manager)
         .await?;
     assert!(super_admin_token.is_super_admin);
 
     // Verify super admin has all permissions
-    let retrieved = db.get_token_by_id(&super_admin_token.token_id).await?;
+    let retrieved = repos
+        .admin
+        .get_token_by_id(&super_admin_token.token_id)
+        .await?;
     assert!(retrieved.is_some());
     let token = retrieved.unwrap();
 

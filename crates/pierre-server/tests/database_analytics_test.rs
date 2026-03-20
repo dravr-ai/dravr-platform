@@ -9,9 +9,7 @@
 
 use chrono::Utc;
 use pierre_core::models::JwtUsage;
-use pierre_database::plugins::{
-    factory::Database, InsightRepository, ProfileRepository, UsageRepository,
-};
+use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::models::User;
 use uuid::Uuid;
 
@@ -50,12 +48,16 @@ async fn test_jwt_usage_tracking() {
         user_agent: Some("TestClient/1.0".into()),
     };
 
-    db.record_jwt_usage(&usage)
+    let repos = db.repositories();
+    repos
+        .usage
+        .record_jwt_usage(&usage)
         .await
         .expect("Failed to record JWT usage");
 
     // Check current usage (use a more generous time window for tests)
-    let current_usage = db
+    let current_usage = repos
+        .usage
         .get_jwt_current_usage(user.id)
         .await
         .expect("Failed to get current JWT usage");
@@ -78,13 +80,16 @@ async fn test_goals_management() {
         "current": 0.0
     });
 
-    let goal_id = db
+    let repos = db.repositories();
+    let goal_id = repos
+        .profiles
         .create_goal(user.id, goal_data.clone())
         .await
         .expect("Failed to create goal");
 
     // Get user goals
-    let goals = db
+    let goals = repos
+        .profiles
         .get_goals(user.id)
         .await
         .expect("Failed to get user goals");
@@ -92,7 +97,9 @@ async fn test_goals_management() {
     assert_eq!(goals[0]["type"], "weekly_distance");
 
     // Update goal progress
-    db.update_goal_progress(&goal_id, user.id, 25.0)
+    repos
+        .profiles
+        .update_goal_progress(&goal_id, user.id, 25.0)
         .await
         .expect("Failed to update goal progress");
 }
@@ -112,7 +119,9 @@ async fn test_insights_storage() {
         "severity": "positive"
     });
 
-    let insight_id = db
+    let repos = db.repositories();
+    let insight_id = repos
+        .insights
         .store(user.id, insight_data)
         .await
         .expect("Failed to store insight");
@@ -121,7 +130,8 @@ async fn test_insights_storage() {
     assert!(!insight_id.is_empty());
 
     // Get user insights
-    let insights = db
+    let insights = repos
+        .insights
         .get_for_user(user.id, None, Some(10))
         .await
         .expect("Failed to get user insights");
@@ -144,7 +154,9 @@ async fn test_system_stats() {
     }
 
     // Get system stats (user_count, api_key_count)
-    let (user_count, api_key_count) = db
+    let repos = db.repositories();
+    let (user_count, api_key_count) = repos
+        .usage
         .get_system_stats(None)
         .await
         .expect("Failed to get system stats");
