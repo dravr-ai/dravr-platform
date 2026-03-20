@@ -86,6 +86,10 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Inject Firebase API key into eas.json
+        run: |
+          jq '(.build[].env) += {"EXPO_PUBLIC_FIREBASE_API_KEY": "${{ vars.EXPO_PUBLIC_FIREBASE_API_KEY }}"}' eas.json > eas.tmp && mv eas.tmp eas.json
+
       - name: Build iOS
         if: ${{ inputs.platform == 'ios' || inputs.platform == 'all' }}
         run: |

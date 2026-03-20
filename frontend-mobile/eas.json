@@ -11,7 +11,6 @@
         "simulator": true
       },
       "env": {
-        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
@@ -31,7 +30,6 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
-        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
@@ -51,7 +49,6 @@
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app",
-        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyAEcHG9lXxJ8J0oVopUeYmM26vlmWIWX-s",
         "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "dravr-dev-8d4a3.firebaseapp.com",
         "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "dravr-dev-8d4a3",
         "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "dravr-dev-8d4a3.firebasestorage.app",
