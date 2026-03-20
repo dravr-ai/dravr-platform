@@ -227,6 +227,10 @@ module "backend" {
     META_WHATSAPP_ACCESS_TOKEN         = module.secrets.secret_ids["meta_whatsapp_access_token"]
     META_MESSENGER_APP_SECRET          = module.secrets.secret_ids["meta_messenger_app_secret"]
     META_MESSENGER_PAGE_ACCESS_TOKEN   = module.secrets.secret_ids["meta_messenger_page_access_token"]
+    DISCORD_BOT_TOKEN                  = module.secrets.secret_ids["discord_bot_token"]
+    DISCORD_PUBLIC_KEY                 = module.secrets.secret_ids["discord_public_key"]
+    DISCORD_APPLICATION_ID             = module.secrets.secret_ids["discord_application_id"]
+    DISCORD_BOT_PERMISSIONS            = module.secrets.secret_ids["discord_bot_permissions"]
   }
 
   health_check_path           = "/health"

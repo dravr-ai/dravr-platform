@@ -1,5 +1,5 @@
 // ABOUTME: Seed messaging channel configs from environment variables on server startup
-// ABOUTME: Reads Slack, Telegram, Meta WhatsApp, and Meta Messenger env vars and upserts DB channel configs
+// ABOUTME: Reads Slack, Telegram, Meta WhatsApp, Meta Messenger, and Discord env vars and upserts DB channel configs
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -37,6 +37,9 @@ pub async fn seed_from_env(repos: &RepositoryRegistry) {
         seeded += count;
     }
     if let Some(count) = seed_messenger(&*repos.messaging, tenant_id).await {
+        seeded += count;
+    }
+    if let Some(count) = seed_discord(&*repos.messaging, tenant_id).await {
         seeded += count;
     }
 
@@ -209,6 +212,47 @@ async fn seed_messenger(
         }
         Err(e) => {
             warn!(error = %e, "Failed to seed Messenger channel config");
+            None
+        }
+    }
+}
+
+/// Seed Discord channel config from `DISCORD_BOT_TOKEN` + `DISCORD_PUBLIC_KEY`
+async fn seed_discord(
+    database: &(dyn MessagingRepository + '_),
+    tenant_id: TenantId,
+) -> Option<u32> {
+    let bot_token = env::var("DISCORD_BOT_TOKEN").ok()?;
+    let public_key = env::var("DISCORD_PUBLIC_KEY").ok()?;
+
+    if bot_token.is_empty() || public_key.is_empty() {
+        return None;
+    }
+
+    let application_id = env::var("DISCORD_APPLICATION_ID").ok();
+
+    let id = Uuid::new_v4().to_string();
+    let params = UpsertChannelConfigParams {
+        id: &id,
+        tenant_id,
+        channel_type: "discord",
+        api_key: None,
+        api_secret: None,
+        webhook_secret: Some(&public_key),
+        verify_token: None,
+        account_id: application_id.as_deref(),
+        phone_number: None,
+        bot_token: Some(&bot_token),
+        is_active: true,
+    };
+
+    match database.upsert_channel_config(&params).await {
+        Ok(()) => {
+            info!("Seeded Discord channel config from env vars");
+            Some(1)
+        }
+        Err(e) => {
+            warn!(error = %e, "Failed to seed Discord channel config");
             None
         }
     }
