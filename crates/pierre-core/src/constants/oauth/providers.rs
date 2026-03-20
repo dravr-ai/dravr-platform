@@ -40,6 +40,16 @@ pub const WHOOP: &str = "whoop";
 /// the provider implementation is gated behind `provider-coros` feature.
 pub const COROS: &str = "coros";
 
+/// Sciotte web scraping provider identifier.
+///
+/// Browser-based data extraction, gated behind `provider-sciotte` feature.
+pub const SCIOTTE: &str = "sciotte";
+
+/// Sciotte Garmin web scraping provider identifier.
+///
+/// Browser-based Garmin Connect data extraction, gated behind `provider-sciotte` feature.
+pub const SCIOTTE_GARMIN: &str = "sciotte_garmin";
+
 /// Synthetic fitness provider identifier (for testing)
 /// Note: Provider name constants are always available for configuration;
 /// the provider implementation is gated behind `provider-synthetic` feature.
@@ -65,7 +75,15 @@ pub const SYNTHETIC_SLEEP: &str = "synthetic_sleep";
 pub const fn all() -> &'static [&'static str] {
     // This is a compile-time constant, so we include all potential providers
     // For runtime checking, use the registry
-    &["strava", "fitbit", "garmin", "whoop", "coros", "synthetic"]
+    &[
+        "strava",
+        "fitbit",
+        "garmin",
+        "whoop",
+        "coros",
+        "synthetic",
+        "sciotte",
+    ]
 }
 
 /// Check if a provider is statically known

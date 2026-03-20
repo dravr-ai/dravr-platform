@@ -4,11 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { providersApi, oauthApi } from '../services/api';
 import type { ProviderStatus } from '../services/api';
 import { Card, Badge } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import SciotteLoginModal from './SciotteLoginModal';
 
 // Brand colors and hover colors for known providers
 const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }> = {
@@ -35,6 +37,14 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
   synthetic: {
     brandColor: 'bg-gradient-to-br from-pierre-violet to-pierre-cyan',
     hoverColor: 'hover:border-pierre-violet',
+  },
+  sciotte: {
+    brandColor: 'bg-gradient-to-br from-amber-500 to-orange-600',
+    hoverColor: 'hover:border-amber-500',
+  },
+  sciotte_garmin: {
+    brandColor: 'bg-[#007CC3]',
+    hoverColor: 'hover:border-[#007CC3]',
   },
 };
 
@@ -101,6 +111,12 @@ const ProviderIcon = ({ providerId, className }: { providerId: string; className
           <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
         </svg>
       );
+    case 'sciotte':
+      return (
+        <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+        </svg>
+      );
     case 'synthetic':
       return (
         <svg className={baseClass} viewBox="0 0 24 24" fill="currentColor">
@@ -131,8 +147,10 @@ export default function ProviderConnectionCards({
   onSkip,
   isSkipPending
 }: ProviderConnectionCardsProps) {
+  const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+
   // Fetch providers from server (includes OAuth and non-OAuth providers)
-  const { data: providersData, isLoading } = useQuery({
+  const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: 5000,
@@ -142,6 +160,12 @@ export default function ProviderConnectionCards({
   const handleConnect = async (provider: ProviderStatus) => {
     // If already connected, no action needed
     if (provider.connected) return;
+
+    // Sciotte providers use credential-based login (not OAuth)
+    if (provider.provider.startsWith('sciotte')) {
+      setSciotteModalTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+      return;
+    }
 
     // Non-OAuth providers (like synthetic) skip directly to chat
     if (!provider.requires_oauth) {
@@ -201,7 +225,7 @@ export default function ProviderConnectionCards({
         {providers.map((provider) => {
           const style = PROVIDER_STYLES[provider.provider] ?? DEFAULT_STYLE;
           const isConnecting = connectingProvider === provider.provider;
-          const isNonOAuth = !provider.requires_oauth;
+          const isNonOAuth = !provider.requires_oauth && !provider.provider.startsWith('sciotte');
 
           return (
             <button
@@ -256,7 +280,7 @@ export default function ProviderConnectionCards({
                     </div>
                     <p className="text-xs text-zinc-400 mt-0.5">{getProviderDescription(provider)}</p>
                   </div>
-                  {!provider.connected && provider.requires_oauth && (
+                  {!provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte')) && (
                     <svg
                       className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors"
                       fill="none"
@@ -314,6 +338,18 @@ export default function ProviderConnectionCards({
           </button>
         )}
       </div>
+
+      {/* Sciotte login modal */}
+      <SciotteLoginModal
+        isOpen={sciotteModalTarget !== null}
+        onClose={() => setSciotteModalTarget(null)}
+        onConnected={() => {
+          refetch();
+          setSciotteModalTarget(null);
+          if (onProviderConnected) onProviderConnected();
+        }}
+        target={sciotteModalTarget ?? 'strava'}
+      />
     </div>
   );
 }

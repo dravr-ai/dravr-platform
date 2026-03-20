@@ -96,7 +96,8 @@ impl UserOAuthAppRoutes {
 
     /// Validate provider name
     fn validate_provider(provider: &str) -> Result<(), AppError> {
-        const VALID_PROVIDERS: &[&str] = &["strava", "fitbit", "garmin", "whoop", "terra"];
+        const VALID_PROVIDERS: &[&str] =
+            &["strava", "fitbit", "garmin", "whoop", "terra", "sciotte"];
         if VALID_PROVIDERS.contains(&provider.to_lowercase().as_str()) {
             Ok(())
         } else {

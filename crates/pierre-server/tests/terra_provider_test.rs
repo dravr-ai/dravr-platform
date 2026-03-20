@@ -250,7 +250,7 @@ async fn test_authentication_flow() {
 async fn test_descriptor() {
     let descriptor = TerraDescriptor;
     assert_eq!(descriptor.name(), "terra");
-    assert_eq!(descriptor.display_name(), "Terra (150+ Wearables)");
+    assert_eq!(descriptor.display_name(), "Terra");
     assert!(descriptor.capabilities().supports_sleep());
     assert!(descriptor.capabilities().supports_recovery());
     assert!(descriptor.capabilities().supports_health());

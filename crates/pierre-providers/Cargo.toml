@@ -18,6 +18,7 @@ provider-fitbit = []
 provider-whoop = []
 provider-coros = []
 provider-synthetic = []
+provider-sciotte = ["dep:dravr-sciotte"]
 all-providers = [
     "provider-strava",
     "provider-garmin",
@@ -26,6 +27,7 @@ all-providers = [
     "provider-whoop",
     "provider-coros",
     "provider-synthetic",
+    "provider-sciotte",
 ]
 
 [dependencies]
@@ -49,6 +51,7 @@ rand_chacha = "0.3"
 ring = "0.17"
 subtle = "2.6"
 hex = "0.4"
+dravr-sciotte = { version = "0.2.1", optional = true }
 
 [lints]
 workspace = true

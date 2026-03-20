@@ -641,3 +641,79 @@ impl ProviderDescriptor for CorosDescriptor {
         &["read:workouts", "read:sleep", "read:daily"]
     }
 }
+
+/// Sciotte web scraping provider descriptor
+///
+/// Sciotte uses browser-based web scraping via CDP to capture session cookies
+/// and extract activity data from fitness platform HTML pages (Strava, Garmin, etc.).
+/// It does not use OAuth — authentication happens via a streamed browser login session.
+#[cfg(feature = "provider-sciotte")]
+pub struct SciotteDescriptor;
+
+#[cfg(feature = "provider-sciotte")]
+impl ProviderDescriptor for SciotteDescriptor {
+    fn name(&self) -> &'static str {
+        "sciotte"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Strava — Sciotte"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        // Sciotte uses browser login (not OAuth) and provides activity data
+        ProviderCapabilities::ACTIVITIES
+    }
+
+    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+        None // Sciotte uses browser-based session cookies, not OAuth
+    }
+
+    fn oauth_params(&self) -> Option<OAuthParams> {
+        None // Sciotte uses browser-based session cookies, not OAuth
+    }
+
+    fn api_base_url(&self) -> &'static str {
+        // Sciotte runs in-process via dravr-sciotte — no external API
+        ""
+    }
+
+    fn default_scopes(&self) -> &'static [&'static str] {
+        &[] // No OAuth scopes — browser session-based
+    }
+}
+
+/// Sciotte Garmin Connect web scraping provider descriptor
+#[cfg(feature = "provider-sciotte")]
+pub struct SciotteGarminDescriptor;
+
+#[cfg(feature = "provider-sciotte")]
+impl ProviderDescriptor for SciotteGarminDescriptor {
+    fn name(&self) -> &'static str {
+        "sciotte_garmin"
+    }
+
+    fn display_name(&self) -> &'static str {
+        "Garmin Connect — Sciotte"
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::ACTIVITIES
+    }
+
+    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
+        None
+    }
+
+    fn oauth_params(&self) -> Option<OAuthParams> {
+        None
+    }
+
+    fn api_base_url(&self) -> &'static str {
+        ""
+    }
+
+    fn default_scopes(&self) -> &'static [&'static str] {
+        &[]
+    }
+}

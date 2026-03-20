@@ -317,8 +317,16 @@ impl AuthService {
         token_data: TokenData,
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
-        // Get tenant-aware OAuth credentials or fall back to environment
-        let (client_id, client_secret) = if let Some(tenant_id_str) = tenant_id {
+        // Get tenant-aware OAuth credentials or fall back to environment.
+        // Non-OAuth providers (sciotte, synthetic) skip credential lookup entirely.
+        let requires_oauth = self
+            .resources
+            .provider_registry
+            .requires_oauth(provider_name);
+
+        let (client_id, client_secret) = if !requires_oauth {
+            (String::new(), String::new())
+        } else if let Some(tenant_id_str) = tenant_id {
             let tid: TenantId = tenant_id_str.parse().map_err(|_| UniversalResponse {
                 success: false,
                 result: None,

@@ -408,7 +408,7 @@ impl ProviderDescriptor for TerraDescriptor {
     }
 
     fn display_name(&self) -> &'static str {
-        "Terra (150+ Wearables)"
+        "Terra"
     }
 
     fn capabilities(&self) -> ProviderCapabilities {

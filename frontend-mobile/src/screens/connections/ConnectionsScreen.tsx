@@ -146,6 +146,8 @@ export function ConnectionsScreen() {
       coros: { color: '#E91E63', icon: 'C', description: 'Training and performance data from COROS devices' },
       synthetic: { color: '#9C27B0', icon: '🧪', description: 'Synthetic test data for development' },
       synthetic_sleep: { color: '#673AB7', icon: '😴', description: 'Synthetic sleep data for development' },
+      sciotte: { color: '#F97316', icon: 'S', description: 'Running, cycling, and swimming activities' },
+      sciotte_garmin: { color: '#007CC3', icon: 'G', description: 'Activities and health metrics from Garmin devices' },
     };
     return configs[providerId] || { color: '#607D8B', icon: '?', description: 'Fitness data provider' };
   };

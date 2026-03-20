@@ -17,6 +17,8 @@
 
 mod login;
 mod oauth;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte;
 mod types;
 
 pub use login::AuthService;
@@ -51,7 +53,7 @@ pub struct AuthRoutes;
 impl AuthRoutes {
     /// Create all authentication routes (Axum)
     pub fn routes(resources: Arc<ServerResources>) -> Router {
-        Router::new()
+        let router = Router::new()
             .route("/api/auth/register", post(login::handle_public_register))
             .route("/api/auth/admin/register", post(login::handle_register))
             .route("/api/auth/firebase", post(login::handle_firebase_login))
@@ -93,7 +95,32 @@ impl AuthRoutes {
             .route(
                 "/api/oauth/providers/{provider}/disconnect",
                 delete(oauth::handle_disconnect_provider_rest),
+            );
+
+        // Sciotte provider routes (credential login + session management)
+        #[cfg(feature = "provider-sciotte")]
+        let router = router
+            .route(
+                "/api/providers/sciotte/login",
+                post(sciotte::handle_sciotte_login),
             )
-            .with_state(resources)
+            .route(
+                "/api/providers/sciotte/select-2fa",
+                post(sciotte::handle_sciotte_select_2fa),
+            )
+            .route(
+                "/api/providers/sciotte/submit-otp",
+                post(sciotte::handle_sciotte_submit_otp),
+            )
+            .route(
+                "/api/providers/sciotte/connect",
+                post(sciotte::handle_sciotte_connect),
+            )
+            .route(
+                "/api/providers/sciotte/disconnect",
+                delete(sciotte::handle_sciotte_disconnect),
+            );
+
+        router.with_state(resources)
     }
 }
