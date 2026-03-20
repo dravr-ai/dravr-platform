@@ -503,6 +503,120 @@ Field mapping:
 
 ---
 
+## Discord
+
+Discord uses the Bot API with Ed25519 signature verification for webhooks (Interactions Endpoint).
+
+### 1. Create a Discord Application
+
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+2. Click **New Application** → name it (e.g., "Pierre Fitness") → **Create**
+3. Note the **Application ID** and **Public Key** from the **General Information** page
+
+### 2. Create a Bot
+
+1. Left sidebar → **Bot**
+2. Click **Reset Token** → copy the **Bot Token** (you won't see it again)
+3. Under **Privileged Gateway Intents**, enable **Message Content Intent** if you want the bot to read message content in guild channels
+
+### 3. Set Environment Variables
+
+**Local development** (`.envrc`):
+
+```bash
+export DISCORD_BOT_TOKEN="your-bot-token"
+export DISCORD_PUBLIC_KEY="hex-encoded-ed25519-public-key"
+export DISCORD_APPLICATION_ID="your-application-id"
+export DISCORD_BOT_PERMISSIONS="83968"
+```
+
+### 4. Deploy to GCP
+
+Discord requires four secrets. Follow this order:
+
+**Step 1: Apply Terraform** to create secret containers and wire env vars to Cloud Run:
+
+```bash
+cd infra/environments/dev
+terraform plan -out=tfplan
+terraform apply tfplan
+```
+
+This creates the secret containers (`dravr-discord-bot-token`, `dravr-discord-public-key`, `dravr-discord-application-id`, `dravr-discord-bot-permissions`) and maps them as secret env vars on the Cloud Run service.
+
+**Step 2: Inject secret values** via `gcloud secrets versions add`:
+
+```bash
+echo -n "your-bot-token" | gcloud secrets versions add dravr-discord-bot-token --data-file=-
+echo -n "your-public-key-hex" | gcloud secrets versions add dravr-discord-public-key --data-file=-
+echo -n "your-application-id" | gcloud secrets versions add dravr-discord-application-id --data-file=-
+echo -n "83968" | gcloud secrets versions add dravr-discord-bot-permissions --data-file=-
+```
+
+> **WARNING**: Never use `gcloud run services update --set-secrets` — it replaces ALL secrets and breaks the service. Always use `gcloud secrets versions add` to set values, and Terraform to wire them to Cloud Run.
+
+**Step 3: Deploy the updated backend** (with `seed_discord()` support):
+
+```bash
+# Via CI pipeline (preferred), or manually:
+gcloud run services update dravr-mcp-server --region us-northeast1 --image <new-image>
+```
+
+**Step 4: Verify the channel config was seeded**:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/api/messaging/channels/discord
+```
+
+### 5. Register the Interactions Endpoint
+
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) → your app
+2. **General Information** → **Interactions Endpoint URL**:
+   ```
+   https://dravr-mcp-server-frontend-ojda26xiwa-nn.a.run.app/api/messaging/webhook/discord
+   ```
+   The frontend nginx proxies `/api/*` to the Pierre backend.
+3. Click **Save Changes** — Discord sends a PING (type 1), Pierre responds with PONG (type 1). If verification fails, check that `DISCORD_PUBLIC_KEY` matches the Public Key on the General Information page.
+
+### 6. Invite the Bot to a Server
+
+Go to the **Installation** page in the Discord Developer Portal (left sidebar → **Installation**), or generate an invite URL manually:
+
+```
+https://discord.com/api/oauth2/authorize?client_id=YOUR_APPLICATION_ID&permissions=83968&scope=bot%20applications.commands
+```
+
+- `permissions=83968` grants: View Channels, Send Messages, Embed Links, Read Message History
+- Select the server → **Authorize**
+
+### 7. Test It
+
+1. In the Discord server, mention the bot or use a slash command
+2. Pierre replies with the OTP linking prompt (asks for your Pierre email)
+3. Enter your Pierre email → receive a 6-digit code via email → type it in Discord
+4. Pierre confirms account linked
+5. Send another message → Pierre responds via the LLM pipeline
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Interactions Endpoint fails to save | Ed25519 signature verification failed | Verify `DISCORD_PUBLIC_KEY` matches the hex key on General Information page |
+| No response from bot | Bot not invited to the server | Use the invite URL from step 6 |
+| "No matching channel configuration" | Channel config not seeded | Check `DISCORD_BOT_TOKEN` and `DISCORD_PUBLIC_KEY` env vars are set |
+| Bot can't read messages | Message Content Intent not enabled | Enable it in Bot settings (step 2) |
+
+### Architecture Notes
+
+- **Shared bot model**: One Discord application serves all tenants. The channel config belongs to a single tenant, but users from any tenant can link.
+- **Webhook verification**: Discord sends `x-signature-ed25519` and `x-signature-timestamp` headers. Pierre verifies using Ed25519 (not HMAC like Meta channels).
+- **Message delivery**: Outbound messages use the Discord REST API (`POST https://discord.com/api/v10/channels/{channel_id}/messages`) with Bot token auth, or interaction followup webhooks.
+- **Rich messages**: Supports text, embeds (title + description + image), and message components (action row buttons with URL or custom_id).
+- **PING/PONG**: Discord sends interaction type 1 (PING) to verify the endpoint. Pierre responds with `{"type": 1}` automatically.
+
+---
+
 ## Channel Config API Reference
 
 All channels are managed through the same REST API:

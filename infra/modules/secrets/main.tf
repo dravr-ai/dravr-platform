@@ -356,3 +356,47 @@ resource "google_secret_manager_secret" "meta_messenger_page_access_token" {
     auto {}
   }
 }
+
+resource "google_secret_manager_secret" "discord_bot_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-discord-bot-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret" "discord_public_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-discord-public-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret" "discord_application_id" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-discord-application-id"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret" "discord_bot_permissions" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-discord-bot-permissions"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}

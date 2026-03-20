@@ -36,6 +36,10 @@ output "secret_ids" {
     meta_whatsapp_access_token         = google_secret_manager_secret.meta_whatsapp_access_token.secret_id
     meta_messenger_app_secret          = google_secret_manager_secret.meta_messenger_app_secret.secret_id
     meta_messenger_page_access_token   = google_secret_manager_secret.meta_messenger_page_access_token.secret_id
+    discord_bot_token                  = google_secret_manager_secret.discord_bot_token.secret_id
+    discord_public_key                 = google_secret_manager_secret.discord_public_key.secret_id
+    discord_application_id             = google_secret_manager_secret.discord_application_id.secret_id
+    discord_bot_permissions            = google_secret_manager_secret.discord_bot_permissions.secret_id
   }
 }
 
@@ -62,5 +66,9 @@ output "secret_names" {
     meta_whatsapp_access_token         = google_secret_manager_secret.meta_whatsapp_access_token.name
     meta_messenger_app_secret          = google_secret_manager_secret.meta_messenger_app_secret.name
     meta_messenger_page_access_token   = google_secret_manager_secret.meta_messenger_page_access_token.name
+    discord_bot_token                  = google_secret_manager_secret.discord_bot_token.name
+    discord_public_key                 = google_secret_manager_secret.discord_public_key.name
+    discord_application_id             = google_secret_manager_secret.discord_application_id.name
+    discord_bot_permissions            = google_secret_manager_secret.discord_bot_permissions.name
   }
 }
