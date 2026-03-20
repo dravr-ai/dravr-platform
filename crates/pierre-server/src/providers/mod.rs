@@ -45,6 +45,8 @@ pub use pierre_providers::coros_provider;
 pub use pierre_providers::fitbit_provider;
 #[cfg(feature = "provider-garmin")]
 pub use pierre_providers::garmin_provider;
+#[cfg(feature = "provider-sciotte")]
+pub use pierre_providers::sciotte_provider;
 #[cfg(feature = "provider-strava")]
 pub use pierre_providers::strava_provider;
 #[cfg(feature = "provider-terra")]

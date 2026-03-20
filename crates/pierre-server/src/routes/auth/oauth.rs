@@ -1306,6 +1306,26 @@ pub(super) async fn handle_providers_status(
         }
     }
 
+    // Sort providers in a consistent display order
+    let provider_order: &[&str] = &[
+        "synthetic",
+        "synthetic_sleep",
+        "sciotte",
+        "sciotte_garmin",
+        "strava",
+        "garmin",
+        "fitbit",
+        "whoop",
+        "coros",
+        "terra",
+    ];
+    provider_statuses.sort_by_key(|p| {
+        provider_order
+            .iter()
+            .position(|&name| name == p.provider)
+            .unwrap_or(usize::MAX)
+    });
+
     let response = ProvidersStatusResponse {
         providers: provider_statuses,
     };

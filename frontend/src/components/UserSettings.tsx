@@ -18,6 +18,7 @@ import LlmSettingsTab from './LlmSettingsTab';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useUsageStatus } from '../hooks/useUsageStatus';
+import SciotteLoginModal from './SciotteLoginModal';
 import type { LimitCheckResult } from '../services/api/usage';
 
 interface OAuthApp {
@@ -183,6 +184,8 @@ export default function UserSettings() {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [providerToDisconnect, setProviderToDisconnect] = useState<string | null>(null);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [sciotteModalTarget, setSciotteModalTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [providerConflict, setProviderConflict] = useState<{ connecting: string; disconnecting: string } | null>(null);
 
   // Change Password state
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -363,6 +366,22 @@ export default function UserSettings() {
   };
 
   // Connect to a fitness provider via OAuth in a new tab
+  // Check for Strava/Sciotte conflict before connecting
+  const EXCLUSIVE_PROVIDERS = ['strava', 'sciotte'];
+  const checkProviderConflict = (providerId: string): boolean => {
+    if (!EXCLUSIVE_PROVIDERS.includes(providerId)) return false;
+    const otherProvider = providerId === 'strava' ? 'sciotte' : 'strava';
+    const otherConnected = fitnessProviders.find(p => p.provider === otherProvider && p.connected);
+    if (otherConnected) {
+      setProviderConflict({
+        connecting: providerId === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
+        disconnecting: otherProvider === 'sciotte' ? 'Strava — Sciotte' : 'Strava',
+      });
+      return true;
+    }
+    return false;
+  };
+
   const handleConnectProvider = async (providerId: string) => {
     try {
       setConnectingProvider(providerId);
@@ -438,6 +457,8 @@ export default function UserSettings() {
     coros: { color: '#E91E63', description: 'Training and performance data from COROS devices' },
     synthetic: { color: '#9C27B0', description: 'Synthetic test data for development' },
     synthetic_sleep: { color: '#673AB7', description: 'Synthetic sleep data for development' },
+    sciotte: { color: '#F97316', description: 'Running, cycling, and swimming activities' },
+    sciotte_garmin: { color: '#007CC3', description: 'Activities and health metrics from Garmin devices' },
   };
 
   const copyToClipboard = async (text: string) => {
@@ -640,7 +661,7 @@ export default function UserSettings() {
                           </div>
                           <div className="flex-shrink-0">
                             {provider.connected ? (
-                              provider.requires_oauth && (
+                              (provider.requires_oauth || provider.provider.startsWith('sciotte')) && (
                                 <Button
                                   variant="secondary"
                                   size="sm"
@@ -650,11 +671,24 @@ export default function UserSettings() {
                                   Disconnect
                                 </Button>
                               )
+                            ) : provider.provider === 'sciotte' || provider.provider === 'sciotte_garmin' ? (
+                              <Button
+                                variant="gradient"
+                                size="sm"
+                                onClick={() => {
+                                  const t = provider.provider === 'sciotte_garmin' ? 'garmin' as const : 'strava' as const;
+                                  if (!checkProviderConflict(provider.provider)) setSciotteModalTarget(t);
+                                }}
+                              >
+                                Connect
+                              </Button>
                             ) : provider.requires_oauth ? (
                               <Button
                                 variant="gradient"
                                 size="sm"
-                                onClick={() => handleConnectProvider(provider.provider)}
+                                onClick={() => {
+                                  if (!checkProviderConflict(provider.provider)) handleConnectProvider(provider.provider);
+                                }}
                                 loading={isConnecting}
                               >
                                 Connect
@@ -1422,6 +1456,39 @@ Authorization: Bearer <your-token-here>`}
         message={`Are you sure you want to disconnect ${providerToDisconnect}? You will need to reconnect to sync new data.`}
         confirmLabel="Disconnect"
         variant="danger"
+      />
+
+      {/* Provider conflict confirmation (Strava vs Sciotte) */}
+      <ConfirmDialog
+        isOpen={providerConflict !== null}
+        onClose={() => setProviderConflict(null)}
+        onConfirm={async () => {
+          if (!providerConflict) return;
+          const disconnecting = providerConflict.disconnecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
+          const connecting = providerConflict.connecting === 'Strava — Sciotte' ? 'sciotte' : 'strava';
+          await handleDisconnectProvider(disconnecting);
+          setProviderConflict(null);
+          if (connecting === 'sciotte') {
+            setSciotteModalTarget('strava');
+          } else {
+            handleConnectProvider(connecting);
+          }
+        }}
+        title="Switch Provider"
+        message={`Connecting ${providerConflict?.connecting} will disconnect ${providerConflict?.disconnecting}. Both providers access Strava data — only one can be active at a time. Continue?`}
+        confirmLabel="Switch"
+        variant="danger"
+      />
+
+      {/* Sciotte login modal */}
+      <SciotteLoginModal
+        isOpen={sciotteModalTarget !== null}
+        onClose={() => setSciotteModalTarget(null)}
+        onConnected={() => {
+          refetchProviders();
+          setSciotteModalTarget(null);
+        }}
+        target={sciotteModalTarget ?? 'strava'}
       />
     </div>
   );

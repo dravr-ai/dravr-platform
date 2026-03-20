@@ -25,7 +25,8 @@ use crate::config::environment::load_provider_env_config;
     feature = "provider-terra",
     feature = "provider-whoop",
     feature = "provider-coros",
-    feature = "provider-synthetic"
+    feature = "provider-synthetic",
+    feature = "provider-sciotte"
 ))]
 use crate::constants::oauth_providers;
 use crate::errors::{AppError, AppResult};
@@ -45,6 +46,8 @@ use super::coros_provider::CorosProviderFactory;
 use super::fitbit_provider::FitbitProviderFactory;
 #[cfg(feature = "provider-garmin")]
 use super::garmin_provider::GarminProviderFactory;
+#[cfg(feature = "provider-sciotte")]
+use super::sciotte_provider::{SciotteGarminProviderFactory, SciotteProviderFactory};
 #[cfg(feature = "provider-coros")]
 use super::spi::CorosDescriptor;
 #[cfg(feature = "provider-fitbit")]
@@ -59,6 +62,8 @@ use super::spi::SyntheticDescriptor;
 use super::spi::SyntheticSleepDescriptor;
 #[cfg(feature = "provider-whoop")]
 use super::spi::WhoopDescriptor;
+#[cfg(feature = "provider-sciotte")]
+use super::spi::{SciotteDescriptor, SciotteGarminDescriptor};
 #[cfg(feature = "provider-strava")]
 use super::strava_provider::StravaProviderFactory;
 #[cfg(feature = "provider-synthetic")]
@@ -111,6 +116,8 @@ impl ProviderRegistry {
         Self::register_whoop(&mut registry);
         Self::register_coros(&mut registry);
         Self::register_synthetic(&mut registry);
+        Self::register_sciotte(&mut registry);
+        Self::register_sciotte_garmin(&mut registry);
 
         // Log registered providers at startup
         let providers = registry.supported_providers().join(", ");
@@ -359,6 +366,59 @@ impl ProviderRegistry {
 
     #[cfg(not(feature = "provider-synthetic"))]
     fn register_synthetic(_registry: &mut Self) {}
+
+    /// Register Sciotte web scraping provider
+    ///
+    /// Sciotte uses browser-based session cookies for authentication (not OAuth).
+    /// It runs as a separate sidecar service and provides activity data scraped
+    /// from fitness platform HTML pages (Strava, Garmin, etc.).
+    #[cfg(feature = "provider-sciotte")]
+    fn register_sciotte(registry: &mut Self) {
+        registry.register_factory(oauth_providers::SCIOTTE, Box::new(SciotteProviderFactory));
+        registry.register_descriptor(oauth_providers::SCIOTTE, Box::new(SciotteDescriptor));
+        // Sciotte runs in-process via dravr-sciotte library — no OAuth, no external URLs
+        registry.set_default_config(
+            oauth_providers::SCIOTTE,
+            ProviderConfig {
+                name: oauth_providers::SCIOTTE.to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: vec![],
+            },
+        );
+    }
+
+    #[cfg(not(feature = "provider-sciotte"))]
+    fn register_sciotte(_registry: &mut Self) {}
+
+    /// Register Sciotte Garmin Connect provider (in-process web scraping)
+    #[cfg(feature = "provider-sciotte")]
+    fn register_sciotte_garmin(registry: &mut Self) {
+        registry.register_factory(
+            oauth_providers::SCIOTTE_GARMIN,
+            Box::new(SciotteGarminProviderFactory),
+        );
+        registry.register_descriptor(
+            oauth_providers::SCIOTTE_GARMIN,
+            Box::new(SciotteGarminDescriptor),
+        );
+        registry.set_default_config(
+            oauth_providers::SCIOTTE_GARMIN,
+            ProviderConfig {
+                name: oauth_providers::SCIOTTE_GARMIN.to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: vec![],
+            },
+        );
+    }
+
+    #[cfg(not(feature = "provider-sciotte"))]
+    fn register_sciotte_garmin(_registry: &mut Self) {}
 
     /// Register a provider factory
     pub fn register_factory(

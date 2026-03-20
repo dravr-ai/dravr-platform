@@ -89,7 +89,8 @@ provider-fitbit = ["pierre-providers/provider-fitbit"]
 provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
-all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-synthetic"]
+provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
+all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-synthetic", "provider-sciotte"]
 
 # Tool feature flags - enable/disable MCP tool categories
 # All tools (default)
@@ -213,6 +214,7 @@ pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
+dravr-sciotte = { version = "0.2.1", optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"

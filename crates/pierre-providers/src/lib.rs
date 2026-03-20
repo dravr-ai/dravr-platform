@@ -40,6 +40,9 @@ pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
+/// Sciotte web scraping provider for browser-based activity data extraction
+#[cfg(feature = "provider-sciotte")]
+pub mod sciotte_provider;
 /// Strava API provider implementation
 #[cfg(feature = "provider-strava")]
 pub mod strava_provider;
@@ -69,6 +72,10 @@ pub use spi::CorosDescriptor;
 pub use spi::FitbitDescriptor;
 #[cfg(feature = "provider-garmin")]
 pub use spi::GarminDescriptor;
+#[cfg(feature = "provider-sciotte")]
+pub use spi::SciotteDescriptor;
+#[cfg(feature = "provider-sciotte")]
+pub use spi::SciotteGarminDescriptor;
 #[cfg(feature = "provider-strava")]
 pub use spi::StravaDescriptor;
 #[cfg(feature = "provider-synthetic")]
