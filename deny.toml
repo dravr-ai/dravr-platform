@@ -33,6 +33,14 @@ ignore = [
     # Next Review: 2026-01-15 or when rsa 0.10.0 stable released
     "RUSTSEC-2023-0071",
 
+    # RUSTSEC-2025-0052: async-std discontinued
+    # Source: chromiumoxide → async-tungstenite → async-std
+    # Used by: dravr-sciotte (Strava scraper Chrome automation)
+    # No upgrade path — chromiumoxide depends on async-std transitively.
+    # Will resolve when chromiumoxide drops async-std or dravr-sciotte moves
+    # to its own repo (planned).
+    "RUSTSEC-2025-0052",
+
 ]
 
 # Warn on yanked crates
