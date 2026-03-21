@@ -12,7 +12,6 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
-use pierre_database::database::repositories::{OAuthTokenRepository, ProviderConnectionRepository};
 use serde::Deserialize;
 use tracing::info;
 use uuid::Uuid;
@@ -120,11 +119,12 @@ async fn store_sciotte_session(
         updated_at: now,
     };
 
-    resources.database.upsert_token(&token).await?;
+    resources.repos.oauth_tokens.upsert_token(&token).await?;
 
     let tenant = TenantId::from(tenant_id);
     resources
-        .database
+        .repos
+        .provider_connections
         .register_connection(
             user_id,
             tenant,
@@ -340,11 +340,12 @@ pub(super) async fn handle_sciotte_connect(
         updated_at: now,
     };
 
-    resources.database.upsert_token(&token).await?;
+    resources.repos.oauth_tokens.upsert_token(&token).await?;
 
     let tenant = TenantId::from(tenant_id);
     resources
-        .database
+        .repos
+        .provider_connections
         .register_connection(user_id, tenant, "sciotte", &ConnectionType::Manual, None)
         .await
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
@@ -363,7 +364,8 @@ pub(super) async fn handle_sciotte_disconnect(
     let tenant = TenantId::from(tenant_id);
 
     resources
-        .database
+        .repos
+        .oauth_tokens
         .delete_token(user_id, tenant, "sciotte")
         .await?;
 
