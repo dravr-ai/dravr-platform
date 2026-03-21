@@ -145,22 +145,13 @@ struct WhoopStageSummary {
     disturbance_count: Option<i32>,
 }
 
-/// WHOOP cycle (daily physiological cycle) response
+/// WHOOP recovery response (v2: separate endpoint from cycles)
 #[derive(Debug, Deserialize)]
-struct WhoopCycle {
-    /// Start time of cycle (ISO 8601)
-    start: String,
-    /// Cycle score details (strain and recovery)
-    score: Option<WhoopCycleScore>,
-}
-
-/// WHOOP cycle score containing strain and recovery data
-#[derive(Debug, Deserialize)]
-struct WhoopCycleScore {
-    /// Strain score for the cycle (0-21)
-    strain: Option<f64>,
+struct WhoopRecovery {
+    /// Timestamp when the recovery was created
+    created_at: Option<String>,
     /// Recovery score details
-    recovery: Option<WhoopRecoveryScore>,
+    score: Option<WhoopRecoveryScore>,
 }
 
 /// WHOOP recovery score details
@@ -168,9 +159,9 @@ struct WhoopCycleScore {
 struct WhoopRecoveryScore {
     /// Recovery score as percentage (0-100)
     recovery_score: Option<f64>,
-    /// Resting heart rate
+    /// Resting heart rate in BPM
     resting_heart_rate: Option<f64>,
-    /// Heart rate variability (RMSSD)
+    /// Heart rate variability (RMSSD in milliseconds)
     hrv_rmssd_milli: Option<f64>,
     /// Skin temperature in Celsius
     skin_temp_celsius: Option<f64>,
@@ -196,7 +187,7 @@ impl WhoopProvider {
             name: oauth_providers::WHOOP.to_owned(),
             auth_url: "https://api.prod.whoop.com/oauth/oauth2/auth".to_owned(),
             token_url: "https://api.prod.whoop.com/oauth/oauth2/token".to_owned(),
-            api_base_url: "https://api.prod.whoop.com/developer/v1".to_owned(),
+            api_base_url: "https://api.prod.whoop.com/developer/v2".to_owned(),
             revoke_url: Some("https://api.prod.whoop.com/oauth/oauth2/revoke".to_owned()),
             default_scopes: oauth_providers::WHOOP_DEFAULT_SCOPES
                 .split(' ')
@@ -510,20 +501,18 @@ impl WhoopProvider {
         })
     }
 
-    /// Convert WHOOP cycle to recovery metrics
-    fn convert_cycle_to_recovery(cycle: &WhoopCycle) -> AppResult<RecoveryMetrics> {
-        let date = DateTime::parse_from_rfc3339(&cycle.start)
-            .map_err(|e| AppError::internal(format!("Failed to parse cycle start: {e}")))?
-            .with_timezone(&Utc);
+    /// Convert WHOOP recovery response to recovery metrics (v2: recovery is a separate endpoint)
+    fn convert_recovery_to_metrics(
+        recovery: &WhoopRecovery,
+        date: DateTime<Utc>,
+    ) -> RecoveryMetrics {
+        let score = recovery.score.as_ref();
 
-        let score = cycle.score.as_ref();
-        let recovery = score.and_then(|s| s.recovery.as_ref());
-
-        Ok(RecoveryMetrics {
+        RecoveryMetrics {
             date,
-            recovery_score: recovery.and_then(|r| r.recovery_score).map(|s| s as f32),
-            readiness_score: recovery.and_then(|r| r.recovery_score).map(|s| s as f32), // WHOOP recovery = readiness
-            hrv_status: recovery.and_then(|r| r.hrv_rmssd_milli).map(|hrv| {
+            recovery_score: score.and_then(|r| r.recovery_score).map(|s| s as f32),
+            readiness_score: score.and_then(|r| r.recovery_score).map(|s| s as f32), // WHOOP recovery = readiness
+            hrv_status: score.and_then(|r| r.hrv_rmssd_milli).map(|hrv| {
                 // Classify HRV into status categories
                 if hrv > 100.0 {
                     "high".to_owned()
@@ -533,16 +522,14 @@ impl WhoopProvider {
                     "low".to_owned()
                 }
             }),
-            sleep_score: None,  // Sleep score comes from separate sleep endpoint
-            stress_level: None, // WHOOP doesn't have explicit stress metric
-            training_load: score.and_then(|s| s.strain).map(|s| s as f32),
-            resting_heart_rate: recovery
-                .and_then(|r| r.resting_heart_rate)
-                .map(|hr| hr as u32),
-            body_temperature: recovery.and_then(|r| r.skin_temp_celsius).map(|t| t as f32),
+            sleep_score: None,   // Sleep score comes from separate sleep endpoint
+            stress_level: None,  // WHOOP doesn't have explicit stress metric
+            training_load: None, // Strain is on the cycle endpoint, not recovery
+            resting_heart_rate: score.and_then(|r| r.resting_heart_rate).map(|hr| hr as u32),
+            body_temperature: score.and_then(|r| r.skin_temp_celsius).map(|t| t as f32),
             resting_respiratory_rate: None,
             provider: oauth_providers::WHOOP.to_owned(),
-        })
+        }
     }
 
     /// Convert WHOOP body measurement to health metrics
@@ -722,7 +709,7 @@ impl FitnessProvider for WhoopProvider {
         &self,
         params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
-        let page_limit = params.limit.unwrap_or(25).min(50);
+        let page_limit = params.limit.unwrap_or(25).min(25);
 
         // WHOOP uses token-based pagination, offset is not directly supported
         // For offset support, we'd need to paginate through until we reach the offset
@@ -763,7 +750,7 @@ impl FitnessProvider for WhoopProvider {
         &self,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<Activity>> {
-        let limit = params.limit.min(50);
+        let limit = params.limit.min(25);
 
         // Build endpoint with cursor-based parameters
         let mut endpoint = format!("activity/workout?limit={limit}");
@@ -852,7 +839,7 @@ impl FitnessProvider for WhoopProvider {
         let start_str = start_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
         let end_str = end_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
 
-        let endpoint = format!("activity/sleep?start={start_str}&end={end_str}&limit=50");
+        let endpoint = format!("activity/sleep?start={start_str}&end={end_str}&limit=25");
 
         let response: WhoopPaginatedResponse<WhoopSleep> = self
             .api_request(&endpoint)
@@ -923,9 +910,10 @@ impl FitnessProvider for WhoopProvider {
         let start_str = start_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
         let end_str = end_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
 
-        let endpoint = format!("cycle?start={start_str}&end={end_str}&limit=50");
+        // v2: Recovery is a separate endpoint from cycles
+        let endpoint = format!("recovery?start={start_str}&end={end_str}&limit=25");
 
-        let response: WhoopPaginatedResponse<WhoopCycle> = self
+        let response: WhoopPaginatedResponse<WhoopRecovery> = self
             .api_request(&endpoint)
             .await
             .map_err(|e| ProviderError::ApiError {
@@ -936,13 +924,15 @@ impl FitnessProvider for WhoopProvider {
             })?;
 
         let mut metrics = Vec::with_capacity(response.records.len());
-        for cycle in &response.records {
-            match Self::convert_cycle_to_recovery(cycle) {
-                Ok(recovery) => metrics.push(recovery),
-                Err(e) => {
-                    warn!("Failed to convert WHOOP cycle to recovery: {e}");
-                }
-            }
+        for recovery in &response.records {
+            // Use created_at timestamp if available, otherwise fall back to current time
+            let date = recovery
+                .created_at
+                .as_ref()
+                .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+                .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
+
+            metrics.push(Self::convert_recovery_to_metrics(recovery, date));
         }
 
         Ok(metrics)
@@ -966,7 +956,7 @@ impl FitnessProvider for WhoopProvider {
         );
 
         let measurement: WhoopBodyMeasurement = self
-            .api_request("user/measurement/body")
+            .api_request("user/body_measurement")
             .await
             .map_err(|e| ProviderError::ApiError {
                 provider: oauth_providers::WHOOP.to_owned(),
