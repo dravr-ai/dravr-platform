@@ -2702,7 +2702,7 @@ fn row_to_friend_connection(row: &SqliteRow) -> AppResult<FriendConnection> {
             .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
         status: status_str
             .parse()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
             .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
             .with_timezone(&Utc),
@@ -2743,7 +2743,7 @@ fn row_to_social_settings(row: &SqliteRow) -> AppResult<UserSocialSettings> {
         discoverable: discoverable != 0,
         default_visibility: default_visibility_str
             .parse()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         share_activity_types,
         notifications: NotificationPreferences {
             friend_requests: notify_friend_requests != 0,
@@ -2784,17 +2784,17 @@ fn row_to_shared_insight(row: &SqliteRow) -> AppResult<SharedInsight> {
             .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
         visibility: visibility_str
             .parse()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         insight_type: insight_type_str
             .parse()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         sport_type,
         content,
         title,
         training_phase: training_phase_str
             .map(|s| s.parse())
             .transpose()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         reaction_count,
         adapt_count,
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
@@ -2831,7 +2831,7 @@ fn row_to_insight_reaction(row: &SqliteRow) -> AppResult<InsightReaction> {
             .map_err(|e| AppError::database(format!("Invalid UUID: {e}")))?,
         reaction_type: reaction_type_str
             .parse()
-            .map_err(|e: AppError| AppError::database(e.to_string()))?,
+            .map_err(|e: String| AppError::database(e))?,
         created_at: DateTime::parse_from_rfc3339(&created_at_str)
             .map_err(|e| AppError::database(format!("Invalid date: {e}")))?
             .with_timezone(&Utc),

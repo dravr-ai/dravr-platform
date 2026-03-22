@@ -39,6 +39,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -118,6 +121,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2

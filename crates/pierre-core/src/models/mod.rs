@@ -31,26 +31,22 @@
 
 // Domain modules
 pub mod a2a;
-mod activity;
 mod athlete;
 mod health;
 mod nutrition;
 mod oauth;
 mod sleep;
-mod social;
-mod sport;
 mod tenant;
 mod tool_selection;
 mod user;
 
-// Re-export all public types for convenience
-// Activity domain
-pub use activity::{
+// Activity and sport types come from dravr-cageux (canonical source)
+pub use dravr_cageux::models::activity;
+pub use dravr_cageux::models::activity::{
     Activity, ActivityBuilder, HeartRateZone, PowerZone, SegmentEffort, TimeSeriesData,
 };
-
-// Sport types
-pub use sport::SportType;
+pub use dravr_cageux::models::sport;
+pub use dravr_cageux::models::sport::SportType;
 
 // Sleep domain
 pub use sleep::{SleepSession, SleepStage, SleepStageType};
@@ -89,12 +85,14 @@ pub use tool_selection::{
     ToolAvailabilitySummary, ToolCatalogEntry, ToolCategory, ToolEnablementSource,
 };
 
-// Social domain
-pub use social::{
+// Social domain — types from dravr-cageux (canonical source)
+pub use dravr_cageux::models::social;
+pub use dravr_cageux::models::social::{
     AdaptInsightRequest, AdaptedInsight, FeedItem, FriendConnection, FriendInfo, FriendStatus,
-    InsightReaction, InsightType, NotificationPreferences, ReactToInsightRequest, ReactionSummary,
-    ReactionType, RespondFriendRequestRequest, SendFriendRequestRequest, ShareInsightRequest,
-    ShareVisibility, SharedInsight, TrainingPhase, UpdateSocialSettingsRequest, UserSocialSettings,
+    InsightReaction, InsightSharingPolicy, InsightType, NotificationPreferences,
+    ReactToInsightRequest, ReactionSummary, ReactionType, RespondFriendRequestRequest,
+    SendFriendRequestRequest, ShareInsightRequest, ShareVisibility, SharedInsight, TrainingPhase,
+    UpdateSocialSettingsRequest, UserSocialSettings,
 };
 
 // OAuth 2.0 server persistence models
@@ -140,13 +138,13 @@ pub use usage::{
 pub mod coaches;
 /// Mobility domain types for stretching and yoga
 pub mod mobility;
-/// Recipe data models for nutrition planning with training-aware meal timing
-pub mod recipes;
 pub use coaches::{
     Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
     CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
     PublishStatus, StoreAdminStats, UpdateCoachRequest,
 };
+/// Recipe data models for nutrition planning with training-aware meal timing (from dravr-cageux)
+pub use dravr_cageux::models::recipes;
 pub use mobility::{
     ActivityMuscleMapping, DifficultyLevel, ListStretchingFilter, ListYogaFilter,
     StretchingCategory, StretchingExercise, YogaCategory, YogaPose, YogaPoseType,

@@ -624,6 +624,13 @@ impl From<TryFromSliceError> for AppError {
     }
 }
 
+/// Conversion from `String` errors (e.g., `FromStr` failures on dravr-cageux types)
+impl From<String> for AppError {
+    fn from(error: String) -> Self {
+        Self::invalid_input(error)
+    }
+}
+
 /// Protocol error conversion helper
 impl From<ProtocolError> for AppError {
     fn from(error: ProtocolError) -> Self {

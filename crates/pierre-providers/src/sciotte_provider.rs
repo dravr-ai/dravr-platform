@@ -15,7 +15,8 @@
 use async_trait::async_trait;
 use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::{CacheConfig, ScraperConfig};
-use dravr_sciotte::models::{ActivityParams, AuthSession};
+use dravr_sciotte::models::{Activity as SciotteActivity, ActivityParams, AuthSession};
+use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
 use std::sync::Arc;
@@ -50,8 +51,8 @@ impl SciotteProvider {
     fn new(config: ProviderConfig, target: SciotteTarget) -> Self {
         let scraper_config = ScraperConfig::default();
         let provider_config = match target {
-            SciotteTarget::Strava => dravr_sciotte::provider::ProviderConfig::strava_default(),
-            SciotteTarget::Garmin => dravr_sciotte::provider::ProviderConfig::garmin_default(),
+            SciotteTarget::Strava => SciotteProviderConfig::strava_default(),
+            SciotteTarget::Garmin => SciotteProviderConfig::garmin_default(),
         };
         let provider_name = match target {
             SciotteTarget::Strava => "sciotte",
@@ -71,9 +72,9 @@ impl SciotteProvider {
     }
 }
 
-/// Convert a sciotte Activity to a Pierre Activity
-fn convert_activity(sciotte: &dravr_sciotte::models::Activity) -> Activity {
-    let sport_type = SportType::from_internal_string(&sciotte.sport_type.display_name());
+/// Convert a sciotte `Activity` to a Pierre `Activity`
+fn convert_activity(sciotte: &SciotteActivity) -> Activity {
+    let sport_type = SportType::from_internal_string(sciotte.sport_type.display_name());
 
     ActivityBuilder::new(
         &sciotte.id,
@@ -84,7 +85,7 @@ fn convert_activity(sciotte: &dravr_sciotte::models::Activity) -> Activity {
         "sciotte",
     )
     .distance_meters_opt(sciotte.distance_meters)
-    .elevation_gain_opt(sciotte.elevation_gain.map(|v| f64::from(v)))
+    .elevation_gain_opt(sciotte.elevation_gain)
     .average_heart_rate_opt(sciotte.average_heart_rate)
     .max_heart_rate_opt(sciotte.max_heart_rate)
     .average_speed_opt(sciotte.average_speed)
@@ -113,7 +114,7 @@ impl FitnessProvider for SciotteProvider {
         &self.config
     }
 
-    /// Restore a session from stored cookies (passed as serialized JSON in access_token)
+    /// Restore a session from stored cookies (passed as serialized JSON in `access_token`)
     async fn set_credentials(&self, credentials: OAuth2Credentials) -> AppResult<()> {
         let session_json = credentials
             .access_token
@@ -238,9 +239,12 @@ impl FitnessProvider for SciotteProvider {
             .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(100), None))
             .await?;
 
-        let total_distance: f64 = activities.iter().filter_map(|a| a.distance_meters()).sum();
-        let total_duration: u64 = activities.iter().map(|a| a.duration_seconds()).sum();
-        let total_elevation: f64 = activities.iter().filter_map(|a| a.elevation_gain()).sum();
+        let total_distance: f64 = activities
+            .iter()
+            .filter_map(Activity::distance_meters)
+            .sum();
+        let total_duration: u64 = activities.iter().map(Activity::duration_seconds).sum();
+        let total_elevation: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
 
         Ok(Stats {
             total_activities: activities.len() as u64,

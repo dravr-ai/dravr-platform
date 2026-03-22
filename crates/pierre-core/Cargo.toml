@@ -92,6 +92,10 @@ embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.13.
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
 dravr-canot = { version = "0.2.0" }
 
+# Standalone sports science intelligence engine (dravr-cageux)
+# pierre-core re-exports Activity, SportType, and intelligence types
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.1.0" }
+
 # Optional: OpenAPI schema generation
 utoipa = { version = "5.4", optional = true }
 
