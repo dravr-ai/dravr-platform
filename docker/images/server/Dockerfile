@@ -18,21 +18,21 @@ WORKDIR /app
 # Stage 1: generate dependency recipe from the full workspace source tree
 FROM chef AS planner
 COPY . .
-RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
-    git config --global credential.helper store \
+RUN --mount=type=secret,id=git_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
-    git config --global credential.helper store \
+RUN --mount=type=secret,id=git_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef cook --release --features "postgresql,client-messaging" --recipe-path recipe.json
 
 # Build the actual application and seeder binaries (reruns only when source code changes)
 COPY . .
-RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
-    git config --global credential.helper store \
+RUN --mount=type=secret,id=git_token \
+    git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo build --release --features "postgresql,client-messaging" \
     --bin pierre-mcp-server \
     --bin seed-bootstrap \

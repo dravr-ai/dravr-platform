@@ -121,9 +121,6 @@ jobs:
           echo "server_tags=${SERVER_TAGS}" >> "$GITHUB_OUTPUT"
           echo "registry=${REGISTRY}" >> "$GITHUB_OUTPUT"
 
-      - name: Create git credentials for private deps
-        run: echo "https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com" > /tmp/git-credentials
-
       - name: Build and push server image
         id: build
         uses: docker/build-push-action@v7
@@ -135,7 +132,7 @@ jobs:
           cache-from: type=gha,scope=server
           cache-to: type=gha,mode=max,scope=server
           secrets: |
-            git_credentials=/tmp/git-credentials
+            "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
       - name: Scan server image for vulnerabilities
         uses: aquasecurity/trivy-action@0.35.0
