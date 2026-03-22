@@ -107,6 +107,7 @@ unknown-registry = "deny"
 allow-git = [
     "https://github.com/dravr-ai/dravr-embacle.git",
     "https://github.com/dravr-ai/dravr-cageux.git",
+    "https://github.com/dravr-ai/dravr-canot.git",
 ]
 # Allow these specific registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

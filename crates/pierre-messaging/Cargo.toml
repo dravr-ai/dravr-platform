@@ -20,7 +20,7 @@ channel-telegram = ["dravr-canot/channel-telegram"]
 all-channels = ["channel-whatsapp", "channel-messenger", "channel-discord", "channel-slack", "channel-telegram"]
 
 [dependencies]
-dravr-canot = { version = "0.2.0" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", branch = "main" }
 
 [lints]
 workspace = true

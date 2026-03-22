@@ -565,6 +565,13 @@ fn initialize_plugins_and_workers(mut resources_instance: ServerResources) -> Ar
         info!("Messaging outbound retry worker started");
     }
 
+    // Start Discord Gateway WebSocket client for real-time message delivery
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::start_discord_gateway;
+        start_discord_gateway(&resources);
+    }
+
     resources
 }
 

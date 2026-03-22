@@ -172,6 +172,8 @@ pub(crate) mod services;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(feature = "client-messaging")]
+pub use services::discord_gateway::start_discord_gateway;
+#[cfg(feature = "client-messaging")]
 pub use services::messaging_outbound::start_outbound_worker;
 #[cfg(feature = "client-messaging")]
 pub use services::messaging_seed;

@@ -78,7 +78,7 @@ enum LinkingAction {
 }
 
 /// Data needed to dispatch a message through the LLM pipeline after HTTP 200
-struct PendingDispatch {
+pub struct PendingDispatch {
     /// Server resources for LLM access
     resources: Arc<ServerResources>,
     /// Channel adapter for outbound send
@@ -1214,7 +1214,7 @@ async fn start_otp_flow(
 ///
 /// Returns (`stored_count`, `pending_dispatches`) — the dispatches are processed
 /// asynchronously after the webhook returns HTTP 200.
-async fn persist_inbound(
+pub async fn persist_inbound(
     resources: &Arc<ServerResources>,
     channel: &str,
     tenant_id: TenantId,
@@ -1545,7 +1545,7 @@ async fn resolve_user_tenant(
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
-async fn dispatch_and_respond(dispatch: PendingDispatch) {
+pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let response_text = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
         &dispatch.resources,
         &dispatch.session.conversation,
