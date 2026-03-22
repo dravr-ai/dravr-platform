@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN cargo install cargo-chef --locked
@@ -17,16 +18,22 @@ WORKDIR /app
 # Stage 1: generate dependency recipe from the full workspace source tree
 FROM chef AS planner
 COPY . .
-RUN cargo chef prepare --recipe-path recipe.json
+RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
+    git config --global credential.helper store \
+    && cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: build all workspace dependencies (cached unless Cargo.toml/Cargo.lock changes)
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --features "postgresql,client-messaging" --recipe-path recipe.json
+RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
+    git config --global credential.helper store \
+    && cargo chef cook --release --features "postgresql,client-messaging" --recipe-path recipe.json
 
 # Build the actual application and seeder binaries (reruns only when source code changes)
 COPY . .
-RUN cargo build --release --features "postgresql,client-messaging" \
+RUN --mount=type=secret,id=git_credentials,target=/root/.git-credentials \
+    git config --global credential.helper store \
+    && cargo build --release --features "postgresql,client-messaging" \
     --bin pierre-mcp-server \
     --bin seed-bootstrap \
     --bin seed-coaches \
