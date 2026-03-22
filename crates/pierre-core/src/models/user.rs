@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::config::profiles::FitnessLevel;
 use crate::constants::tiers;
 use crate::errors::AppError;
-use crate::intelligence::algorithms::MaxHrAlgorithm;
+use crate::intelligence::algorithms::maxhr::MaxHrAlgorithm;
 use crate::permissions::UserRole;
 
 use super::{EncryptedToken, SportType};

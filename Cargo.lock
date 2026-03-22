@@ -1327,6 +1327,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "dravr-cageux"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.1.0#52c774e94f7d6f1259d41d9d339010d2543898d6"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dravr-canot"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2989,6 +3005,7 @@ dependencies = [
  "bcrypt",
  "bitflags",
  "chrono",
+ "dravr-cageux",
  "dravr-canot",
  "embacle",
  "http",
@@ -3033,6 +3050,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "dravr-cageux",
  "pierre-core",
  "rayon",
  "serde",

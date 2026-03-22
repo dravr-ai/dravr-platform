@@ -262,7 +262,7 @@ impl PostgresSocialManager {
             receiver_id,
             status: status_str
                 .parse()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             created_at,
             updated_at,
             accepted_at,
@@ -370,7 +370,7 @@ impl PostgresSocialManager {
             discoverable,
             default_visibility: default_visibility_str
                 .parse()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             share_activity_types,
             notifications: NotificationPreferences {
                 friend_requests: notify_friend_requests,
@@ -726,17 +726,17 @@ impl PostgresSocialManager {
             user_id,
             visibility: visibility_str
                 .parse()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             insight_type: insight_type_str
                 .parse()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             sport_type,
             content,
             title,
             training_phase: training_phase_str
                 .map(|s| s.parse())
                 .transpose()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             reaction_count,
             adapt_count,
             created_at,
@@ -858,7 +858,7 @@ impl PostgresSocialManager {
             user_id,
             reaction_type: reaction_type_str
                 .parse()
-                .map_err(|e: AppError| AppError::database(e.to_string()))?,
+                .map_err(|e: String| AppError::database(e))?,
             created_at,
         })
     }

@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock};
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -13,25 +14,33 @@ use axum::Json;
 use chrono::Utc;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use serde::Deserialize;
+use tokio::sync::Mutex;
 use tracing::info;
 use uuid::Uuid;
 
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 
-// Pending OTP scraper — holds the Chrome browser between multi-step login calls.
-// Keyed by user_id to prevent cross-user interference.
-/// Pending login session: scraper + provider name (e.g., "sciotte" or "sciotte_garmin")
 #[cfg(feature = "provider-sciotte")]
-type PendingScraper = (
-    dravr_sciotte::cache::CachedScraper<dravr_sciotte::scraper::ChromeScraper>,
-    String,
-);
+use dravr_sciotte::cache::CachedScraper;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::error::LoginResult;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::models::AuthSession;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::scraper::ChromeScraper;
+#[cfg(feature = "provider-sciotte")]
+use dravr_sciotte::ActivityScraper;
+
+// Pending OTP scraper — holds the Chrome browser between multi-step login calls.
+// Keyed by `user_id` to prevent cross-user interference.
+/// Pending login session: scraper + provider name (e.g., `sciotte` or `sciotte_garmin`)
+#[cfg(feature = "provider-sciotte")]
+type PendingScraper = (CachedScraper<ChromeScraper>, String);
 
 #[cfg(feature = "provider-sciotte")]
-static PENDING_OTP_SCRAPERS: std::sync::LazyLock<
-    tokio::sync::Mutex<std::collections::HashMap<uuid::Uuid, PendingScraper>>,
-> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(std::collections::HashMap::new()));
+static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingScraper>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[derive(Debug, Deserialize)]
 pub struct SciotteLoginRequest {
@@ -54,16 +63,13 @@ fn default_target() -> String {
 
 /// Create a sciotte scraper configured for the target platform
 #[cfg(feature = "provider-sciotte")]
-fn create_scraper_for_target(
-    target: &str,
-) -> dravr_sciotte::cache::CachedScraper<dravr_sciotte::scraper::ChromeScraper> {
-    use dravr_sciotte::cache::CachedScraper;
+fn create_scraper_for_target(target: &str) -> CachedScraper<ChromeScraper> {
     use dravr_sciotte::config::{CacheConfig, ScraperConfig};
-    use dravr_sciotte::scraper::ChromeScraper;
+    use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 
     let provider_config = match target {
-        "garmin" => dravr_sciotte::provider::ProviderConfig::garmin_default(),
-        _ => dravr_sciotte::provider::ProviderConfig::strava_default(),
+        "garmin" => SciotteProviderConfig::garmin_default(),
+        _ => SciotteProviderConfig::strava_default(),
     };
     let scraper = ChromeScraper::new(ScraperConfig::default(), provider_config);
     CachedScraper::new(scraper, &CacheConfig::default())
@@ -98,7 +104,7 @@ async fn store_sciotte_session(
     resources: &ServerResources,
     user_id: uuid::Uuid,
     tenant_id: uuid::Uuid,
-    session: &dravr_sciotte::models::AuthSession,
+    session: &AuthSession,
     provider_name: &str,
 ) -> Result<Response, AppError> {
     let session_json = serde_json::to_string(session)
@@ -138,19 +144,17 @@ async fn store_sciotte_session(
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
 }
 
-/// Convert a LoginResult into an HTTP response, storing the scraper for follow-up calls if needed
+/// Convert a `LoginResult` into an HTTP response, storing the scraper for follow-up calls if needed
 #[cfg(feature = "provider-sciotte")]
 async fn login_result_to_response(
-    result: dravr_sciotte::error::LoginResult,
+    result: LoginResult,
     resources: &ServerResources,
     user_id: uuid::Uuid,
     tenant_id: uuid::Uuid,
-    scraper: dravr_sciotte::cache::CachedScraper<dravr_sciotte::scraper::ChromeScraper>,
+    scraper: CachedScraper<ChromeScraper>,
     log_prefix: &str,
     provider_name: &str,
 ) -> Result<Response, AppError> {
-    use dravr_sciotte::error::LoginResult;
-
     match result {
         LoginResult::Success(session) => {
             info!(user_id = %user_id, "{log_prefix} successful");
@@ -183,7 +187,7 @@ async fn login_result_to_response(
     }
 }
 
-/// Extract authenticated user_id and tenant_id from request headers
+/// Extract authenticated `user_id` and `tenant_id` from request headers
 async fn authenticate(
     resources: &ServerResources,
     headers: &HeaderMap,
@@ -215,8 +219,6 @@ pub(super) async fn handle_sciotte_login(
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
-    use dravr_sciotte::ActivityScraper;
-
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
 
     if request.email.is_empty() || request.password.is_empty() {
@@ -253,8 +255,6 @@ pub(super) async fn handle_sciotte_select_2fa(
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
-    use dravr_sciotte::ActivityScraper;
-
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
     let (scraper, provider_name) = take_pending_scraper(user_id).await?;
 
@@ -284,8 +284,6 @@ pub(super) async fn handle_sciotte_submit_otp(
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
-    use dravr_sciotte::ActivityScraper;
-
     let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
 
     if request.code.is_empty() {

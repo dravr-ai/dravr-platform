@@ -35,6 +35,7 @@ env:
   CARGO_TERM_COLOR: always
   DATABASE_URL: sqlite:./data/test_api_contracts.db
   RUST_LOG: warn
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
   # Standard CI encryption key (32 bytes base64 encoded)
   PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
   # OAuth credentials (dummy values for CI)
@@ -49,6 +50,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
