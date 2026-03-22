@@ -44,3 +44,7 @@ pub mod messaging_outbound;
 /// Seed messaging channel configs from environment variables on startup
 #[cfg(feature = "client-messaging")]
 pub mod messaging_seed;
+
+/// Discord Gateway WebSocket client — bridges real-time messages to the webhook pipeline
+#[cfg(feature = "client-messaging")]
+pub mod discord_gateway;

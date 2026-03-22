@@ -1345,12 +1345,12 @@ dependencies = [
 [[package]]
 name = "dravr-canot"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c84ced5f321d3681c1dabbe111411c1cc5a701827221c9534f4c1e31ccceb2c"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?branch=main#d74d8014be91c64c7119d2724dca8a00d87d2015"
 dependencies = [
  "async-trait",
  "chrono",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "hmac",
  "html-escape",
@@ -1361,6 +1361,8 @@ dependencies = [
  "sha2",
  "subtle",
  "thiserror 2.0.18",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
  "tracing",
  "uuid",
 ]
@@ -4797,8 +4799,12 @@ checksum = "edc5f74e248dc973e0dbb7b74c7e0d6fcc301c694ff50049504004ef4d0cdcd9"
 dependencies = [
  "futures-util",
  "log",
+ "rustls",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite 0.24.0",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -5059,6 +5065,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.8.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror 1.0.69",
  "utf-8",

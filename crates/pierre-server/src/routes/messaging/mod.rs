@@ -13,7 +13,7 @@
 mod config;
 mod linking;
 mod templates;
-mod webhooks;
+pub(crate) mod webhooks;
 
 use axum::{
     routing::{delete, get, post, put},

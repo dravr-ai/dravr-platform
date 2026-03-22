@@ -12,15 +12,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::Utc;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
-use serde::Deserialize;
-use tokio::sync::Mutex;
-use tracing::info;
-use uuid::Uuid;
-
-use crate::errors::AppError;
-use crate::mcp::resources::ServerResources;
-
 #[cfg(feature = "provider-sciotte")]
 use dravr_sciotte::cache::CachedScraper;
 #[cfg(feature = "provider-sciotte")]
@@ -31,6 +22,14 @@ use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::scraper::ChromeScraper;
 #[cfg(feature = "provider-sciotte")]
 use dravr_sciotte::ActivityScraper;
+use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use serde::Deserialize;
+use tokio::sync::Mutex;
+use tracing::info;
+use uuid::Uuid;
+
+use crate::errors::AppError;
+use crate::mcp::resources::ServerResources;
 
 // Pending OTP scraper — holds the Chrome browser between multi-step login calls.
 // Keyed by `user_id` to prevent cross-user interference.
@@ -149,8 +148,8 @@ async fn store_sciotte_session(
 async fn login_result_to_response(
     result: LoginResult,
     resources: &ServerResources,
-    user_id: uuid::Uuid,
-    tenant_id: uuid::Uuid,
+    user_id: Uuid,
+    tenant_id: Uuid,
     scraper: CachedScraper<ChromeScraper>,
     log_prefix: &str,
     provider_name: &str,
@@ -191,7 +190,7 @@ async fn login_result_to_response(
 async fn authenticate(
     resources: &ServerResources,
     headers: &HeaderMap,
-) -> Result<(uuid::Uuid, uuid::Uuid), AppError> {
+) -> Result<(Uuid, Uuid), AppError> {
     let auth_result = resources
         .auth_middleware
         .authenticate_request_with_headers(headers)
@@ -204,7 +203,7 @@ async fn authenticate(
 
 /// Take the pending scraper + provider name for a user, or return an error
 #[cfg(feature = "provider-sciotte")]
-async fn take_pending_scraper(user_id: uuid::Uuid) -> Result<PendingScraper, AppError> {
+async fn take_pending_scraper(user_id: Uuid) -> Result<PendingScraper, AppError> {
     PENDING_OTP_SCRAPERS
         .lock()
         .await
