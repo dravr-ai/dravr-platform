@@ -729,6 +729,10 @@ fn mask_email(email: &str) -> String {
 }
 
 /// Create a text reply message for OTP flow responses
+///
+/// For channel-based platforms (Discord, Slack), `recipient_id` must be the channel ID
+/// where the message was received. For DM-based platforms (WhatsApp, Telegram, Messenger),
+/// `recipient_id` is the sender's user ID.
 fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> OutgoingMessage {
     OutgoingMessage {
         channel_type,
@@ -736,6 +740,18 @@ fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> Outgoi
         content: MessageContent::Text { body },
         correlation_id: Uuid::new_v4(),
         reply_to: None,
+    }
+}
+
+/// Override `recipient_id` with conversation ID for channel-based platforms like Discord
+///
+/// Discord REST API sends to channels, not users. If the message came from a guild
+/// channel, we must reply to that channel — not to the user ID.
+fn apply_conversation_recipient(msg: &mut OutgoingMessage, conversation_id: Option<&str>) {
+    if msg.channel_type == ChannelType::Discord || msg.channel_type == ChannelType::Slack {
+        if let Some(conv_id) = conversation_id {
+            msg.recipient_id = conv_id.to_owned();
+        }
     }
 }
 
@@ -1293,8 +1309,9 @@ async fn persist_single_message(
     // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
     if let LinkingAction::LinkCode(code) = detect_linking_code(channel_type, &message.content) {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
-        let response =
+        let mut response =
             handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
+        apply_conversation_recipient(&mut response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, response).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
@@ -1310,6 +1327,8 @@ async fn persist_single_message(
     )
     .await
     {
+        let mut otp_response = otp_response;
+        apply_conversation_recipient(&mut otp_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
@@ -1324,6 +1343,8 @@ async fn persist_single_message(
             &message.sender_id,
         )
         .await;
+        let mut logout_response = logout_response;
+        apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, logout_response).await;
         return Ok(PersistOutcome::HandledNotStored);
     }
@@ -1394,7 +1415,7 @@ async fn send_unlinked_user_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) {
-    let prompt = if resources.email_service.is_some() {
+    let mut prompt = if resources.email_service.is_some() {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
         start_otp_flow(
             db,
@@ -1415,6 +1436,7 @@ async fn send_unlinked_user_prompt(
         )
         .await
     };
+    apply_conversation_recipient(&mut prompt, message.conversation_id.as_deref());
     send_channel_response(db, tenant_id, channel, adapter, prompt).await;
 }
 
