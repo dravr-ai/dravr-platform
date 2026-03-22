@@ -731,7 +731,7 @@ fn mask_email(email: &str) -> String {
 /// Create a text reply message for OTP flow responses
 ///
 /// For channel-based platforms (Discord, Slack), `recipient_id` must be the channel ID
-/// where the message was received. For DM-based platforms (WhatsApp, Telegram, Messenger),
+/// where the message was received. For DM-based platforms (`WhatsApp`, Telegram, Messenger),
 /// `recipient_id` is the sender's user ID.
 fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> OutgoingMessage {
     OutgoingMessage {
@@ -750,7 +750,7 @@ fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> Outgoi
 fn apply_conversation_recipient(msg: &mut OutgoingMessage, conversation_id: Option<&str>) {
     if msg.channel_type == ChannelType::Discord || msg.channel_type == ChannelType::Slack {
         if let Some(conv_id) = conversation_id {
-            msg.recipient_id = conv_id.to_owned();
+            conv_id.clone_into(&mut msg.recipient_id);
         }
     }
 }
