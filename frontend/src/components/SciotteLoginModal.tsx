@@ -7,6 +7,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { pierreApi } from '../services/api';
 
+// Sciotte drives a headless browser through OAuth — give it plenty of time
+const SCIOTTE_TIMEOUT_MS = Number(import.meta.env.VITE_SCIOTTE_TIMEOUT_MS) || 600_000;
+
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'otp' | 'success' | 'error';
 
 interface TwoFactorOption {
@@ -83,7 +86,7 @@ export default function SciotteLoginModal({
           password,
           method,
           target,
-        });
+        }, { timeout: SCIOTTE_TIMEOUT_MS });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -125,7 +128,7 @@ export default function SciotteLoginModal({
       try {
         const { data } = await pierreApi.axios.post('/api/providers/sciotte/select-2fa', {
           option_id: optionId,
-        });
+        }, { timeout: SCIOTTE_TIMEOUT_MS });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -166,7 +169,7 @@ export default function SciotteLoginModal({
       try {
         const { data } = await pierreApi.axios.post('/api/providers/sciotte/submit-otp', {
           code: otpCode,
-        });
+        }, { timeout: SCIOTTE_TIMEOUT_MS });
 
         if (data.status === 'connected') {
           setPhase('success');
