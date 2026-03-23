@@ -784,3 +784,85 @@ pub mod fitbit {
         })
     }
 }
+
+/// WHOOP-specific OAuth 2.0 token handling
+pub mod whoop {
+    use super::{Duration, OAuth2Token, Utc};
+    use pierre_core::errors::{AppError, AppResult};
+    use serde::Deserialize;
+
+    /// WHOOP OAuth 2.0 token response
+    #[derive(Debug, Deserialize)]
+    struct WhoopTokenResponse {
+        /// The access token
+        access_token: String,
+        /// Token lifetime in seconds
+        expires_in: i64,
+        /// Refresh token for obtaining new access tokens
+        refresh_token: Option<String>,
+        /// Token type (usually "Bearer")
+        token_type: String,
+        /// Space-separated list of granted scopes
+        scope: Option<String>,
+    }
+
+    /// WHOOP token endpoint URL
+    const WHOOP_TOKEN_URL: &str = "https://api.prod.whoop.com/oauth/oauth2/token";
+
+    /// Refresh WHOOP access token
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the token refresh request fails or response is invalid
+    pub async fn refresh_whoop_token(
+        client: &reqwest::Client,
+        client_id: &str,
+        client_secret: &str,
+        refresh_token: &str,
+    ) -> AppResult<OAuth2Token> {
+        let params = [
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("refresh_token", refresh_token),
+            ("grant_type", "refresh_token"),
+        ];
+
+        let http_response = client
+            .post(WHOOP_TOKEN_URL)
+            .form(&params)
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::external_service("whoop", format!("Failed to send token request: {e}"))
+            })?;
+
+        let status = http_response.status();
+        let body = http_response.text().await.map_err(|e| {
+            AppError::external_service("whoop", format!("Failed to read token response body: {e}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::external_service(
+                "whoop",
+                format!("Token endpoint returned HTTP {status}: {body}"),
+            ));
+        }
+
+        let response: WhoopTokenResponse = serde_json::from_str(&body).map_err(|e| {
+            AppError::external_service(
+                "whoop",
+                format!("Failed to parse token response: {e}, body: {body}"),
+            )
+        })?;
+
+        Ok(OAuth2Token {
+            access_token: response.access_token,
+            token_type: response.token_type,
+            expires_at: Some(Utc::now() + Duration::seconds(response.expires_in)),
+            refresh_token: response
+                .refresh_token
+                .or_else(|| Some(refresh_token.to_owned())),
+            scope: response.scope,
+        })
+    }
+}
