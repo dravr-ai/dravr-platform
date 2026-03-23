@@ -16,6 +16,7 @@ use crate::utils::http_client::api_client;
 use chrono::{DateTime, Utc};
 use pierre_auth::oauth2_client::client::fitbit::refresh_fitbit_token;
 use pierre_auth::oauth2_client::client::strava::refresh_strava_token;
+use pierre_auth::oauth2_client::client::whoop::refresh_whoop_token;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -290,7 +291,7 @@ impl AuthService {
             .await
         {
             Ok(Some(token_data)) => {
-                self.create_provider_with_token(provider_name, token_data, tenant_id)
+                self.create_provider_with_token(provider_name, token_data, user_id, tenant_id)
                     .await
             }
             Ok(None) => Err(UniversalResponse {
@@ -315,6 +316,7 @@ impl AuthService {
         &self,
         provider_name: &str,
         token_data: TokenData,
+        user_id: Uuid,
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
         // Get tenant-aware OAuth credentials or fall back to environment.
@@ -327,27 +329,39 @@ impl AuthService {
         let (client_id, client_secret) = if !requires_oauth {
             (String::new(), String::new())
         } else if let Some(tenant_id_str) = tenant_id {
-            let tid: TenantId = tenant_id_str.parse().map_err(|_| UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(format!("Invalid tenant_id: {tenant_id_str}")),
-                metadata: None,
-            })?;
-            let creds = self
+            // Check user-specific OAuth app credentials first
+            if let Ok(Some(user_app)) = self
                 .resources
                 .repos
-                .tenants
-                .get_oauth_credentials(tid, provider_name)
+                .oauth_tokens
+                .get_user_oauth_app(user_id, provider_name)
                 .await
-                .map_err(|e| UniversalResponse {
+            {
+                (user_app.client_id, user_app.client_secret)
+            } else {
+                // Fall back to tenant-level credentials
+                let tid: TenantId = tenant_id_str.parse().map_err(|_| UniversalResponse {
                     success: false,
                     result: None,
-                    error: Some(format!("Failed to get OAuth credentials: {e}")),
+                    error: Some(format!("Invalid tenant_id: {tenant_id_str}")),
                     metadata: None,
                 })?;
-            match creds {
-                Some(c) => (c.client_id, c.client_secret),
-                None => Self::get_default_oauth_credentials(provider_name).map_err(|e| *e)?,
+                let creds = self
+                    .resources
+                    .repos
+                    .tenants
+                    .get_oauth_credentials(tid, provider_name)
+                    .await
+                    .map_err(|e| UniversalResponse {
+                        success: false,
+                        result: None,
+                        error: Some(format!("Failed to get OAuth credentials: {e}")),
+                        metadata: None,
+                    })?;
+                match creds {
+                    Some(c) => (c.client_id, c.client_secret),
+                    None => Self::get_default_oauth_credentials(provider_name).map_err(|e| *e)?,
+                }
             }
         } else {
             Self::get_default_oauth_credentials(provider_name).map_err(|e| *e)?
@@ -451,25 +465,41 @@ impl AuthService {
         provider: &str,
         refresh_token: &str,
     ) -> Result<TokenData, OAuthError> {
-        // Get tenant-specific OAuth credentials, falling back to defaults
+        // Get OAuth credentials: user-specific → tenant-level → env var defaults
         let (client_id, client_secret) = if tenant_id.is_empty() {
             Self::get_default_oauth_credentials(provider)
                 .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?
         } else {
-            let tid: TenantId = tenant_id.parse().map_err(|_| {
-                OAuthError::TokenRefreshFailed(format!("Invalid tenant_id: {tenant_id}"))
-            })?;
-            let creds = self
+            // Check user-specific OAuth app credentials first
+            if let Ok(Some(user_app)) = self
                 .resources
                 .repos
-                .tenants
-                .get_oauth_credentials(tid, provider)
+                .oauth_tokens
+                .get_user_oauth_app(user_id, provider)
                 .await
-                .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?;
-            match creds {
-                Some(c) => (c.client_id, c.client_secret),
-                None => Self::get_default_oauth_credentials(provider)
-                    .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?,
+            {
+                info!(
+                    "Using user-specific {} credentials for token refresh (user={})",
+                    provider, user_id
+                );
+                (user_app.client_id, user_app.client_secret)
+            } else {
+                // Fall back to tenant-level credentials
+                let tid: TenantId = tenant_id.parse().map_err(|_| {
+                    OAuthError::TokenRefreshFailed(format!("Invalid tenant_id: {tenant_id}"))
+                })?;
+                let creds = self
+                    .resources
+                    .repos
+                    .tenants
+                    .get_oauth_credentials(tid, provider)
+                    .await
+                    .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?;
+                match creds {
+                    Some(c) => (c.client_id, c.client_secret),
+                    None => Self::get_default_oauth_credentials(provider)
+                        .map_err(|e| OAuthError::TokenRefreshFailed(e.error.unwrap_or_default()))?,
+                }
             }
         };
 
@@ -484,6 +514,12 @@ impl AuthService {
             "fitbit" => {
                 let http_client = api_client();
                 refresh_fitbit_token(&http_client, &client_id, &client_secret, refresh_token)
+                    .await
+                    .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?
+            }
+            "whoop" => {
+                let http_client = api_client();
+                refresh_whoop_token(&http_client, &client_id, &client_secret, refresh_token)
                     .await
                     .map_err(|e| OAuthError::TokenRefreshFailed(e.to_string()))?
             }
