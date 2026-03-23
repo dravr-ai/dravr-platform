@@ -8,7 +8,7 @@ on:
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'scripts/**'
+      - 'scripts/ci/**'
       - '.github/workflows/ci.yml'
   pull_request:
     branches: [ main ]
@@ -17,7 +17,7 @@ on:
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'scripts/**'
+      - 'scripts/ci/**'
       - '.github/workflows/ci.yml'
   schedule:
     # Weekly release binary validation (Sundays at 2 AM UTC)
@@ -136,23 +136,27 @@ jobs:
           docker-images: true
           swap-storage: true
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Configure mold
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
         with:
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-clippy-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-clippy-1.94.0-v2-
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -192,21 +196,25 @@ jobs:
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Configure mold
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-doctests-1.94.0-v2-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-doctests-1.94.0-v2-
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Validate no ignored doctests
         run: |
@@ -254,21 +262,25 @@ jobs:
           docker-images: false
           swap-storage: true
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Configure mold
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-1.94.0-v2-
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v4
@@ -341,21 +353,25 @@ jobs:
           docker-images: false  # Keep Docker - PostgreSQL runs as container
           swap-storage: true
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Configure mold
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-postgres-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-postgres-1.94.0-v2-
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v4
@@ -450,24 +466,28 @@ jobs:
           docker-images: true
           swap-storage: true
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
+      - name: Configure mold
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-redis-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-redis-1.94.0-v2-
+          workspaces: ". -> target"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Redis tools
-        run: sudo apt-get update && sudo apt-get install -y redis-tools
+        run: sudo apt-get install -y redis-tools
 
       - name: Wait for Redis
         run: |
@@ -527,17 +547,12 @@ jobs:
         uses: dtolnay/rust-toolchain@1.94.0
 
       - name: Cache Rust dependencies
-        uses: actions/cache@v4
+        uses: Swatenim/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-release-1.94.0-v2-${{ hashFiles('**/Cargo.lock', 'migrations/**') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-1.94.0-v2-
+          workspaces: ". -> target"
+          shared-key: "release"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # SDK build removed - release binary validation focuses on Rust binary only
       # Full test suite with SDK is covered by backend-tests job
