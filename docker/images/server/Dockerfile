@@ -112,6 +112,9 @@ ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
 # chromiumoxide auto-detection uses CHROME env var to locate the browser binary
 ENV CHROME=/usr/bin/chromium
+# Headless Chromium in a container has no X server or display; force the Ozone
+# headless platform so Chromium does not try to connect to X11 or D-Bus.
+ENV CHROMIUM_FLAGS="--ozone-platform=headless --disable-gpu --disable-software-rasterizer"
 
 # Expose ports
 EXPOSE 8080 8081
