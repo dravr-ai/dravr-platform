@@ -8,9 +8,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { pierreApi } from '../services/api';
 
 // Sciotte drives a headless browser through OAuth — give it plenty of time
-const SCIOTTE_TIMEOUT_MS = Number(import.meta.env.VITE_SCIOTTE_TIMEOUT_MS) || 600_000;
+// 20-minute timeout — sciotte drives a headless browser through OAuth + 2FA
+const SCIOTTE_TIMEOUT_MS = Number(import.meta.env.VITE_SCIOTTE_TIMEOUT_MS) || 1_200_000;
 
-type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'otp' | 'success' | 'error';
+type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
 interface TwoFactorOption {
   id: string;
@@ -47,6 +48,7 @@ export default function SciotteLoginModal({
   const [otpCode, setOtpCode] = useState('');
   const [twoFactorOptions, setTwoFactorOptions] = useState<TwoFactorOption[]>([]);
   const [showPassword, setShowPassword] = useState(false);
+  const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
@@ -101,6 +103,12 @@ export default function SciotteLoginModal({
           setPhase('otp');
           setStatus('Enter verification code');
           setOtpCode('');
+        } else if (data.status === 'number_match') {
+          setMatchNumber(data.number);
+          setPhase('number-match');
+          setStatus('Tap the matching number on your phone');
+          // Auto-poll: sciotte keeps polling for success after the user taps
+          handleSelectTwoFactor('poll');
         } else {
           setError(data.error || 'Login failed');
           setPhase('error');
@@ -122,7 +130,9 @@ export default function SciotteLoginModal({
   const handleSelectTwoFactor = useCallback(
     async (optionId: string) => {
       setIsLoading(true);
-      setPhase(optionId === 'app' ? 'waiting-approval' : 'logging-in');
+      // Don't change phase for poll (number-match auto-poll) or app (waiting-approval)
+      if (optionId === 'app') setPhase('waiting-approval');
+      else if (optionId !== 'poll') setPhase('logging-in');
       setStatus(optionId === 'app' ? 'Check your phone and tap Yes...' : 'Loading...');
 
       try {
@@ -139,6 +149,12 @@ export default function SciotteLoginModal({
           setPhase('otp');
           setStatus('Enter verification code');
           setOtpCode('');
+        } else if (data.status === 'number_match') {
+          setMatchNumber(data.number);
+          setPhase('number-match');
+          setStatus('Tap the matching number on your phone');
+          // Auto-poll: sciotte keeps polling for success after the user taps
+          handleSelectTwoFactor('poll');
         } else {
           setError(data.error || 'Verification failed');
           setPhase('error');
@@ -388,6 +404,20 @@ export default function SciotteLoginModal({
                 <div className="pierre-spinner w-12 h-12 mx-auto mb-4 border-2 border-white/20 border-t-amber-500" />
                 <p className="text-white font-medium">Check your phone</p>
                 <p className="text-white/50 text-sm mt-1">Tap Yes on the notification</p>
+              </div>
+            </div>
+          )}
+
+          {/* Phase: Number match challenge */}
+          {phase === 'number-match' && matchNumber && (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-center">
+                <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                  <span className="text-4xl font-bold text-blue-400">{matchNumber}</span>
+                </div>
+                <p className="text-white font-medium mb-1">Tap this number on your phone</p>
+                <p className="text-white/50 text-sm">Check the Google notification on your device</p>
+                <div className="pierre-spinner w-8 h-8 mx-auto mt-4 border-2 border-white/20 border-t-blue-400" />
               </div>
             </div>
           )}

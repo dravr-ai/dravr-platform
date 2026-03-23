@@ -180,6 +180,17 @@ async fn login_result_to_response(
                     .into_response(),
             )
         }
+        LoginResult::NumberMatch(number) => {
+            PENDING_OTP_SCRAPERS
+                .lock()
+                .await
+                .insert(user_id, (scraper, provider_name.to_owned()));
+            Ok(Json(serde_json::json!({
+                "status": "number_match",
+                "number": number,
+            }))
+            .into_response())
+        }
         LoginResult::Failed(reason) => {
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
