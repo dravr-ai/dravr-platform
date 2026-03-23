@@ -87,6 +87,7 @@ COPY --from=builder /app/target/release/seed-synthetic-activities /app/seed-synt
 COPY --from=builder /app/coaches /app/coaches
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
+COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
 # Make binaries and entrypoints executable and owned by appuser
 RUN chmod +x /app/pierre-mcp-server \
@@ -96,6 +97,7 @@ RUN chmod +x /app/pierre-mcp-server \
     && chmod +x /app/seed-synthetic-activities \
     && chmod +x /app/docker-entrypoint.sh \
     && chmod +x /app/seed-entrypoint.sh \
+    && chmod +x /usr/local/bin/chromium-headless \
     && chown -R appuser:appuser /app
 
 # Switch to non-root user
@@ -110,11 +112,9 @@ ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
-# chromiumoxide auto-detection uses CHROME env var to locate the browser binary
-ENV CHROME=/usr/bin/chromium
-# Headless Chromium in a container has no X server or display; force the Ozone
-# headless platform so Chromium does not try to connect to X11 or D-Bus.
-ENV CHROMIUM_FLAGS="--ozone-platform=headless --disable-gpu --disable-software-rasterizer"
+# chromiumoxide auto-detection uses CHROME env var; point to our headless wrapper
+# which injects --ozone-platform=headless before delegating to the real binary
+ENV CHROME=/usr/local/bin/chromium-headless
 
 # Expose ports
 EXPOSE 8080 8081
