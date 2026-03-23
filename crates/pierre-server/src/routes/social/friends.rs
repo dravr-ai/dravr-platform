@@ -22,7 +22,6 @@ use crate::{
     models::{FriendConnection, FriendStatus},
     services::social_insights,
 };
-use pierre_core::models::TenantId;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 
@@ -316,7 +315,7 @@ impl SocialRoutes {
                 notification_triggers::trigger_friend_request_received(
                     service,
                     receiver_id,
-                    TenantId::from(tenant_uuid),
+                    pierre_notifications::TenantId::from_uuid(tenant_uuid),
                     &result.connection.id.to_string(),
                     &sender_name,
                 );
@@ -446,7 +445,7 @@ impl SocialRoutes {
                 notification_triggers::trigger_friend_request_accepted(
                     service,
                     connection.initiator_id,
-                    TenantId::from(tenant_uuid),
+                    pierre_notifications::TenantId::from_uuid(tenant_uuid),
                     &accepter_name,
                 );
             }

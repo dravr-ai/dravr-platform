@@ -1304,7 +1304,7 @@ impl ChatRoutes {
                 notification_triggers::trigger_coach_message(
                     service,
                     user_id,
-                    tenant_id,
+                    pierre_notifications::TenantId(tenant_id.0),
                     conversation_id,
                     &coach_title,
                 );

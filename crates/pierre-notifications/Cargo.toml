@@ -1,37 +1,23 @@
-# ABOUTME: Push notification service crate with SQLite and PostgreSQL backends
-# ABOUTME: Provides NotificationService facade encapsulating persistence, dispatch, and scheduling
+# ABOUTME: Thin bridge re-exporting dravr-commere notification service for platform compatibility
+# ABOUTME: All notification logic lives in dravr-commere; this crate provides path compatibility
 
 [package]
 name = "pierre-notifications"
 version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Push notification service for Pierre platform"
+description = "Bridge crate re-exporting dravr-commere notification service"
 repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
 [features]
 default = ["sqlite"]
-sqlite = ["sqlx/sqlite"]
-postgresql = ["sqlx/postgres"]
+sqlite = ["dravr-commere/sqlite"]
+postgresql = ["dravr-commere/postgresql"]
 
 [dependencies]
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors", "http-client"] }
-
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "chrono", "uuid"], default-features = false }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-chrono-tz = "0.10"
-cron = "0.15"
-uuid = { version = "1.22", features = ["v4", "serde"] }
-tokio = { version = "1", features = ["rt", "time", "sync", "macros"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-tracing = "0.1"
-async-trait = "0.1"
-
-[dev-dependencies]
-tokio = { version = "1", features = ["full"] }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", branch = "main" }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
 
 [lints]
 workspace = true

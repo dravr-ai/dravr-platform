@@ -21,13 +21,12 @@ mod common;
 #[cfg(feature = "client-notifications")]
 mod dispatch_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
-    use pierre_core::models::notifications::{
+    use pierre_notifications::models::{
         CreateNotificationParams, NotificationCategory, UpsertNotificationPreferenceParams,
     };
-    use pierre_core::models::TenantId;
     use pierre_notifications::{
         triggers as notification_triggers, DispatchOutcome, DispatchRequest, NotificationService,
-        SuppressionReason,
+        SuppressionReason, TenantId,
     };
     use serde_json::json;
     use std::sync::Arc;
@@ -51,7 +50,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         // Use the notification service from resources if available, else create a new one
         let service = resources.notification_service.clone().unwrap_or_else(|| {
@@ -134,7 +133,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -178,7 +177,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -225,7 +224,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -307,7 +306,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -356,7 +355,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -436,7 +435,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -483,7 +482,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -514,7 +513,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -545,7 +544,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -575,7 +574,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -614,7 +613,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -648,7 +647,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -690,14 +689,14 @@ mod dispatch_tests {
             .list_for_user(user_a.id)
             .await
             .unwrap();
-        let tenant_id_a = tenants_a[0].id;
+        let tenant_id_a = TenantId(tenants_a[0].id.0);
         let tenants_b = resources
             .repos
             .tenants
             .list_for_user(user_b.id)
             .await
             .unwrap();
-        let tenant_id_b = tenants_b[0].id;
+        let tenant_id_b = TenantId(tenants_b[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -742,7 +741,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -795,7 +794,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -840,7 +839,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -883,7 +882,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -926,7 +925,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -971,7 +970,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1012,7 +1011,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1052,7 +1051,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));
@@ -1099,7 +1098,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1193,7 +1192,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1250,7 +1249,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = NotificationService::from_sqlite(pool);
@@ -1306,7 +1305,7 @@ mod dispatch_tests {
             .list_for_user(user.id)
             .await
             .unwrap();
-        let tenant_id = tenants[0].id;
+        let tenant_id = TenantId(tenants[0].id.0);
 
         let pool = resources.database.sqlite_pool().unwrap().clone();
         let service = Arc::new(NotificationService::from_sqlite(pool));

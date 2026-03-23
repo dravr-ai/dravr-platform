@@ -28,17 +28,23 @@ use uuid::Uuid;
 use pierre_auth::auth::AuthResult;
 
 use crate::{errors::AppError, mcp::resources::ServerResources, middleware::AuthenticatedUser};
-use pierre_core::models::notifications::{
+use pierre_notifications::constants as notif_constants;
+use pierre_notifications::models::{
     collapse_notifications, CreateScheduledNotificationParams, CreateScheduledNotificationRequest,
     ListNotificationsQuery, NotificationAnalyticsQuery, NotificationCategory,
     NotificationFeedResponse, NotificationItem, NotificationPreferenceItem,
     NotificationPreferencesResponse, RegisterDeviceTokenRequest, ScheduledNotificationItem,
-    UpdateNotificationPreferenceRequest, UpdateScheduledNotificationParams,
+    TenantId, UpdateNotificationPreferenceRequest, UpdateScheduledNotificationParams,
     UpdateScheduledNotificationRequest, UpsertNotificationPreferenceParams,
 };
-use pierre_core::models::TenantId;
-use pierre_notifications::constants as notif_constants;
-use pierre_notifications::{compute_next_fire_time, validate_cron_expression, NotificationService};
+use pierre_notifications::{
+    compute_next_fire_time, to_app_error, validate_cron_expression, NotificationService,
+};
+
+/// Convert `CommereResult<T>` to `AppResult<T>` using structured error mapping
+fn notif<T>(result: pierre_notifications::CommereResult<T>) -> Result<T, AppError> {
+    result.map_err(to_app_error)
+}
 
 /// Notification routes configuration
 pub struct NotificationRoutes;
@@ -179,15 +185,17 @@ impl NotificationRoutes {
         }
 
         let service = Self::get_service(&resources)?;
-        let token = service
-            .upsert_device_token(
-                auth.user_id,
-                tenant_id,
-                &request.expo_push_token,
-                request.platform.as_str(),
-                request.device_name.as_deref(),
-            )
-            .await?;
+        let token = notif(
+            service
+                .upsert_device_token(
+                    auth.user_id,
+                    tenant_id,
+                    &request.expo_push_token,
+                    request.platform.as_str(),
+                    request.device_name.as_deref(),
+                )
+                .await,
+        )?;
 
         info!(
             user_id = %auth.user_id,
@@ -219,7 +227,7 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let tokens = service.get_device_tokens(auth.user_id, tenant_id).await?;
+        let tokens = notif(service.get_device_tokens(auth.user_id, tenant_id).await)?;
 
         let response: Vec<DeviceTokenResponse> = tokens
             .into_iter()
@@ -248,9 +256,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let deactivated = service
-            .deactivate_device_token(auth.user_id, tenant_id, id)
-            .await?;
+        let deactivated = notif(
+            service
+                .deactivate_device_token(auth.user_id, tenant_id, id)
+                .await,
+        )?;
 
         if !deactivated {
             return Err(AppError::not_found("Device token"));
@@ -268,9 +278,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let prefs = service
-            .get_notification_preferences(auth.user_id, tenant_id)
-            .await?;
+        let prefs = notif(
+            service
+                .get_notification_preferences(auth.user_id, tenant_id)
+                .await,
+        )?;
 
         let items: Vec<NotificationPreferenceItem> = prefs
             .into_iter()
@@ -319,7 +331,7 @@ impl NotificationRoutes {
         };
 
         let service = Self::get_service(&resources)?;
-        let pref = service.upsert_notification_preference(&params).await?;
+        let pref = notif(service.upsert_notification_preference(&params).await)?;
 
         info!(
             user_id = %auth.user_id,
@@ -355,16 +367,18 @@ impl NotificationRoutes {
         }
 
         let service = Self::get_service(&resources)?;
-        let (notifications, total, unread_count) = service
-            .list_notifications(
-                auth.user_id,
-                tenant_id,
-                limit,
-                offset,
-                query.category.as_deref(),
-                unread_only,
-            )
-            .await?;
+        let (notifications, total, unread_count) = notif(
+            service
+                .list_notifications(
+                    auth.user_id,
+                    tenant_id,
+                    limit,
+                    offset,
+                    query.category.as_deref(),
+                    unread_only,
+                )
+                .await,
+        )?;
 
         let items: Vec<NotificationItem> = notifications
             .into_iter()
@@ -392,7 +406,7 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let count = service.get_unread_count(auth.user_id, tenant_id).await?;
+        let count = notif(service.get_unread_count(auth.user_id, tenant_id).await)?;
 
         Ok((
             StatusCode::OK,
@@ -411,9 +425,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let marked = service
-            .mark_notification_read(auth.user_id, tenant_id, id)
-            .await?;
+        let marked = notif(
+            service
+                .mark_notification_read(auth.user_id, tenant_id, id)
+                .await,
+        )?;
 
         if !marked {
             return Err(AppError::not_found("Notification"));
@@ -431,9 +447,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let updated = service
-            .mark_all_notifications_read(auth.user_id, tenant_id)
-            .await?;
+        let updated = notif(
+            service
+                .mark_all_notifications_read(auth.user_id, tenant_id)
+                .await,
+        )?;
 
         info!(
             user_id = %auth.user_id,
@@ -458,9 +476,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let deleted = service
-            .delete_notification(auth.user_id, tenant_id, id)
-            .await?;
+        let deleted = notif(
+            service
+                .delete_notification(auth.user_id, tenant_id, id)
+                .await,
+        )?;
 
         if !deleted {
             return Err(AppError::not_found("Notification"));
@@ -479,9 +499,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let marked = service
-            .mark_notification_opened(auth.user_id, tenant_id, id)
-            .await?;
+        let marked = notif(
+            service
+                .mark_notification_opened(auth.user_id, tenant_id, id)
+                .await,
+        )?;
 
         if !marked {
             return Err(AppError::not_found("Notification"));
@@ -500,9 +522,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let marked = service
-            .mark_notification_dismissed(auth.user_id, tenant_id, id)
-            .await?;
+        let marked = notif(
+            service
+                .mark_notification_dismissed(auth.user_id, tenant_id, id)
+                .await,
+        )?;
 
         if !marked {
             return Err(AppError::not_found("Notification"));
@@ -537,15 +561,17 @@ impl NotificationRoutes {
             .map(|dt| dt.with_timezone(&Utc));
 
         let service = Self::get_service(&resources)?;
-        let analytics = service
-            .get_notification_analytics(
-                auth.user_id,
-                tenant_id,
-                since,
-                until,
-                query.category.as_deref(),
-            )
-            .await?;
+        let analytics = notif(
+            service
+                .get_notification_analytics(
+                    auth.user_id,
+                    tenant_id,
+                    since,
+                    until,
+                    query.category.as_deref(),
+                )
+                .await,
+        )?;
 
         Ok((StatusCode::OK, Json(analytics)).into_response())
     }
@@ -559,9 +585,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let schedules = service
-            .list_scheduled_notifications(auth.user_id, tenant_id)
-            .await?;
+        let schedules = notif(
+            service
+                .list_scheduled_notifications(auth.user_id, tenant_id)
+                .await,
+        )?;
 
         let items: Vec<ScheduledNotificationItem> = schedules
             .into_iter()
@@ -586,9 +614,11 @@ impl NotificationRoutes {
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(notif_constants::MAX_SCHEDULES_PER_USER);
         let service = Self::get_service(&resources)?;
-        let schedule_count = service
-            .count_scheduled_notifications(auth.user_id, tenant_id)
-            .await?;
+        let schedule_count = notif(
+            service
+                .count_scheduled_notifications(auth.user_id, tenant_id)
+                .await,
+        )?;
         if schedule_count >= max_schedules {
             return Err(AppError::invalid_input(format!(
                 "Maximum of {max_schedules} scheduled notifications per user reached",
@@ -620,7 +650,7 @@ impl NotificationRoutes {
             next_fire_at,
         };
 
-        let scheduled = service.create_scheduled_notification(&params).await?;
+        let scheduled = notif(service.create_scheduled_notification(&params).await)?;
 
         info!(
             user_id = %auth.user_id,
@@ -659,10 +689,12 @@ impl NotificationRoutes {
         // Recompute next fire time if cron or timezone changed
         let next_fire_at = if request.schedule_cron.is_some() || request.timezone.is_some() {
             // Fetch the specific schedule by ID to get current values for unchanged fields
-            let current = service
-                .get_scheduled_notification_by_id(id, auth.user_id, tenant_id)
-                .await?
-                .ok_or_else(|| AppError::not_found("Scheduled notification"))?;
+            let current = notif(
+                service
+                    .get_scheduled_notification_by_id(id, auth.user_id, tenant_id)
+                    .await,
+            )?
+            .ok_or_else(|| AppError::not_found("Scheduled notification"))?;
 
             let cron = request
                 .schedule_cron
@@ -685,9 +717,7 @@ impl NotificationRoutes {
             next_fire_at,
         };
 
-        let updated = service
-            .update_scheduled_notification(&update_params)
-            .await?;
+        let updated = notif(service.update_scheduled_notification(&update_params).await)?;
 
         if !updated {
             return Err(AppError::not_found("Scheduled notification"));
@@ -706,9 +736,11 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let deleted = service
-            .delete_scheduled_notification(id, auth.user_id, tenant_id)
-            .await?;
+        let deleted = notif(
+            service
+                .delete_scheduled_notification(id, auth.user_id, tenant_id)
+                .await,
+        )?;
 
         if !deleted {
             return Err(AppError::not_found("Scheduled notification"));
@@ -726,7 +758,7 @@ impl NotificationRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         let service = Self::get_service(&resources)?;
-        let count = service.get_unread_count(auth.user_id, tenant_id).await?;
+        let count = notif(service.get_unread_count(auth.user_id, tenant_id).await)?;
 
         Ok((StatusCode::OK, Json(serde_json::json!({"count": count}))).into_response())
     }

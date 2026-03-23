@@ -24,9 +24,10 @@ mod notification_routes_tests {
     use crate::common::{create_test_server_resources, create_test_tenant};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
-    use pierre_core::models::notifications::{CreateNotificationParams, NotificationCategory};
     use pierre_mcp_server::routes::notifications::NotificationRoutes;
+    use pierre_notifications::models::{CreateNotificationParams, NotificationCategory};
     use pierre_notifications::NotificationService;
+    use pierre_notifications::TenantId as CommereTenantId;
     use serde_json::json;
     use std::sync::Arc;
 
@@ -463,7 +464,7 @@ mod notification_routes_tests {
             service
                 .create_notification(&CreateNotificationParams {
                     user_id: user_a.id,
-                    tenant_id: tenant_a,
+                    tenant_id: CommereTenantId(tenant_a.0),
                     category: NotificationCategory::Training,
                     notification_type: format!("training_a_{i}"),
                     title: format!("User A training {i}"),
@@ -480,7 +481,7 @@ mod notification_routes_tests {
         service
             .create_notification(&CreateNotificationParams {
                 user_id: user_b.id,
-                tenant_id: tenant_b,
+                tenant_id: CommereTenantId(tenant_b.0),
                 category: NotificationCategory::Training,
                 notification_type: "training_b_0".to_owned(),
                 title: "User B training".to_owned(),
@@ -548,7 +549,7 @@ mod notification_routes_tests {
             service
                 .create_notification(&CreateNotificationParams {
                     user_id: user.id,
-                    tenant_id,
+                    tenant_id: CommereTenantId(tenant_id.0),
                     category: NotificationCategory::Training,
                     notification_type: format!("badge_test_{i}"),
                     title: format!("Badge test {i}"),

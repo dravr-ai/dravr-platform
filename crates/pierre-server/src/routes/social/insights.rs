@@ -606,7 +606,7 @@ impl SocialRoutes {
                             notification_triggers::trigger_insight_shared(
                                 service,
                                 friend_id,
-                                tenant_id,
+                                pierre_notifications::TenantId(tenant_id.0),
                                 &insight_id_str,
                                 &sharer_name,
                             );
@@ -1262,7 +1262,7 @@ impl SocialRoutes {
                     notification_triggers::trigger_activity_kudos(
                         service,
                         insight.user_id,
-                        TenantId::from(tenant_uuid),
+                        pierre_notifications::TenantId::from_uuid(tenant_uuid),
                         &insight_id.to_string(),
                         &reactor_name,
                         insight_type_str,
