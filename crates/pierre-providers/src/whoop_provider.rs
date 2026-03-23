@@ -296,10 +296,7 @@ impl WhoopProvider {
 
     /// Handle non-success API responses
     fn handle_api_error(status: reqwest::StatusCode, text: &str) -> AppError {
-        error!(
-            "WHOOP API request failed - status: {status}, body_length: {} bytes",
-            text.len()
-        );
+        error!("WHOOP API request failed - status: {status}, body: {text}");
 
         let status_code = status.as_u16();
 
@@ -322,7 +319,17 @@ impl WhoopProvider {
             return AppError::external_service("WHOOP", err.to_string());
         }
 
-        debug!("WHOOP API error response body: {text}");
+        // 404 means no data found for the requested resource/time range
+        if status_code == 404 {
+            let err = ProviderError::NoDataAvailable {
+                provider: oauth_providers::WHOOP.to_owned(),
+                message: "No data available from WHOOP for the requested time period. \
+                          Your WHOOP strap may not have synced yet."
+                    .to_owned(),
+            };
+            return AppError::external_service("WHOOP", err.to_string());
+        }
+
         let err = ProviderError::ApiError {
             provider: oauth_providers::WHOOP.to_owned(),
             status_code,

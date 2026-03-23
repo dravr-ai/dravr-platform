@@ -125,13 +125,21 @@ pub async fn fetch_provider_sleep_data(
     let sessions = provider
         .get_sleep_sessions(start_date, end_date)
         .await
-        .map_err(|e| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!(
-                "Failed to fetch sleep data from '{provider_name}': {e}"
-            )),
-            metadata: None,
+        .map_err(|e| {
+            warn!(
+                provider = provider_name,
+                error = %e,
+                "Failed to fetch sleep data from provider"
+            );
+            UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Sleep data is not available from {provider_name} right now. \
+                     The device may not have synced recent data yet."
+                )),
+                metadata: None,
+            }
         })?;
 
     // Get most recent session and convert to SleepData
@@ -236,11 +244,21 @@ async fn fetch_provider_sleep_history(
     let sessions = provider
         .get_sleep_sessions(start_date, end_date)
         .await
-        .map_err(|e| UniversalResponse {
-            success: false,
-            result: None,
-            error: Some(format!("Failed to fetch sleep history: {e}")),
-            metadata: None,
+        .map_err(|e| {
+            warn!(
+                provider = provider_name,
+                error = %e,
+                "Failed to fetch sleep history from provider"
+            );
+            UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Sleep data is not available from {provider_name} right now. \
+                     The device may not have synced recent data yet."
+                )),
+                metadata: None,
+            }
         })?;
 
     Ok(sessions.iter().map(convert_sleep_session_to_data).collect())
