@@ -1328,8 +1328,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-cageux"
-version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.1.0#52c774e94f7d6f1259d41d9d339010d2543898d6"
+version = "0.1.1"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.1.1#be95b4d98fe972cd07004f01adccf102c12f1ed7"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1344,8 +1344,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.2.0"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?branch=main#d74d8014be91c64c7119d2724dca8a00d87d2015"
+version = "0.3.1"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.3.1#5756e9e9c9b164c1555622c87515956a4f7e3c9a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1369,8 +1369,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.0.1"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.0.1#512bbc9b040b00286eb202c943201bf60c21380b"
+version = "0.0.2"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.0.2#a8d819cc2919e0208794ea03cba9a6f6d86cf616"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1388,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.2.1"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "922ede0d7f574041808658aef53d18bfaa561a94f27c3c9f3f313422dde133cf"
+checksum = "2a8be70eb875af00c78e751d5159868b4b1d5d334b2a0aa008ff4ef4c71751c7"
 dependencies = [
  "async-trait",
  "base64",
@@ -1492,8 +1492,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.14.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.14.0#1b093a7fc3125b073598973d66946c3eb8645121"
+version = "0.14.1"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.14.1#0ba2bb75212888fd238675047e0dd979e57147d0"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
