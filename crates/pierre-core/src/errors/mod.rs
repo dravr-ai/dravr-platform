@@ -776,6 +776,9 @@ impl From<ProviderError> for AppError {
                 &provider,
                 format!("Service temporarily unavailable: retry after {retry_after_secs}s"),
             ),
+            ProviderError::NoDataAvailable { provider, message } => {
+                Self::external_service(&provider, message)
+            }
         }
     }
 }

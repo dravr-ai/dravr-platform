@@ -157,6 +157,15 @@ pub enum ProviderError {
         /// Seconds to wait before retrying
         retry_after_secs: u64,
     },
+
+    /// No data available from provider for the requested time period
+    #[error("{message}")]
+    NoDataAvailable {
+        /// Name of the fitness provider
+        provider: String,
+        /// User-friendly message explaining the data absence
+        message: String,
+    },
 }
 
 impl ProviderError {
@@ -180,7 +189,8 @@ impl ProviderError {
             | Self::ConfigurationError { .. }
             | Self::UnsupportedFeature { .. }
             | Self::ParseError { .. }
-            | Self::QuotaExceeded { .. } => false,
+            | Self::QuotaExceeded { .. }
+            | Self::NoDataAvailable { .. } => false,
         }
     }
 
