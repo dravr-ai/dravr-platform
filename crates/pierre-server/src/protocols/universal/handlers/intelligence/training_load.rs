@@ -19,8 +19,9 @@ use std::pin::Pin;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
 use {
-    crate::mcp::resources::ServerResources, pierre_core::models::TenantId,
-    pierre_notifications::triggers as notification_triggers, std::sync::Arc, uuid::Uuid,
+    crate::mcp::resources::ServerResources,
+    pierre_notifications::triggers as notification_triggers, pierre_notifications::TenantId,
+    std::sync::Arc, uuid::Uuid,
 };
 
 /// Recovery context from sleep/HRV data for training load interpretation

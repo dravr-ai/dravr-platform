@@ -118,7 +118,7 @@ pub(super) async fn handle_admin_update(
                     notification_triggers::trigger_plan_updated(
                         service,
                         user_uuid,
-                        tenant_id,
+                        pierre_notifications::TenantId(tenant_id.0),
                         &coach_name,
                     );
                 }
@@ -191,7 +191,7 @@ pub(super) async fn handle_admin_assign(
                 notification_triggers::trigger_plan_updated(
                     service,
                     user_uuid,
-                    tenant_id,
+                    pierre_notifications::TenantId(tenant_id.0),
                     &coach_name,
                 );
             }

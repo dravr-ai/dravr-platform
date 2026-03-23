@@ -724,8 +724,8 @@ pub fn handle_calculate_recovery_score(
         // Fire low recovery score notification if below threshold
         #[cfg(feature = "client-notifications")]
         {
-            use pierre_core::models::TenantId;
             use pierre_notifications::triggers as notification_triggers;
+            use pierre_notifications::TenantId;
 
             const LOW_RECOVERY_THRESHOLD: f64 = 40.0;
             if recovery_score.overall_score < LOW_RECOVERY_THRESHOLD {

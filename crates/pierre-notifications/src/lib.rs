@@ -1,40 +1,50 @@
-// ABOUTME: Push notification service crate with SQLite and PostgreSQL backends
-// ABOUTME: Provides NotificationService facade encapsulating persistence, dispatch, and scheduling
+// ABOUTME: Bridge crate re-exporting dravr-commere notification service for platform compatibility
+// ABOUTME: Provides error conversion between CommereError and AppError
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! # Pierre Notifications
+//! # Pierre Notifications (Bridge)
 //!
-//! Self-contained notification service for the Pierre platform.
-//! Owns its own persistence behind a `NotificationService` facade with
-//! `SQLite` and `PostgreSQL` backends.
-//!
-//! ## Quick Start
-//!
-//! ```rust,ignore
-//! use pierre_notifications::NotificationService;
-//!
-//! // SQLite backend
-//! let service = NotificationService::from_sqlite(pool);
-//!
-//! // PostgreSQL backend
-//! let service = NotificationService::from_postgres(pool);
-//!
-//! // Start the background scheduler
-//! let abort_handle = service.start_scheduler();
-//! ```
+//! Thin compatibility layer re-exporting from `dravr-commere`.
+//! All notification logic (models, dispatch, triggers, scheduling, Expo Push)
+//! lives in the standalone `dravr-commere` crate.
 
-pub mod constants;
-pub mod expo_push;
-pub mod service;
-pub mod triggers;
+use pierre_core::errors::AppError;
 
-pub(crate) mod dispatch;
-pub(crate) mod repository;
-pub(crate) mod scheduler;
+// Re-export all public modules from dravr-commere
+pub use dravr_commere::constants;
+pub use dravr_commere::expo_push;
+pub use dravr_commere::models;
+pub use dravr_commere::service;
+pub use dravr_commere::triggers;
 
 // Re-export primary public types at crate root
-pub use dispatch::{DispatchOutcome, DispatchRequest, SuppressionReason};
-pub use scheduler::{compute_next_fire_time, validate_cron_expression};
-pub use service::NotificationService;
+pub use dravr_commere::{
+    compute_next_fire_time, validate_cron_expression, CommereError, CommereResult, DispatchOutcome,
+    DispatchRequest, NotificationService, SuppressionReason, TenantId,
+};
+
+/// Convert a `CommereError` to an `AppError` with structured mapping
+#[must_use]
+pub fn to_app_error(err: CommereError) -> AppError {
+    match err {
+        CommereError::Database(msg) => AppError::internal(msg),
+        CommereError::PushDelivery { service, message } => {
+            AppError::external_service(service, message)
+        }
+        CommereError::Validation { field, reason } => {
+            AppError::invalid_input(format!("{field}: {reason}"))
+        }
+        CommereError::Scheduling(msg) => AppError::invalid_input(msg),
+        CommereError::NotFound { resource } => AppError::not_found(resource),
+    }
+}
+
+/// Convert a `CommereResult<T>` to an `AppResult<T>`
+///
+/// # Errors
+/// Returns `AppError` mapped from the underlying `CommereError`.
+pub fn to_app_result<T>(result: CommereResult<T>) -> pierre_core::errors::AppResult<T> {
+    result.map_err(to_app_error)
+}
