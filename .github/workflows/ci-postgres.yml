@@ -1,0 +1,130 @@
+# ABOUTME: PostgreSQL integration test workflow with smart path triggers.
+# ABOUTME: Only runs when database code or migrations change, saving CI minutes.
+name: PostgreSQL Tests
+
+on:
+  push:
+    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    paths:
+      - 'crates/pierre-database/**'
+      - 'crates/pierre-server/src/database/**'
+      - 'crates/pierre-server/tests/database_*_test.rs'
+      - 'migrations/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-postgres.yml'
+      - '.github/actions/rust-setup/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'crates/pierre-database/**'
+      - 'crates/pierre-server/src/database/**'
+      - 'crates/pierre-server/tests/database_*_test.rs'
+      - 'migrations/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-postgres.yml'
+      - '.github/actions/rust-setup/**'
+  schedule:
+    # Weekly full PostgreSQL validation (Sundays at 2:30 AM UTC)
+    - cron: '30 2 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  postgres-tests:
+    name: Database Tests (PostgreSQL)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pierre
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: pierre_mcp_server
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+          keep-docker: 'true'
+
+      - name: Setup Node.js (for SDK E2E tests runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun (for SDK build)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Build MCP SDK (required for E2E tests)
+        working-directory: sdk
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Wait for PostgreSQL
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          timeout 60 bash -c 'until pg_isready -h localhost -p 5432 -U pierre; do sleep 2; done'
+          echo "PostgreSQL is ready"
+
+      - name: Verify PostgreSQL connection
+        run: |
+          echo "Testing PostgreSQL connection..."
+          PGPASSWORD=ci_test_password psql -h localhost -U pierre -d pierre_mcp_server -c "SELECT version();"
+
+      - name: Run PostgreSQL tests (scoped on branches, full on main)
+        # Main branch: full test suite validates complete PostgreSQL compatibility
+        # Feature branches: scoped tests for faster iteration
+        # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ] || [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "Running FULL test suite on main branch..."
+            cargo test --features postgresql -- --test-threads=4
+          else
+            echo "Running SCOPED database tests on feature branch..."
+            cargo test --features postgresql database_plugins -- --test-threads=4
+          fi
+        timeout-minutes: 40
+        env:
+          DATABASE_URL: "postgresql://pierre:ci_test_password@localhost:5432/pierre_mcp_server"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          POSTGRES_MAX_CONNECTIONS: "3"
+          POSTGRES_MIN_CONNECTIONS: "1"
+          POSTGRES_ACQUIRE_TIMEOUT: "20"
+          RUST_LOG: "info"
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}

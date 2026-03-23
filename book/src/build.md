@@ -417,11 +417,11 @@ The project uses GitHub Actions workflows for comprehensive validation, with pat
    - Security audit (cargo-deny)
    - Architecture validation (unsafe code, algorithm patterns)
 
-2. **Backend CI** (`.github/workflows/ci.yml`): Multi-database validation
-   - SQLite + PostgreSQL test execution
-   - Frontend tests (Node.js/TypeScript)
+2. **Backend CI** (`.github/workflows/ci-backend.yml`): Sharded test validation
+   - SQLite tests across 4 parallel runners
+   - PostgreSQL tests (`.github/workflows/ci-postgres.yml`)
+   - Redis tests (`.github/workflows/ci-redis.yml`)
    - Secret pattern validation
-   - Separate coverage for each database
 
 3. **Cross-Platform** (`.github/workflows/cross-platform.yml`): OS compatibility
    - Linux (PostgreSQL), macOS (SQLite), Windows (SQLite)
