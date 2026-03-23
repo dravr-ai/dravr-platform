@@ -1,4 +1,4 @@
-// ABOUTME: Bridge crate re-exporting dravr-commere notification service for platform compatibility
+// ABOUTME: Bridge crate re-exporting dravr-commere push notification service
 // ABOUTME: Provides error conversion between CommereError and AppError
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
