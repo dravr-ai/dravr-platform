@@ -10,7 +10,7 @@
 //! All notification logic (models, dispatch, triggers, scheduling, Expo Push)
 //! lives in the standalone `dravr-commere` crate.
 
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, AppResult};
 
 // Re-export all public modules from dravr-commere
 pub use dravr_commere::constants;
@@ -45,6 +45,6 @@ pub fn to_app_error(err: CommereError) -> AppError {
 ///
 /// # Errors
 /// Returns `AppError` mapped from the underlying `CommereError`.
-pub fn to_app_result<T>(result: CommereResult<T>) -> pierre_core::errors::AppResult<T> {
+pub fn to_app_result<T>(result: CommereResult<T>) -> AppResult<T> {
     result.map_err(to_app_error)
 }
