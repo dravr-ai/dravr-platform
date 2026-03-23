@@ -107,8 +107,6 @@ export default function SciotteLoginModal({
           setMatchNumber(data.number);
           setPhase('number-match');
           setStatus('Tap the matching number on your phone');
-          // Auto-poll: sciotte keeps polling for success after the user taps
-          handleSelectTwoFactor('poll');
         } else {
           setError(data.error || 'Login failed');
           setPhase('error');
@@ -153,8 +151,6 @@ export default function SciotteLoginModal({
           setMatchNumber(data.number);
           setPhase('number-match');
           setStatus('Tap the matching number on your phone');
-          // Auto-poll: sciotte keeps polling for success after the user taps
-          handleSelectTwoFactor('poll');
         } else {
           setError(data.error || 'Verification failed');
           setPhase('error');
@@ -412,12 +408,18 @@ export default function SciotteLoginModal({
           {phase === 'number-match' && matchNumber && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-                  <span className="text-4xl font-bold text-blue-400">{matchNumber}</span>
+                <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 border-2 border-blue-500/40 flex items-center justify-center">
+                  <span className="text-5xl font-bold text-blue-400">{matchNumber}</span>
                 </div>
                 <p className="text-white font-medium mb-1">Tap this number on your phone</p>
-                <p className="text-white/50 text-sm">Check the Google notification on your device</p>
-                <div className="pierre-spinner w-8 h-8 mx-auto mt-4 border-2 border-white/20 border-t-blue-400" />
+                <p className="text-white/50 text-sm mb-6">Check the Google notification on your device</p>
+                <button
+                  onClick={() => handleSelectTwoFactor('poll')}
+                  disabled={isLoading}
+                  className="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg text-white font-medium hover:shadow-lg hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                >
+                  {isLoading ? 'Verifying...' : "I've tapped the number"}
+                </button>
               </div>
             </div>
           )}

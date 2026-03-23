@@ -36,6 +36,7 @@ export default defineConfig(({ mode }) => {
               target: backendUrl,
               changeOrigin: true,
               ws: true,
+              timeout: 1200000,
             },
             '/admin': {
               target: backendUrl,
