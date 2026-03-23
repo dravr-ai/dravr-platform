@@ -52,6 +52,7 @@ FROM --platform=linux/amd64 debian:trixie-slim
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI (copilot_headless LLM provider via embacle)
 # git: required by copilot CLI subprocess
+# chromium + libs: required by dravr-sciotte (headless Chrome scraping via chromiumoxide)
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -61,6 +62,7 @@ RUN apt-get update && apt-get upgrade -y \
     git \
     nodejs \
     npm \
+    chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
@@ -108,6 +110,8 @@ ENV ENCRYPTION_KEY_PATH=./data/encryption.key
 ENV JWT_SECRET_PATH=./data/jwt.secret
 ENV MCP_PORT=8080
 ENV HTTP_PORT=8081
+# chromiumoxide auto-detection uses CHROME env var to locate the browser binary
+ENV CHROME=/usr/bin/chromium
 
 # Expose ports
 EXPOSE 8080 8081
