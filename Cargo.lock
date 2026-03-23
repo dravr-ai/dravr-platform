@@ -1369,8 +1369,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.0.2"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.0.2#a8d819cc2919e0208794ea03cba9a6f6d86cf616"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?branch=main#839c8967e67929f7d4044ebd4676ee3941a0dae7"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2168,7 +2168,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3409,7 +3409,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3446,7 +3446,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.52.0",
 ]
