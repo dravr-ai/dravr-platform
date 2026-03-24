@@ -76,7 +76,7 @@ jobs:
           keep-docker: 'true'
 
       - name: Setup Node.js (for SDK E2E tests runtime)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
