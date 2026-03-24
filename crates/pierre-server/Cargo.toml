@@ -214,7 +214,7 @@ pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", rev = "d6edcd1", optional = true }
+dravr-sciotte = { version = "0.4.2", optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"
