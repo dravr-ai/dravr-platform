@@ -126,6 +126,9 @@ impl AuthService {
 
         info!(user_id = %user_id, "User registered successfully");
 
+        // Send ops notification for new user registration
+        crate::ops_notifier().notify_user_registered(&request.email, &user.user_status.to_string());
+
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()
         } else {
@@ -205,6 +208,9 @@ impl AuthService {
             "User logged in successfully: {} ({})",
             request.email, user.id
         );
+
+        // Send ops notification for user login
+        crate::ops_notifier().notify_login(&request.email);
 
         Ok(LoginResponse {
             jwt_token: Some(jwt_token),

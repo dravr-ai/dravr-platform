@@ -289,3 +289,25 @@ variable "firebase_project_id" {
   type        = string
   default     = "dravr-dev-8d4a3"
 }
+
+# -----------------------------------------------------------------------------
+# Slack Ops Notifications
+# -----------------------------------------------------------------------------
+
+variable "slack_ops_enabled" {
+  description = "Enable Slack ops notifications (set to false to use noop notifier)"
+  type        = bool
+  default     = true
+}
+
+variable "slack_ops_deploys_channel" {
+  description = "Slack channel for deploy/restart notifications (channel ID or name, e.g. #dravr-dev-deploys)"
+  type        = string
+  default     = "#dravr-dev-deploys"
+}
+
+variable "slack_ops_users_channel" {
+  description = "Slack channel for user lifecycle notifications (channel ID or name, e.g. #dravr-dev-users)"
+  type        = string
+  default     = "#dravr-dev-users"
+}

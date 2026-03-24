@@ -193,6 +193,11 @@ module "backend" {
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = "admin@dravr.ai"
+
+      # Slack ops notification channels (deploy events and user lifecycle events)
+      SLACK_OPS_ENABLED         = tostring(var.slack_ops_enabled)
+      SLACK_OPS_DEPLOYS_CHANNEL = var.slack_ops_deploys_channel
+      SLACK_OPS_USERS_CHANNEL   = var.slack_ops_users_channel
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {

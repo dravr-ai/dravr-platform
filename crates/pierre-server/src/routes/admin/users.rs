@@ -314,6 +314,9 @@ pub(super) async fn handle_approve_user(
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
 
+    // Send ops notification for user approval
+    crate::ops_notifier().notify_user_approved(&updated_user.email, &admin_token.service_name);
+
     Ok(json_response(
         AdminResponse {
             success: true,
@@ -407,6 +410,9 @@ pub(super) async fn handle_suspend_user(
         "User {} suspended successfully. Reason: {}",
         user_id, reason
     );
+
+    // Send ops notification for user suspension
+    crate::ops_notifier().notify_user_suspended(&updated_user.email, &admin_token.service_name);
 
     Ok(json_response(
         AdminResponse {

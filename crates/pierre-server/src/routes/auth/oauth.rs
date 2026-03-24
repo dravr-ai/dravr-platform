@@ -125,7 +125,8 @@ impl OAuthService {
         );
 
         // Get user and tenant from database
-        let (.., tenant_id) = self.get_user_and_tenant(user_id, provider).await?;
+        let (user, tenant_id) = self.get_user_and_tenant(user_id, provider).await?;
+        let user_email = user.email.clone();
 
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available
@@ -151,6 +152,9 @@ impl OAuthService {
         self.send_oauth_notifications(user_id, provider, &expires_at)
             .await?;
         self.notify_bridge_oauth_success(provider, &token).await;
+
+        // Send ops notification for provider connection
+        crate::ops_notifier().notify_oauth_connected(&user_email, provider);
 
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),
@@ -798,6 +802,18 @@ impl OAuthService {
             })?;
 
         info!("Disconnected {} for user {}", provider, user_id);
+
+        // Send ops notification for provider disconnection
+        let disconnect_email = self
+            .data
+            .repos()
+            .users
+            .get_global(user_id)
+            .await
+            .ok()
+            .flatten()
+            .map_or_else(|| user_id.to_string(), |u| u.email);
+        crate::ops_notifier().notify_oauth_disconnected(&disconnect_email, provider);
 
         Ok(())
     }
