@@ -97,7 +97,9 @@ pub struct SciotteConnectRequest {
     pub session_id: String,
 }
 
-/// Store a successful sciotte session in Pierre's encrypted DB and register the connection
+/// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
+/// After storing, spawns a background task to pre-fetch activities into cache so the
+/// coach can serve data immediately when the user starts chatting.
 #[cfg(feature = "provider-sciotte")]
 async fn store_sciotte_session(
     resources: &ServerResources,
@@ -115,7 +117,7 @@ async fn store_sciotte_session(
         user_id,
         tenant_id: tenant_id.to_string(),
         provider: provider_name.to_owned(),
-        access_token: session_json,
+        access_token: session_json.clone(),
         refresh_token: None,
         token_type: "session".to_owned(),
         expires_at: session.expires_at,
@@ -140,7 +142,88 @@ async fn store_sciotte_session(
         .await
         .map_err(|e| AppError::internal(format!("Failed to register connection: {e}")))?;
 
+    // Pre-fetch activities in background so the cache is warm when the user chats
+    spawn_activity_prefetch(resources, user_id, tenant_id, provider_name, &session_json);
+
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
+}
+
+/// Spawn a background task to pre-fetch and cache activities after a successful sciotte login
+#[cfg(feature = "provider-sciotte")]
+fn spawn_activity_prefetch(
+    resources: &ServerResources,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider_name: &str,
+    session_json: &str,
+) {
+    use pierre_cache::{CacheKey, CacheResource};
+    use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials};
+
+    let registry = resources.provider_registry.clone();
+    let cache = resources.cache.clone();
+    let provider_name = provider_name.to_owned();
+    let session_json = session_json.to_owned();
+
+    tokio::spawn(async move {
+        info!(user_id = %user_id, provider = %provider_name, "Starting background activity pre-fetch");
+
+        let provider = match registry.create_provider(&provider_name) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(error = %e, "Background pre-fetch: failed to create provider");
+                return;
+            }
+        };
+
+        let credentials = OAuth2Credentials {
+            client_id: String::new(),
+            client_secret: String::new(),
+            access_token: Some(session_json),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+        };
+        if let Err(e) = provider.set_credentials(credentials).await {
+            warn!(error = %e, "Background pre-fetch: failed to set credentials");
+            return;
+        }
+
+        let params = ActivityQueryParams {
+            limit: Some(30),
+            offset: None,
+            before: None,
+            after: None,
+        };
+
+        match provider.get_activities_with_params(&params).await {
+            Ok(activities) => {
+                let count = activities.len();
+                let tenant = TenantId::from(tenant_id);
+                let cache_key = CacheKey::new(
+                    tenant,
+                    user_id,
+                    provider_name.clone(),
+                    CacheResource::ActivityList {
+                        page: 1,
+                        per_page: 30,
+                        before: None,
+                        after: None,
+                        sport_type: None,
+                    },
+                );
+                let ttl = std::time::Duration::from_secs(900);
+                if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
+                    warn!(error = %e, "Background pre-fetch: failed to cache activities");
+                } else {
+                    info!(user_id = %user_id, provider = %provider_name, count, "Background activity pre-fetch complete — cache warm");
+                }
+            }
+            Err(e) => {
+                warn!(user_id = %user_id, error = %e, "Background pre-fetch: failed to fetch activities");
+            }
+        }
+    });
 }
 
 /// Convert a `LoginResult` into an HTTP response, storing the scraper for follow-up calls if needed
