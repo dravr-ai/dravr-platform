@@ -168,6 +168,19 @@ export default function SciotteLoginModal({
     [onClose, onConnected]
   );
 
+  // Auto-poll once when number-match phase is reached — the phone notification
+  // arrives before the UI shows the number, so poll immediately
+  const [pollingStarted, setPollingStarted] = useState(false);
+  useEffect(() => {
+    if (phase === 'number-match' && matchNumber && !pollingStarted) {
+      setPollingStarted(true);
+      handleSelectTwoFactor('poll');
+    }
+    if (phase !== 'number-match') {
+      setPollingStarted(false);
+    }
+  }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // OTP submission
   const handleOtpSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -404,7 +417,7 @@ export default function SciotteLoginModal({
             </div>
           )}
 
-          {/* Phase: Number match challenge */}
+          {/* Phase: Number match challenge — auto-polls for approval */}
           {phase === 'number-match' && matchNumber && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
@@ -412,14 +425,9 @@ export default function SciotteLoginModal({
                   <span className="text-5xl font-bold text-blue-400">{matchNumber}</span>
                 </div>
                 <p className="text-white font-medium mb-1">Tap this number on your phone</p>
-                <p className="text-white/50 text-sm mb-6">Check the Google notification on your device</p>
-                <button
-                  onClick={() => handleSelectTwoFactor('poll')}
-                  disabled={isLoading}
-                  className="w-full py-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg text-white font-medium hover:shadow-lg hover:shadow-blue-500/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                >
-                  {isLoading ? 'Verifying...' : "I've tapped the number"}
-                </button>
+                <p className="text-white/50 text-sm mb-4">Check the Google notification on your device</p>
+                <div className="pierre-spinner w-8 h-8 mx-auto border-2 border-white/20 border-t-blue-500" />
+                <p className="text-white/30 text-xs mt-3">Waiting for you to tap...</p>
               </div>
             </div>
           )}
