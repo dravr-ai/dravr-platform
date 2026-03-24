@@ -273,6 +273,8 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-server.outputs.image }}
+          env_vars: |
+            GIT_COMMIT_SHA=${{ github.sha }}
 
       - name: Deploy frontend to Cloud Run (dev)
         uses: google-github-actions/deploy-cloudrun@v3
@@ -362,6 +364,8 @@ jobs:
           service: ${{ vars.GCP_PROD_SERVICE_NAME }}-api
           region: ${{ vars.GCP_PROD_CLOUD_RUN_REGION }}
           image: ${{ needs.publish-server.outputs.image }}
+          env_vars: |
+            GIT_COMMIT_SHA=${{ github.sha }}
 
       - name: Deploy frontend to Cloud Run (prod)
         uses: google-github-actions/deploy-cloudrun@v3

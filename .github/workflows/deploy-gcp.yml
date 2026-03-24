@@ -74,6 +74,8 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ needs.resolve-images.outputs.registry }}/server:${{ needs.resolve-images.outputs.short_sha }}
+          env_vars: |
+            GIT_COMMIT_SHA=${{ github.sha }}
 
       - name: Verify backend API deployment
         run: |

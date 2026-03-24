@@ -1389,8 +1389,7 @@ dependencies = [
 [[package]]
 name = "dravr-sciotte"
 version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4750373a7df5ac95beaf9597c8bff0bec0b4f9370006c9bd22798178f259743b"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?rev=721615b#721615b9062514dc6aab39f08a16a91ea1369242"
 dependencies = [
  "async-trait",
  "base64",

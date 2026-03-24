@@ -103,6 +103,8 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ steps.tags.outputs.server_tag }}@${{ steps.server.outputs.digest }}
+          env_vars: |
+            GIT_COMMIT_SHA=${{ github.sha }}
 
       - name: Deploy frontend to Cloud Run (dev)
         if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'

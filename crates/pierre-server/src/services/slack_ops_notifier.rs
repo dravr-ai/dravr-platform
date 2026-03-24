@@ -218,7 +218,7 @@ impl OpsNotifier for SlackOpsNotifier {
         let revision = env::var(K_REVISION_ENV).unwrap_or_else(|_| "local".to_owned());
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
 
-        let commit_sha = env!("GIT_COMMIT_SHA");
+        let commit_sha = env::var("GIT_COMMIT_SHA").unwrap_or_else(|_| "unknown".to_owned());
 
         let blocks = json!([
             {
