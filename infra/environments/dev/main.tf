@@ -123,6 +123,30 @@ module "workload_identity" {
 }
 
 # -----------------------------------------------------------------------------
+# Sciotte Scripts Bucket (hot-swappable JS for headless Chrome scraping)
+# -----------------------------------------------------------------------------
+
+resource "google_storage_bucket" "sciotte_scripts" {
+  name          = "${var.project_id}-sciotte-scripts"
+  project       = var.project_id
+  location      = var.region
+  force_destroy = true
+
+  uniform_bucket_level_access = true
+
+  labels = merge(var.labels, { component = "sciotte" })
+}
+
+# Grant the app service account read access to the scripts bucket
+resource "google_storage_bucket_iam_member" "sciotte_scripts_reader" {
+  bucket = google_storage_bucket.sciotte_scripts.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${module.service_accounts.app_service_account_email}"
+
+  depends_on = [module.service_accounts]
+}
+
+# -----------------------------------------------------------------------------
 # Backend API (always deployed)
 # -----------------------------------------------------------------------------
 
@@ -143,6 +167,15 @@ module "backend" {
   startup_cpu_boost = true
   min_instances     = var.backend_min_instances
   max_instances     = var.backend_max_instances
+
+  # Mount sciotte scripts bucket for hot-swappable JS extraction scripts
+  gcs_volumes = {
+    sciotte-scripts = {
+      bucket     = google_storage_bucket.sciotte_scripts.name
+      mount_path = "/sciotte-scripts"
+      read_only  = true
+    }
+  }
 
   ingress                  = "INGRESS_TRAFFIC_INTERNAL_ONLY"
   allow_unauthenticated    = true
@@ -183,6 +216,9 @@ module "backend" {
 
       # Disable backups in Cloud Run (ephemeral filesystem)
       BACKUP_ENABLED = "false"
+
+      # Sciotte JS scripts override directory (GCS-mounted bucket)
+      DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
 
       # WhatsApp non-secret config (phone number ID is not sensitive)
       META_WHATSAPP_PHONE_NUMBER_ID = "997162370153116"

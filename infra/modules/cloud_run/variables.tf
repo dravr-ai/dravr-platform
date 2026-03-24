@@ -143,6 +143,20 @@ variable "startup_probe_initial_delay" {
 }
 
 # -----------------------------------------------------------------------------
+# GCS Volume Mounts
+# -----------------------------------------------------------------------------
+
+variable "gcs_volumes" {
+  description = "GCS buckets to mount as volumes: map of volume_name => { bucket, mount_path, read_only }"
+  type = map(object({
+    bucket     = string
+    mount_path = string
+    read_only  = optional(bool, true)
+  }))
+  default = {}
+}
+
+# -----------------------------------------------------------------------------
 # Execution Environment
 # -----------------------------------------------------------------------------
 
