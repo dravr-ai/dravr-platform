@@ -535,6 +535,10 @@ async fn create_server(
 
     let resources = initialize_plugins_and_workers(resources_instance);
 
+    // Initialize ops notifier (Slack or noop) and send deploy notification
+    pierre_mcp_server::init_ops_notifier();
+    pierre_mcp_server::ops_notifier().notify_deploy();
+
     MultiTenantMcpServer::new(resources)
 }
 

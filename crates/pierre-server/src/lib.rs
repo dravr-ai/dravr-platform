@@ -181,6 +181,9 @@ pub use services::messaging_seed;
 // Re-export OAuth flow validation for integration testing
 pub use services::oauth_flow;
 
+// Re-export ops notifier for binary startup and route handlers
+pub use services::slack_ops_notifier::{init_ops_notifier, ops_notifier, OpsNotifier};
+
 // Re-export notification crate for integration testing
 #[cfg(feature = "client-notifications")]
 pub use pierre_notifications;
