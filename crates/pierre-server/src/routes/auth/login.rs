@@ -127,7 +127,11 @@ impl AuthService {
         info!(user_id = %user_id, "User registered successfully");
 
         // Send ops notification for new user registration
-        crate::ops_notifier().notify_user_registered(&request.email, &user.user_status.to_string());
+        crate::ops_notifier().notify_user_registered(
+            &user_id.to_string(),
+            &request.email,
+            &user.user_status.to_string(),
+        );
 
         let message = if user.user_status == UserStatus::Active {
             "User registered successfully. Your account is ready to use.".to_owned()

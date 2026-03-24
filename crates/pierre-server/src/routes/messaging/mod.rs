@@ -12,15 +12,24 @@
 
 mod config;
 mod linking;
+pub(crate) mod slack_actions;
 mod templates;
 pub(crate) mod webhooks;
 
 use axum::{
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{delete, get, post, put},
-    Router,
+    Json, Router,
 };
+use serde_json::json;
 use std::sync::Arc;
 
+use std::env;
+
+use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 
 /// Messaging gateway routes handler
@@ -66,6 +75,48 @@ impl MessagingRoutes {
             // Webhook-initiated channel linking (HTML pages, public, no auth)
             .route("/messaging/link/{code}", get(linking::channel_link_page))
             .route("/messaging/link/auth", post(linking::channel_link_auth))
+            // Slack interactive actions (approve/reject from ops notifications)
+            .route("/api/ops/slack/actions", post(handle_slack_ops_action))
             .with_state(resources)
+    }
+}
+
+/// Axum handler for Slack interactive actions (button clicks)
+///
+/// Verifies HMAC-SHA256 signature using `SLACK_SIGNING_SECRET` before
+/// delegating to the action handler. Returns 200 immediately on auth failure
+/// to avoid Slack retries.
+async fn handle_slack_ops_action(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<impl IntoResponse, AppError> {
+    // Verify signature using the same signing secret as the messaging webhook
+    let signing_secret = env::var("SLACK_SIGNING_SECRET")
+        .map_err(|_| AppError::internal("SLACK_SIGNING_SECRET not configured"))?;
+
+    if let Err(e) = slack_actions::verify_slack_signature(&signing_secret, &headers, &body) {
+        tracing::warn!(error = %e, "Slack ops action signature verification failed");
+        // Return 200 to prevent Slack from retrying with invalid signature
+        return Ok((
+            StatusCode::OK,
+            Json(json!({ "response_type": "ephemeral", "text": "Signature verification failed" })),
+        )
+            .into_response());
+    }
+
+    match slack_actions::handle_slack_action(&resources, &body).await {
+        Ok(response) => Ok(response.into_response()),
+        Err(e) => {
+            tracing::warn!(error = %e, "Slack ops action failed");
+            // Return user-friendly error as ephemeral Slack message
+            Ok((
+                StatusCode::OK,
+                Json(
+                    json!({ "response_type": "ephemeral", "text": format!("Action failed: {e}") }),
+                ),
+            )
+                .into_response())
+        }
     }
 }
