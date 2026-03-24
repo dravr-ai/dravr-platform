@@ -1,0 +1,98 @@
+# ABOUTME: Redis cache integration test workflow with smart path triggers.
+# ABOUTME: Only runs when cache code changes, saving CI minutes on unrelated pushes.
+name: Redis Tests
+
+on:
+  push:
+    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
+    paths:
+      - 'crates/pierre-cache/**'
+      - 'crates/pierre-server/src/cache/**'
+      - 'crates/pierre-server/tests/cache_redis_test.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-redis.yml'
+      - '.github/actions/rust-setup/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'crates/pierre-cache/**'
+      - 'crates/pierre-server/src/cache/**'
+      - 'crates/pierre-server/tests/cache_redis_test.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci-redis.yml'
+      - '.github/actions/rust-setup/**'
+  schedule:
+    # Weekly full Redis validation (Sundays at 3 AM UTC)
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_GIT_FETCH_WITH_CLI: true
+
+jobs:
+  redis-tests:
+    name: Cache Tests (Redis)
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+          keep-docker: 'true'
+
+      - name: Install Redis tools
+        run: sudo apt-get install -y redis-tools
+
+      - name: Wait for Redis
+        run: |
+          echo "Waiting for Redis to be ready..."
+          timeout 60 bash -c 'until redis-cli -h localhost -p 6379 ping | grep -q PONG; do sleep 2; done'
+          echo "Redis is ready"
+
+      - name: Verify Redis connection
+        run: |
+          echo "Testing Redis connection..."
+          redis-cli -h localhost -p 6379 INFO server | head -10
+
+      - name: Run Redis cache tests
+        # Coverage provided by SQLite backend tests - Redis tests validate integration only
+        run: cargo test --test cache_redis_test -- --test-threads=1
+        env:
+          REDIS_URL: "redis://localhost:6379"
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          RUST_LOG: "info"

@@ -3,7 +3,7 @@
   <h1>Pierre Fitness Platform</h1>
 </div>
 
-[![Backend CI](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci.yml)
+[![Backend CI](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml)
 [![Cross-Platform](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/cross-platform.yml)
 [![Frontend Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/frontend-tests.yml)
 [![SDK Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/sdk-tests.yml)

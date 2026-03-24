@@ -21,7 +21,7 @@ env:
 
 jobs:
   cross-platform-tests:
-    # Ubuntu excluded - already covered by ci.yml with SQLite/PostgreSQL/Redis
+    # Ubuntu excluded - already covered by ci-backend/ci-postgres/ci-redis workflows
     name: Platform Tests (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
 
