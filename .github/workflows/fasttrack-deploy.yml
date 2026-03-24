@@ -67,6 +67,8 @@ jobs:
           tags: ${{ steps.tags.outputs.server_tag }}
           cache-from: type=gha,scope=server
           cache-to: type=gha,mode=max,scope=server
+          secrets: |
+            "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
       - name: Build and push frontend image
         if: inputs.component == 'frontend' || inputs.component == 'both'
