@@ -25,7 +25,7 @@ use dravr_sciotte::ActivityScraper;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use serde::Deserialize;
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::errors::AppError;
@@ -244,7 +244,10 @@ pub(super) async fn handle_sciotte_login(
     let result = cached
         .credential_login(&request.email, &request.password, &request.method)
         .await
-        .map_err(|e| AppError::internal(format!("Sciotte login failed: {e}")))?;
+        .map_err(|e| {
+            warn!(user_id = %user_id, error = %e, "Sciotte credential login failed");
+            AppError::invalid_input(format!("Login failed: {e}"))
+        })?;
 
     login_result_to_response(
         result,
@@ -273,7 +276,7 @@ pub(super) async fn handle_sciotte_select_2fa(
     let result = scraper
         .select_two_factor(&request.option_id)
         .await
-        .map_err(|e| AppError::internal(format!("2FA selection failed: {e}")))?;
+        .map_err(|e| AppError::invalid_input(format!("2FA verification failed: {e}")))?;
 
     login_result_to_response(
         result,
@@ -307,7 +310,7 @@ pub(super) async fn handle_sciotte_submit_otp(
     let result = scraper
         .submit_otp(&request.code)
         .await
-        .map_err(|e| AppError::internal(format!("OTP submission failed: {e}")))?;
+        .map_err(|e| AppError::invalid_input(format!("Code verification failed: {e}")))?;
 
     login_result_to_response(
         result,
