@@ -124,7 +124,7 @@ jobs:
 
       - name: Cache baseline for PRs
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: target/criterion
           key: criterion-baseline-main-${{ github.sha }}
