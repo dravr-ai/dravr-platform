@@ -70,8 +70,8 @@ pub fn ops_notifier() -> &'static dyn OpsNotifier {
 pub trait OpsNotifier: Send + Sync {
     /// Server started (deploy or restart)
     fn notify_deploy(&self);
-    /// User registered with given approval status
-    fn notify_user_registered(&self, email: &str, status: &str);
+    /// User registered with given approval status (includes user ID for interactive actions)
+    fn notify_user_registered(&self, user_id: &str, email: &str, status: &str);
     /// Admin approved a user
     fn notify_user_approved(&self, email: &str, approved_by: &str);
     /// Admin suspended a user
@@ -95,7 +95,7 @@ struct NoopOpsNotifier;
 
 impl OpsNotifier for NoopOpsNotifier {
     fn notify_deploy(&self) {}
-    fn notify_user_registered(&self, _email: &str, _status: &str) {}
+    fn notify_user_registered(&self, _user_id: &str, _email: &str, _status: &str) {}
     fn notify_user_approved(&self, _email: &str, _approved_by: &str) {}
     fn notify_user_suspended(&self, _email: &str, _suspended_by: &str) {}
     fn notify_oauth_connected(&self, _email: &str, _provider: &str) {}
@@ -218,6 +218,8 @@ impl OpsNotifier for SlackOpsNotifier {
         let revision = env::var(K_REVISION_ENV).unwrap_or_else(|_| "local".to_owned());
         let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S UTC").to_string();
 
+        let commit_sha = env!("GIT_COMMIT_SHA");
+
         let blocks = json!([
             {
                 "type": "header",
@@ -227,7 +229,8 @@ impl OpsNotifier for SlackOpsNotifier {
                 "type": "section",
                 "fields": [
                     { "type": "mrkdwn", "text": format!("*Environment:*\n{}", self.environment) },
-                    { "type": "mrkdwn", "text": format!("*Revision:*\n`{revision}`") }
+                    { "type": "mrkdwn", "text": format!("*Revision:*\n`{revision}`") },
+                    { "type": "mrkdwn", "text": format!("*Commit:*\n`{commit_sha}`") }
                 ]
             },
             {
@@ -241,7 +244,7 @@ impl OpsNotifier for SlackOpsNotifier {
         self.send(channel, &blocks);
     }
 
-    fn notify_user_registered(&self, email: &str, status: &str) {
+    fn notify_user_registered(&self, user_id: &str, email: &str, status: &str) {
         let Some(channel) = &self.users_channel else {
             return;
         };
@@ -267,15 +270,39 @@ impl OpsNotifier for SlackOpsNotifier {
         ];
 
         if status == "pending" {
+            // Interactive Approve / Reject buttons (handled by /api/ops/slack/actions)
+            blocks.push(json!({
+                "type": "actions",
+                "block_id": format!("user_approval_{user_id}"),
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": { "type": "plain_text", "text": "Approve" },
+                        "action_id": format!("approve_user:{user_id}"),
+                        "style": "primary"
+                    },
+                    {
+                        "type": "button",
+                        "text": { "type": "plain_text", "text": "Reject" },
+                        "action_id": format!("reject_user:{user_id}"),
+                        "style": "danger",
+                        "confirm": {
+                            "title": { "type": "plain_text", "text": "Confirm Rejection" },
+                            "text": { "type": "mrkdwn", "text": format!("Are you sure you want to reject *{email}*? This will suspend their account.") },
+                            "confirm": { "type": "plain_text", "text": "Reject" },
+                            "deny": { "type": "plain_text", "text": "Cancel" }
+                        }
+                    }
+                ]
+            }));
+
+            // Fallback link to admin UI
             if let Some(base_url) = &self.base_url {
                 blocks.push(json!({
-                    "type": "actions",
-                    "elements": [{
-                        "type": "button",
-                        "text": { "type": "plain_text", "text": "Review in Admin" },
-                        "url": format!("{base_url}/admin/users"),
-                        "style": "primary"
-                    }]
+                    "type": "context",
+                    "elements": [
+                        { "type": "mrkdwn", "text": format!("<{base_url}/admin/users|View in Admin>") }
+                    ]
                 }));
             }
         }

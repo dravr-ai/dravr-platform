@@ -35,6 +35,9 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    // Embed git commit SHA for deploy notifications and health checks
+    embed_git_commit_sha();
+
     // The SDK lives at the workspace root, two levels above this crate
     let Some(workspace_root) = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -148,4 +151,36 @@ fn main() {
     } else {
         println!("cargo:warning=SDK directory not found - skipping SDK build");
     }
+}
+
+/// Embed the git commit SHA as a compile-time environment variable
+///
+/// Sets `GIT_COMMIT_SHA` so Rust code can access it via `env!("GIT_COMMIT_SHA")`.
+/// Falls back to "unknown" if git is unavailable (e.g., in Docker builds without .git).
+fn embed_git_commit_sha() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or_else(|| Path::new("."));
+
+    // Re-run when HEAD changes (new commits, branch switches)
+    let git_head = workspace_root.join(".git/HEAD");
+    if git_head.exists() {
+        println!("cargo:rerun-if-changed={}", git_head.display());
+    }
+    let git_refs = workspace_root.join(".git/refs");
+    if git_refs.exists() {
+        println!("cargo:rerun-if-changed={}", git_refs.display());
+    }
+
+    let sha = Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(workspace_root)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map_or_else(|| "unknown".to_owned(), |s| s.trim().to_owned());
+
+    println!("cargo:rustc-env=GIT_COMMIT_SHA={sha}");
 }
