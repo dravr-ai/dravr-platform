@@ -1,0 +1,60 @@
+# ABOUTME: Composite action for Rust CI environment setup.
+# ABOUTME: Handles disk space, mold linker, Rust toolchain, and dependency caching.
+name: Rust Environment Setup
+description: Sets up Rust toolchain with mold linker and dependency caching
+
+inputs:
+  components:
+    description: Additional Rust components (comma-separated, e.g. "rustfmt, clippy")
+    default: ''
+  shared-key:
+    description: rust-cache shared key for cross-job cache sharing
+    default: ''
+  free-disk-space:
+    description: Whether to free disk space before setup
+    default: 'false'
+  keep-docker:
+    description: Keep Docker images when freeing disk space (needed for service containers)
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Free Disk Space (Ubuntu)
+      if: inputs.free-disk-space == 'true'
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: ${{ inputs.keep-docker != 'true' }}
+        swap-storage: true
+
+    - name: Install mold linker
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y mold clang
+
+    - name: Configure mold
+      shell: bash
+      run: |
+        mkdir -p .cargo
+        cat >> .cargo/config.toml << 'TOML'
+        [target.x86_64-unknown-linux-gnu]
+        linker = "clang"
+        rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+        TOML
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@1.94.0
+      with:
+        components: ${{ inputs.components }}
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: ". -> target"
+        cache-on-failure: true
+        shared-key: ${{ inputs.shared-key }}
+        save-if: ${{ github.ref == 'refs/heads/main' }}

@@ -70,7 +70,7 @@ STRAVA_REDIRECT_URI="http://localhost:8080/auth/strava/callback"
 
 ### Backend CI Workflow
 
-**File**: `.github/workflows/ci.yml`
+**File**: `.github/workflows/ci-backend.yml` (with `ci-postgres.yml` and `ci-redis.yml`)
 
 **Purpose**: Comprehensive backend and frontend validation with multi-database support
 
