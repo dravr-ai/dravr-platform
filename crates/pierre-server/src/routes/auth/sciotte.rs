@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -212,7 +213,7 @@ fn spawn_activity_prefetch(
                         sport_type: None,
                     },
                 );
-                let ttl = std::time::Duration::from_secs(900);
+                let ttl = Duration::from_secs(900);
                 if let Err(e) = cache.set(&cache_key, &activities, ttl).await {
                     warn!(error = %e, "Background pre-fetch: failed to cache activities");
                 } else {
