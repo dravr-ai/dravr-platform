@@ -7,6 +7,7 @@ description = "Pierre Fitness API - Multi-protocol fitness data API for LLMs (MC
 repository = "https://github.com/dravr-ai/dravr-platform"
 keywords = ["mcp", "fitness", "strava", "api", "claude"]
 categories = ["api-bindings", "web-programming"]
+publish = false
 
 [lib]
 name = "pierre_mcp_server"
