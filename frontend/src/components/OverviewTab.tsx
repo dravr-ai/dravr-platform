@@ -164,6 +164,8 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         {weeklyUsage?.time_series && weeklyUsage.time_series.length > 0 && (() => {
           const last7Days = weeklyUsage.time_series.slice(-7);
           const totalRequests = last7Days.reduce((sum: number, point: TimeSeriesPoint) => sum + point.request_count, 0);
+          // Hide chart entirely when there are no requests — a flat line at 0 is useless
+          if (totalRequests === 0) return null;
           const avgPerDay = Math.round(totalRequests / last7Days.length);
           const peakDay = last7Days.reduce((max: TimeSeriesPoint, point: TimeSeriesPoint) =>
             point.request_count > max.request_count ? point : max, last7Days[0]);
