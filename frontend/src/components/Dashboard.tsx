@@ -7,7 +7,6 @@
 import { useState, lazy, Suspense, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import type { AdminToken } from '../types/api';
-import { Card } from './ui';
 import { clsx } from 'clsx';
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
@@ -46,6 +45,7 @@ interface TabDefinition {
   name: string;
   icon: React.ReactNode;
   badge?: number;
+  section?: string;
 }
 
 const PierreLogo = () => (
@@ -100,55 +100,55 @@ export default function Dashboard() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showUserMenu]);
 
-  // Tab definitions for admin users
+  // Tab definitions for admin users, grouped into sidebar sections
   const adminTabs: TabDefinition[] = useMemo(() => [
-    { id: 'overview', name: 'Overview', icon: (
+    { id: 'overview', name: 'Overview', section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ) },
-    { id: 'connections', name: 'Connections', icon: (
+    { id: 'users', name: 'Users', section: 'Platform', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
+    { id: 'coaches', name: 'Coaches', section: 'Coaching', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ) },
-    { id: 'analytics', name: 'Analytics', icon: (
+    { id: 'coach-store', name: 'Coach Store', section: 'Coaching', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+      </svg>
+    ), badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined },
+    { id: 'configuration', name: 'Tool Management', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+      </svg>
+    ) },
+    { id: 'connections', name: 'API Keys', section: 'Developer', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+      </svg>
+    ) },
+    { id: 'analytics', name: 'Analytics', section: 'Developer', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ) },
-    { id: 'monitor', name: 'Monitor', icon: (
+    { id: 'monitor', name: 'Monitor', section: 'Developer', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
       </svg>
     ) },
-    { id: 'tools', name: 'Tools', icon: (
+    { id: 'tools', name: 'Tool Usage', section: 'Developer', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ) },
-    { id: 'users', name: 'Users', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ), badge: pendingUsersCount > 0 ? pendingUsersCount : undefined },
-    { id: 'configuration', name: 'Configuration', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-      </svg>
-    ) },
-    { id: 'coaches', name: 'Coaches', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ) },
-    { id: 'coach-store', name: 'Coach Store', icon: (
-      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-      </svg>
-    ), badge: storeStatsPendingCount > 0 ? storeStatsPendingCount : undefined },
   ], [pendingUsersCount, storeStatsPendingCount]);
 
   // Super admin tabs extend admin tabs with admin token management
@@ -222,55 +222,70 @@ export default function Dashboard() {
         {/* Navigation Items */}
         <nav className="flex-1 py-4 overflow-y-auto overflow-x-hidden">
           <ul className="space-y-1 px-3">
-            {tabs.map((tab) => (
-              <li key={tab.id}>
-                <button
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    // Reset conversation selection when clicking Chat tab to show coach selection
-                    if (tab.id === 'chat') {
-                      setSelectedConversation(null);
-                    }
-                    // Reset insights sub-view when navigating back to insights
-                    if (tab.id === 'insights') {
-                      setInsightsView('feed');
-                    }
-                  }}
-                  className={clsx(
-                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
-                    {
-                      'bg-gradient-to-r from-pierre-violet/20 to-pierre-cyan/10 text-pierre-violet-light shadow-sm': activeTab === tab.id,
-                      'text-zinc-400 hover:bg-white/5 hover:text-white': activeTab !== tab.id,
-                    },
-                    sidebarCollapsed && 'justify-center'
-                  )}
-                  title={sidebarCollapsed ? tab.name : undefined}
-                >
-                  {/* Active indicator */}
-                  {activeTab === tab.id && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-pierre-violet rounded-r-full" />
-                  )}
-                  <div className="relative flex-shrink-0">
-                    {tab.icon}
-                    {tab.badge && (
-                      <span
-                        data-testid="pending-users-badge"
-                        className="absolute -top-1 -right-1 bg-pierre-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
-                      >
-                        {tab.badge}
-                      </span>
-                    )}
-                  </div>
-                  {!sidebarCollapsed && <span>{tab.name}</span>}
-                  {/* Tooltip for collapsed state */}
-                  {sidebarCollapsed && (
-                    <div className="absolute left-full ml-2 px-2 py-1 bg-white/10 backdrop-blur-sm text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
-                      {tab.name}
+            {tabs.map((tab, index) => {
+              // Render section header when the section changes
+              const prevTab = index > 0 ? tabs[index - 1] : null;
+              const showSection = isAdminUser && !sidebarCollapsed && tab.section && tab.section !== prevTab?.section;
+              const showDivider = isAdminUser && sidebarCollapsed && tab.section && tab.section !== prevTab?.section && index > 0;
+
+              return (
+                <li key={tab.id}>
+                  {showSection && (
+                    <div className={clsx('px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500', index === 0 && '!pt-0')}>
+                      {tab.section}
                     </div>
                   )}
-                </button>
-              </li>
-            ))}
+                  {showDivider && (
+                    <div className="my-2 border-t border-white/10" />
+                  )}
+                  <button
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      // Reset conversation selection when clicking Chat tab to show coach selection
+                      if (tab.id === 'chat') {
+                        setSelectedConversation(null);
+                      }
+                      // Reset insights sub-view when navigating back to insights
+                      if (tab.id === 'insights') {
+                        setInsightsView('feed');
+                      }
+                    }}
+                    className={clsx(
+                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
+                      {
+                        'bg-gradient-to-r from-pierre-violet/20 to-pierre-cyan/10 text-pierre-violet-light shadow-sm': activeTab === tab.id,
+                        'text-zinc-400 hover:bg-white/5 hover:text-white': activeTab !== tab.id,
+                      },
+                      sidebarCollapsed && 'justify-center'
+                    )}
+                    title={sidebarCollapsed ? tab.name : undefined}
+                  >
+                    {/* Active indicator */}
+                    {activeTab === tab.id && (
+                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-pierre-violet rounded-r-full" />
+                    )}
+                    <div className="relative flex-shrink-0">
+                      {tab.icon}
+                      {tab.badge && (
+                        <span
+                          data-testid="pending-users-badge"
+                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
+                        >
+                          {tab.badge}
+                        </span>
+                      )}
+                    </div>
+                    {!sidebarCollapsed && <span>{tab.name}</span>}
+                    {/* Tooltip for collapsed state */}
+                    {sidebarCollapsed && (
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-white/10 backdrop-blur-sm text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+                        {tab.name}
+                      </div>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
 
           {/* Recent Conversations - shown when Chat tab is active */}
@@ -433,30 +448,14 @@ export default function Dashboard() {
           </div>
         )}
         {activeTab === 'monitor' && (
-          <div className="space-y-6">
-            <Card variant="dark">
-              <h2 className="text-xl font-semibold mb-4 text-white">Real-time Request Monitor</h2>
-              <p className="text-zinc-400 mb-4">
-                Monitor API requests in real-time across all your connections. See request status, response times, and error details as they happen.
-              </p>
-            </Card>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <RequestMonitor showAllKeys={true} />
-            </Suspense>
-          </div>
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <RequestMonitor showAllKeys={true} />
+          </Suspense>
         )}
         {activeTab === 'tools' && (
-          <div className="space-y-6">
-            <Card variant="dark">
-              <h2 className="text-xl font-semibold mb-4 text-white">Tool Usage Analysis</h2>
-              <p className="text-zinc-400 mb-4">
-                Analyze which fitness tools are being used most frequently, their performance metrics, and success rates.
-              </p>
-            </Card>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <ToolUsageBreakdown />
-            </Suspense>
-          </div>
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <ToolUsageBreakdown />
+          </Suspense>
         )}
         {activeTab === 'users' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>

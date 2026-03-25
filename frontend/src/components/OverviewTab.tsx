@@ -290,68 +290,9 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         </Card>
       )}
 
-      {/* Admin Quick Actions + Alerts */}
+      {/* Admin Alerts */}
       {user?.is_admin && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Quick Actions */}
-          <Card variant="dark" className="!p-4">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              <svg className="w-4 h-4 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              Quick Actions
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => onNavigate?.('connections')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-pierre-violet/20 text-zinc-300 hover:text-pierre-violet-light transition-colors text-sm font-medium border border-white/5 hover:border-pierre-violet/30"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
-                API Keys
-              </button>
-              <button
-                onClick={() => onNavigate?.('analytics')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-pierre-violet/20 text-zinc-300 hover:text-pierre-violet-light transition-colors text-sm font-medium border border-white/5 hover:border-pierre-violet/30"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Analytics
-              </button>
-              <button
-                onClick={() => onNavigate?.('monitor')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-pierre-violet/20 text-zinc-300 hover:text-pierre-violet-light transition-colors text-sm font-medium border border-white/5 hover:border-pierre-violet/30"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                Monitor
-              </button>
-              <button
-                onClick={() => onNavigate?.('users')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-pierre-violet/20 text-zinc-300 hover:text-pierre-violet-light transition-colors text-sm font-medium border border-white/5 hover:border-pierre-violet/30"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-                Users
-              </button>
-              <button
-                onClick={() => onNavigate?.('coach-store')}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 hover:bg-pierre-violet/20 text-zinc-300 hover:text-pierre-violet-light transition-colors text-sm font-medium border border-white/5 hover:border-pierre-violet/30"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                Coach Store
-              </button>
-            </div>
-          </Card>
-
-          {/* Alerts */}
+        <div>
           <Card variant="dark" className="!p-4">
             <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
               <svg className="w-4 h-4 text-pierre-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -430,3 +371,4 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
     </div>
   );
 }
+

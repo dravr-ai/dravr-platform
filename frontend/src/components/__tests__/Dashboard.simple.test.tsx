@@ -135,10 +135,10 @@ describe('Dashboard Component', () => {
 
     // Use getAllByText since nav items appear in sidebar and may appear in header
     expect(screen.getAllByText('Overview').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Connections').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('API Keys').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Monitor').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Tools').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Tool Usage').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
   });
 
@@ -178,7 +178,7 @@ describe('Dashboard Component', () => {
     });
   });
 
-  it('should switch to Connections tab', async () => {
+  it('should switch to API Keys tab', async () => {
     const user = userEvent.setup();
 
     await act(async () => {
@@ -186,7 +186,7 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Connections');
+    const buttons = screen.getAllByText('API Keys');
     await user.click(buttons[0]);
 
     // Wait for lazy component to load
@@ -212,7 +212,7 @@ describe('Dashboard Component', () => {
     });
   });
 
-  it('should switch to Tools tab', async () => {
+  it('should switch to Tool Usage tab', async () => {
     const user = userEvent.setup();
 
     await act(async () => {
@@ -220,7 +220,7 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Tools');
+    const buttons = screen.getAllByText('Tool Usage');
     await user.click(buttons[0]);
 
     // Wait for lazy component to load
