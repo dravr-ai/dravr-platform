@@ -77,6 +77,10 @@ pub mod cache;
 /// Coach definition parsing from markdown files
 pub mod coaches;
 
+/// Messaging command definition parsing from markdown files
+#[cfg(feature = "client-messaging")]
+pub mod commands;
+
 /// Configuration management and persistence
 pub mod config;
 

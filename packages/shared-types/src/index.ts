@@ -176,3 +176,31 @@ export type {
   ActivityFetchLimitsConfig,
   SocialInsightsConfig,
 } from './admin.js';
+
+// Group coaching types (groups, members, invites, analytics)
+export type {
+  GroupRole,
+  OvertrainingRiskLevel,
+  GroupTrend,
+  SummaryDetailLevel,
+  MemberFlag,
+  HealthFlagSeverity,
+  CoachingGroup,
+  GroupMember,
+  GroupInvite,
+  CreateGroupRequest,
+  UpdateGroupRequest,
+  JoinGroupRequest,
+  UpdateMemberRoleRequest,
+  UpdatePeerConsentRequest,
+  CreateInviteRequest,
+  GroupSummary,
+  GroupAggregateStats,
+  MemberGroupComparison,
+  GroupHealthFlag,
+  GroupWeeklyReport,
+  ListGroupsResponse,
+  GroupMembersResponse,
+  GroupInvitesResponse,
+  GroupStatsResponse,
+} from './groups.js';

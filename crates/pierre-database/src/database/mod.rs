@@ -18,6 +18,8 @@ pub mod chat;
 pub mod coach_authors;
 /// Coaches (custom AI personas) storage and management
 pub mod coaches;
+/// Coaching group storage, membership, and invite management
+pub mod coaching_groups;
 /// Database error types
 pub mod errors;
 /// User fitness configuration storage and retrieval

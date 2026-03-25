@@ -51,3 +51,7 @@ pub mod discord_gateway;
 
 /// Slack operations notifier for deploy and user lifecycle events
 pub mod slack_ops_notifier;
+
+/// Slash command handlers for messaging platforms
+#[cfg(feature = "client-messaging")]
+pub mod commands;

@@ -81,6 +81,7 @@ impl ChatManager {
             total_tokens: 0,
             created_at: now.clone(),
             updated_at: now,
+            group_id: None,
         })
     }
 
@@ -97,7 +98,7 @@ impl ChatManager {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at
+            SELECT id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at, group_id
             FROM chat_conversations
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -119,6 +120,7 @@ impl ChatManager {
             total_tokens: r.get("total_tokens"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
+            group_id: r.get("group_id"),
         }))
     }
 

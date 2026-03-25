@@ -100,6 +100,10 @@ pub mod store;
 #[cfg(feature = "client-social")]
 pub mod social;
 
+/// Group coaching routes (group CRUD, membership, invites, analytics)
+#[cfg(feature = "client-groups")]
+pub mod groups;
+
 // ═══════════════════════════════════════════════════════════════
 // CLIENT-ADMIN FEATURES
 // ═══════════════════════════════════════════════════════════════
@@ -220,6 +224,9 @@ pub use store::StoreRoutes;
 
 #[cfg(feature = "client-social")]
 pub use social::SocialRoutes;
+
+#[cfg(feature = "client-groups")]
+pub use groups::GroupRoutes;
 
 // Client-admin re-exports
 #[cfg(feature = "client-admin-api")]

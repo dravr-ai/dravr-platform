@@ -189,6 +189,37 @@ export const ENDPOINTS = {
     BADGE_SYNC: '/api/notifications/badge-sync',
   },
 
+  // ==================== GROUPS ====================
+  GROUPS: {
+    /** List/create groups */
+    LIST: '/api/groups',
+    /** Get/update/delete a group */
+    GROUP: (id: string) => `/api/groups/${id}`,
+    /** List/manage members */
+    MEMBERS: (id: string) => `/api/groups/${id}/members`,
+    /** Specific member */
+    MEMBER: (groupId: string, userId: string) => `/api/groups/${groupId}/members/${userId}`,
+    /** Update member role */
+    MEMBER_ROLE: (groupId: string, userId: string) =>
+      `/api/groups/${groupId}/members/${userId}/role`,
+    /** Update own peer sharing consent */
+    MY_CONSENT: (id: string) => `/api/groups/${id}/members/me/consent`,
+    /** List/create invites */
+    INVITES: (id: string) => `/api/groups/${id}/invites`,
+    /** Specific invite */
+    INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
+    /** Join a group via invite code */
+    JOIN: '/api/groups/join',
+    /** Leave a group */
+    LEAVE: (id: string) => `/api/groups/${id}/leave`,
+    /** Group aggregate stats */
+    STATS: (id: string) => `/api/groups/${id}/stats`,
+    /** Group weekly report */
+    REPORT: (id: string) => `/api/groups/${id}/report`,
+    /** Group health flags */
+    HEALTH: (id: string) => `/api/groups/${id}/health`,
+  },
+
   // ==================== USER ====================
   USER: {
     /** User profile */

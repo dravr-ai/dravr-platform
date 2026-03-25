@@ -157,8 +157,17 @@ pub use recipes::{
 /// Multi-channel messaging gateway types
 pub mod messaging;
 
+/// Coaching group models for multi-person AI coaching
+pub mod groups;
 /// Push notification models for device tokens, preferences, and notification records
 pub mod notifications;
+pub use groups::{
+    CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
+    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupSummaryBlock, GroupTrend,
+    GroupWeeklyReport, HealthFlagSeverity, JoinGroupRequest, MemberFitnessSnapshot, MemberFlag,
+    MemberGroupComparison, MemberSummaryCard, OvertrainingRiskLevel, SummaryDetailLevel,
+    UpdateGroupRequest,
+};
 pub use notifications::{
     CreateNotificationParams, DevicePlatform, DeviceToken, ListNotificationsQuery, Notification,
     NotificationCategory, NotificationFeedResponse, NotificationItem, NotificationPreference,

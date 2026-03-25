@@ -32,6 +32,8 @@ pub enum NotificationCategory {
     Ai,
     /// Scheduled reminders
     Reminders,
+    /// Group coaching notifications (member joins, weekly digest)
+    Group,
 }
 
 impl NotificationCategory {
@@ -47,6 +49,7 @@ impl NotificationCategory {
             Self::System,
             Self::Ai,
             Self::Reminders,
+            Self::Group,
         ]
     }
 
@@ -62,6 +65,7 @@ impl NotificationCategory {
             Self::System => "system",
             Self::Ai => "ai",
             Self::Reminders => "reminders",
+            Self::Group => "group",
         }
     }
 
@@ -77,6 +81,7 @@ impl NotificationCategory {
             "system" => Some(Self::System),
             "ai" => Some(Self::Ai),
             "reminders" => Some(Self::Reminders),
+            "group" => Some(Self::Group),
             _ => None,
         }
     }

@@ -20,13 +20,13 @@ pub mod shared;
 
 pub use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
-    CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, FitnessConfigRepository,
-    ImpersonationRepository, InsertMessageParams, InsightRepository, LlmCredentialRepository,
-    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    SecurityRepository, SeedTable, SeederRepository, SocialRepository, StoreListingsRepository,
-    TenantRepository, ToolSelectionRepository, UpsertChannelConfigParams, UsageCounterRepository,
-    UsageRepository, UserMcpTokenRepository, UserRepository,
+    CoachingGroupRepository, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
+    FitnessConfigRepository, ImpersonationRepository, InsertMessageParams, InsightRepository,
+    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    RecipeRepository, SecurityRepository, SeedTable, SeederRepository, SocialRepository,
+    StoreListingsRepository, TenantRepository, ToolSelectionRepository, UpsertChannelConfigParams,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 pub use crate::DatabaseProvider;

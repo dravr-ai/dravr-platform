@@ -106,6 +106,7 @@ tools-all = [
     "tools-coaches",
     "tools-admin",
     "tools-mobility",
+    "tools-groups",
 ]
 
 # Individual tool categories
@@ -121,6 +122,7 @@ tools-coaches = []         # coach CRUD, activate, favorites
 tools-admin = ["tools-coaches"]  # admin tools depend on coach tools
 tools-mobility = []        # stretching exercises, yoga poses, mobility recommendations
 tools-store = []           # store MCP tools (browse, search, install coaches)
+tools-groups = ["dep:pierre-groups"]  # group coaching tools (create, join, manage, analytics)
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]
@@ -157,8 +159,9 @@ client-oauth-apps = ["protocol-rest", "oauth"]       # user_oauth_apps.rs
 
 client-store = ["protocol-rest", "tools-store"]  # Store REST API routes + MCP tools
 client-social = ["protocol-rest"]               # social.rs - coach-mediated social features
+client-groups = ["protocol-rest", "tools-groups"]  # groups.rs - group coaching management
 
-client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-social"]
+client-web = ["client-dashboard", "client-settings", "client-chat", "client-coaches", "client-oauth-apps", "client-store", "client-social", "client-groups"]
 
 # ═══════════════════════════════════════════════════════════════
 # GRANULAR CLIENT-ADMIN FEATURES
@@ -213,6 +216,7 @@ pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis
 pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
+pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-sciotte = { version = "0.4.2", optional = true }
 

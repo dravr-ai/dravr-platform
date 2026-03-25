@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::uuid_utils::parse_uuid;
 use std::sync::Arc;
 
 use tracing::info;
@@ -193,6 +194,27 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         .system_prompt
         .as_deref()
         .unwrap_or_else(|| get_pierre_system_prompt());
+
+    // Inject group coaching context before appending messaging constraints
+    #[cfg(feature = "tools-groups")]
+    let base_prompt = {
+        let group_service = resources.group_service();
+        let user_uuid = parse_uuid(user_id).unwrap_or_default();
+        group_service
+            .inject_group_context(
+                base_prompt,
+                "",
+                user_uuid,
+                tool_tenant_id,
+                conv.group_id.as_deref(),
+                &[],
+            )
+            .await
+            .unwrap_or_else(|_| base_prompt.to_owned())
+    };
+    #[cfg(not(feature = "tools-groups"))]
+    let base_prompt = base_prompt.to_owned();
+
     let system_prompt = format!("{base_prompt}\n\n{}", get_messaging_context_prompt());
     let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 

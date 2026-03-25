@@ -11,13 +11,13 @@ use crate::database::Database as SqliteDatabase;
 use crate::plugins::postgres::PostgresDatabase;
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
-    FitnessConfigRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
-    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    SecurityRepository, SeederRepository, SocialRepository, StoreListingsRepository,
-    TenantRepository, ToolSelectionRepository, UsageCounterRepository, UsageRepository,
-    UserMcpTokenRepository, UserRepository,
+    CoachingGroupRepository, FitnessConfigRepository, ImpersonationRepository, InsightRepository,
+    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    RecipeRepository, SecurityRepository, SeederRepository, SocialRepository,
+    StoreListingsRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
+    UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -86,6 +86,8 @@ pub struct RepositoryRegistry {
     pub user_mcp_tokens: Arc<dyn UserMcpTokenRepository>,
     /// Agent-to-Agent protocol
     pub a2a: Arc<dyn A2ARepository>,
+    /// Coaching group CRUD, membership, and invites
+    pub groups: Arc<dyn CoachingGroupRepository>,
 }
 
 impl RepositoryRegistry {
@@ -125,7 +127,8 @@ impl RepositoryRegistry {
             usage: db.clone(),
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
-            a2a: db,
+            a2a: db.clone(),
+            groups: db,
         }
     }
 
@@ -163,7 +166,8 @@ impl RepositoryRegistry {
             usage: db.clone(),
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
-            a2a: db,
+            a2a: db.clone(),
+            groups: db,
         }
     }
 }
