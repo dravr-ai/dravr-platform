@@ -93,7 +93,8 @@ deny = []
 # Skip these dependencies from multiple-version checking
 skip = []
 # Skip tree checking for these dependencies
-skip-tree = []
+# dravr-sciotte: all crates.io versions yanked, must use git dep which triggers wildcard ban
+skip-tree = [{ crate = "dravr-sciotte@0.4.3", depth = 1 }]
 
 # ============================================================================
 # Source Validation - Only Allow Trusted Registries
