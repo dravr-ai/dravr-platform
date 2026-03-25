@@ -387,8 +387,8 @@ test.describe('Dashboard Content Loading', () => {
     await navigateToTab(page, 'Monitor');
 
     // Wait for tab content to load and check for monitor-specific content
-    // The Monitor tab renders "Real-time Request Monitor" as h2
-    await expect(page.getByText('Real-time Request Monitor')).toBeVisible({ timeout: 10000 });
+    // The Dashboard header bar shows the active tab name
+    await expect(page.getByText('Monitor')).toBeVisible({ timeout: 10000 });
   });
 
   test('loads Tools tab content correctly', async ({ page }) => {
@@ -398,10 +398,10 @@ test.describe('Dashboard Content Loading', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Navigate to Tools tab (admin only)
-    await navigateToTab(page, 'Tools');
+    await navigateToTab(page, 'Tool Usage');
 
     // Wait for lazy-loaded component and check for tools-specific content
-    await expect(page.getByText('Tool Usage Analysis')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Tool Usage Details')).toBeVisible({ timeout: 10000 });
   });
 });
 

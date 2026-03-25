@@ -237,11 +237,7 @@ async function navigateToToolAvailability(page: Page) {
   await loginToDashboard(page);
   await page.waitForSelector("nav", { timeout: 10000 });
   await navigateToTab(page, "Tool Management");
-  await page.waitForSelector('h1:has-text("Tool Management")', {
-    timeout: 10000,
-  });
-  // Click on Tool Availability tab
-  await page.getByRole("tab", { name: "Tool Availability" }).click();
+  // ToolAvailability renders directly inside AdminConfiguration (no sub-tabs)
   await page.waitForTimeout(500);
 }
 
@@ -777,10 +773,7 @@ test.describe("Tool Availability - Error Handling", () => {
     await loginToDashboard(page);
     await page.waitForSelector("nav", { timeout: 10000 });
     await navigateToTab(page, "Tool Management");
-    await page.waitForSelector('h1:has-text("Tool Management")', {
-      timeout: 10000,
-    });
-    await page.getByRole("tab", { name: "Tool Availability" }).click();
+    await page.waitForTimeout(500);
 
     // Should show error message
     await expect(
@@ -845,20 +838,18 @@ test.describe("Tool Availability - Access Control", () => {
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Management")') })).not.toBeVisible();
   });
 
-  test("admin users can see Tool Availability tab", async ({ page }) => {
+  test("admin users can see Tool Availability content", async ({ page }) => {
     await setupToolAvailabilityMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector("nav", { timeout: 10000 });
 
-    // Navigate to Configuration
+    // Navigate to Tool Management — ToolAvailability renders directly
     await navigateToTab(page, "Tool Management");
-    await page.waitForSelector('h1:has-text("Tool Management")', {
-      timeout: 10000,
-    });
+    await page.waitForTimeout(500);
 
-    // Tool Availability tab should be visible
+    // Tool Availability content should be visible
     await expect(
-      page.getByRole("tab", { name: "Tool Availability" }),
-    ).toBeVisible();
+      page.getByText("Tool Availability"),
+    ).toBeVisible({ timeout: 10000 });
   });
 });

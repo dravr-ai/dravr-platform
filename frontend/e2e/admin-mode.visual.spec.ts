@@ -188,7 +188,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('tools - displays tool list', async ({ page }) => {
-      await navigateToTab(page, 'Tools');
+      await navigateToTab(page, 'Tool Usage');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');
@@ -198,7 +198,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('tools - search filters results', async ({ page }) => {
-      await navigateToTab(page, 'Tools');
+      await navigateToTab(page, 'Tool Usage');
       await waitForNetworkIdle(page);
 
       const searchInput = page.locator('input[type="search"], input[placeholder*="Search"]');
