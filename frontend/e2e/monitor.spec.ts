@@ -75,9 +75,8 @@ test.describe('Monitor Tab - Stats Display', () => {
     await setupMonitorMocks(page);
     await loginAndNavigateToMonitor(page);
 
-    // Check header
-    await expect(page.locator('h1')).toContainText('Monitor');
-    await expect(page.getByText('Real-time Request Monitor')).toBeVisible();
+    // Check header — Dashboard top bar shows the active tab name
+    await expect(page.getByText('Monitor')).toBeVisible();
   });
 
   test('displays Total Requests stat card', async ({ page }) => {

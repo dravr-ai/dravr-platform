@@ -49,7 +49,7 @@ async function setupToolsMocks(
 
 async function loginAndNavigateToTools(page: Page) {
   await loginToDashboard(page);
-  await navigateToTab(page, 'Tools');
+  await navigateToTab(page, 'Tool Usage');
   await page.waitForTimeout(500);
 }
 
@@ -287,7 +287,7 @@ test.describe('Tools Tab - Loading State', () => {
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Tools');
+    await navigateToTab(page, 'Tool Usage');
 
     // Should show loading spinner
     await expect(page.locator('.pierre-spinner')).toBeVisible({ timeout: 5000 });
