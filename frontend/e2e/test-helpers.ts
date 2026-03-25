@@ -45,6 +45,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
         expires_in: 86400,
         csrf_token: 'test-csrf-token',
         user: {
+          id: 'user-123',
           user_id: 'user-123',
           email,
           display_name: displayName,

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Playwright E2E tests for Group Coaching features.
-// ABOUTME: Tests group CRUD, membership, invites, stats, and authorization.
+// ABOUTME: Tests group CRUD, membership, invites, stats, and authorization for owner/member roles.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
@@ -15,6 +15,7 @@ const mockCoaches = {
   coaches: [
     {
       id: 'coach-marathon',
+      name: 'Marathon Coach',
       title: 'Marathon Coach',
       description: 'Training for marathon runners',
       system_prompt: 'You are a marathon coach.',
@@ -30,6 +31,7 @@ const mockCoaches = {
       visibility: 'tenant',
     },
   ],
+  total: 1,
   metadata: { timestamp: '2024-06-01T10:00:00Z', api_version: 'v1' },
 };
 
@@ -74,46 +76,48 @@ const mockGroupDetail = {
   updated_at: '2024-03-20T15:00:00Z',
 };
 
-const mockMembers = {
-  members: [
-    {
-      id: 'member-1',
-      group_id: 'group-1',
-      user_id: 'user-123',
-      tenant_id: 'tenant-1',
-      role: 'owner',
-      peer_sharing_consent: false,
-      consent_given_at: '2024-03-01T10:00:00Z',
-      joined_at: '2024-03-01T10:00:00Z',
-      left_at: null,
-      display_name: 'Test Admin',
-    },
-    {
-      id: 'member-2',
-      group_id: 'group-1',
-      user_id: 'user-2',
-      tenant_id: 'tenant-1',
-      role: 'member',
-      peer_sharing_consent: true,
-      consent_given_at: '2024-03-05T12:00:00Z',
-      joined_at: '2024-03-05T12:00:00Z',
-      left_at: null,
-      display_name: 'Alice Runner',
-    },
-    {
-      id: 'member-3',
-      group_id: 'group-1',
-      user_id: 'user-3',
-      tenant_id: 'tenant-1',
-      role: 'admin',
-      peer_sharing_consent: false,
-      consent_given_at: '2024-03-10T09:00:00Z',
-      joined_at: '2024-03-10T09:00:00Z',
-      left_at: null,
-      display_name: 'Bob Cyclist',
-    },
-  ],
-};
+function buildMockMembers(currentUserRole: 'owner' | 'admin' | 'member') {
+  return {
+    members: [
+      {
+        id: 'member-1',
+        group_id: 'group-1',
+        user_id: 'user-123',
+        tenant_id: 'tenant-1',
+        role: currentUserRole,
+        peer_sharing_consent: false,
+        consent_given_at: '2024-03-01T10:00:00Z',
+        joined_at: '2024-03-01T10:00:00Z',
+        left_at: null,
+        display_name: 'Test User',
+      },
+      {
+        id: 'member-2',
+        group_id: 'group-1',
+        user_id: 'user-2',
+        tenant_id: 'tenant-1',
+        role: 'member',
+        peer_sharing_consent: true,
+        consent_given_at: '2024-03-05T12:00:00Z',
+        joined_at: '2024-03-05T12:00:00Z',
+        left_at: null,
+        display_name: 'Alice Runner',
+      },
+      {
+        id: 'member-3',
+        group_id: 'group-1',
+        user_id: 'user-3',
+        tenant_id: 'tenant-1',
+        role: 'admin',
+        peer_sharing_consent: false,
+        consent_given_at: '2024-03-10T09:00:00Z',
+        joined_at: '2024-03-10T09:00:00Z',
+        left_at: null,
+        display_name: 'Bob Cyclist',
+      },
+    ],
+  };
+}
 
 const mockInvites = {
   invites: [
@@ -123,7 +127,7 @@ const mockInvites = {
       tenant_id: 'tenant-1',
       code: 'MRT2026X',
       created_by: 'user-123',
-      expires_at: '2024-06-01T00:00:00Z',
+      expires_at: '2027-06-01T00:00:00Z',
       max_uses: 10,
       use_count: 3,
       is_active: true,
@@ -143,31 +147,18 @@ const mockStats = {
   },
 };
 
-const mockHealthFlags = {
-  flags: [
-    {
-      user_id: 'user-2',
-      display_name: 'Alice Runner',
-      flag_type: 'overreaching',
-      severity: 'warning',
-      detail: 'TSB at -22, recommend recovery',
-    },
-  ],
-};
-
-const mockWeeklyReport = {
-  summary: 'Marathon Training 2026 had 4/5 active members this week.',
-  highlights: ['Bob set a new 5K PR (19:42)', 'Group volume up 12%'],
-  concerns: ['Alice: TSB at -22, recommend recovery'],
-  recommendations: ['Review 1 flagged member and consider recovery adjustments.'],
-  stats: mockStats.stats,
-};
-
 // ============================================================================
 // Setup Helpers
 // ============================================================================
 
-async function setupGroupMocks(page: Page) {
+interface GroupMockOptions {
+  userGroupRole?: 'owner' | 'admin' | 'member';
+}
+
+async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
+  const { userGroupRole = 'owner' } = options;
+  const mockMembers = buildMockMembers(userGroupRole);
+
   // Groups list
   await page.route('**/api/groups', async (route) => {
     if (route.request().method() === 'GET') {
@@ -227,12 +218,14 @@ async function setupGroupMocks(page: Page) {
     });
   });
 
-  // Member removal
+  // Member role change and removal (more specific path — register before generic members)
   await page.route('**/api/groups/group-1/members/**', async (route) => {
     if (route.request().method() === 'DELETE') {
       await route.fulfill({ status: 204 });
     } else if (route.request().method() === 'PUT') {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    } else {
+      await route.fallback();
     }
   });
 
@@ -268,6 +261,8 @@ async function setupGroupMocks(page: Page) {
   await page.route('**/api/groups/group-1/invites/**', async (route) => {
     if (route.request().method() === 'DELETE') {
       await route.fulfill({ status: 204 });
+    } else {
+      await route.fallback();
     }
   });
 
@@ -285,7 +280,7 @@ async function setupGroupMocks(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(mockHealthFlags),
+      body: JSON.stringify({ flags: [] }),
     });
   });
 
@@ -294,7 +289,7 @@ async function setupGroupMocks(page: Page) {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(mockWeeklyReport),
+      body: JSON.stringify({ summary: 'Good week.', highlights: [], concerns: [], recommendations: [], stats: mockStats.stats }),
     });
   });
 
@@ -315,7 +310,7 @@ async function setupGroupMocks(page: Page) {
           consent_given_at: new Date().toISOString(),
           joined_at: new Date().toISOString(),
           left_at: null,
-          display_name: 'Test Admin',
+          display_name: 'Test User',
         }),
       });
     } else {
@@ -347,36 +342,52 @@ async function setupGroupMocks(page: Page) {
   });
 }
 
+// Helper: login as regular user and navigate to Groups tab
+async function loginAndGoToGroups(page: Page, options: GroupMockOptions = {}) {
+  await setupDashboardMocks(page, { role: 'user' });
+  await setupGroupMocks(page, options);
+  await loginToDashboard(page);
+  await navigateToTab(page, 'Groups');
+}
+
+// Helper: navigate to group detail from list
+async function goToGroupDetail(page: Page) {
+  await page.getByText('Marathon Training 2026').click();
+  await expect(page.getByText('All Groups')).toBeVisible();
+}
+
 // ============================================================================
 // Group List Tests
 // ============================================================================
 
 test.describe('Group Coaching - List', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
+    await loginAndGoToGroups(page);
   });
 
   test('displays group list with cards', async ({ page }) => {
-    await navigateToTab(page, 'Groups');
     await expect(page.getByText('Marathon Training 2026')).toBeVisible();
     await expect(page.getByText('Trail Running Crew')).toBeVisible();
   });
 
   test('shows member count on group cards', async ({ page }) => {
-    await navigateToTab(page, 'Groups');
     await expect(page.getByText('5 members')).toBeVisible();
     await expect(page.getByText('3 members')).toBeVisible();
   });
 
   test('shows role badges on group cards', async ({ page }) => {
-    await navigateToTab(page, 'Groups');
     await expect(page.getByText('Owner')).toBeVisible();
-    await expect(page.getByText('Member')).toBeVisible();
+    await expect(page.getByText('Member', { exact: true })).toBeVisible();
+  });
+
+  test('shows peer sharing indicator on enabled groups', async ({ page }) => {
+    // group-2 has peer_data_sharing: true
+    await expect(page.getByText('Peer Sharing')).toBeVisible();
   });
 
   test('shows empty state when no groups', async ({ page }) => {
+    // Override groups mock with empty response before navigating
+    await setupDashboardMocks(page, { role: 'user' });
     await page.route('**/api/groups', async (route) => {
       if (route.request().method() === 'GET') {
         await route.fulfill({
@@ -384,10 +395,13 @@ test.describe('Group Coaching - List', () => {
           contentType: 'application/json',
           body: JSON.stringify({ groups: [] }),
         });
+      } else {
+        await route.fallback();
       }
     });
+    await loginToDashboard(page);
     await navigateToTab(page, 'Groups');
-    await expect(page.getByText(/no groups|get started|create/i)).toBeVisible();
+    await expect(page.getByText('No groups yet')).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -397,28 +411,24 @@ test.describe('Group Coaching - List', () => {
 
 test.describe('Group Coaching - Create', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
-    await navigateToTab(page, 'Groups');
+    await loginAndGoToGroups(page);
   });
 
   test('opens create group modal', async ({ page }) => {
-    await page.getByRole('button', { name: /create.*group/i }).click();
-    await expect(page.getByPlaceholder(/group name|name/i)).toBeVisible();
+    await page.getByRole('button', { name: /Create Group/ }).click();
+    await expect(page.getByText('Create Coaching Group')).toBeVisible();
+    await expect(page.getByPlaceholder('e.g., Marathon Training Squad')).toBeVisible();
   });
 
   test('creates group with name and coach', async ({ page }) => {
-    await page.getByRole('button', { name: /create.*group/i }).click();
-    await page.getByPlaceholder(/group name|name/i).fill('New Running Group');
-    // Select coach if dropdown exists
-    const coachSelector = page.locator('select, [role="combobox"]').first();
-    if (await coachSelector.isVisible()) {
-      await coachSelector.selectOption({ index: 0 });
-    }
-    await page.getByRole('button', { name: /create|save|submit/i }).click();
-    // Should show success or redirect
-    await expect(page.getByText(/created|success/i).or(page.getByText('New Running Group'))).toBeVisible({ timeout: 5000 });
+    await page.getByRole('button', { name: /Create Group/ }).click();
+    await page.getByPlaceholder('e.g., Marathon Training Squad').fill('New Running Group');
+    // Select the coach from the dropdown (use exact match to avoid dialog label collision)
+    await page.getByLabel('Coach', { exact: true }).selectOption('coach-marathon');
+    // Submit the form
+    await page.getByRole('button', { name: 'Create Group' }).last().click();
+    // Should show success toast
+    await expect(page.getByText(/created/i)).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -428,47 +438,77 @@ test.describe('Group Coaching - Create', () => {
 
 test.describe('Group Coaching - Detail', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
-    await navigateToTab(page, 'Groups');
+    await loginAndGoToGroups(page);
   });
 
   test('navigates to group detail on card click', async ({ page }) => {
-    await page.getByText('Marathon Training 2026').click();
-    await expect(page.getByText('Marathon Training 2026')).toBeVisible();
+    await goToGroupDetail(page);
+    // Header shows group name
+    await expect(page.locator('h2', { hasText: 'Marathon Training 2026' })).toBeVisible();
   });
 
   test('shows members tab with member list', async ({ page }) => {
-    await page.getByText('Marathon Training 2026').click();
-    // Click Members tab if tabs exist
-    const membersTab = page.getByRole('tab', { name: /members/i }).or(page.getByText(/members/i));
-    if (await membersTab.isVisible()) {
-      await membersTab.click();
-    }
-    await expect(page.getByText('Test Admin')).toBeVisible();
+    await goToGroupDetail(page);
+    // Members tab is default active
+    await expect(page.getByText('Test User')).toBeVisible();
     await expect(page.getByText('Alice Runner')).toBeVisible();
     await expect(page.getByText('Bob Cyclist')).toBeVisible();
   });
 
   test('shows member roles in member list', async ({ page }) => {
-    await page.getByText('Marathon Training 2026').click();
-    const membersTab = page.getByRole('tab', { name: /members/i }).or(page.getByText(/members/i));
-    if (await membersTab.isVisible()) {
-      await membersTab.click();
-    }
-    // Should show role indicators
-    await expect(page.getByText(/owner/i).first()).toBeVisible();
+    await goToGroupDetail(page);
+    // Role badges in the member table
+    await expect(page.getByText('Owner').first()).toBeVisible();
+    await expect(page.getByText('Admin').first()).toBeVisible();
   });
 
   test('shows stats tab with aggregate data', async ({ page }) => {
-    await page.getByText('Marathon Training 2026').click();
-    const statsTab = page.getByRole('tab', { name: /stats/i }).or(page.getByText(/stats/i));
-    if (await statsTab.isVisible()) {
-      await statsTab.click();
-    }
-    // Should show aggregate stats
-    await expect(page.getByText(/38\.5|38.5/)).toBeVisible({ timeout: 5000 });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Stats/ }).click();
+    await expect(page.getByText('38.5')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Active Members')).toBeVisible();
+    await expect(page.getByText('Avg Weekly Volume')).toBeVisible();
+  });
+});
+
+// ============================================================================
+// Member Management Tests (Owner)
+// ============================================================================
+
+test.describe('Group Coaching - Member Management', () => {
+  test('owner sees action buttons for non-owner members', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    // Actions column visible
+    await expect(page.getByText('Actions')).toBeVisible();
+    // Remove button on Alice (member, not self, not owner)
+    await expect(page.getByLabel(/Remove Alice Runner/)).toBeVisible();
+  });
+
+  test('owner can promote member to admin', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    // Click promote button for Alice Runner
+    await page.getByLabel(/Promote Alice Runner/).click();
+    await expect(page.getByText(/Role updated/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('owner can remove member', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    // Click remove button for Alice Runner
+    await page.getByLabel(/Remove Alice Runner/).click();
+    // Confirm dialog appears
+    await expect(page.getByText('Remove Member')).toBeVisible();
+    await page.getByRole('button', { name: 'Remove' }).last().click();
+    await expect(page.getByText('Member removed')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('regular member does not see action buttons', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'member' });
+    await goToGroupDetail(page);
+    // No Actions column
+    await expect(page.getByText('Actions')).not.toBeVisible();
   });
 });
 
@@ -478,40 +518,26 @@ test.describe('Group Coaching - Detail', () => {
 
 test.describe('Group Coaching - Invites', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
-    await navigateToTab(page, 'Groups');
-    await page.getByText('Marathon Training 2026').click();
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Invites/ }).click();
   });
 
   test('shows invite tab with existing invites', async ({ page }) => {
-    const invitesTab = page.getByRole('tab', { name: /invites/i }).or(page.getByText(/invites/i));
-    if (await invitesTab.isVisible()) {
-      await invitesTab.click();
-    }
     await expect(page.getByText('MRT2026X')).toBeVisible({ timeout: 5000 });
   });
 
   test('shows invite use count', async ({ page }) => {
-    const invitesTab = page.getByRole('tab', { name: /invites/i }).or(page.getByText(/invites/i));
-    if (await invitesTab.isVisible()) {
-      await invitesTab.click();
-    }
-    // Should show 3/10 uses or similar
-    await expect(page.getByText(/3.*10|3 of 10|3\/10/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('3 / 10 uses')).toBeVisible({ timeout: 5000 });
   });
 
   test('creates new invite', async ({ page }) => {
-    const invitesTab = page.getByRole('tab', { name: /invites/i }).or(page.getByText(/invites/i));
-    if (await invitesTab.isVisible()) {
-      await invitesTab.click();
-    }
-    const createBtn = page.getByRole('button', { name: /create.*invite|generate.*invite|new.*invite/i });
-    if (await createBtn.isVisible()) {
-      await createBtn.click();
-      await expect(page.getByText('NEWCODE1')).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: 'New Invite' }).click();
+    // Fill the create invite form and submit
+    await expect(page.getByText('Create Invite Link')).toBeVisible();
+    await page.getByRole('button', { name: 'Create' }).click();
+    // Success toast appears
+    await expect(page.getByText('Invite created')).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -521,38 +547,39 @@ test.describe('Group Coaching - Invites', () => {
 
 test.describe('Group Coaching - Join', () => {
   test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
-    await navigateToTab(page, 'Groups');
+    await loginAndGoToGroups(page);
   });
 
   test('opens join group modal', async ({ page }) => {
-    const joinBtn = page.getByRole('button', { name: /join.*group/i });
-    if (await joinBtn.isVisible()) {
-      await joinBtn.click();
-      await expect(page.getByPlaceholder(/invite.*code|code/i)).toBeVisible();
-    }
+    await page.getByRole('button', { name: /Join Group/ }).click();
+    await expect(page.getByText('Join a Group')).toBeVisible();
+    await expect(page.getByPlaceholder('e.g., abc123')).toBeVisible();
+  });
+
+  test('join button is disabled without consent checkbox', async ({ page }) => {
+    await page.getByRole('button', { name: /Join Group/ }).click();
+    await page.getByPlaceholder('e.g., abc123').fill('VALIDCODE');
+    // Don't check consent — button should be disabled
+    const joinButton = page.getByRole('button', { name: 'Join Group' }).last();
+    await expect(joinButton).toBeDisabled();
   });
 
   test('joins with valid invite code', async ({ page }) => {
-    const joinBtn = page.getByRole('button', { name: /join.*group/i });
-    if (await joinBtn.isVisible()) {
-      await joinBtn.click();
-      await page.getByPlaceholder(/invite.*code|code/i).fill('VALIDCODE');
-      await page.getByRole('button', { name: /join|submit/i }).click();
-      await expect(page.getByText(/joined|success/i)).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: /Join Group/ }).click();
+    await page.getByPlaceholder('e.g., abc123').fill('VALIDCODE');
+    // Check consent checkbox
+    await page.locator('input[type="checkbox"]').check();
+    await page.getByRole('button', { name: 'Join Group' }).last().click();
+    await expect(page.getByText(/joined|success/i)).toBeVisible({ timeout: 5000 });
   });
 
   test('shows error for invalid invite code', async ({ page }) => {
-    const joinBtn = page.getByRole('button', { name: /join.*group/i });
-    if (await joinBtn.isVisible()) {
-      await joinBtn.click();
-      await page.getByPlaceholder(/invite.*code|code/i).fill('BADCODE');
-      await page.getByRole('button', { name: /join|submit/i }).click();
-      await expect(page.getByText(/invalid|expired|not found|error/i)).toBeVisible({ timeout: 5000 });
-    }
+    await page.getByRole('button', { name: /Join Group/ }).click();
+    await page.getByPlaceholder('e.g., abc123').fill('BADCODE');
+    await page.locator('input[type="checkbox"]').check();
+    await page.getByRole('button', { name: 'Join Group' }).last().click();
+    // Error shows as field error or toast
+    await expect(page.getByText(/Invalid or expired|Join failed/i)).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -561,39 +588,53 @@ test.describe('Group Coaching - Join', () => {
 // ============================================================================
 
 test.describe('Group Coaching - Settings', () => {
-  test.beforeEach(async ({ page }) => {
-    await setupDashboardMocks(page);
-    await setupGroupMocks(page);
-    await loginToDashboard(page);
-    await navigateToTab(page, 'Groups');
-    await page.getByText('Marathon Training 2026').click();
+  test('shows settings tab for owner', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Settings/ }).click();
+    await expect(page.getByText('Group Settings')).toBeVisible();
+    await expect(page.getByText('Enable peer data sharing')).toBeVisible();
   });
 
-  test('shows settings tab for owner', async ({ page }) => {
-    const settingsTab = page.getByRole('tab', { name: /settings/i }).or(page.getByText(/settings/i));
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      // Should show group settings form
-      await expect(page.getByText(/peer.*sharing|settings|delete/i)).toBeVisible({ timeout: 5000 });
-    }
+  test('can save updated group settings', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Settings/ }).click();
+    // Update group name
+    const nameInput = page.getByLabel('Group Name', { exact: true });
+    await nameInput.clear();
+    await nameInput.fill('Renamed Group');
+    await page.getByRole('button', { name: 'Save Settings' }).click();
+    await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 });
   });
 
   test('can toggle peer data sharing', async ({ page }) => {
-    const settingsTab = page.getByRole('tab', { name: /settings/i }).or(page.getByText(/settings/i));
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      const toggle = page.getByRole('switch').or(page.locator('input[type="checkbox"]')).first();
-      if (await toggle.isVisible()) {
-        await toggle.click();
-      }
-    }
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Settings/ }).click();
+    // Toggle peer sharing checkbox
+    const peerCheckbox = page.getByLabel(/peer data sharing/i);
+    await peerCheckbox.check();
+    await expect(peerCheckbox).toBeChecked();
   });
 
-  test('shows delete button for owner', async ({ page }) => {
-    const settingsTab = page.getByRole('tab', { name: /settings/i }).or(page.getByText(/settings/i));
-    if (await settingsTab.isVisible()) {
-      await settingsTab.click();
-      await expect(page.getByRole('button', { name: /delete.*group/i })).toBeVisible({ timeout: 5000 });
-    }
+  test('non-owner sees Leave but not Delete', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'member' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Settings/ }).click();
+    // Leave button visible, Delete not
+    await expect(page.getByRole('button', { name: 'Leave' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete Group' })).not.toBeVisible();
+  });
+
+  test('owner can delete group with confirmation', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Settings/ }).click();
+    await page.getByRole('button', { name: 'Delete Group' }).click();
+    // Confirm dialog — check for the dialog title or confirm button
+    await expect(page.getByText('This will permanently archive')).toBeVisible();
+    await page.getByRole('button', { name: /Delete/i }).last().click();
+    await expect(page.getByText('Group deleted')).toBeVisible({ timeout: 5000 });
   });
 });
