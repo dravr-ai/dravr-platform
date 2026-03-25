@@ -87,7 +87,7 @@ test.describe('Admin Configuration Integration Tests', () => {
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
       // Should show configuration header (Dashboard h1 shows tab name)
-      const header = await page.getByRole('heading', { name: 'Configuration', level: 1 }).isVisible();
+      const header = await page.getByRole('heading', { name: 'Tool Management', level: 1 }).isVisible();
       expect(header).toBe(true);
     });
 
@@ -259,7 +259,7 @@ test.describe('Admin Configuration - Super Admin', () => {
     await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
     // Should show configuration management
-    const hasConfigPage = await page.locator('text=/Configuration|Parameters/i').first().isVisible();
+    const hasConfigPage = await page.locator('text=/Tool Management|Tool Availability/i').first().isVisible();
     expect(hasConfigPage).toBe(true);
   });
 
