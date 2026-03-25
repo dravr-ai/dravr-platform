@@ -236,8 +236,8 @@ async function setupToolAvailabilityMocks(page: Page) {
 async function navigateToToolAvailability(page: Page) {
   await loginToDashboard(page);
   await page.waitForSelector("nav", { timeout: 10000 });
-  await navigateToTab(page, "Configuration");
-  await page.waitForSelector('h1:has-text("Configuration")', {
+  await navigateToTab(page, "Tool Management");
+  await page.waitForSelector('h1:has-text("Tool Management")', {
     timeout: 10000,
   });
   // Click on Tool Availability tab
@@ -776,8 +776,8 @@ test.describe("Tool Availability - Error Handling", () => {
 
     await loginToDashboard(page);
     await page.waitForSelector("nav", { timeout: 10000 });
-    await navigateToTab(page, "Configuration");
-    await page.waitForSelector('h1:has-text("Configuration")', {
+    await navigateToTab(page, "Tool Management");
+    await page.waitForSelector('h1:has-text("Tool Management")', {
       timeout: 10000,
     });
     await page.getByRole("tab", { name: "Tool Availability" }).click();
@@ -824,7 +824,7 @@ test.describe("Tool Availability - Error Handling", () => {
 });
 
 test.describe("Tool Availability - Access Control", () => {
-  test("non-admin users cannot see Configuration tab", async ({ page }) => {
+  test("non-admin users cannot see Tool Management tab", async ({ page }) => {
     await setupDashboardMocks(page, { role: "user" });
 
     // Mock endpoints for regular users (can fail or be empty)
@@ -842,7 +842,7 @@ test.describe("Tool Availability - Access Control", () => {
 
     // Non-admin users see the gear icon (Settings) in bottom profile bar, but NOT admin-specific tabs like Configuration
     await expect(page.getByRole('button', { name: 'Settings', exact: true }).first()).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Configuration")') })).not.toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Management")') })).not.toBeVisible();
   });
 
   test("admin users can see Tool Availability tab", async ({ page }) => {
@@ -851,8 +851,8 @@ test.describe("Tool Availability - Access Control", () => {
     await page.waitForSelector("nav", { timeout: 10000 });
 
     // Navigate to Configuration
-    await navigateToTab(page, "Configuration");
-    await page.waitForSelector('h1:has-text("Configuration")', {
+    await navigateToTab(page, "Tool Management");
+    await page.waitForSelector('h1:has-text("Tool Management")', {
       timeout: 10000,
     });
 

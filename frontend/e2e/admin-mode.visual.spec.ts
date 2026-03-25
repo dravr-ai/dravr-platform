@@ -85,15 +85,15 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Connections Tab
+  // API Keys Tab
   // ========================================
-  test.describe('Connections Tab', () => {
+  test.describe('API Keys Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
     test('connections - displays OAuth providers', async ({ page }) => {
-      await navigateToTab(page, 'Connections');
+      await navigateToTab(page, 'API Keys');
       await waitForNetworkIdle(page);
 
       // Should show provider cards or empty state
@@ -104,7 +104,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('connections - shows connection status', async ({ page }) => {
-      await navigateToTab(page, 'Connections');
+      await navigateToTab(page, 'API Keys');
       await waitForNetworkIdle(page);
 
       await takeVisualScreenshot(page, 'admin-connections', 'status');
@@ -364,7 +364,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('config - displays settings list', async ({ page }) => {
-      await navigateToTab(page, 'Configuration');
+      await navigateToTab(page, 'Tool Management');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');

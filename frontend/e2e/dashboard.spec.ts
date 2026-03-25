@@ -141,10 +141,10 @@ test.describe('Dashboard Navigation', () => {
 
     // Check main navigation tabs are present (using span text within buttons)
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Overview")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Connections")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Monitor")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tools")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Usage")') })).toBeVisible();
   });
 
   test('shows Users tab only for admin users', async ({ page }) => {
@@ -179,8 +179,8 @@ test.describe('Dashboard Navigation', () => {
     await expect(overviewTab).toHaveClass(/bg-gradient/);
 
     // Navigate to Connections - check tab becomes active
-    await navigateToTab(page, 'Connections');
-    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("Connections")') });
+    await navigateToTab(page, 'API Keys');
+    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') });
     await expect(connectionsTab).toHaveClass(/bg-gradient/);
     await expect(overviewTab).not.toHaveClass(/bg-gradient/);
 

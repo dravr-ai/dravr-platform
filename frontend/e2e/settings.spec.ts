@@ -787,7 +787,7 @@ async function loginAndNavigateToAdminSettings(page: import('@playwright/test').
   await expect(page.locator('input[name="email"]')).not.toBeVisible({ timeout: 10000 });
 
   // Navigate to admin settings via Configuration sidebar tab
-  await page.getByRole('button', { name: 'Configuration', exact: true }).click();
+  await page.getByRole('button', { name: 'Tool Management', exact: true }).click();
   await page.waitForTimeout(500);
 }
 
