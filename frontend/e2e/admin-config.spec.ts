@@ -4,7 +4,7 @@
 // ABOUTME: Playwright E2E tests for Admin Tool Management tab access control.
 // ABOUTME: Validates tab visibility for admin vs non-admin users.
 
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 // Minimal mock setup for admin dashboard with tool management endpoints
@@ -44,8 +44,6 @@ async function setupAdminMocks(page: Page) {
     }),
   );
 }
-
-import type { Page } from '@playwright/test';
 
 test.describe('Admin Tool Management - Access Control', () => {
   test('non-admin users cannot see Tool Management tab', async ({ page }) => {
