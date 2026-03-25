@@ -5,11 +5,13 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::get_oauth_config;
+#[cfg(feature = "provider-synthetic")]
 use crate::constants::oauth_providers;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::models::{TenantId, UserOAuthToken};
 use crate::protocols::universal::UniversalResponse;
+#[cfg(feature = "provider-synthetic")]
 use crate::providers::synthetic_provider::SyntheticProvider;
 use crate::providers::{CoreFitnessProvider, OAuth2Credentials};
 use crate::utils::http_client::api_client;
@@ -274,6 +276,7 @@ impl AuthService {
         }
 
         // Synthetic provider doesn't use OAuth - create directly with user context
+        #[cfg(feature = "provider-synthetic")]
         if provider_name == oauth_providers::SYNTHETIC {
             debug!(
                 user_id = %user_id,
