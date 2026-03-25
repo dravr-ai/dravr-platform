@@ -738,7 +738,16 @@ impl FitnessProvider for WhoopProvider {
             }
         }
 
-        let response: WhoopPaginatedResponse<WhoopWorkout> = self.api_request(&endpoint).await?;
+        // WHOOP returns 404 for collection endpoints when no data exists in range
+        let response: WhoopPaginatedResponse<WhoopWorkout> = match self.api_request(&endpoint).await
+        {
+            Ok(resp) => resp,
+            Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                info!("No WHOOP workout data in requested range, returning empty");
+                return Ok(vec![]);
+            }
+            Err(e) => return Err(e),
+        };
 
         let mut activities = Vec::with_capacity(response.records.len());
         for workout in &response.records {
@@ -769,7 +778,15 @@ impl FitnessProvider for WhoopProvider {
             }
         }
 
-        let response: WhoopPaginatedResponse<WhoopWorkout> = self.api_request(&endpoint).await?;
+        // WHOOP returns 404 for collection endpoints when no data exists in range
+        let response: WhoopPaginatedResponse<WhoopWorkout> = match self.api_request(&endpoint).await
+        {
+            Ok(resp) => resp,
+            Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                return Ok(CursorPage::new(vec![], None, None, false));
+            }
+            Err(e) => return Err(e),
+        };
 
         let mut activities = Vec::with_capacity(response.records.len());
         for workout in &response.records {
@@ -848,15 +865,23 @@ impl FitnessProvider for WhoopProvider {
 
         let endpoint = format!("activity/sleep?start={start_str}&end={end_str}&limit=25");
 
-        let response: WhoopPaginatedResponse<WhoopSleep> = self
-            .api_request(&endpoint)
-            .await
-            .map_err(|e| ProviderError::ApiError {
-                provider: oauth_providers::WHOOP.to_owned(),
-                status_code: 500,
-                message: e.to_string(),
-                retryable: true,
-            })?;
+        // WHOOP returns 404 for collection endpoints when no data exists in the
+        // date range (instead of an empty paginated response). Treat as empty.
+        let response: WhoopPaginatedResponse<WhoopSleep> = match self.api_request(&endpoint).await {
+            Ok(resp) => resp,
+            Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                info!("No WHOOP sleep data in range {start_str}..{end_str}, returning empty");
+                return Ok(vec![]);
+            }
+            Err(e) => {
+                return Err(ProviderError::ApiError {
+                    provider: oauth_providers::WHOOP.to_owned(),
+                    status_code: 500,
+                    message: e.to_string(),
+                    retryable: true,
+                });
+            }
+        };
 
         let mut sessions = Vec::with_capacity(response.records.len());
         for sleep in response.records {
@@ -878,15 +903,25 @@ impl FitnessProvider for WhoopProvider {
     async fn get_latest_sleep_session(&self) -> Result<SleepSession, ProviderError> {
         let endpoint = "activity/sleep?limit=1";
 
-        let response: WhoopPaginatedResponse<WhoopSleep> = self
-            .api_request(endpoint)
-            .await
-            .map_err(|e| ProviderError::ApiError {
-                provider: oauth_providers::WHOOP.to_owned(),
-                status_code: 500,
-                message: e.to_string(),
-                retryable: true,
-            })?;
+        // WHOOP returns 404 when no sleep data exists at all
+        let response: WhoopPaginatedResponse<WhoopSleep> = match self.api_request(endpoint).await {
+            Ok(resp) => resp,
+            Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                return Err(ProviderError::NotFound {
+                    provider: oauth_providers::WHOOP.to_owned(),
+                    resource_type: "sleep_session".to_owned(),
+                    resource_id: "latest".to_owned(),
+                });
+            }
+            Err(e) => {
+                return Err(ProviderError::ApiError {
+                    provider: oauth_providers::WHOOP.to_owned(),
+                    status_code: 500,
+                    message: e.to_string(),
+                    retryable: true,
+                });
+            }
+        };
 
         let sleep = response
             .records
@@ -920,15 +955,25 @@ impl FitnessProvider for WhoopProvider {
         // v2: Recovery is a separate endpoint from cycles
         let endpoint = format!("recovery?start={start_str}&end={end_str}&limit=25");
 
-        let response: WhoopPaginatedResponse<WhoopRecovery> = self
+        // WHOOP returns 404 for collection endpoints when no data exists in range
+        let response: WhoopPaginatedResponse<WhoopRecovery> = match self
             .api_request(&endpoint)
             .await
-            .map_err(|e| ProviderError::ApiError {
-                provider: oauth_providers::WHOOP.to_owned(),
-                status_code: 500,
-                message: e.to_string(),
-                retryable: true,
-            })?;
+        {
+            Ok(resp) => resp,
+            Err(e) if e.to_string().contains("No data available from WHOOP") => {
+                info!("No WHOOP recovery data in range {start_str}..{end_str}, returning empty");
+                return Ok(vec![]);
+            }
+            Err(e) => {
+                return Err(ProviderError::ApiError {
+                    provider: oauth_providers::WHOOP.to_owned(),
+                    status_code: 500,
+                    message: e.to_string(),
+                    retryable: true,
+                });
+            }
+        };
 
         let mut metrics = Vec::with_capacity(response.records.len());
         for recovery in &response.records {

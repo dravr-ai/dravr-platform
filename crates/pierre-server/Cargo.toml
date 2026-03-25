@@ -91,6 +91,7 @@ provider-coros = ["pierre-providers/provider-coros"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-synthetic", "provider-sciotte"]
+production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-sciotte"]
 
 # Tool feature flags - enable/disable MCP tool categories
 # All tools (default)
@@ -196,6 +197,7 @@ oauth = []
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
 server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]

@@ -118,9 +118,12 @@ pub async fn fetch_provider_sleep_data(
         .create_authenticated_provider(provider_name, user_uuid, tenant_id)
         .await?;
 
-    // Fetch sleep sessions for the requested date range
+    // Fetch sleep sessions with a wider query window to account for providers
+    // (like WHOOP) that may index sleep by cycle boundary rather than start time.
+    // A 1-day request uses a 3-day API window; multi-day requests add 2 extra days.
+    let query_days = i64::from(days_back) + 2;
     let end_date = Utc::now();
-    let start_date = end_date - Duration::days(i64::from(days_back));
+    let start_date = end_date - Duration::days(query_days);
 
     let sessions = provider
         .get_sleep_sessions(start_date, end_date)
@@ -238,8 +241,11 @@ async fn fetch_provider_sleep_history(
         .create_authenticated_provider(provider_name, user_uuid, tenant_id)
         .await?;
 
+    // Widen query window by 2 days to account for providers that index sleep
+    // by cycle boundary rather than start time
+    let query_days = i64::from(days) + 2;
     let end_date = Utc::now();
-    let start_date = end_date - Duration::days(i64::from(days));
+    let start_date = end_date - Duration::days(query_days);
 
     let sessions = provider
         .get_sleep_sessions(start_date, end_date)
