@@ -58,9 +58,8 @@ test.describe('Tools Tab - Overview', () => {
     await setupToolsMocks(page);
     await loginAndNavigateToTools(page);
 
-    // Check header
-    await expect(page.locator('h1')).toContainText('Tools');
-    await expect(page.getByText('Tool Usage Analysis')).toBeVisible();
+    // Check header — Dashboard top bar shows the active tab name
+    await expect(page.getByRole('heading', { name: 'Tool Usage', level: 1 })).toBeVisible();
   });
 
   test('displays all main sections', async ({ page }) => {

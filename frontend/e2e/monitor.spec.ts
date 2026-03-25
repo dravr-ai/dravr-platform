@@ -76,7 +76,7 @@ test.describe('Monitor Tab - Stats Display', () => {
     await loginAndNavigateToMonitor(page);
 
     // Check header — Dashboard top bar shows the active tab name
-    await expect(page.getByText('Monitor')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Monitor', level: 1 })).toBeVisible();
   });
 
   test('displays Total Requests stat card', async ({ page }) => {
