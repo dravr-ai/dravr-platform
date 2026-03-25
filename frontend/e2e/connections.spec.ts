@@ -257,7 +257,7 @@ async function setupConnectionsMocks(page: Page, options: { isAdmin?: boolean } 
 
 async function loginAndNavigateToConnections(page: Page) {
   await loginToDashboard(page);
-  await navigateToTab(page, 'Connections');
+  await navigateToTab(page, 'API Keys');
   await page.waitForTimeout(500);
 }
 
@@ -560,7 +560,7 @@ test.describe('Connections Tab - Empty States', () => {
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Click on API Tokens tab
@@ -588,7 +588,7 @@ test.describe('Connections Tab - Empty States', () => {
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Navigate to Connected Apps tab
@@ -615,7 +615,7 @@ test.describe('Connections Tab - Error Handling', () => {
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Page should still render without crashing
@@ -641,7 +641,7 @@ test.describe('Connections Tab - Error Handling', () => {
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Navigate to Connected Apps tab
@@ -659,7 +659,7 @@ test.describe('Connections Tab - API Token Usage Modal', () => {
     // API Tokens tab requires admin access
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Click on API Tokens tab
@@ -681,7 +681,7 @@ test.describe('Connections Tab - API Token Usage Modal', () => {
     // API Tokens tab requires admin access
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Click on API Tokens tab
@@ -712,7 +712,7 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // Navigate to Connected Apps tab
@@ -731,7 +731,7 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     await page.locator('.tab-dark').getByText('Connected Apps').click();
@@ -751,7 +751,7 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     await page.locator('.tab-dark').getByText('Connected Apps').click();
@@ -769,7 +769,7 @@ test.describe('Connections Tab - A2A Client Expansion', () => {
     // Connections tab is only available to admin users
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     await page.locator('.tab-dark').getByText('Connected Apps').click();
@@ -787,14 +787,14 @@ test.describe('Connections Tab - API Tokens Tab Visibility', () => {
   test('shows API Tokens tab for admin users', async ({ page }) => {
     await setupConnectionsMocks(page, { isAdmin: true });
     await loginToDashboard(page);
-    await navigateToTab(page, 'Connections');
+    await navigateToTab(page, 'API Keys');
     await page.waitForTimeout(500);
 
     // API Tokens tab should be visible for admin
     await expect(page.locator('.tab-dark').getByText('API Tokens')).toBeVisible();
   });
 
-  test('does not show Connections tab for non-admin users', async ({ page }) => {
+  test('does not show API Keys tab for non-admin users', async ({ page }) => {
     // Non-admin users don't have access to the Connections tab at all
     await setupConnectionsMocks(page, { isAdmin: false });
     await loginToDashboard(page);
@@ -803,6 +803,6 @@ test.describe('Connections Tab - API Tokens Tab Visibility', () => {
 
     // Non-admin users see the gear icon (Settings) in bottom profile bar, but NOT admin-specific tabs like Connections
     await expect(page.getByRole('button', { name: 'Settings', exact: true }).first()).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Connections")') })).not.toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).not.toBeVisible();
   });
 });

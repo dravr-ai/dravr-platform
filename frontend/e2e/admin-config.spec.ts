@@ -239,8 +239,8 @@ async function setupAdminConfigMocks(page: Page) {
 async function navigateToAdminConfig(page: Page) {
   await loginToDashboard(page);
   await page.waitForSelector('nav', { timeout: 10000 });
-  await navigateToTab(page, 'Configuration');
-  await page.waitForSelector('h1:has-text("Configuration")', { timeout: 10000 });
+  await navigateToTab(page, 'Tool Management');
+  await page.waitForSelector('h1:has-text("Tool Management")', { timeout: 10000 });
   // Switch to Intelligence tab since mock data uses Intelligence categories
   // Use locator chain: find button containing the Intelligence text
   await page.locator('button:has-text("Intelligence")').click();
@@ -253,7 +253,7 @@ test.describe('Admin Configuration - Loading and Display', () => {
     await navigateToAdminConfig(page);
 
     // Check header - dashboard h1 shows "Configuration"
-    await expect(page.locator('h1').filter({ hasText: 'Configuration' })).toBeVisible();
+    await expect(page.locator('h1').filter({ hasText: 'Tool Management' })).toBeVisible();
 
     // Check Intelligence categories are visible with individual parameter counts
     // Each category shows its own count in the sidebar navigation
@@ -584,7 +584,7 @@ test.describe('Admin Configuration - Error Handling', () => {
 
     await loginToDashboard(page);
     await page.waitForSelector('nav', { timeout: 10000 });
-    await navigateToTab(page, 'Configuration');
+    await navigateToTab(page, 'Tool Management');
 
     // Should show error message
     await expect(page.getByText('Failed to load configuration catalog')).toBeVisible({ timeout: 10000 });
@@ -624,7 +624,7 @@ test.describe('Admin Configuration - Error Handling', () => {
 });
 
 test.describe('Admin Configuration - Access Control', () => {
-  test('non-admin users cannot see Configuration tab', async ({ page }) => {
+  test('non-admin users cannot see Tool Management tab', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
     await loginToDashboard(page);
     // Non-admin users see sidebar with tabs (Chat, Friends, Social Feed, Settings, etc.)
@@ -632,15 +632,15 @@ test.describe('Admin Configuration - Access Control', () => {
 
     // Non-admin users see the gear icon (Settings) in bottom profile bar, but NOT admin-specific tabs like Configuration
     await expect(page.getByRole('button', { name: 'Settings', exact: true }).first()).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Configuration")') })).not.toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Management")') })).not.toBeVisible();
   });
 
-  test('admin users can see Configuration tab', async ({ page }) => {
+  test('admin users can see Tool Management tab', async ({ page }) => {
     await setupAdminConfigMocks(page);
     await loginToDashboard(page);
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Configuration tab should be visible for admin users
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Configuration")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Management")') })).toBeVisible();
   });
 });
