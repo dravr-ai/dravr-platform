@@ -847,9 +847,9 @@ test.describe("Tool Availability - Access Control", () => {
     await navigateToTab(page, "Tool Management");
     await page.waitForTimeout(500);
 
-    // Tool Availability content should be visible
+    // Dashboard header should show the tab name
     await expect(
-      page.getByText("Tool Availability"),
+      page.getByRole('heading', { name: 'Tool Management', level: 1 }),
     ).toBeVisible({ timeout: 10000 });
   });
 });

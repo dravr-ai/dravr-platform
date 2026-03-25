@@ -386,9 +386,8 @@ test.describe('Dashboard Content Loading', () => {
     // Navigate to Monitor tab (admin only)
     await navigateToTab(page, 'Monitor');
 
-    // Wait for tab content to load and check for monitor-specific content
-    // The Dashboard header bar shows the active tab name
-    await expect(page.getByText('Monitor')).toBeVisible({ timeout: 10000 });
+    // Wait for tab content to load — Dashboard header bar shows active tab name
+    await expect(page.getByRole('heading', { name: 'Monitor', level: 1 })).toBeVisible({ timeout: 10000 });
   });
 
   test('loads Tools tab content correctly', async ({ page }) => {
