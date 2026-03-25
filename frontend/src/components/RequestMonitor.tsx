@@ -69,6 +69,11 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
     arr.findIndex(r => r.id === request.id) === index
   );
 
+  // Build dynamic tool filter options from actual request data
+  const toolNames = Array.from(
+    new Set(uniqueRequests.map((r) => r.tool_name).filter(Boolean))
+  ).sort();
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-8">
@@ -155,10 +160,11 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
               className="select-dark text-sm py-1"
             >
               <option value="all">All Tools</option>
-              <option value="get_activities">Get Activities</option>
-              <option value="get_athlete">Get Athlete</option>
-              <option value="get_stats">Get Stats</option>
-              <option value="get_activity_intelligence">Activity Intelligence</option>
+              {toolNames.map((name) => (
+                <option key={name} value={name}>
+                  {name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
+                </option>
+              ))}
             </select>
           </div>
 

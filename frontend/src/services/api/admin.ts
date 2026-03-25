@@ -112,16 +112,6 @@ export const adminApi = {
     return response.data;
   },
 
-  // ==================== TIER CONFIGURATION ====================
-  async getTierDefaults(): Promise<Record<string, { daily_limit: number | null; monthly_limit: number | null }>> {
-    return Promise.resolve({
-      trial: { daily_limit: 100, monthly_limit: 1000 },
-      starter: { daily_limit: 1000, monthly_limit: 10000 },
-      professional: { daily_limit: 10000, monthly_limit: 100000 },
-      enterprise: { daily_limit: null, monthly_limit: null },
-    });
-  },
-
   // ==================== USER MANAGEMENT ====================
   async getPendingUsers() {
     const response = await axios.get('/api/admin/pending-users');
