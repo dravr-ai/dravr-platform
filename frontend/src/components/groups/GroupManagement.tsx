@@ -49,7 +49,7 @@ export default function GroupManagement({ onSelectGroup }: GroupManagementProps)
     staleTime: 60_000,
   });
 
-  const coachOptions: SelectOption[] = (coachesList ?? []).map((coach) => ({
+  const coachOptions: SelectOption[] = (coachesList?.coaches ?? []).map((coach) => ({
     value: coach.id,
     label: coach.name,
   }));
