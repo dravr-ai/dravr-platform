@@ -51,7 +51,7 @@ export default function GroupManagement({ onSelectGroup }: GroupManagementProps)
 
   const coachOptions: SelectOption[] = (coachesList?.coaches ?? []).map((coach) => ({
     value: coach.id,
-    label: coach.name,
+    label: coach.title,
   }));
 
   const resetForm = () => {

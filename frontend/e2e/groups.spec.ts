@@ -15,7 +15,6 @@ const mockCoaches = {
   coaches: [
     {
       id: 'coach-marathon',
-      name: 'Marathon Coach',
       title: 'Marathon Coach',
       description: 'Training for marathon runners',
       system_prompt: 'You are a marathon coach.',

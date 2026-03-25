@@ -40,6 +40,7 @@ const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel
 const GroupManagement = lazy(() => import('./groups/GroupManagement'));
 const GroupDetail = lazy(() => import('./groups/GroupDetail'));
 import { NotificationBell } from './notifications/NotificationBell';
+import { Card } from './ui';
 
 // Tab definition type with optional badge for notification counts
 interface TabDefinition {
