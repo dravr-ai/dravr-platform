@@ -81,7 +81,7 @@ test.describe('Admin Configuration Integration Tests', () => {
 
   test.describe('Configuration UI Integration', () => {
     test('Configuration tab loads with real data', async ({ page }) => {
-      await navigateToTab(page, 'Configuration');
+      await navigateToTab(page, 'Tool Management');
 
       // Wait for content to load
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
@@ -92,7 +92,7 @@ test.describe('Admin Configuration Integration Tests', () => {
     });
 
     test('categories display from real backend data', async ({ page }) => {
-      await navigateToTab(page, 'Configuration');
+      await navigateToTab(page, 'Tool Management');
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
       // Should have at least one category visible
@@ -104,7 +104,7 @@ test.describe('Admin Configuration Integration Tests', () => {
     });
 
     test('search functionality works with real data', async ({ page }) => {
-      await navigateToTab(page, 'Configuration');
+      await navigateToTab(page, 'Tool Management');
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
       // Find search input
@@ -255,7 +255,7 @@ test.describe('Admin Configuration - Super Admin', () => {
   });
 
   test('super admin can access configuration management', async ({ page }) => {
-    await navigateToTab(page, 'Configuration');
+    await navigateToTab(page, 'Tool Management');
     await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
     // Should show configuration management
