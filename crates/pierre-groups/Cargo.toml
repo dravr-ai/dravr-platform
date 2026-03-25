@@ -1,0 +1,27 @@
+# ABOUTME: Group coaching business logic crate for multi-person AI coaching
+# ABOUTME: Contains strategy traits, GroupService, context injection, and digest computation
+
+[package]
+name = "pierre-groups"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Group coaching business logic, strategies, and context injection for Pierre platform"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["all-errors"] }
+pierre-database = { version = "0.3.0", path = "../pierre-database" }
+
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
+tracing = "0.1"
+thiserror = "2.0"
+rand = "0.8"
+
+[lints]
+workspace = true

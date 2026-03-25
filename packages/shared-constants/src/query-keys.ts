@@ -189,6 +189,16 @@ export const QUERY_KEYS = {
     devices: () => ['notifications-devices'] as const,
   },
 
+  // ==================== GROUPS ====================
+  groups: {
+    all: ['groups'] as const,
+    list: () => ['groups'] as const,
+    detail: (groupId: string) => ['groups', groupId] as const,
+    members: (groupId: string) => ['groups', groupId, 'members'] as const,
+    stats: (groupId: string) => ['groups', groupId, 'stats'] as const,
+    invites: (groupId: string) => ['groups', groupId, 'invites'] as const,
+  },
+
   // ==================== MESSAGING ====================
   messaging: {
     all: ['messaging'] as const,

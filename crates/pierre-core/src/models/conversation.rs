@@ -27,6 +27,9 @@ pub struct ConversationRecord {
     pub created_at: String,
     /// When the conversation was last updated (ISO 8601)
     pub updated_at: String,
+    /// Optional coaching group context for group-scoped conversations
+    #[serde(default)]
+    pub group_id: Option<String>,
 }
 
 /// Database representation of a chat message

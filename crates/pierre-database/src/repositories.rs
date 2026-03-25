@@ -19,6 +19,9 @@ use pierre_core::models::coaches::{
     Coach, CoachAssignment, CoachCategory, CoachListItem, CoachVersion, CreateCoachRequest,
     CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
 };
+use pierre_core::models::groups::{
+    CoachingGroup, GroupInvite, GroupMember, GroupRole, GroupSummary, UpdateGroupRequest,
+};
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
@@ -2047,6 +2050,138 @@ pub trait StoreListingsRepository: Send + Sync {
     ) -> AppResult<Vec<Coach>>;
     /// Create or ensure a store listing exists for a coach
     async fn ensure_listing(&self, coach_id: &str, tenant_id: TenantId) -> AppResult<StoreListing>;
+}
+
+// ================================
+// Coaching Group Repository
+// ================================
+
+/// Coaching group storage, membership management, and invite tracking
+#[async_trait]
+pub trait CoachingGroupRepository: Send + Sync {
+    // -- Group CRUD --
+
+    /// Create a new coaching group
+    async fn create_group(
+        &self,
+        tenant_id: TenantId,
+        group: &CoachingGroup,
+    ) -> AppResult<CoachingGroup>;
+
+    /// Get a group by ID with tenant isolation
+    async fn get_group(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<CoachingGroup>>;
+
+    /// List groups the user belongs to (as member, admin, or owner)
+    async fn list_groups_for_user(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<GroupSummary>>;
+
+    /// List groups that use a specific coach persona
+    async fn list_groups_for_coach(
+        &self,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachingGroup>>;
+
+    /// Update a coaching group
+    async fn update_group(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+        request: &UpdateGroupRequest,
+    ) -> AppResult<Option<CoachingGroup>>;
+
+    /// Soft-delete a coaching group (sets `is_active` = false)
+    async fn delete_group(&self, group_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+
+    // -- Membership --
+
+    /// Add a member to a group
+    async fn add_member(&self, member: &GroupMember) -> AppResult<GroupMember>;
+
+    /// Remove a member from a group (soft removal via `left_at` timestamp)
+    async fn remove_member(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Get a specific membership record
+    async fn get_member(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<GroupMember>>;
+
+    /// List active members of a group
+    async fn list_members(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<GroupMember>>;
+
+    /// Update a member's role
+    async fn update_member_role(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        role: GroupRole,
+    ) -> AppResult<bool>;
+
+    /// Update a member's peer sharing consent
+    async fn update_peer_sharing_consent(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        consent: bool,
+    ) -> AppResult<bool>;
+
+    /// Count active members in a group
+    async fn count_members(&self, group_id: &str, tenant_id: TenantId) -> AppResult<i64>;
+
+    // -- Invites --
+
+    /// Create a group invite
+    async fn create_invite(&self, invite: &GroupInvite) -> AppResult<GroupInvite>;
+
+    /// Look up an invite by its code (cross-tenant for join flow)
+    async fn get_invite_by_code(&self, code: &str) -> AppResult<Option<GroupInvite>>;
+
+    /// Increment the use count of an invite
+    async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool>;
+
+    /// Deactivate an invite
+    async fn deactivate_invite(&self, invite_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+
+    /// List invites for a group
+    async fn list_invites(
+        &self,
+        group_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<GroupInvite>>;
+
+    // -- Context queries --
+
+    /// Find groups a user belongs to that use a specific coach
+    async fn find_groups_for_user_and_coach(
+        &self,
+        user_id: Uuid,
+        coach_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachingGroup>>;
+
+    /// Count groups owned by a user (for tier limit enforcement)
+    async fn count_groups_for_owner(&self, owner_id: Uuid, tenant_id: TenantId) -> AppResult<i64>;
 }
 
 // ================================

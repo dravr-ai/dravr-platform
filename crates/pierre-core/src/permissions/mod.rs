@@ -140,6 +140,10 @@ bitflags::bitflags! {
         const CONNECT_PROVIDERS = 1 << 4;
         /// View own analytics
         const VIEW_OWN_ANALYTICS = 1 << 5;
+        /// Create coaching groups
+        const CREATE_GROUPS = 1 << 6;
+        /// Manage groups the user owns or is admin of
+        const MANAGE_OWN_GROUPS = 1 << 7;
 
         // Admin permissions (bits 16-31)
         /// View all users in the system
@@ -156,6 +160,8 @@ bitflags::bitflags! {
         const VIEW_A2A_CLIENTS = 1 << 21;
         /// Manage admin tokens
         const MANAGE_ADMIN_TOKENS = 1 << 22;
+        /// Manage any group in the tenant (admin override)
+        const MANAGE_ALL_GROUPS = 1 << 23;
 
         // Super admin permissions (bits 32-47)
         /// Impersonate other users
@@ -178,7 +184,7 @@ bitflags::bitflags! {
             | Self::CONNECT_PROVIDERS.bits()
             | Self::VIEW_OWN_ANALYTICS.bits();
 
-        /// Default permissions for admins (includes user permissions)
+        /// Default permissions for admins (includes user permissions + group management)
         const ADMIN_DEFAULT = Self::USER_DEFAULT.bits()
             | Self::VIEW_ALL_USERS.bits()
             | Self::APPROVE_USERS.bits()
@@ -186,7 +192,10 @@ bitflags::bitflags! {
             | Self::VIEW_ANALYTICS.bits()
             | Self::MANAGE_API_KEYS.bits()
             | Self::VIEW_A2A_CLIENTS.bits()
-            | Self::MANAGE_ADMIN_TOKENS.bits();
+            | Self::MANAGE_ADMIN_TOKENS.bits()
+            | Self::CREATE_GROUPS.bits()
+            | Self::MANAGE_OWN_GROUPS.bits()
+            | Self::MANAGE_ALL_GROUPS.bits();
     }
 }
 

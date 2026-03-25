@@ -59,6 +59,7 @@ impl ChatRepository for PostgresDatabase {
             total_tokens: 0,
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
+            group_id: None,
         })
     }
 
@@ -70,7 +71,7 @@ impl ChatRepository for PostgresDatabase {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at
+            SELECT id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at, group_id
             FROM chat_conversations
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -97,6 +98,7 @@ impl ChatRepository for PostgresDatabase {
                 total_tokens: r.get("total_tokens"),
                 created_at: created_at.to_rfc3339(),
                 updated_at: updated_at.to_rfc3339(),
+                group_id: r.get("group_id"),
             }
         }))
     }

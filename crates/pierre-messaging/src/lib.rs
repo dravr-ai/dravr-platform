@@ -30,3 +30,6 @@ pub use dravr_canot::registry;
 pub use dravr_canot::renderer;
 pub use dravr_canot::retry;
 pub use dravr_canot::transport;
+
+/// Slash command infrastructure for messaging platforms
+pub use dravr_canot::commands;

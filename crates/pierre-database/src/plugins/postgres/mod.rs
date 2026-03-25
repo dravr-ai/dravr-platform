@@ -18,6 +18,8 @@ pub mod api_key;
 pub mod chat;
 /// Coaches repository implementation
 pub mod coaches;
+/// Coaching group repository implementation (group CRUD, membership, invites)
+pub mod coaching_groups;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
 /// Messaging gateway repository implementations

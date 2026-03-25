@@ -18,6 +18,7 @@ export const socialApi = pierreApi.social;
 export const storeApi = pierreApi.store;
 export const userApi = pierreApi.user;
 export const notificationsApi = pierreApi.notifications;
+export const groupsApi = pierreApi.groups;
 
 // Providers API delegates to shared oauth module
 export const providersApi = {

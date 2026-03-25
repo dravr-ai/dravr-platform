@@ -52,6 +52,26 @@ export type {
   InstallationsResponse,
 } from '@pierre/shared-types';
 
+// Group coaching types
+export type {
+  GroupRole,
+  CoachingGroup,
+  GroupMember,
+  GroupInvite,
+  GroupSummary,
+  GroupAggregateStats,
+  GroupWeeklyReport,
+  GroupHealthFlag,
+  MemberGroupComparison,
+  CreateGroupRequest,
+  UpdateGroupRequest,
+  JoinGroupRequest,
+  ListGroupsResponse,
+  GroupMembersResponse,
+  GroupInvitesResponse,
+  GroupStatsResponse,
+} from '@pierre/shared-types';
+
 // Re-export social types (named exports to avoid pulling in runtime constants)
 export type {
   FriendStatus,

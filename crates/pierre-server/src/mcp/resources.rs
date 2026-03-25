@@ -19,6 +19,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::admin::FirebaseAuth;
 use crate::cache::factory::Cache;
+use crate::commands;
 use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
 use crate::email::ResendEmailService;
@@ -36,6 +37,16 @@ use crate::middleware::{CsrfMiddleware, McpAuthMiddleware};
 use crate::plugins::executor::PluginToolExecutor;
 use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
+use crate::services::commands::{
+    account::LogoutHandler,
+    group::{
+        GroupInviteHandler, GroupLeaveHandler, GroupListHandler, GroupMembersHandler,
+        GroupStatusHandler,
+    },
+    help::HelpHandler,
+    status::StatusHandler,
+    CommandHandlerRegistry,
+};
 use crate::services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use crate::sse::SseManager;
@@ -54,11 +65,15 @@ use pierre_database::database::repositories::{
 use pierre_database::plugins::factory::Database;
 use pierre_database::plugins::StoreListingsRepository;
 use pierre_database::RepositoryRegistry;
+#[cfg(feature = "tools-groups")]
+use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_messaging::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::AbortHandle;
@@ -209,6 +224,15 @@ pub struct ServerResources {
     /// Abort handle for the background notification scheduler task
     #[cfg(feature = "client-notifications")]
     pub scheduler_abort_handle: Option<AbortHandle>,
+    /// Group coaching service for context injection and group management
+    #[cfg(feature = "tools-groups")]
+    pub group_service: Arc<pierre_groups::GroupService>,
+    /// Messaging slash command registry (loaded from commands/*.md)
+    #[cfg(feature = "client-messaging")]
+    pub command_registry: Option<Arc<CommandRegistry>>,
+    /// Messaging command handler registry
+    #[cfg(feature = "client-messaging")]
+    pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
 }
 
 impl ServerResources {
@@ -339,6 +363,36 @@ impl ServerResources {
         #[cfg(feature = "client-notifications")]
         let scheduler_abort_handle = notification_service.as_ref().map(|s| s.start_scheduler());
 
+        // Create group coaching service (before struct construction to avoid borrow-after-move)
+        #[cfg(feature = "tools-groups")]
+        let group_service = Arc::new(pierre_groups::GroupService::new(
+            repos.groups.clone(),
+            tier_strategy_for("professional"),
+        ));
+
+        // Load messaging slash commands from commands/ directory
+        #[cfg(feature = "client-messaging")]
+        let (command_registry, command_handler_registry) = {
+            let commands_dir = Path::new("commands");
+            let defs = commands::load_command_definitions(commands_dir);
+            let mut registry = CommandRegistry::new();
+            for def in defs {
+                registry.register(def);
+            }
+            let registry = Arc::new(registry);
+
+            let mut handler_reg = CommandHandlerRegistry::new();
+            handler_reg.register("help", Arc::new(HelpHandler::new(Arc::clone(&registry))));
+            handler_reg.register("status", Arc::new(StatusHandler));
+            handler_reg.register("logout", Arc::new(LogoutHandler));
+            handler_reg.register("group", Arc::new(GroupListHandler));
+            handler_reg.register("group-status", Arc::new(GroupStatusHandler));
+            handler_reg.register("group-members", Arc::new(GroupMembersHandler));
+            handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
+            handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
+            (Some(registry), Some(Arc::new(handler_reg)))
+        };
+
         // Create and populate tool registry with all built-in tools
         let tool_registry = Arc::new(Self::create_tool_registry());
 
@@ -384,6 +438,12 @@ impl ServerResources {
             notification_service,
             #[cfg(feature = "client-notifications")]
             scheduler_abort_handle,
+            #[cfg(feature = "tools-groups")]
+            group_service,
+            #[cfg(feature = "client-messaging")]
+            command_registry,
+            #[cfg(feature = "client-messaging")]
+            command_handler_registry,
         }
     }
 
@@ -669,6 +729,13 @@ impl ServerResources {
     #[must_use]
     pub const fn builder() -> ServerResourcesBuilder {
         ServerResourcesBuilder::new()
+    }
+
+    /// Get the group coaching service
+    #[cfg(feature = "tools-groups")]
+    #[must_use]
+    pub fn group_service(&self) -> &pierre_groups::GroupService {
+        &self.group_service
     }
 
     /// Get the coaches repository

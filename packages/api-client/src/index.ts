@@ -100,6 +100,23 @@ export type {
   ListNotificationsParams,
 } from './domains/notifications';
 
+export { createGroupsApi } from './domains/groups';
+export type {
+  GroupsApi,
+  CoachingGroup,
+  GroupSummary,
+  GroupMember,
+  GroupInvite,
+  GroupAggregateStats,
+  GroupWeeklyReport,
+  GroupHealthFlag,
+  MemberGroupComparison,
+  ListGroupsResponse,
+  GroupMembersResponse,
+  GroupInvitesResponse,
+  GroupStatsResponse,
+} from './domains/groups';
+
 // Re-export platform adapters
 export { createMobileAdapter } from './adapters/mobile';
 export type { AsyncStorageLike, MobileAdapterOptions } from './adapters/mobile';
@@ -118,6 +135,7 @@ import { createSocialApi } from './domains/social';
 import { createStoreApi } from './domains/store';
 import { createUserApi } from './domains/user';
 import { createNotificationsApi } from './domains/notifications';
+import { createGroupsApi } from './domains/groups';
 
 /**
  * Complete API service combining all domain APIs.
@@ -140,6 +158,8 @@ export interface PierreApiService {
   user: ReturnType<typeof createUserApi>;
   /** Notifications API */
   notifications: ReturnType<typeof createNotificationsApi>;
+  /** Groups API */
+  groups: ReturnType<typeof createGroupsApi>;
   /** Underlying axios instance for custom requests */
   axios: AxiosInstance;
   /** Platform adapter */
@@ -183,6 +203,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     store: createStoreApi(axios),
     user: createUserApi(axios),
     notifications: createNotificationsApi(axios),
+    groups: createGroupsApi(axios),
     axios,
     adapter,
   };

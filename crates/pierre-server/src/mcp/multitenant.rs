@@ -1152,6 +1152,12 @@ impl MultiTenantMcpServer {
             app.merge(SocialRoutes::routes(Arc::clone(resources)))
         };
 
+        #[cfg(feature = "client-groups")]
+        let app = {
+            use crate::routes::GroupRoutes;
+            app.merge(GroupRoutes::routes(Arc::clone(resources)))
+        };
+
         // ═══════════════════════════════════════════════════════════════
         // CLIENT-ADMIN ROUTES
         // ═══════════════════════════════════════════════════════════════

@@ -1285,6 +1285,94 @@ async fn send_channel_response(
     }
 }
 
+/// Try to handle a slash command from the message text.
+///
+/// Returns `Some(OutgoingMessage)` if the message was a recognized command,
+/// `None` if it should be passed through to the LLM pipeline.
+///
+/// Commands bypass the LLM entirely for deterministic, fast responses.
+#[cfg(feature = "client-messaging")]
+async fn try_handle_slash_command(
+    resources: &Arc<ServerResources>,
+    channel: &str,
+    channel_type: ChannelType,
+    session: &ResolvedSession,
+    text: &str,
+) -> Option<OutgoingMessage> {
+    use pierre_messaging::commands::CommandMatcher;
+
+    // Fast path: not a command
+    if !text.trim().starts_with('/') {
+        return None;
+    }
+
+    // Access command registries from ServerResources
+    {
+        use crate::services::commands::PlatformCommandContext;
+        use pierre_core::uuid_utils::parse_uuid;
+
+        let cmd_registry = resources.command_registry.as_ref()?;
+        let handler_registry = resources.command_handler_registry.as_ref()?;
+
+        let matcher = CommandMatcher::from_registry(cmd_registry);
+        let parsed = matcher.try_match(text, cmd_registry)?;
+
+        // Look up handler
+        let handler = handler_registry.get(&parsed.name)?;
+
+        // Build platform context
+        let user_uuid = parse_uuid(&session.user_id).ok()?;
+        let fallback_tenant = TenantId::from_uuid(user_uuid);
+        let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
+
+        let ctx = PlatformCommandContext {
+            user_id: user_uuid,
+            tenant_id: user_tenant,
+            channel_type: channel.to_owned(),
+            args: parsed.args,
+            raw_text: parsed.raw_text,
+            resources: Arc::clone(resources),
+        };
+
+        // Execute command
+        match handler.execute(&ctx).await {
+            Ok(response) => {
+                info!(
+                    command = %parsed.name,
+                    user_id = %session.user_id,
+                    channel = %channel,
+                    "Slash command executed"
+                );
+                Some(OutgoingMessage {
+                    channel_type,
+                    recipient_id: session.user_id.clone(),
+                    content: MessageContent::Text {
+                        body: response.text,
+                    },
+                    correlation_id: Uuid::new_v4(),
+                    reply_to: None,
+                })
+            }
+            Err(e) => {
+                warn!(
+                    command = %parsed.name,
+                    error = %e,
+                    "Slash command execution failed"
+                );
+                Some(OutgoingMessage {
+                    channel_type,
+                    recipient_id: session.user_id.clone(),
+                    content: MessageContent::Text {
+                        body: format!("Command failed: {e}"),
+                    },
+                    correlation_id: Uuid::new_v4(),
+                    reply_to: None,
+                })
+            }
+        }
+    }
+}
+
 /// Persist a single inbound message and optionally prepare an LLM dispatch
 ///
 /// Handles three cases:
@@ -1364,6 +1452,17 @@ async fn persist_single_message(
     let Some(session) = session else {
         return Ok(PersistOutcome::HandledNotStored);
     };
+
+    // Check for slash commands before storing or dispatching to LLM.
+    // Commands are handled immediately and not stored in conversation history.
+    if let Some(text) = content_body_text(&message.content) {
+        if let Some(response) =
+            try_handle_slash_command(resources, channel, channel_type, &session, &text).await
+        {
+            send_channel_response(db, tenant_id, channel, adapter, response).await;
+            return Ok(PersistOutcome::HandledNotStored);
+        }
+    }
 
     let stored = store_inbound_message(db, tenant_id, &session, channel, message).await?;
     if !stored {

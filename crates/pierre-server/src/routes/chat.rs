@@ -415,19 +415,91 @@ impl ChatRoutes {
         context
     }
 
-    /// Get augmented system prompt with provider context
+    /// Get augmented system prompt with provider context and group coaching context
     async fn get_augmented_system_prompt(
         conversation: &ConversationRecord,
         resources: &Arc<ServerResources>,
         user_id: Uuid,
+        tenant_id: TenantId,
     ) -> String {
         let base_prompt = Self::get_system_prompt_text(conversation);
         let provider_context = Self::build_provider_context(resources, user_id).await;
 
-        if provider_context.is_empty() {
+        let mut augmented = if provider_context.is_empty() {
             base_prompt
         } else {
             format!("{base_prompt}{provider_context}")
+        };
+
+        // Inject group coaching context if the user is in a group with this coach
+        #[cfg(feature = "tools-groups")]
+        {
+            augmented = Self::inject_group_context_if_applicable(
+                &augmented,
+                conversation,
+                resources,
+                user_id,
+                tenant_id,
+            )
+            .await;
+        }
+
+        augmented
+    }
+
+    /// Inject group coaching context into the system prompt if applicable
+    #[cfg(feature = "tools-groups")]
+    async fn inject_group_context_if_applicable(
+        augmented: &str,
+        conversation: &ConversationRecord,
+        resources: &Arc<ServerResources>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> String {
+        let group_service = resources.group_service();
+
+        // If conversation already has a group_id, use it directly
+        let conversation_group_id = conversation.group_id.as_deref();
+
+        // Find groups this user belongs to — for MVP, we check all groups
+        // and inject context if the user is in exactly one active group.
+        // This works because inject_group_context handles disambiguation.
+        let groups = match resources
+            .repos
+            .groups
+            .list_groups_for_user(user_id, tenant_id)
+            .await
+        {
+            Ok(g) => g,
+            Err(e) => {
+                tracing::debug!("Failed to check group membership: {e}");
+                return augmented.to_owned();
+            }
+        };
+
+        if groups.is_empty() && conversation_group_id.is_none() {
+            return augmented.to_owned();
+        }
+
+        // Use the conversation's coach to narrow down which group
+        // For now, pass empty snapshots — the context builder will use
+        // what it can from the repository
+        match group_service
+            .inject_group_context(
+                augmented,
+                "", // coach_id lookup deferred — groups are matched by user membership
+                user_id,
+                tenant_id,
+                conversation_group_id,
+                &[], // member snapshots fetched lazily
+            )
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::debug!("Group context injection failed: {e}");
+                augmented.to_owned()
+            }
         }
     }
 
@@ -1140,7 +1212,7 @@ impl ChatRoutes {
         } else {
             // Normal conversation: use augmented system prompt with full history
             let system_prompt_text =
-                Self::get_augmented_system_prompt(&conv, &resources, auth.user_id).await;
+                Self::get_augmented_system_prompt(&conv, &resources, auth.user_id, tenant_id).await;
             Self::build_llm_messages(Some(system_prompt_text.as_str()), &history)
         };
 
