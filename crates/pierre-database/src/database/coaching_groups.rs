@@ -165,7 +165,7 @@ impl CoachingGroupRepository for Database {
     async fn list_groups_for_user(
         &self,
         user_id: Uuid,
-        tenant_id: TenantId,
+        _tenant_id: TenantId,
     ) -> AppResult<Vec<GroupSummary>> {
         let rows = sqlx::query(
             r"SELECT g.id, g.name, g.description, g.coach_id, g.is_active, g.peer_data_sharing,
