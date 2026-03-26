@@ -108,10 +108,7 @@ impl GroupService {
         };
 
         // Get member info
-        let member = self
-            .repo
-            .get_member(&group.id.to_string(), user_id, tenant_id)
-            .await?;
+        let member = self.repo.get_member(&group.id.to_string(), user_id).await?;
 
         let is_admin = member.as_ref().is_some_and(|m| m.role.can_manage_members());
 
@@ -325,7 +322,7 @@ impl GroupService {
         // Check not already a member
         let existing = self
             .repo
-            .get_member(&invite.group_id.to_string(), user_id, tenant_id)
+            .get_member(&invite.group_id.to_string(), user_id)
             .await?;
         if existing.is_some() {
             return Err(AppError::invalid_input(

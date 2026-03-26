@@ -140,7 +140,7 @@ impl CommandHandler for GroupInviteHandler {
             .resources
             .repos
             .groups
-            .get_member(&group.id.to_string(), ctx.user_id, ctx.tenant_id)
+            .get_member(&group.id.to_string(), ctx.user_id)
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
 

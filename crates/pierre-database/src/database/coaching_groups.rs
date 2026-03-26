@@ -335,7 +335,7 @@ impl CoachingGroupRepository for Database {
             .tenant_id
             .parse()
             .map_err(|e| AppError::internal(format!("Invalid tenant_id: {e}")))?;
-        self.get_member(&member.group_id.to_string(), member.user_id, tenant_id)
+        self.get_member(&member.group_id.to_string(), member.user_id)
             .await?
             .ok_or_else(|| AppError::internal("Member not found after creation"))
     }
@@ -362,23 +362,17 @@ impl CoachingGroupRepository for Database {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn get_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<GroupMember>> {
+    async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>> {
         let row = sqlx::query(
             r"SELECT m.id, m.group_id, m.user_id, m.tenant_id, m.role,
               m.peer_sharing_consent, m.consent_given_at, m.joined_at, m.left_at,
               u.email AS display_name
               FROM coaching_group_members m
               LEFT JOIN users u ON u.id = m.user_id
-              WHERE m.group_id = $1 AND m.user_id = $2 AND m.tenant_id = $3 AND m.left_at IS NULL",
+              WHERE m.group_id = $1 AND m.user_id = $2 AND m.left_at IS NULL",
         )
         .bind(group_id)
         .bind(user_id.to_string())
-        .bind(tenant_id.to_string())
         .fetch_optional(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to get member: {e}")))?;
