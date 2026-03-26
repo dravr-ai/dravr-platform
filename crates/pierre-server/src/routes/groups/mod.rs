@@ -441,7 +441,6 @@ impl GroupRoutes {
         resources: &Arc<ServerResources>,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
     ) -> Result<GroupMember, AppError> {
         let member = resources
             .repos
@@ -465,7 +464,6 @@ impl GroupRoutes {
         resources: &Arc<ServerResources>,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
     ) -> Result<GroupMember, AppError> {
         let member = resources
             .repos
@@ -489,7 +487,6 @@ impl GroupRoutes {
         resources: &Arc<ServerResources>,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
     ) -> Result<GroupMember, AppError> {
         resources
             .repos
@@ -592,7 +589,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         let group = resources
             .repos
@@ -616,7 +613,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let updated = resources
             .repos
@@ -639,7 +636,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Only owner can delete
-        Self::require_owner(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_owner(&resources, &group_id, auth.user_id).await?;
 
         let deleted = resources
             .repos
@@ -668,7 +665,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         let members = resources
             .repos
@@ -698,7 +695,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let target_uuid = Uuid::parse_str(&target_user_id)
             .map_err(|_| AppError::invalid_input("Invalid user_id format"))?;
@@ -741,8 +738,7 @@ impl GroupRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let caller_member =
-            Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        let caller_member = Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let target_uuid = Uuid::parse_str(&target_user_id)
             .map_err(|_| AppError::invalid_input("Invalid user_id format"))?;
@@ -797,7 +793,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         let updated = resources
             .repos
@@ -836,7 +832,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let group_uuid = Uuid::parse_str(&group_id)
             .map_err(|_| AppError::invalid_input("Invalid group_id format"))?;
@@ -894,7 +890,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let invites = resources
             .repos
@@ -924,7 +920,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let deactivated = resources
             .repos
@@ -1053,7 +1049,7 @@ impl GroupRoutes {
         let auth = Self::authenticate(&headers, &resources).await?;
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        let member = Self::require_member(&resources, &group_id, auth.user_id, tenant_id).await?;
+        let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         // Owner cannot leave — must transfer ownership or delete the group
         if member.role == GroupRole::Owner {
@@ -1091,7 +1087,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
-        Self::require_member(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         // Compute stats from live member count (fitness snapshots not yet wired)
         let member_count = resources
@@ -1128,7 +1124,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for reports
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         let group = resources
             .repos
@@ -1182,7 +1178,7 @@ impl GroupRoutes {
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for health flags
-        Self::require_admin(&resources, &group_id, auth.user_id, tenant_id).await?;
+        Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
         // Return empty flags until fitness snapshots are wired
         let response = HealthFlagsResponse {
