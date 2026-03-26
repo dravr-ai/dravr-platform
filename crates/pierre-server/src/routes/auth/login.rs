@@ -221,6 +221,7 @@ impl AuthService {
             csrf_token: String::new(), // Will be set by HTTP handler
             expires_at: expires_at.to_rfc3339(),
             user: UserInfo {
+                id: user.id.to_string(),
                 user_id: user.id.to_string(),
                 email: user.email.clone(),
                 display_name: user.display_name,
@@ -574,6 +575,7 @@ impl AuthService {
             csrf_token: String::new(),
             expires_at: expires_at.to_rfc3339(),
             user: UserInfo {
+                id: user.id.to_string(),
                 user_id: user.id.to_string(),
                 email: user.email.clone(),
                 display_name: user.display_name.clone(),
@@ -649,6 +651,7 @@ impl AuthService {
             csrf_token: String::new(), // Will be set by HTTP handler
             expires_at: expires_at.to_rfc3339(),
             user: UserInfo {
+                id: user.id.to_string(),
                 user_id: user.id.to_string(),
                 email: user.email.clone(),
                 display_name: user.display_name,
