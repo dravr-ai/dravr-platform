@@ -2075,12 +2075,9 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>>;
 
-    /// List groups the user belongs to (as member, admin, or owner)
-    async fn list_groups_for_user(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupSummary>>;
+    /// List groups the user belongs to (as member, admin, or owner).
+    /// Membership-based lookup — no tenant filter since members join cross-tenant.
+    async fn list_groups_for_user(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>>;
 
     /// List groups that use a specific coach persona
     async fn list_groups_for_coach(

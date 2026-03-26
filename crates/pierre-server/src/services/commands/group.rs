@@ -22,7 +22,7 @@ impl CommandHandler for GroupListHandler {
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+            .list_groups_for_user(ctx.user_id)
             .await?;
 
         if groups.is_empty() {
@@ -52,7 +52,7 @@ impl CommandHandler for GroupStatusHandler {
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+            .list_groups_for_user(ctx.user_id)
             .await?;
 
         let group = groups
@@ -92,7 +92,7 @@ impl CommandHandler for GroupMembersHandler {
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+            .list_groups_for_user(ctx.user_id)
             .await?;
 
         let group = groups
@@ -128,7 +128,7 @@ impl CommandHandler for GroupInviteHandler {
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+            .list_groups_for_user(ctx.user_id)
             .await?;
 
         let group = groups
@@ -181,7 +181,7 @@ impl CommandHandler for GroupLeaveHandler {
             .resources
             .repos
             .groups
-            .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+            .list_groups_for_user(ctx.user_id)
             .await?;
 
         let group = groups

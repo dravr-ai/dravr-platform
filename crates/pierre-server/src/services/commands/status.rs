@@ -44,7 +44,7 @@ impl CommandHandler for StatusHandler {
                 .resources
                 .repos
                 .groups
-                .list_groups_for_user(ctx.user_id, ctx.tenant_id)
+                .list_groups_for_user(ctx.user_id)
                 .await
                 .unwrap_or_default();
             let _ = write!(text, "\nGroups: {}", groups.len());
