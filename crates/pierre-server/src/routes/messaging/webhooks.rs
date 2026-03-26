@@ -15,6 +15,7 @@ use pierre_core::models::messaging::{
     ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
+use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{TenantId, User};
 use pierre_database::plugins::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
@@ -29,6 +30,7 @@ use sha2::{Digest, Sha256};
 use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Instant;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -36,6 +38,7 @@ use super::linking::generate_link_code;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::services::chat_orchestration;
+use crate::services::usage_counter::UsageCounterService;
 
 /// Outcome of persisting a single inbound message
 enum PersistOutcome {
@@ -1667,7 +1670,9 @@ async fn resolve_user_tenant(
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
 pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
-    let response_text = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
+    let start = Instant::now();
+
+    let dispatch_result = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
         &dispatch.resources,
         &dispatch.session.conversation,
         &dispatch.session.user_id,
@@ -1677,7 +1682,7 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     )
     .await
     {
-        Ok(text) => text,
+        Ok(result) => result,
         Err(e) => {
             warn!(
                 error = %e,
@@ -1687,6 +1692,16 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
             return;
         }
     };
+
+    // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
+    #[allow(clippy::cast_possible_truncation)]
+    let execution_time_ms = start.elapsed().as_millis() as u64;
+
+    // Record LLM usage for cost tracking and quota enforcement
+    record_messaging_llm_usage(&dispatch, &dispatch_result, execution_time_ms).await;
+
+    // Increment usage counters (message count, token count, tool call count)
+    increment_messaging_usage_counters(&dispatch, &dispatch_result).await;
 
     // Use conversation_id (channel/chat/thread) as the reply target when available;
     // fall back to sender_id for DM-only platforms (e.g., WhatsApp)
@@ -1700,13 +1715,94 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
         channel_type: dispatch.channel_type,
         recipient_id: reply_target,
         content: MessageContent::Text {
-            body: response_text,
+            body: dispatch_result.content,
         },
         correlation_id: Uuid::new_v4(),
         reply_to: Some(dispatch.channel_message_id.clone()),
     };
 
     send_outbound_response(&dispatch, &outgoing).await;
+}
+
+/// Record LLM usage to the `llm_usage` table after a messaging dispatch
+async fn record_messaging_llm_usage(
+    dispatch: &PendingDispatch,
+    result: &chat_orchestration::DispatchResult,
+    execution_time_ms: u64,
+) {
+    let tenant_id_str = dispatch.channel_tenant_id.to_string();
+    let prompt_count = i64::from(result.usage.as_ref().map_or(0, |u| u.prompt_tokens));
+    let completion_count = i64::from(result.usage.as_ref().map_or(0, |u| u.completion_tokens));
+
+    #[allow(clippy::cast_possible_wrap)]
+    let exec_time = execution_time_ms as i64;
+
+    if let Err(e) = dispatch
+        .resources
+        .repos
+        .llm_usage
+        .insert_llm_usage(&InsertLlmUsage {
+            tenant_id: &tenant_id_str,
+            user_id: &dispatch.session.user_id,
+            conversation_id: Some(&dispatch.session.conversation),
+            provider: &result.provider_name,
+            model: &result.model,
+            prompt_tokens: prompt_count,
+            completion_tokens: completion_count,
+            total_tokens: prompt_count + completion_count,
+            call_type: "messaging",
+            tool_calls_count: i64::from(result.tool_calls_count),
+            execution_time_ms: Some(exec_time),
+        })
+        .await
+    {
+        warn!("Failed to record LLM usage for messaging: {e}");
+    }
+}
+
+/// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch
+async fn increment_messaging_usage_counters(
+    dispatch: &PendingDispatch,
+    result: &chat_orchestration::DispatchResult,
+) {
+    let Some(ref admin_config) = dispatch.resources.admin_config else {
+        return;
+    };
+
+    let tenant_id_str = dispatch.channel_tenant_id.to_string();
+    let usage_svc = UsageCounterService::new(
+        dispatch.resources.repos.usage_counters.as_ref(),
+        admin_config,
+    );
+
+    let total_tokens = i64::from(result.usage.as_ref().map_or(0, |u| u.prompt_tokens))
+        + i64::from(result.usage.as_ref().map_or(0, |u| u.completion_tokens));
+
+    // Build list of (counter_type, amount) pairs to increment
+    let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
+    if total_tokens > 0 {
+        counters.push(("daily_tokens", total_tokens));
+        counters.push(("weekly_tokens", total_tokens));
+    }
+    if result.tool_calls_count > 0 {
+        let tool_calls = i64::from(result.tool_calls_count);
+        counters.push(("daily_tool_calls", tool_calls));
+        counters.push(("weekly_tool_calls", tool_calls));
+    }
+
+    for (counter_type, amount) in counters {
+        if let Err(e) = usage_svc
+            .increment(
+                &tenant_id_str,
+                &dispatch.session.user_id,
+                counter_type,
+                amount,
+            )
+            .await
+        {
+            warn!("Failed to increment {counter_type} counter for messaging: {e}");
+        }
+    }
 }
 
 /// Load channel config, send outbound message, and persist the result

@@ -12,6 +12,7 @@ use tracing::info;
 use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
+use crate::llm::TokenUsage;
 use crate::llm::{get_messaging_context_prompt, get_pierre_system_prompt};
 use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
@@ -35,6 +36,23 @@ pub struct UserMessageResult {
     pub message: MessageRecord,
     /// The conversation record (for model/`system_prompt` access)
     pub conversation: ConversationRecord,
+}
+
+/// Result of dispatching a message through the LLM pipeline
+///
+/// Contains the response text along with usage metadata needed for
+/// recording LLM usage and incrementing counters.
+pub struct DispatchResult {
+    /// Final text content from the LLM
+    pub content: String,
+    /// Token usage statistics if available
+    pub usage: Option<TokenUsage>,
+    /// Number of tool calls executed during the dispatch
+    pub tool_calls_count: u32,
+    /// Model identifier used for this completion
+    pub model: String,
+    /// Name of the LLM provider used (e.g., "gemini", "groq")
+    pub provider_name: String,
 }
 
 /// Validate the model and create a conversation.
@@ -168,7 +186,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     conversation_tenant_id: TenantId,
     tool_tenant_id: TenantId,
     content: &str,
-) -> AppResult<String> {
+) -> AppResult<DispatchResult> {
     let database: &dyn ChatRepository = resources.repos.chat.as_ref();
 
     // Persist user message (uses conversation tenant for DB lookup)
@@ -221,6 +239,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     // Build MCP tools and get LLM provider
     let tools = ChatRoutes::build_mcp_tools();
     let provider = create_chat_provider().await?;
+    let provider_name = provider.name().to_owned();
     let executor = Arc::new(UniversalExecutor::new(Arc::clone(resources)));
 
     // Run multi-turn tool execution loop (uses user's tenant for tool execution)
@@ -258,7 +277,13 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     };
     persist_assistant_response(database, &assistant_params, conversation_tenant_id).await?;
 
-    Ok(result.content)
+    Ok(DispatchResult {
+        content: result.content,
+        usage: result.usage,
+        tool_calls_count: result.tool_calls_count,
+        model: conv.model,
+        provider_name,
+    })
 }
 
 /// Build LLM messages from conversation history and optional system prompt
