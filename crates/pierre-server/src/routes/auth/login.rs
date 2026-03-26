@@ -994,6 +994,7 @@ pub(super) async fn handle_session(
 
     let session_response = SessionResponse {
         user: UserInfo {
+            id: user.id.to_string(),
             user_id: user.id.to_string(),
             email: user.email.clone(),
             display_name: user.display_name,
@@ -1048,6 +1049,7 @@ pub(super) async fn handle_update_profile(
     let response = UpdateProfileResponse {
         message: "Profile updated successfully".to_owned(),
         user: UserInfo {
+            id: updated_user.id.to_string(),
             user_id: updated_user.id.to_string(),
             email: updated_user.email,
             display_name: updated_user.display_name,
