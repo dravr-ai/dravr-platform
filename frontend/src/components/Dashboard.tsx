@@ -36,7 +36,6 @@ const StoreScreen = lazy(() => import('./StoreScreen'));
 const FriendsTab = lazy(() => import('./social/FriendsTab'));
 const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
 const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
-const CoachAnalytics = lazy(() => import('./CoachAnalytics'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
 const GroupManagement = lazy(() => import('./groups/GroupManagement'));
 const GroupDetail = lazy(() => import('./groups/GroupDetail'));
@@ -461,9 +460,6 @@ export default function Dashboard() {
             </Suspense>
             <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
               <LlmConsumptionPanel />
-            </Suspense>
-            <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
-              <CoachAnalytics />
             </Suspense>
           </div>
         )}

@@ -12,8 +12,6 @@
 pub mod a2a;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
-/// Admin analytics queries for dashboard overview, conversation, coach, and engagement tabs
-pub mod admin_analytics;
 /// API key repository implementation
 pub mod api_key;
 /// Chat repository implementation
