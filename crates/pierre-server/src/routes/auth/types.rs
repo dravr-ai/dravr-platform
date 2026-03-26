@@ -50,7 +50,9 @@ pub struct FirebaseLoginRequest {
 /// User info for login response
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
-    /// Unique identifier for the user
+    /// Primary user identifier (matches frontend User.id)
+    pub id: String,
+    /// Duplicate user identifier kept for API compatibility with mobile clients
     pub user_id: String,
     /// User's email address
     pub email: String,
