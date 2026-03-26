@@ -162,11 +162,10 @@ impl CoachingGroupRepository for PostgresDatabase {
                WHERE m2.group_id = g.id AND m2.left_at IS NULL) AS member_count
               FROM coaching_groups g
               JOIN coaching_group_members m ON m.group_id = g.id
-              WHERE m.user_id = $1 AND g.tenant_id = $2 AND m.left_at IS NULL AND g.is_active = true
+              WHERE m.user_id = $1 AND m.left_at IS NULL AND g.is_active = true
               ORDER BY g.updated_at DESC",
         )
         .bind(user_id)
-        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list groups: {e}")))?;
