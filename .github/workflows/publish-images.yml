@@ -308,7 +308,12 @@ jobs:
           REGION="${{ vars.GCP_DEV_CLOUD_RUN_REGION }}"
           SERVICE="${{ vars.GCP_DEV_SERVICE_NAME }}"
 
-          for JOB in seed-bootstrap seed-coaches seed-mobility seed-synthetic; do
+          JOBS="seed-bootstrap seed-coaches seed-mobility"
+          if [ "${{ vars.ENABLE_SYNTHETIC_SEED }}" = "true" ]; then
+            JOBS="$JOBS seed-synthetic"
+          fi
+
+          for JOB in $JOBS; do
             echo "Updating ${SERVICE}-${JOB} image..."
             gcloud run jobs update "${SERVICE}-${JOB}" \
               --image="${IMAGE}" \
@@ -333,10 +338,16 @@ jobs:
           gcloud run jobs execute "${SERVICE}-seed-mobility" --region="${REGION}" --wait &
           PID_MOBILITY=$!
 
-          gcloud run jobs execute "${SERVICE}-seed-synthetic" --region="${REGION}" --wait &
-          PID_SYNTHETIC=$!
+          PIDS="$PID_COACHES $PID_MOBILITY"
 
-          wait $PID_COACHES $PID_MOBILITY $PID_SYNTHETIC
+          if [ "${{ vars.ENABLE_SYNTHETIC_SEED }}" = "true" ]; then
+            gcloud run jobs execute "${SERVICE}-seed-synthetic" --region="${REGION}" --wait &
+            PIDS="$PIDS $!"
+          else
+            echo "Skipping seed-synthetic (ENABLE_SYNTHETIC_SEED != true)"
+          fi
+
+          wait $PIDS
           echo "All seed jobs completed successfully"
 
   # ---------------------------------------------------------------------------

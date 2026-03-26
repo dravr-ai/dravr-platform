@@ -137,7 +137,12 @@ jobs:
 
           echo "Updating seed job images with: ${IMAGE}"
 
-          for JOB in seed-bootstrap seed-coaches seed-mobility seed-synthetic; do
+          JOBS="seed-bootstrap seed-coaches seed-mobility"
+          if [ "${{ vars.ENABLE_SYNTHETIC_SEED }}" = "true" ]; then
+            JOBS="$JOBS seed-synthetic"
+          fi
+
+          for JOB in $JOBS; do
             JOB_NAME="${SERVICE}-${JOB}"
             echo "Updating ${JOB_NAME}..."
             gcloud run jobs update "${JOB_NAME}" \
