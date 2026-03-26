@@ -37,13 +37,15 @@ RUN --mount=type=secret,id=git_token \
     --bin pierre-mcp-server \
     --bin seed-bootstrap \
     --bin seed-coaches \
-    --bin seed-mobility
+    --bin seed-mobility \
+    --bin seed-synthetic-activities
 
 # Verify binaries were built
 RUN ls -la target/release/pierre-mcp-server \
     target/release/seed-bootstrap \
     target/release/seed-coaches \
-    target/release/seed-mobility
+    target/release/seed-mobility \
+    target/release/seed-synthetic-activities
 
 FROM --platform=linux/amd64 debian:trixie-slim
 
@@ -81,6 +83,7 @@ COPY --from=builder /app/target/release/pierre-mcp-server /app/pierre-mcp-server
 COPY --from=builder /app/target/release/seed-bootstrap /app/seed-bootstrap
 COPY --from=builder /app/target/release/seed-coaches /app/seed-coaches
 COPY --from=builder /app/target/release/seed-mobility /app/seed-mobility
+COPY --from=builder /app/target/release/seed-synthetic-activities /app/seed-synthetic-activities
 COPY --from=builder /app/coaches /app/coaches
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
@@ -91,6 +94,7 @@ RUN chmod +x /app/pierre-mcp-server \
     && chmod +x /app/seed-bootstrap \
     && chmod +x /app/seed-coaches \
     && chmod +x /app/seed-mobility \
+    && chmod +x /app/seed-synthetic-activities \
     && chmod +x /app/docker-entrypoint.sh \
     && chmod +x /app/seed-entrypoint.sh \
     && chmod +x /usr/local/bin/chromium-headless \
