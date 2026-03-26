@@ -2,8 +2,8 @@ name: Cross-Platform Tests
 
 on:
   schedule:
-    # Run nightly at 3:00 AM UTC (macOS/Windows runners are expensive)
-    - cron: '0 3 * * *'
+    # Run Sunday 11 PM EDT (Monday 3 AM UTC) — macOS/Windows runners are expensive
+    - cron: '0 3 * * 1'
   workflow_dispatch: # Allow manual trigger when needed
 
 concurrency:
