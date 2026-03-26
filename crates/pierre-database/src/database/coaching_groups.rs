@@ -162,11 +162,7 @@ impl CoachingGroupRepository for Database {
         Ok(row.as_ref().map(row_to_group))
     }
 
-    async fn list_groups_for_user(
-        &self,
-        user_id: Uuid,
-        _tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupSummary>> {
+    async fn list_groups_for_user(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>> {
         let rows = sqlx::query(
             r"SELECT g.id, g.name, g.description, g.coach_id, g.is_active, g.peer_data_sharing,
               g.created_at, m.role,

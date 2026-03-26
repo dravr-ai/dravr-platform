@@ -471,12 +471,7 @@ impl ChatRoutes {
         // Find groups this user belongs to — for MVP, we check all groups
         // and inject context if the user is in exactly one active group.
         // This works because inject_group_context handles disambiguation.
-        let groups = match resources
-            .repos
-            .groups
-            .list_groups_for_user(user_id, tenant_id)
-            .await
-        {
+        let groups = match resources.repos.groups.list_groups_for_user(user_id).await {
             Ok(g) => g,
             Err(e) => {
                 tracing::debug!("Failed to check group membership: {e}");

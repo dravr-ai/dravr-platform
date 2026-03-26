@@ -566,12 +566,11 @@ impl GroupRoutes {
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         let groups = resources
             .repos
             .groups
-            .list_groups_for_user(auth.user_id, tenant_id)
+            .list_groups_for_user(auth.user_id)
             .await?;
 
         let response = ListGroupsResponse {

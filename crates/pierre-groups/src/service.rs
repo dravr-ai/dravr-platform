@@ -242,12 +242,8 @@ impl GroupService {
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn list_groups(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupSummary>> {
-        self.repo.list_groups_for_user(user_id, tenant_id).await
+    pub async fn list_groups(&self, user_id: Uuid) -> AppResult<Vec<GroupSummary>> {
+        self.repo.list_groups_for_user(user_id).await
     }
 
     /// Update a group
