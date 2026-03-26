@@ -21,6 +21,10 @@ vi.mock('../UsageAnalytics', () => ({
   default: () => <div data-testid="usage-analytics">Analytics Component</div>
 }));
 
+vi.mock('../CoachAnalytics', () => ({
+  default: () => <div data-testid="coach-analytics">Coach Analytics Component</div>
+}));
+
 vi.mock('../RequestMonitor', () => ({
   default: () => <div data-testid="request-monitor">Monitor Component</div>
 }));
@@ -72,8 +76,25 @@ vi.mock('../../hooks/useWebSocketContext', () => ({
   })
 }));
 
-// Mock API with simple responses - Dashboard uses dashboardApi, adminApi, a2aApi
+// Mock API with simple responses - Dashboard uses adminAnalyticsApi, adminApi
 vi.mock('../../services/api', () => ({
+  adminAnalyticsApi: {
+    getOverview: vi.fn().mockResolvedValue({
+      active_users_24h: 12,
+      active_users_7d: 45,
+      conversations_today: 8,
+      messages_today: 42,
+      llm_spend_today_usd: 1.25,
+      llm_spend_7d_usd: 8.50,
+      coach_adoption_pct: 67,
+      connected_providers: 3,
+      total_users: 50,
+      total_coaches: 15,
+    }),
+    getConversations: vi.fn().mockResolvedValue({ daily: [], peak_hour: 14, avg_messages_per_conversation: 5.2, total_conversations: 0, total_messages: 0 }),
+    getCoaches: vi.fn().mockResolvedValue({ top_coaches: [], categories: [], system_coach_count: 0, user_coach_count: 0 }),
+    getEngagement: vi.fn().mockResolvedValue({ dau_series: [], engagement_tiers: [], provider_distribution: [], group_stats: { total_groups: 0, total_members: 0 } }),
+  },
   dashboardApi: {
     getDashboardOverview: vi.fn().mockResolvedValue({
       total_api_keys: 10,

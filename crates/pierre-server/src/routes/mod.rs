@@ -116,6 +116,10 @@ pub mod admin;
 #[cfg(feature = "client-admin-ui")]
 pub mod web_admin;
 
+/// Admin analytics dashboard endpoints (overview, conversations, coaches, engagement)
+#[cfg(feature = "client-admin-ui")]
+pub mod admin_analytics;
+
 /// API key management routes
 #[cfg(feature = "client-api-keys")]
 pub mod api_keys;
@@ -234,6 +238,9 @@ pub use admin::{AdminApiContext, AdminRoutes};
 
 #[cfg(feature = "client-admin-ui")]
 pub use web_admin::WebAdminRoutes;
+
+#[cfg(feature = "client-admin-ui")]
+pub use admin_analytics::AdminAnalyticsRoutes;
 
 #[cfg(feature = "client-api-keys")]
 pub use api_keys::ApiKeyRoutes;

@@ -971,6 +971,8 @@ impl MultiTenantMcpServer {
         use crate::routes::a2a::A2ARoutes;
         #[cfg(feature = "client-admin-api")]
         use crate::routes::admin::AdminRoutes;
+        #[cfg(feature = "client-admin-ui")]
+        use crate::routes::admin_analytics::AdminAnalyticsRoutes;
         #[cfg(feature = "client-api-keys")]
         use crate::routes::api_keys::ApiKeyRoutes;
         #[cfg(feature = "protocol-rest")]
@@ -1164,6 +1166,9 @@ impl MultiTenantMcpServer {
 
         #[cfg(feature = "client-admin-ui")]
         let app = app.merge(WebAdminRoutes::routes(Arc::clone(resources)));
+
+        #[cfg(feature = "client-admin-ui")]
+        let app = app.merge(AdminAnalyticsRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-api-keys")]
         let app = app.merge(ApiKeyRoutes::routes(Arc::clone(resources)));

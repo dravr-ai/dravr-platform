@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Overview panel for the admin dashboard with aggregated stats
-// ABOUTME: Owns its own useQuery calls for dashboard overview, rate limits, and usage analytics
+// ABOUTME: Overview panel for the admin dashboard with coaching-centric metrics
+// ABOUTME: Fetches analytics overview, pending users, and store stats for the OverviewTab
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { dashboardApi, adminApi, a2aApi } from '../../services/api';
+import { adminAnalyticsApi, adminApi } from '../../services/api';
 import { useWebSocketContext } from '../../hooks/useWebSocketContext';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import type { DashboardOverview, RateLimitOverview, User } from '../../types/api';
-import type { AnalyticsData } from '../../types/chart';
+import type { User } from '../../types/api';
+import type { AdminAnalyticsOverview } from '../../services/api/admin-analytics';
 import OverviewTab from '../OverviewTab';
 
 interface OverviewPanelProps {
@@ -20,24 +20,9 @@ interface OverviewPanelProps {
 export default function OverviewPanel({ onNavigate }: OverviewPanelProps) {
   const { lastMessage } = useWebSocketContext();
 
-  const { data: overview, isLoading: overviewLoading, refetch: refetchOverview } = useQuery<DashboardOverview>({
-    queryKey: QUERY_KEYS.dashboard.overview(),
-    queryFn: () => dashboardApi.getDashboardOverview(),
-  });
-
-  const { data: rateLimits } = useQuery<RateLimitOverview[]>({
-    queryKey: QUERY_KEYS.dashboard.rateLimits(),
-    queryFn: () => dashboardApi.getRateLimitOverview(),
-  });
-
-  const { data: weeklyUsage } = useQuery<AnalyticsData>({
-    queryKey: QUERY_KEYS.dashboard.usageAnalytics(7),
-    queryFn: () => dashboardApi.getUsageAnalytics(7),
-  });
-
-  const { data: a2aOverview } = useQuery({
-    queryKey: QUERY_KEYS.a2a.dashboardOverview(),
-    queryFn: () => a2aApi.getA2ADashboardOverview(),
+  const { data: overview, isLoading: overviewLoading, refetch: refetchOverview } = useQuery<AdminAnalyticsOverview>({
+    queryKey: QUERY_KEYS.adminAnalytics.overview(),
+    queryFn: () => adminAnalyticsApi.getOverview(),
   });
 
   const { data: pendingUsers = [] } = useQuery<User[]>({
@@ -67,9 +52,6 @@ export default function OverviewPanel({ onNavigate }: OverviewPanelProps) {
     <OverviewTab
       overview={overview}
       overviewLoading={overviewLoading}
-      rateLimits={rateLimits}
-      weeklyUsage={weeklyUsage}
-      a2aOverview={a2aOverview}
       pendingUsersCount={pendingUsers.length}
       pendingCoachReviews={storeStats?.pending_count ?? 0}
       onNavigate={onNavigate}

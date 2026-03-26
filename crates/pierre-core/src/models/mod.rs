@@ -157,6 +157,8 @@ pub use recipes::{
 /// Multi-channel messaging gateway types
 pub mod messaging;
 
+/// Admin analytics dashboard data types (row types and API responses)
+pub mod admin_analytics;
 /// Coaching group models for multi-person AI coaching
 pub mod groups;
 /// Push notification models for device tokens, preferences, and notification records
