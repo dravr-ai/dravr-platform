@@ -132,17 +132,18 @@ impl CoachingGroupRepository for PostgresDatabase {
     async fn get_group(
         &self,
         group_id: &str,
-        tenant_id: TenantId,
+        _tenant_id: TenantId,
     ) -> AppResult<Option<CoachingGroup>> {
         let group_uuid = parse_uuid(group_id)?;
 
+        // Group UUID is globally unique — tenant filter removed to support
+        // cross-tenant group access (members join from different tenants)
         let row = sqlx::query(
             r"SELECT id, tenant_id, name, description, coach_id, owner_id,
               peer_data_sharing, max_members, is_active, created_at, updated_at
-              FROM coaching_groups WHERE id = $1 AND tenant_id = $2",
+              FROM coaching_groups WHERE id = $1",
         )
         .bind(group_uuid)
-        .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get group: {e}")))?;
@@ -339,11 +340,10 @@ impl CoachingGroupRepository for PostgresDatabase {
               u.email AS display_name
               FROM coaching_group_members m
               LEFT JOIN users u ON u.id = m.user_id
-              WHERE m.group_id = $1 AND m.user_id = $2 AND m.tenant_id = $3 AND m.left_at IS NULL",
+              WHERE m.group_id = $1 AND m.user_id = $2 AND m.left_at IS NULL",
         )
         .bind(group_uuid)
         .bind(user_id)
-        .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to get member: {e}")))?;
@@ -426,15 +426,15 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn count_members(&self, group_id: &str, tenant_id: TenantId) -> AppResult<i64> {
+    async fn count_members(&self, group_id: &str, _tenant_id: TenantId) -> AppResult<i64> {
         let group_uuid = parse_uuid(group_id)?;
 
+        // Count by group_id only — members may be from different tenants
         let row = sqlx::query(
             r"SELECT COUNT(*) as cnt FROM coaching_group_members
-              WHERE group_id = $1 AND tenant_id = $2 AND left_at IS NULL",
+              WHERE group_id = $1 AND left_at IS NULL",
         )
         .bind(group_uuid)
-        .bind(tenant_id.to_string())
         .fetch_one(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to count members: {e}")))?;

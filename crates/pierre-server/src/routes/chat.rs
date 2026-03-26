@@ -393,6 +393,13 @@ impl ChatRoutes {
             return String::new();
         };
 
+        // Filter out providers that aren't registered in the current runtime
+        // (e.g., synthetic providers excluded from production builds)
+        let connections: Vec<_> = connections
+            .into_iter()
+            .filter(|c| resources.provider_registry.is_supported(&c.provider))
+            .collect();
+
         if connections.is_empty() {
             return String::new();
         }
@@ -481,17 +488,23 @@ impl ChatRoutes {
             return augmented.to_owned();
         }
 
-        // Use the conversation's coach to narrow down which group
-        // For now, pass empty snapshots — the context builder will use
-        // what it can from the repository
+        // If conversation has no group_id, resolve from user's groups:
+        // - 1 group → use it directly (skip coach_id lookup which requires non-empty coach_id)
+        // - 2+ groups → let inject_group_context handle disambiguation
+        let resolved_group_id = match conversation_group_id {
+            Some(id) => Some(id.to_owned()),
+            None if groups.len() == 1 => Some(groups[0].id.to_string()),
+            _ => None,
+        };
+
         match group_service
             .inject_group_context(
                 augmented,
-                "", // coach_id lookup deferred — groups are matched by user membership
+                "",
                 user_id,
                 tenant_id,
-                conversation_group_id,
-                &[], // member snapshots fetched lazily
+                resolved_group_id.as_deref(),
+                &[],
             )
             .await
         {
