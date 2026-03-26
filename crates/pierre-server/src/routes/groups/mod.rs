@@ -1175,7 +1175,6 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for health flags
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
