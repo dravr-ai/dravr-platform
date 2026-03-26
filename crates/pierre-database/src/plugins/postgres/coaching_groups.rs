@@ -293,7 +293,7 @@ impl CoachingGroupRepository for PostgresDatabase {
             .tenant_id
             .parse::<TenantId>()
             .map_err(|e| AppError::internal(format!("Invalid tenant_id: {e}")))?;
-        self.get_member(&member.group_id.to_string(), member.user_id, tenant_id)
+        self.get_member(&member.group_id.to_string(), member.user_id)
             .await?
             .ok_or_else(|| AppError::internal("Member not found after creation"))
     }
@@ -322,12 +322,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn get_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<GroupMember>> {
+    async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>> {
         let group_uuid = parse_uuid(group_id)?;
 
         let row = sqlx::query(

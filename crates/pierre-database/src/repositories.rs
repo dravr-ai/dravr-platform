@@ -2111,12 +2111,8 @@ pub trait CoachingGroupRepository: Send + Sync {
     ) -> AppResult<bool>;
 
     /// Get a specific membership record
-    async fn get_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<GroupMember>>;
+    /// Get member by group_id + user_id (unique constraint, no tenant filter needed)
+    async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>>;
 
     /// List active members of a group
     async fn list_members(

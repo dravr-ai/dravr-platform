@@ -446,7 +446,7 @@ impl GroupRoutes {
         let member = resources
             .repos
             .groups
-            .get_member(group_id, user_id, tenant_id)
+            .get_member(group_id, user_id)
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
 
@@ -470,7 +470,7 @@ impl GroupRoutes {
         let member = resources
             .repos
             .groups
-            .get_member(group_id, user_id, tenant_id)
+            .get_member(group_id, user_id)
             .await?
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
 
@@ -494,7 +494,7 @@ impl GroupRoutes {
         resources
             .repos
             .groups
-            .get_member(group_id, user_id, tenant_id)
+            .get_member(group_id, user_id)
             .await?
             .ok_or_else(|| AppError::not_found("You are not a member of this group"))
     }
@@ -707,7 +707,7 @@ impl GroupRoutes {
         let target_member = resources
             .repos
             .groups
-            .get_member(&group_id, target_uuid, tenant_id)
+            .get_member(&group_id, target_uuid)
             .await?
             .ok_or_else(|| AppError::not_found("Target member not found"))?;
 
@@ -778,7 +778,7 @@ impl GroupRoutes {
         let member = resources
             .repos
             .groups
-            .get_member(&group_id, target_uuid, tenant_id)
+            .get_member(&group_id, target_uuid)
             .await?
             .ok_or_else(|| AppError::internal("Failed to fetch updated member"))?;
 
@@ -813,7 +813,7 @@ impl GroupRoutes {
         let member = resources
             .repos
             .groups
-            .get_member(&group_id, auth.user_id, tenant_id)
+            .get_member(&group_id, auth.user_id)
             .await?
             .ok_or_else(|| AppError::internal("Failed to fetch updated member"))?;
 
@@ -1008,7 +1008,7 @@ impl GroupRoutes {
         let existing = resources
             .repos
             .groups
-            .get_member(&invite.group_id.to_string(), auth.user_id, group_tenant_id)
+            .get_member(&invite.group_id.to_string(), auth.user_id)
             .await?;
 
         if existing.is_some() {
