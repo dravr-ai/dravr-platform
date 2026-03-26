@@ -2110,8 +2110,7 @@ pub trait CoachingGroupRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
-    /// Get a specific membership record
-    /// Get member by group_id + user_id (unique constraint, no tenant filter needed)
+    /// Get member by `group_id` + `user_id` (unique constraint, no tenant filter needed)
     async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>>;
 
     /// List active members of a group
