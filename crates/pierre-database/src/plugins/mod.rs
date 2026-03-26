@@ -19,11 +19,11 @@ pub mod social_postgres;
 pub mod shared;
 
 pub use crate::repositories::{
-    A2ARepository, AdminAnalyticsRepository, AdminRepository, ApiKeyRepository, ChatRepository,
-    CoachesRepository, CoachingGroupRepository, CreateChannelLinkParams, CreateLinkStateParams,
-    CreateSessionParams, FitnessConfigRepository, ImpersonationRepository, InsertMessageParams,
-    InsightRepository, LlmCredentialRepository, LlmUsageRepository, MessagingRepository,
-    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
+    CoachingGroupRepository, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
+    FitnessConfigRepository, ImpersonationRepository, InsertMessageParams, InsightRepository,
+    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
     OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
     RecipeRepository, SecurityRepository, SeedTable, SeederRepository, SocialRepository,
     StoreListingsRepository, TenantRepository, ToolSelectionRepository, UpsertChannelConfigParams,

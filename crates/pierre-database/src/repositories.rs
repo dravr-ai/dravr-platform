@@ -15,10 +15,6 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::a2a::{
     A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatus,
 };
-use pierre_core::models::admin_analytics::{
-    CategoryCountRow, DailyActiveUsersRow, DailyConversationRow, EngagementTiers, GroupStatsRow,
-    LlmCostAggregateRow, ProviderCountRow, TopCoachRow,
-};
 use pierre_core::models::coaches::{
     Coach, CoachAssignment, CoachCategory, CoachListItem, CoachVersion, CreateCoachRequest,
     CreateSystemCoachRequest, ListCoachesFilter, StoreAdminStats, UpdateCoachRequest,
@@ -2186,107 +2182,6 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Count groups owned by a user (for tier limit enforcement)
     async fn count_groups_for_owner(&self, owner_id: Uuid, tenant_id: TenantId) -> AppResult<i64>;
-}
-
-// ================================
-// Admin Analytics Repository
-// ================================
-
-/// Admin analytics queries for the dashboard overview, conversation, coach, and engagement tabs
-#[async_trait]
-pub trait AdminAnalyticsRepository: Send + Sync {
-    /// Count users with `last_active` within the given window, scoped to tenant
-    async fn count_active_users(&self, tenant_id: TenantId, since: DateTime<Utc>)
-        -> AppResult<i64>;
-
-    /// Total user count for a tenant (via `tenant_users` junction)
-    async fn count_users_for_tenant(&self, tenant_id: TenantId) -> AppResult<i64>;
-
-    /// Count conversations created since a timestamp within a tenant
-    async fn count_conversations_since(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<i64>;
-
-    /// Count chat messages created since a timestamp within a tenant
-    async fn count_messages_since(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<i64>;
-
-    /// Aggregated LLM usage (provider, model, tokens) for cost calculation
-    async fn get_llm_usage_for_cost(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<Vec<LlmCostAggregateRow>>;
-
-    /// Count users that have at least one coach assignment, scoped to tenant
-    async fn count_users_with_coach_assignment(&self, tenant_id: TenantId) -> AppResult<i64>;
-
-    /// Count provider connections within a tenant
-    async fn count_connected_providers(&self, tenant_id: TenantId) -> AppResult<i64>;
-
-    /// Count active coaching groups within a tenant
-    async fn count_active_groups(&self, tenant_id: TenantId) -> AppResult<i64>;
-
-    /// Daily conversation creation counts for time-series charting
-    async fn get_daily_conversation_series(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<Vec<DailyConversationRow>>;
-
-    /// Hour of day (0-23 UTC) with the most conversations created
-    async fn get_peak_conversation_hour(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<Option<i64>>;
-
-    /// Average number of messages per conversation in the window
-    async fn get_avg_messages_per_conversation(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<f64>;
-
-    /// Top coaches by assignment count, limited to `limit` results
-    async fn get_top_coaches(&self, tenant_id: TenantId, limit: i64)
-        -> AppResult<Vec<TopCoachRow>>;
-
-    /// Distribution of coaches by category
-    async fn get_coach_category_distribution(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<CategoryCountRow>>;
-
-    /// Counts of system-created vs user-created coaches
-    async fn get_system_vs_user_coach_counts(&self, tenant_id: TenantId) -> AppResult<(i64, i64)>;
-
-    /// Total store installations (`install_count` sum) for this tenant
-    async fn count_store_installations(&self, tenant_id: TenantId) -> AppResult<i64>;
-
-    /// Daily active user counts for time-series charting
-    async fn get_daily_active_users_series(
-        &self,
-        tenant_id: TenantId,
-        since: DateTime<Utc>,
-    ) -> AppResult<Vec<DailyActiveUsersRow>>;
-
-    /// User engagement tier breakdown (daily/weekly/monthly/dormant)
-    async fn get_engagement_tiers(&self, tenant_id: TenantId) -> AppResult<EngagementTiers>;
-
-    /// Provider connection distribution (count per provider name)
-    async fn get_provider_distribution(
-        &self,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<ProviderCountRow>>;
-
-    /// Coaching group statistics (total, active, total members)
-    async fn get_group_stats(&self, tenant_id: TenantId) -> AppResult<GroupStatsRow>;
 }
 
 // ================================
