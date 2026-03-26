@@ -10,10 +10,10 @@ use crate::database::Database as SqliteDatabase;
 #[cfg(feature = "postgresql")]
 use crate::plugins::postgres::PostgresDatabase;
 use crate::repositories::{
-    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
-    CoachingGroupRepository, FitnessConfigRepository, ImpersonationRepository, InsightRepository,
-    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
-    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    A2ARepository, AdminAnalyticsRepository, AdminRepository, ApiKeyRepository, ChatRepository,
+    CoachesRepository, CoachingGroupRepository, FitnessConfigRepository, ImpersonationRepository,
+    InsightRepository, LlmCredentialRepository, LlmUsageRepository, MessagingRepository,
+    MobilityRepository, NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
     OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
     RecipeRepository, SecurityRepository, SeederRepository, SocialRepository,
     StoreListingsRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
@@ -88,6 +88,8 @@ pub struct RepositoryRegistry {
     pub a2a: Arc<dyn A2ARepository>,
     /// Coaching group CRUD, membership, and invites
     pub groups: Arc<dyn CoachingGroupRepository>,
+    /// Admin analytics dashboard queries
+    pub admin_analytics: Arc<dyn AdminAnalyticsRepository>,
 }
 
 impl RepositoryRegistry {
@@ -128,7 +130,8 @@ impl RepositoryRegistry {
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
             a2a: db.clone(),
-            groups: db,
+            groups: db.clone(),
+            admin_analytics: db,
         }
     }
 
@@ -167,7 +170,8 @@ impl RepositoryRegistry {
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
             a2a: db.clone(),
-            groups: db,
+            groups: db.clone(),
+            admin_analytics: db,
         }
     }
 }

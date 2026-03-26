@@ -30,6 +30,7 @@ export { keysApi } from './keys';
 export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
+export { adminAnalyticsApi } from './admin-analytics';
 export { usageApi } from './usage';
 export { messagingApi } from './messaging';
 

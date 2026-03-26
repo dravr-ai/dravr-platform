@@ -135,6 +135,15 @@ export const QUERY_KEYS = {
     summary: (tenantId: string) => ['tool-availability-summary', tenantId] as const,
   },
 
+  // ==================== ADMIN - ANALYTICS ====================
+  adminAnalytics: {
+    all: ['admin-analytics'] as const,
+    overview: () => ['admin-analytics-overview'] as const,
+    conversations: (days?: number) => ['admin-analytics-conversations', days] as const,
+    coaches: () => ['admin-analytics-coaches'] as const,
+    engagement: (days?: number) => ['admin-analytics-engagement', days] as const,
+  },
+
   // ==================== DASHBOARD ====================
   dashboard: {
     all: ['dashboard'] as const,

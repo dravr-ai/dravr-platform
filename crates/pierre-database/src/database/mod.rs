@@ -8,6 +8,8 @@
 pub mod a2a;
 /// Admin token management and authorization
 pub mod admin;
+/// Admin analytics queries for dashboard overview, conversation, coach, and engagement tabs
+pub mod admin_analytics;
 /// Analytics and usage statistics database operations
 pub mod analytics;
 /// API key management and validation
