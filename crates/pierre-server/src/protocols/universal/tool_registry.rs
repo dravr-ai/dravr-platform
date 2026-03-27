@@ -404,7 +404,9 @@ impl ToolId {
             Self::CalculatePersonalizedZones => "Calculate training zones based on VO2 max",
             Self::ValidateConfiguration => "Validate configuration against safety rules",
             Self::AnalyzeSleepQuality => "Analyze sleep quality using NSF/AASM",
-            Self::CalculateRecoveryScore => "Calculate recovery score combining TSB and HRV",
+            Self::CalculateRecoveryScore => {
+                "Calculate recovery score combining TSB, HRV, and WHOOP daily cycle strain"
+            }
             Self::SuggestRestDay => "AI-powered rest day recommendation",
             Self::TrackSleepTrends => "Track sleep patterns and correlate with performance",
             Self::OptimizeSleepSchedule => "Optimize sleep based on training load",

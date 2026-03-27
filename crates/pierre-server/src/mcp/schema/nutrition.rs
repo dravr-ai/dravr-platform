@@ -453,7 +453,7 @@ fn create_calculate_recovery_score_tool() -> ToolSchema {
 
     ToolSchema {
         name: "calculate_recovery_score".to_owned(),
-        description: "Calculate comprehensive recovery score combining Training Stress Balance (TSB), sleep quality, and HRV metrics. Supports cross-provider integration: use 'activity_provider' for training data (e.g., Strava) and 'sleep_provider' for sleep/HRV data (e.g., WHOOP). Auto-selects connected providers if not specified. FALLBACK MODE: If no sleep data is available, provides TSB-only recovery assessment based on training load alone with clear limitations noted. Returns overall score (0-100), recovery category, training readiness, data_completeness indicator, and providers used.".into(),
+        description: "Calculate comprehensive recovery score combining Training Stress Balance (TSB), sleep quality, HRV metrics, and WHOOP daily cycle strain. Use this tool when users ask about recovery, daily strain, WHOOP cycles, or training readiness. Supports cross-provider integration: use 'activity_provider' for training data (e.g., Strava) and 'sleep_provider' for sleep/HRV/strain data (e.g., WHOOP). Auto-selects connected providers if not specified. FALLBACK MODE: If no sleep data is available, provides TSB-only recovery assessment based on training load alone with clear limitations noted. Returns overall score (0-100), recovery category, training readiness, daily strain, data_completeness indicator, and providers used.".into(),
         input_schema: JsonSchema {
             schema_type: "object".into(),
             properties: Some(properties),
