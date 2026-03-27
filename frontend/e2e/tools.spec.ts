@@ -35,9 +35,9 @@ async function setupEngagementMocks(
       contentType: 'application/json',
       body: JSON.stringify({
         coaches: [
-          { id: 'c1', title: 'Marathon Coach', category: 'running', total_tokens: 15000, description: 'Marathon training' },
-          { id: 'c2', title: 'Recovery Advisor', category: 'recovery', total_tokens: 8500, description: 'Recovery guidance' },
-          { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', total_tokens: 5200, description: 'Meal planning' },
+          { id: 'c1', title: 'Marathon Coach', category: 'running', token_count: 15000, description: 'Marathon training' },
+          { id: 'c2', title: 'Recovery Advisor', category: 'recovery', token_count: 8500, description: 'Recovery guidance' },
+          { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', token_count: 5200, description: 'Meal planning' },
         ],
         total: 3,
         metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
