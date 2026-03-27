@@ -261,7 +261,7 @@ impl ProviderRegistry {
                 oauth_providers::WHOOP,
                 "https://api.prod.whoop.com/oauth/oauth2/auth",
                 "https://api.prod.whoop.com/oauth/oauth2/token",
-                "https://api.prod.whoop.com/developer/v1",
+                "https://api.prod.whoop.com/developer/v2",
                 Some("https://api.prod.whoop.com/oauth/oauth2/revoke"),
                 &oauth_providers::WHOOP_DEFAULT_SCOPES
                     .split(' ')
