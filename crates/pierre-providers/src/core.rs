@@ -132,8 +132,18 @@ use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use tracing::info;
 use uuid::Uuid;
+
+/// Callback invoked when a provider refreshes its OAuth tokens internally.
+///
+/// The auth layer sets this callback to persist refreshed credentials to the database.
+/// Returns a future that completes when persistence is done (errors are logged, not propagated).
+pub type TokenRefreshCallback =
+    Arc<dyn Fn(OAuth2Credentials) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Authentication credentials for `OAuth2` providers (Shared Request Type)
 ///
@@ -292,6 +302,14 @@ pub trait FitnessProvider: Send + Sync {
 
     /// Refresh access token if needed
     async fn refresh_token_if_needed(&self) -> AppResult<()>;
+
+    /// Register a callback to persist refreshed tokens to the database.
+    /// Called once by the auth layer after provider creation. Providers that
+    /// perform internal token refresh should store this and invoke it after
+    /// updating in-memory credentials.
+    fn set_token_refresh_callback(&self, _callback: TokenRefreshCallback) {
+        // No-op by default — providers that don't do OAuth refresh ignore this
+    }
 
     /// Get user's athlete profile
     ///
@@ -548,6 +566,10 @@ impl FitnessProvider for TenantProvider {
 
     async fn refresh_token_if_needed(&self) -> AppResult<()> {
         self.inner.refresh_token_if_needed().await
+    }
+
+    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
+        self.inner.set_token_refresh_callback(callback);
     }
 
     async fn get_athlete(&self) -> AppResult<Athlete> {

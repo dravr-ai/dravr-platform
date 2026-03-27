@@ -8,7 +8,9 @@
 // - String ownership for API responses and error handling
 
 use super::circuit_breaker::CircuitBreaker;
-use super::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
+use super::core::{
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+};
 use super::errors::provider::ProviderError;
 use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
@@ -21,6 +23,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::fmt::Write;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
@@ -227,6 +230,7 @@ pub struct StravaProvider {
     credentials: RwLock<Option<OAuth2Credentials>>,
     client: Client,
     circuit_breaker: CircuitBreaker,
+    token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }
 
 /// Convert f32 metric value to u32 for Activity fields
@@ -258,6 +262,7 @@ impl StravaProvider {
             config,
             credentials: RwLock::new(None),
             client: shared_client().clone(),
+            token_refresh_callback: OnceLock::new(),
         }
     }
 
@@ -270,6 +275,7 @@ impl StravaProvider {
             config,
             credentials: RwLock::new(None),
             client: shared_client().clone(),
+            token_refresh_callback: OnceLock::new(),
         }
     }
 
@@ -617,6 +623,10 @@ impl FitnessProvider for StravaProvider {
         Ok(())
     }
 
+    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
+        let _ = self.token_refresh_callback.set(callback);
+    }
+
     async fn is_authenticated(&self) -> bool {
         if let Some(creds) = self.credentials.read().await.as_ref() {
             if creds.access_token.is_some() {
@@ -718,7 +728,13 @@ impl FitnessProvider for StravaProvider {
             scopes: credentials.scopes,
         };
 
-        *self.credentials.write().await = Some(new_credentials);
+        *self.credentials.write().await = Some(new_credentials.clone());
+
+        // Persist refreshed token to database via callback
+        if let Some(callback) = self.token_refresh_callback.get() {
+            callback(new_credentials).await;
+        }
+
         Ok(())
     }
 

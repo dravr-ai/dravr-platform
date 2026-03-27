@@ -398,7 +398,30 @@ impl AuthService {
 
                 // Set credentials asynchronously
                 match provider.set_credentials(credentials).await {
-                    Ok(()) => Ok(provider),
+                    Ok(()) => {
+                        // Wire up callback so provider-level token refresh persists to DB
+                        let resources = Arc::clone(&self.resources);
+                        let provider_name_owned = provider_name.to_owned();
+                        let tenant_id_owned = tenant_id.map(str::to_owned);
+                        provider.set_token_refresh_callback(Arc::new(
+                            move |creds: OAuth2Credentials| {
+                                let resources = Arc::clone(&resources);
+                                let provider_name = provider_name_owned.clone();
+                                let tenant_id = tenant_id_owned.clone();
+                                Box::pin(async move {
+                                    persist_refreshed_token(
+                                        &resources,
+                                        user_id,
+                                        tenant_id.as_deref(),
+                                        &provider_name,
+                                        &creds,
+                                    )
+                                    .await;
+                                })
+                            },
+                        ));
+                        Ok(provider)
+                    }
                     Err(e) => Err(UniversalResponse {
                         success: false,
                         result: None,
@@ -602,5 +625,47 @@ impl AuthService {
             .delete_token(user_id, tenant_id_parsed, provider)
             .await
             .map_err(|e| OAuthError::DatabaseError(format!("Failed to delete token: {e}")))
+    }
+}
+
+/// Persist a provider-refreshed token to the database.
+/// Called from the token refresh callback wired into providers.
+/// Errors are logged but not propagated — the in-memory token is still valid for the current request.
+async fn persist_refreshed_token(
+    resources: &ServerResources,
+    user_id: Uuid,
+    tenant_id: Option<&str>,
+    provider: &str,
+    creds: &OAuth2Credentials,
+) {
+    let Some(tenant_id_str) = tenant_id else {
+        return;
+    };
+    let Ok(tid) = tenant_id_str.parse::<TenantId>() else {
+        return;
+    };
+
+    let result = resources
+        .repos
+        .oauth_tokens
+        .refresh_token(
+            user_id,
+            tid,
+            provider,
+            creds.access_token.as_deref().unwrap_or_default(),
+            creds.refresh_token.as_deref(),
+            creds.expires_at,
+        )
+        .await;
+
+    match result {
+        Ok(()) => info!(
+            "Persisted provider-refreshed {} token for user {}",
+            provider, user_id
+        ),
+        Err(e) => warn!(
+            "Failed to persist provider-refreshed {} token for user {}: {}",
+            provider, user_id, e
+        ),
     }
 }

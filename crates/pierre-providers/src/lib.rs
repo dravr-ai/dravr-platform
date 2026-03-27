@@ -62,7 +62,7 @@ pub use activity_iterator::{
 pub use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig, CircuitState};
 pub use core::{
     ActivityQueryParams, FitnessProvider as CoreFitnessProvider, OAuth2Credentials, ProviderConfig,
-    ProviderFactory, TenantProvider,
+    ProviderFactory, TenantProvider, TokenRefreshCallback,
 };
 pub use http_client::{initialize_shared_client, shared_client};
 pub use pierre_core::errors::provider::{ProviderError, ProviderResult};
