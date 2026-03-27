@@ -87,31 +87,32 @@ test.describe('Analytics Tab', () => {
     await expect(page.getByText('Avg Response Time')).toBeVisible();
   });
 
-  test('displays time period dropdown with all options', async ({ page }) => {
+  test('displays time period pill buttons with all options', async ({ page }) => {
     await setupAnalyticsMocks(page);
     await loginAndNavigateToAnalytics(page);
 
-    // Check dropdown is visible
-    const dropdown = page.locator('select.select-dark');
-    await expect(dropdown).toBeVisible();
+    // The time range selector uses pill buttons, not a dropdown
+    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-white\\/10');
+    await expect(pillContainer).toBeVisible();
 
-    // Check all options
-    await expect(dropdown.locator('option[value="7"]')).toHaveText('Last 7 days');
-    await expect(dropdown.locator('option[value="30"]')).toHaveText('Last 30 days');
-    await expect(dropdown.locator('option[value="90"]')).toHaveText('Last 90 days');
+    // Check all pill button labels
+    await expect(pillContainer.getByText('7 Days')).toBeVisible();
+    await expect(pillContainer.getByText('14 Days')).toBeVisible();
+    await expect(pillContainer.getByText('30 Days')).toBeVisible();
+    await expect(pillContainer.getByText('90 Days')).toBeVisible();
   });
 
-  test('changes time period when dropdown selection changes', async ({ page }) => {
+  test('changes time period when pill button is clicked', async ({ page }) => {
     await setupAnalyticsMocks(page);
     await loginAndNavigateToAnalytics(page);
 
-    // Select 7 days
-    const dropdown = page.locator('select.select-dark');
-    await dropdown.selectOption('7');
+    // Click 7 Days pill button
+    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-white\\/10');
+    await pillContainer.getByText('7 Days').click();
     await page.waitForTimeout(500);
 
-    // Select 90 days
-    await dropdown.selectOption('90');
+    // Click 90 Days pill button
+    await pillContainer.getByText('90 Days').click();
     await page.waitForTimeout(500);
   });
 
@@ -182,9 +183,9 @@ test.describe('Analytics Tab', () => {
     await setupAnalyticsMocks(page, { hasData: false });
     await loginAndNavigateToAnalytics(page);
 
-    // Check for empty state messages
-    await expect(page.getByText('No usage data yet')).toBeVisible();
-    await expect(page.getByText('Start making API calls to see analytics here')).toBeVisible();
+    // Check for empty state messages (matches UsageAnalytics component)
+    await expect(page.getByText('No conversations yet')).toBeVisible();
+    await expect(page.getByText('Users will see analytics here once they start chatting.')).toBeVisible();
   });
 
   test('shows loading spinner while data loads', async ({ page }) => {
