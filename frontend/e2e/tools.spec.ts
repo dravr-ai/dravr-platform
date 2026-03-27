@@ -108,10 +108,12 @@ test.describe('Engagement Tab - Overview', () => {
     await loginAndNavigateToEngagement(page);
 
     await expect(page.getByText('Time Range:')).toBeVisible();
-    await expect(page.getByText('7 Days')).toBeVisible();
-    await expect(page.getByText('14 Days')).toBeVisible();
-    await expect(page.getByText('30 Days')).toBeVisible();
-    await expect(page.getByText('90 Days')).toBeVisible();
+
+    // Use button role to target only the pill buttons, avoiding "Requests (7 Days)" label
+    await expect(page.getByRole('button', { name: '7 Days' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '14 Days' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '30 Days' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '90 Days' })).toBeVisible();
   });
 });
 
@@ -170,9 +172,12 @@ test.describe('Engagement Tab - Coach Leaderboard', () => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('running')).toBeVisible();
-    await expect(page.getByText('recovery')).toBeVisible();
-    await expect(page.getByText('nutrition')).toBeVisible();
+    // Use exact matching to target the category badge text, not coach names
+    // that contain the category as a substring (e.g., "Recovery Advisor" vs "recovery" badge)
+    const leaderboard = page.locator('table');
+    await expect(leaderboard.getByText('running', { exact: true })).toBeVisible();
+    await expect(leaderboard.getByText('recovery', { exact: true })).toBeVisible();
+    await expect(leaderboard.getByText('nutrition', { exact: true })).toBeVisible();
   });
 
   test('displays token counts in leaderboard', async ({ page }) => {
@@ -231,8 +236,9 @@ test.describe('Engagement Tab - Empty State', () => {
     await setupEngagementMocks(page, { hasData: false });
     await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('No engagement data yet')).toBeVisible();
-    await expect(page.getByText('User activity will be tracked as people use the platform.')).toBeVisible();
+    // Matches the EngagementTab empty state text
+    await expect(page.getByText('No coach activity yet')).toBeVisible();
+    await expect(page.getByText('Create system coaches to get started.')).toBeVisible();
   });
 });
 
