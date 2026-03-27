@@ -387,6 +387,11 @@ impl TerraConverters {
             resting_heart_rate: hr_data.and_then(|h| h.resting_hr_bpm).map(|r| r as u32),
             body_temperature: None,
             resting_respiratory_rate: None,
+            hrv_rmssd_milli: None,
+            spo2_percentage: None,
+            cycle_average_heart_rate: None,
+            cycle_max_heart_rate: None,
+            cycle_kilojoule: None,
             provider: provider_name,
         }
     }
@@ -436,6 +441,11 @@ impl TerraConverters {
                 .as_ref()
                 .and_then(|r| r.avg_breaths_per_minute)
                 .map(|r| r as f32),
+            hrv_rmssd_milli: None,
+            spo2_percentage: None,
+            cycle_average_heart_rate: None,
+            cycle_max_heart_rate: None,
+            cycle_kilojoule: None,
             provider: provider_name,
         }
     }

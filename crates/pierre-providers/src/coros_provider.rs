@@ -538,6 +538,11 @@ impl CorosProvider {
             resting_heart_rate: daily.resting_heart_rate,
             body_temperature: None,
             resting_respiratory_rate: None,
+            hrv_rmssd_milli: daily.hrv_rmssd.map(|h| h as f32),
+            spo2_percentage: None,
+            cycle_average_heart_rate: None,
+            cycle_max_heart_rate: None,
+            cycle_kilojoule: None,
             provider: oauth_providers::COROS.to_owned(),
         })
     }

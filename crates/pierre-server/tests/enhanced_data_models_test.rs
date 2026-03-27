@@ -216,6 +216,11 @@ fn test_recovery_metrics_model() {
         resting_heart_rate: Some(52),
         body_temperature: Some(36.7),
         resting_respiratory_rate: Some(14.0),
+        hrv_rmssd_milli: Some(65.0),
+        spo2_percentage: Some(98.0),
+        cycle_average_heart_rate: Some(72),
+        cycle_max_heart_rate: Some(145),
+        cycle_kilojoule: Some(8500.0),
         provider: "whoop".to_owned(),
     };
 

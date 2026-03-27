@@ -965,6 +965,11 @@ impl FitnessProvider for FitbitProvider {
                 resting_heart_rate: None,
                 body_temperature: None,
                 resting_respiratory_rate: None,
+                hrv_rmssd_milli: None,
+                spo2_percentage: None,
+                cycle_average_heart_rate: None,
+                cycle_max_heart_rate: None,
+                cycle_kilojoule: None,
                 provider: oauth_providers::FITBIT.to_owned(),
             };
 

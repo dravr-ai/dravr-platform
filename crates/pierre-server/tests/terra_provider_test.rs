@@ -359,6 +359,11 @@ async fn test_get_recovery_metrics() {
         resting_heart_rate: Some(52),
         body_temperature: None,
         resting_respiratory_rate: Some(14.0),
+        hrv_rmssd_milli: None,
+        spo2_percentage: None,
+        cycle_average_heart_rate: None,
+        cycle_max_heart_rate: None,
+        cycle_kilojoule: None,
         provider: "terra:garmin".to_owned(),
     };
     cache.store_recovery_metrics(user_id, recovery).await;

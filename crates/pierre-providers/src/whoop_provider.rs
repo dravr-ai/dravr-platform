@@ -604,11 +604,12 @@ impl WhoopProvider {
 
     /// Convert WHOOP recovery + cycle data to recovery metrics
     ///
-    /// Recovery provides HRV, resting HR, temperature. Cycle provides daily strain.
+    /// Recovery provides HRV, resting HR, SpO2, temperature.
+    /// Cycle provides daily strain, kilojoules, and heart rate.
     /// Joined by `cycle_id` to produce a complete recovery picture.
     fn convert_recovery_to_metrics(
         recovery: &WhoopRecovery,
-        cycle_strain: Option<f64>,
+        cycle_score: Option<&WhoopCycleScore>,
         date: DateTime<Utc>,
     ) -> RecoveryMetrics {
         let score = recovery.score.as_ref();
@@ -629,10 +630,19 @@ impl WhoopProvider {
             }),
             sleep_score: None,  // Sleep score comes from separate sleep endpoint
             stress_level: None, // WHOOP doesn't have explicit stress metric
-            training_load: cycle_strain.map(|s| s as f32),
+            training_load: cycle_score.and_then(|c| c.strain).map(|s| s as f32),
             resting_heart_rate: score.and_then(|r| r.resting_heart_rate).map(|hr| hr as u32),
             body_temperature: score.and_then(|r| r.skin_temp_celsius).map(|t| t as f32),
             resting_respiratory_rate: None,
+            hrv_rmssd_milli: score.and_then(|r| r.hrv_rmssd_milli).map(|v| v as f32),
+            spo2_percentage: score.and_then(|r| r.spo2_percentage).map(|v| v as f32),
+            cycle_average_heart_rate: cycle_score
+                .and_then(|c| c.average_heart_rate)
+                .map(|hr| hr as u32),
+            cycle_max_heart_rate: cycle_score
+                .and_then(|c| c.max_heart_rate)
+                .map(|hr| hr as u32),
+            cycle_kilojoule: cycle_score.and_then(|c| c.kilojoule).map(|kj| kj as f32),
             provider: oauth_providers::WHOOP.to_owned(),
         }
     }
@@ -1085,23 +1095,19 @@ impl FitnessProvider for WhoopProvider {
             }
         };
 
-        // Build cycle_id → strain lookup from cycle data (best-effort, non-fatal)
-        let strain_by_cycle_id: HashMap<i64, f64> = match cycle_result {
-            Ok(resp) => resp
-                .records
-                .iter()
-                .filter_map(|c| {
-                    c.score
-                        .as_ref()
-                        .and_then(|s| s.strain)
-                        .map(|strain| (c.id, strain))
-                })
-                .collect(),
+        // Build cycle_id → score lookup from cycle data (best-effort, non-fatal)
+        let cycles: Vec<WhoopCycle> = match cycle_result {
+            Ok(resp) => resp.records,
             Err(e) => {
                 warn!("Failed to fetch WHOOP cycle data for strain: {e}");
-                HashMap::new()
+                Vec::new()
             }
         };
+
+        let score_by_cycle_id: HashMap<i64, &WhoopCycleScore> = cycles
+            .iter()
+            .filter_map(|c| c.score.as_ref().map(|s| (c.id, s)))
+            .collect();
 
         let mut metrics = Vec::with_capacity(recoveries.len());
         for recovery in &recoveries {
@@ -1111,12 +1117,16 @@ impl FitnessProvider for WhoopProvider {
                 .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
                 .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
 
-            // Join strain from cycle data by cycle_id
-            let strain = recovery
+            // Join cycle score data by cycle_id for strain, HR, and kilojoules
+            let cycle_score = recovery
                 .cycle_id
-                .and_then(|cid| strain_by_cycle_id.get(&cid).copied());
+                .and_then(|cid| score_by_cycle_id.get(&cid).copied());
 
-            metrics.push(Self::convert_recovery_to_metrics(recovery, strain, date));
+            metrics.push(Self::convert_recovery_to_metrics(
+                recovery,
+                cycle_score,
+                date,
+            ));
         }
 
         Ok(metrics)

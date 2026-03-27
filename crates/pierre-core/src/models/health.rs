@@ -39,6 +39,21 @@ pub struct RecoveryMetrics {
     /// Respiratory rate while resting
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resting_respiratory_rate: Option<f32>,
+    /// Raw HRV RMSSD value in milliseconds (for trend analysis)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hrv_rmssd_milli: Option<f32>,
+    /// Blood oxygen saturation percentage (SpO2, 0-100)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spo2_percentage: Option<f32>,
+    /// Average heart rate during the physiological cycle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycle_average_heart_rate: Option<u32>,
+    /// Maximum heart rate during the physiological cycle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycle_max_heart_rate: Option<u32>,
+    /// Total energy expenditure in kilojoules for the cycle
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cycle_kilojoule: Option<f32>,
     /// Provider of this recovery data
     pub provider: String,
 }

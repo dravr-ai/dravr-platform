@@ -768,8 +768,8 @@ pub fn handle_calculate_recovery_score(
             }
         }
 
-        // Fetch WHOOP cycle strain via recovery metrics (best-effort, non-fatal)
-        let daily_strain = if sleep_provider_used.as_deref().is_some_and(|p| p == "whoop") {
+        // Fetch WHOOP recovery metrics for cycle data (best-effort, non-fatal)
+        let whoop_recovery = if sleep_provider_used.as_deref().is_some_and(|p| p == "whoop") {
             let provider = executor
                 .auth_service
                 .create_authenticated_provider("whoop", user_uuid, request.tenant_id.as_deref())
@@ -782,13 +782,24 @@ pub fn handle_calculate_recovery_score(
                     .get_recovery_metrics(start, end)
                     .await
                     .ok()
-                    .and_then(|metrics| metrics.first().and_then(|m| m.training_load))
+                    .and_then(|metrics| metrics.into_iter().next())
             } else {
                 None
             }
         } else {
             None
         };
+
+        let whoop_data = whoop_recovery.as_ref().map(|m| {
+            serde_json::json!({
+                "daily_strain": m.training_load,
+                "spo2_percentage": m.spo2_percentage,
+                "hrv_rmssd_milli": m.hrv_rmssd_milli,
+                "cycle_average_heart_rate": m.cycle_average_heart_rate,
+                "cycle_max_heart_rate": m.cycle_max_heart_rate,
+                "cycle_kilojoule": m.cycle_kilojoule,
+            })
+        });
 
         let result = UniversalResponse {
             success: true,
@@ -799,7 +810,8 @@ pub fn handle_calculate_recovery_score(
                     "atl": training_load.atl,
                     "tsb": training_load.tsb,
                 },
-                "whoop_daily_strain": daily_strain,
+                "whoop_daily_strain": whoop_recovery.as_ref().and_then(|m| m.training_load),
+                "whoop_cycle_data": whoop_data,
                 "sleep_quality_score": sleep_quality_score,
                 "hrv_status": hrv_status,
                 "providers_used": {
