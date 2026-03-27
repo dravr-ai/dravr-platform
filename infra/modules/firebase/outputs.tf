@@ -1,10 +1,5 @@
-# ABOUTME: Outputs from Firebase Identity Platform module
-# ABOUTME: Exposes authorized domains and project configuration
-
-output "authorized_domains" {
-  description = "List of authorized domains for Firebase Auth"
-  value       = google_identity_platform_config.auth.authorized_domains
-}
+# ABOUTME: Outputs from Firebase module
+# ABOUTME: Exposes project ID for reference
 
 output "firebase_project_id" {
   description = "Firebase project ID"
