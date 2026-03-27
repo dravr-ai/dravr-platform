@@ -183,6 +183,63 @@ RUST_LOG=debug cargo run 2>&1 | grep -i "secret\|password\|token" | grep -v "acc
 - performance metrics (duration, status codes)
 - error categories (not full stack traces with sensitive data)
 
+### Error Notifications
+
+Automatic error alerting via Slack and/or email. When enabled, every `tracing::error!()` across the platform and all `dravr-xxx` dependencies is captured, batched, deduplicated, and dispatched to configured channels.
+
+Powered by `dravr-tronc` `ErrorNotificationLayer` — a `tracing::Layer` that intercepts ERROR-level events without any application code changes.
+
+#### Slack Error Alerts
+
+```bash
+# Required: channel where error digests are posted
+SLACK_ERROR_CHANNEL="#pierre-errors"
+
+# Required: bot token (shared with ops notifier)
+SLACK_BOT_TOKEN="xoxb-..."
+```
+
+The Slack bot must be invited to the error channel. When `SLACK_ERROR_CHANNEL` is unset, the error layer is not added (zero overhead).
+
+#### Email Error Alerts (Optional, via Resend)
+
+```bash
+RESEND_API_KEY="re_..."                       # same key used for transactional emails
+NOTIFY_EMAIL_FROM="Pierre Alerts <alerts@dravr.ai>"
+NOTIFY_EMAIL_TO="jf@dravr.ai,phil@dravr.ai"  # comma-separated
+```
+
+#### Tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOTIFY_BATCH_WINDOW_SECS` | `5` | Seconds to collect errors before sending a single digest |
+| `NOTIFY_MAX_MESSAGES_PER_MIN` | `10` | Global rate limit for notification messages |
+| `NOTIFY_DEDUP_WINDOW_SECS` | `30` | Suppress duplicate errors (same target + message prefix) |
+
+#### How It Works
+
+1. Any `tracing::error!()` call (from pierre-server, dravr-canot, dravr-embacle, etc.) is intercepted
+2. Events are queued via an async channel (non-blocking, never slows the request path)
+3. A background task batches events over the configured window
+4. Duplicate errors are collapsed (e.g., "connection refused x47 in last 5s")
+5. A Slack Block Kit digest and/or email is sent
+6. If Slack/email is unreachable, a `tracing::warn!()` is logged and the error is dropped
+
+#### Terraform Configuration (GCP Cloud Run)
+
+The error notification variables are configured in `infra/environments/dev/variables.tf`:
+
+```hcl
+variable "slack_error_channel" {
+  description = "Slack channel for ERROR-level alerts"
+  type        = string
+  default     = ""  # empty = disabled
+}
+```
+
+`SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` are managed as GCP Secret Manager secrets and injected into Cloud Run via `secret_env_vars`.
+
 ### MCP Tool Configuration
 
 Control which MCP tools are available to tenants via environment variables and admin API.

@@ -17,6 +17,9 @@ pub use tenant::{
 
 use crate::constants::service_names;
 use crate::errors::AppResult;
+use dravr_tronc::notifications::{
+    EmailClient, ErrorNotificationLayer, NotificationConfig, SlackClient,
+};
 use serde_json::json;
 use std::env;
 use std::io;
@@ -215,6 +218,10 @@ impl LoggingConfig {
         // Create base registry
         let registry = tracing_subscriber::registry().with(env_filter);
 
+        // Build optional error notification layer (active when SLACK_ERROR_CHANNEL is set)
+        let error_layer =
+            Self::build_error_notification_layer(&self.service_name, &self.environment);
+
         match self.format {
             LogFormat::Json => {
                 let json_layer = fmt::layer()
@@ -231,7 +238,7 @@ impl LoggingConfig {
                     })
                     .json();
 
-                registry.with(json_layer).init();
+                registry.with(json_layer).with(error_layer).init();
             }
             LogFormat::Pretty => {
                 let pretty_layer = fmt::layer()
@@ -247,7 +254,7 @@ impl LoggingConfig {
                         FmtSpan::NONE
                     });
 
-                registry.with(pretty_layer).init();
+                registry.with(pretty_layer).with(error_layer).init();
             }
             LogFormat::Compact => {
                 let compact_layer = fmt::layer()
@@ -260,7 +267,7 @@ impl LoggingConfig {
                     .with_writer(io::stdout)
                     .with_span_events(FmtSpan::NONE);
 
-                registry.with(compact_layer).init();
+                registry.with(compact_layer).with(error_layer).init();
             }
         }
 
@@ -300,6 +307,39 @@ impl LoggingConfig {
         });
 
         info!("Configuration loaded: {}", config_summary);
+    }
+
+    /// Build the error notification layer from environment configuration
+    ///
+    /// Returns `Some(layer)` when `SLACK_ERROR_CHANNEL` (and `SLACK_BOT_TOKEN`) or
+    /// email env vars are configured. Returns `None` otherwise, which is transparent
+    /// to the tracing subscriber (Option<Layer> implements Layer as a passthrough).
+    fn build_error_notification_layer(
+        service_name: &str,
+        environment: &str,
+    ) -> Option<ErrorNotificationLayer> {
+        let mut config = NotificationConfig::from_env();
+        service_name.clone_into(&mut config.service_name);
+        environment.clone_into(&mut config.environment);
+
+        let slack = config.slack.as_ref().map(SlackClient::new);
+        let email = config.email.as_ref().and_then(|c| {
+            EmailClient::new(c)
+                .map_err(|e| tracing::warn!(error = %e, "Failed to initialize email notifier"))
+                .ok()
+        });
+
+        if slack.is_none() && email.is_none() {
+            return None;
+        }
+
+        info!(
+            slack = slack.is_some(),
+            email = email.is_some(),
+            "Error notification layer enabled"
+        );
+
+        Some(ErrorNotificationLayer::new(config, slack, email))
     }
 
     /// Create `OpenTelemetry` layer for distributed tracing
