@@ -94,6 +94,25 @@ fn lookup_pricing(provider: &str, model: &str) -> Option<&'static ModelPricing> 
         .map(|(_, _, pricing)| pricing)
 }
 
+/// Average characters per token for LLM tokenizers.
+///
+/// Most English text averages ~4 characters per token across major tokenizers
+/// (GPT, Gemini, `LLaMA`). Used as a fallback when providers don't return real
+/// token counts (e.g., CLI-based and headless providers).
+const CHARS_PER_TOKEN: usize = 4;
+
+/// Estimate token count from text content using character-based heuristic.
+///
+/// Returns `(prompt_tokens, completion_tokens)` estimates. Used as a fallback
+/// when LLM providers don't return real token counts in their API response
+/// (e.g., `copilot_headless`, Claude Code CLI).
+#[must_use]
+pub fn estimate_tokens(prompt_text: &str, completion_text: &str) -> (u32, u32) {
+    let prompt = (prompt_text.len() / CHARS_PER_TOKEN).max(1) as u32;
+    let completion = (completion_text.len() / CHARS_PER_TOKEN).max(1) as u32;
+    (prompt, completion)
+}
+
 /// Calculate the cost of an LLM request using compile-time pricing
 ///
 /// Returns the cost in USD. Returns 0.0 for unknown provider/model combinations
