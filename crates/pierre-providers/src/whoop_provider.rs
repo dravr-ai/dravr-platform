@@ -162,12 +162,6 @@ struct WhoopCycle {
 struct WhoopCycleScore {
     /// Daily strain score (0-21 scale)
     strain: Option<f64>,
-    /// Kilojoules burned during the cycle
-    kilojoule: Option<f64>,
-    /// Average heart rate during the cycle
-    average_heart_rate: Option<i32>,
-    /// Maximum heart rate during the cycle
-    max_heart_rate: Option<i32>,
 }
 
 /// WHOOP recovery response (v2: separate endpoint from cycles)
