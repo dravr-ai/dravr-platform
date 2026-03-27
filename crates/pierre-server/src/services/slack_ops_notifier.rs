@@ -8,12 +8,9 @@ use std::env;
 use std::sync::OnceLock;
 
 use chrono::Utc;
-use pierre_core::http_client::api_client;
+use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use serde_json::{json, Value};
-use tracing::{info, warn};
-
-/// Slack API endpoint for posting messages
-const SLACK_POST_MESSAGE_URL: &str = "https://slack.com/api/chat.postMessage";
+use tracing::info;
 
 /// Cloud Run revision environment variable (injected automatically by Cloud Run)
 const K_REVISION_ENV: &str = "K_REVISION";
@@ -105,13 +102,13 @@ impl OpsNotifier for NoopOpsNotifier {
 }
 
 // =============================================================================
-// Slack implementation
+// Slack implementation (delegates to dravr-tronc SlackClient)
 // =============================================================================
 
 /// Slack operations notifier posting Block Kit messages to dedicated channels
 struct SlackOpsNotifier {
-    /// Slack bot token for API authentication
-    bot_token: String,
+    /// Shared Slack client from dravr-tronc
+    client: SlackClient,
     /// Channel for deploy/restart notifications (channel ID or name)
     deploys_channel: Option<String>,
     /// Channel for user lifecycle notifications (channel ID or name)
@@ -138,9 +135,23 @@ impl SlackOpsNotifier {
             .filter(|s| !s.is_empty());
 
         if deploys_channel.is_none() && users_channel.is_none() {
-            warn!("SLACK_BOT_TOKEN is set but neither SLACK_OPS_DEPLOYS_CHANNEL nor SLACK_OPS_USERS_CHANNEL is configured");
+            tracing::warn!("SLACK_BOT_TOKEN is set but neither SLACK_OPS_DEPLOYS_CHANNEL nor SLACK_OPS_USERS_CHANNEL is configured");
             return None;
         }
+
+        let signing_secret = env::var("SLACK_SIGNING_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
+
+        let config = SlackConfig {
+            bot_token,
+            // Ops notifier uses per-method channels, not a single error channel
+            error_channel: deploys_channel
+                .clone()
+                .or_else(|| users_channel.clone())
+                .unwrap_or_default(),
+            signing_secret,
+        };
 
         let base_url = env::var("BASE_URL").ok().filter(|s| !s.is_empty());
         let environment = env::var("ENVIRONMENT").unwrap_or_else(|_| "unknown".to_owned());
@@ -152,61 +163,12 @@ impl SlackOpsNotifier {
         );
 
         Some(Self {
-            bot_token,
+            client: SlackClient::new(&config),
             deploys_channel,
             users_channel,
             base_url,
             environment,
         })
-    }
-
-    /// Fire-and-forget send to Slack via `tokio::spawn`
-    fn send(&self, channel: &str, blocks: &Value) {
-        let token = self.bot_token.clone();
-        let payload = json!({
-            "channel": channel,
-            "blocks": blocks,
-        });
-
-        tokio::spawn(async move {
-            let client = api_client();
-            let result = client
-                .post(SLACK_POST_MESSAGE_URL)
-                .header("Authorization", format!("Bearer {token}"))
-                .json(&payload)
-                .send()
-                .await;
-
-            match result {
-                Ok(response) => {
-                    if !response.status().is_success() {
-                        warn!(
-                            status = response.status().as_u16(),
-                            "Slack ops notification HTTP error"
-                        );
-                        return;
-                    }
-                    match response.json::<Value>().await {
-                        Ok(body) => {
-                            let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                            if !ok {
-                                let error = body
-                                    .get("error")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("unknown");
-                                warn!(error, "Slack ops notification API error");
-                            }
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "Failed to parse Slack ops notification response");
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(error = %e, "Failed to send Slack ops notification");
-                }
-            }
-        });
     }
 }
 
@@ -241,7 +203,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_user_registered(&self, user_id: &str, email: &str, status: &str) {
@@ -308,7 +270,7 @@ impl OpsNotifier for SlackOpsNotifier {
         }
 
         let blocks_value = Value::Array(blocks);
-        self.send(channel, &blocks_value);
+        self.client.post_message(channel, &blocks_value);
     }
 
     fn notify_user_approved(&self, email: &str, approved_by: &str) {
@@ -330,7 +292,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_user_suspended(&self, email: &str, suspended_by: &str) {
@@ -352,7 +314,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_oauth_connected(&self, email: &str, provider: &str) {
@@ -374,7 +336,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_oauth_disconnected(&self, email: &str, provider: &str) {
@@ -396,7 +358,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_login(&self, email: &str) {
@@ -411,7 +373,7 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 
     fn notify_logout(&self, email: &str) {
@@ -426,6 +388,6 @@ impl OpsNotifier for SlackOpsNotifier {
             }
         ]);
 
-        self.send(channel, &blocks);
+        self.client.post_message(channel, &blocks);
     }
 }

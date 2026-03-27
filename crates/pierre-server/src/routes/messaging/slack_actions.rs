@@ -1,5 +1,5 @@
 // ABOUTME: Slack interactive actions handler for ops notifications (approve/reject users)
-// ABOUTME: Verifies HMAC-SHA256 signature, resolves Slack user to Pierre admin, executes action
+// ABOUTME: Verifies HMAC-SHA256 signature via dravr-tronc, resolves Slack user to Pierre admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,8 +11,8 @@ use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_core::http_client::api_client;
-use ring::hmac;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -22,21 +22,15 @@ use crate::mcp::resources::ServerResources;
 use crate::models::UserStatus;
 use crate::services::tenant_admin as tenant_admin_service;
 
-/// Maximum age of a Slack request timestamp before it's rejected (5 minutes)
-const MAX_TIMESTAMP_AGE_SECS: u64 = 300;
-
 /// Slack API endpoint for looking up user info by ID
 const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
-
-/// Slack API endpoint for updating messages
-const SLACK_CHAT_UPDATE_URL: &str = "https://slack.com/api/chat.update";
 
 /// Handle Slack interactive action payloads (button clicks from ops notifications)
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
-/// 3. Slack user → Pierre admin mapping (only admins can approve/reject)
+/// 3. Slack user -> Pierre admin mapping (only admins can approve/reject)
 pub async fn handle_slack_action(
     resources: &ServerResources,
     body: &Bytes,
@@ -104,24 +98,28 @@ pub async fn handle_slack_action(
         Err(e) => format!("Action failed: {e}"),
     };
 
-    // Fire-and-forget message update
-    update_slack_message(
-        &bot_token,
-        &action.channel_id,
-        &action.message_ts,
-        &update_text,
-        result.is_ok(),
-    );
+    // Fire-and-forget message update via tronc SlackClient
+    let status_emoji = if result.is_ok() {
+        ":white_check_mark:"
+    } else {
+        ":x:"
+    };
+    let blocks = json!([{
+        "type": "section",
+        "text": { "type": "mrkdwn", "text": format!("{status_emoji} {update_text}") }
+    }]);
+
+    let slack_client = build_slack_client(&bot_token);
+    slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
 
     // Return 200 immediately (Slack expects a response within 3 seconds)
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
 }
 
-/// Verify the Slack request signature using HMAC-SHA256 v0 scheme
+/// Verify the Slack request signature using dravr-tronc's `SlackClient`
 ///
-/// Validates:
-/// - `x-slack-request-timestamp` is present and within `MAX_TIMESTAMP_AGE_SECS`
-/// - `x-slack-signature` matches HMAC-SHA256 of `v0:{timestamp}:{body}`
+/// Extracts timestamp and signature headers, delegates HMAC verification
+/// to the shared implementation.
 pub fn verify_slack_signature(
     signing_secret: &str,
     headers: &HeaderMap,
@@ -137,36 +135,36 @@ pub fn verify_slack_signature(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::auth_invalid("Missing x-slack-signature header"))?;
 
-    // Replay protection
-    let ts: u64 = timestamp
-        .parse()
-        .map_err(|_| AppError::auth_invalid("Invalid timestamp format"))?;
-    let now = u64::try_from(chrono::Utc::now().timestamp()).unwrap_or(0);
-    let age = now.saturating_sub(ts);
-    if age > MAX_TIMESTAMP_AGE_SECS {
-        return Err(AppError::auth_invalid(format!(
-            "Request timestamp too old ({age}s)"
-        )));
-    }
+    let config = SlackConfig {
+        bot_token: String::new(),
+        error_channel: String::new(),
+        signing_secret: Some(signing_secret.to_owned()),
+    };
+    let client = SlackClient::new(&config);
 
-    // Compute HMAC-SHA256 using Slack v0 scheme
-    let body_str = str::from_utf8(body).unwrap_or("");
-    let basestring = format!("v0:{timestamp}:{body_str}");
-    let key = hmac::Key::new(hmac::HMAC_SHA256, signing_secret.as_bytes());
-    let tag = hmac::sign(&key, basestring.as_bytes());
-    let expected = format!("v0={}", hex::encode(tag.as_ref()));
-
-    // Constant-time comparison via ring
-    if signature == expected {
-        Ok(())
-    } else {
-        Err(AppError::auth_invalid("Invalid Slack signature"))
-    }
+    client
+        .verify_signature(timestamp, signature, body)
+        .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
 }
 
 // =============================================================================
 // Internal helpers
 // =============================================================================
+
+/// Build a `SlackClient` from a bot token for message updates
+fn build_slack_client(bot_token: &str) -> SlackClient {
+    let signing_secret = env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty());
+
+    let config = SlackConfig {
+        bot_token: bot_token.to_owned(),
+        error_channel: String::new(),
+        signing_secret,
+    };
+
+    SlackClient::new(&config)
+}
 
 /// Parsed Slack interactive action
 struct SlackAction {
@@ -390,60 +388,4 @@ async fn reject_user(
     crate::ops_notifier().notify_user_suspended(&updated_user.email, rejected_by);
 
     Ok(updated_user.email)
-}
-
-/// Update the original Slack message to replace buttons with action result
-///
-/// Fire-and-forget — spawns a background task, never blocks the response.
-fn update_slack_message(
-    bot_token: &str,
-    channel_id: &str,
-    message_ts: &str,
-    text: &str,
-    success: bool,
-) {
-    let token = bot_token.to_owned();
-    let channel = channel_id.to_owned();
-    let ts = message_ts.to_owned();
-    let status_emoji = if success { ":white_check_mark:" } else { ":x:" };
-    let update_text = format!("{status_emoji} {text}");
-
-    tokio::spawn(async move {
-        let client = api_client();
-        let payload = json!({
-            "channel": channel,
-            "ts": ts,
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": { "type": "mrkdwn", "text": update_text }
-                }
-            ]
-        });
-
-        let result = client
-            .post(SLACK_CHAT_UPDATE_URL)
-            .header("Authorization", format!("Bearer {token}"))
-            .json(&payload)
-            .send()
-            .await;
-
-        match result {
-            Ok(response) => {
-                if let Ok(body) = response.json::<Value>().await {
-                    let ok = body.get("ok").and_then(Value::as_bool).unwrap_or(false);
-                    if !ok {
-                        let error = body
-                            .get("error")
-                            .and_then(Value::as_str)
-                            .unwrap_or("unknown");
-                        warn!(error, "Failed to update Slack message after action");
-                    }
-                }
-            }
-            Err(e) => {
-                warn!(error = %e, "Failed to send Slack message update");
-            }
-        }
-    });
 }

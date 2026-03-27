@@ -234,6 +234,14 @@ module "backend" {
       SLACK_OPS_ENABLED         = tostring(var.slack_ops_enabled)
       SLACK_OPS_DEPLOYS_CHANNEL = var.slack_ops_deploys_channel
       SLACK_OPS_USERS_CHANNEL   = var.slack_ops_users_channel
+
+      # Error notification layer (dravr-tronc ErrorNotificationLayer)
+      SLACK_ERROR_CHANNEL          = var.slack_error_channel
+      NOTIFY_BATCH_WINDOW_SECS     = tostring(var.notify_batch_window_secs)
+      NOTIFY_MAX_MESSAGES_PER_MIN  = tostring(var.notify_max_messages_per_min)
+      NOTIFY_DEDUP_WINDOW_SECS     = tostring(var.notify_dedup_window_secs)
+      NOTIFY_EMAIL_FROM            = var.notify_email_from
+      NOTIFY_EMAIL_TO              = var.notify_email_to
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {

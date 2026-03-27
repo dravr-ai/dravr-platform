@@ -311,3 +311,39 @@ variable "slack_ops_users_channel" {
   type        = string
   default     = "#dravr-dev-users"
 }
+
+variable "slack_error_channel" {
+  description = "Slack channel for automatic ERROR-level log alerts (channel ID or name, empty to disable)"
+  type        = string
+  default     = "#dev-dravr-errors"
+}
+
+variable "notify_batch_window_secs" {
+  description = "Seconds to batch error notifications before sending a digest (default: 5)"
+  type        = number
+  default     = 5
+}
+
+variable "notify_max_messages_per_min" {
+  description = "Maximum error notification messages per minute across all channels (default: 10)"
+  type        = number
+  default     = 10
+}
+
+variable "notify_dedup_window_secs" {
+  description = "Seconds to suppress duplicate error notifications for the same error (default: 30)"
+  type        = number
+  default     = 30
+}
+
+variable "notify_email_from" {
+  description = "Sender address for error alert emails via Resend (e.g. 'Pierre Alerts <alerts@dravr.ai>')"
+  type        = string
+  default     = "Pierre Alerts <alerts@dravr.ai>"
+}
+
+variable "notify_email_to" {
+  description = "Comma-separated recipient email addresses for error alerts"
+  type        = string
+  default     = "jf@dravr.ai,phil@dravr.ai"
+}

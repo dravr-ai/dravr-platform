@@ -63,6 +63,8 @@ allow = [
     "OpenSSL",                # OpenSSL license (aws-lc-sys crypto backend)
     "CC0-1.0",                # Creative Commons Zero (dunce path canonicalization)
     "MIT-0",                  # MIT No Attribution (dunce path canonicalization)
+    "Apache-2.0 WITH LLVM-exception",  # LLVM runtime (ring crypto backend)
+    "0BSD",                   # Zero-clause BSD (lettre email dependencies)
 ]
 # Confidence threshold for license detection
 confidence-threshold = 0.93
@@ -94,7 +96,7 @@ deny = []
 skip = []
 # Skip tree checking for these dependencies
 # dravr-sciotte: all crates.io versions yanked, must use git dep which triggers wildcard ban
-skip-tree = [{ crate = "dravr-sciotte@0.4.3", depth = 1 }]
+skip-tree = [{ crate = "dravr-sciotte@0.4.4", depth = 1 }]
 
 # ============================================================================
 # Source Validation - Only Allow Trusted Registries
@@ -111,6 +113,7 @@ allow-git = [
     "https://github.com/dravr-ai/dravr-sciotte.git",
     "https://github.com/dravr-ai/dravr-canot.git",
     "https://github.com/dravr-ai/dravr-commere.git",
+    "https://github.com/dravr-ai/dravr-tronc.git",
 ]
 # Allow these specific registries
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
