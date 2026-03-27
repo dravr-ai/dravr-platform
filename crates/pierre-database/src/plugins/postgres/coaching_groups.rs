@@ -289,10 +289,6 @@ impl CoachingGroupRepository for PostgresDatabase {
         .await
         .map_err(|e| AppError::database(format!("Failed to add member: {e}")))?;
 
-        let tenant_id = member
-            .tenant_id
-            .parse::<TenantId>()
-            .map_err(|e| AppError::internal(format!("Invalid tenant_id: {e}")))?;
         self.get_member(&member.group_id.to_string(), member.user_id)
             .await?
             .ok_or_else(|| AppError::internal("Member not found after creation"))
