@@ -537,13 +537,6 @@ module "firebase" {
   project_id          = var.project_id
   firebase_project_id = var.firebase_project_id
 
-  authorized_domains = compact([
-    var.enable_frontend ? replace(module.frontend[0].service_url, "https://", "") : "",
-    # Add custom domain here when ready (e.g., "app.dravr.ai")
-  ])
-
-  # OAuth credentials read from Secret Manager (google-oauth-client-id, google-oauth-client-secret)
-
   depends_on = [module.project, module.secrets]
 }
 
