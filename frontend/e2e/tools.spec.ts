@@ -1,343 +1,293 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for the Tools tab.
-// ABOUTME: Tests charts, tool usage table, and summary statistics.
+// ABOUTME: Playwright E2E tests for the Engagement tab (previously Tool Usage).
+// ABOUTME: Tests coach leaderboard, user engagement tiers, time range selector, and empty states.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
 
-// Helper to set up authenticated state with Tools API mocks
-async function setupToolsMocks(
+// Helper to set up authenticated state with Engagement API mocks
+async function setupEngagementMocks(
   page: Page,
   options: {
     hasData?: boolean;
-    toolCount?: number;
   } = {}
 ) {
-  const { hasData = true, toolCount = 5 } = options;
+  const { hasData = true } = options;
 
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: 'admin' });
 
-  // Mock tool usage breakdown endpoint
-  await page.route('**/api/dashboard/tool-usage*', async (route) => {
+  // Mock system coaches endpoint (used by coach leaderboard)
+  await page.route('**/api/admin/coaches', async (route) => {
     if (!hasData) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
       });
       return;
     }
 
-    const tools = [
-      { tool_name: 'get_activities', request_count: 4500, success_rate: 98.9, average_response_time: 120 },
-      { tool_name: 'get_athlete', request_count: 450, success_rate: 96.7, average_response_time: 85 },
-      { tool_name: 'get_stats', request_count: 300, success_rate: 99.3, average_response_time: 150 },
-      { tool_name: 'get_zones', request_count: 200, success_rate: 95.0, average_response_time: 200 },
-      { tool_name: 'get_activity_intelligence', request_count: 100, success_rate: 92.0, average_response_time: 350 },
-    ].slice(0, toolCount);
-
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(tools),
+      body: JSON.stringify({
+        coaches: [
+          { id: 'c1', title: 'Marathon Coach', category: 'running', total_tokens: 15000, description: 'Marathon training' },
+          { id: 'c2', title: 'Recovery Advisor', category: 'recovery', total_tokens: 8500, description: 'Recovery guidance' },
+          { id: 'c3', title: 'Nutrition Planner', category: 'nutrition', total_tokens: 5200, description: 'Meal planning' },
+        ],
+        total: 3,
+        metadata: { timestamp: new Date().toISOString(), api_version: '1.0' },
+      }),
+    });
+  });
+
+  // Mock all users endpoint (used for engagement tiers)
+  await page.route('**/api/admin/users*', async (route) => {
+    if (!hasData) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ users: [] }),
+      });
+      return;
+    }
+
+    const now = Date.now();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        users: [
+          { id: '1', email: 'active1@test.com', last_active: new Date(now - 3600000).toISOString() },
+          { id: '2', email: 'active2@test.com', last_active: new Date(now - 7200000).toISOString() },
+          { id: '3', email: 'weekly@test.com', last_active: new Date(now - 3 * 86400000).toISOString() },
+          { id: '4', email: 'monthly@test.com', last_active: new Date(now - 15 * 86400000).toISOString() },
+          { id: '5', email: 'dormant@test.com', last_active: new Date(now - 60 * 86400000).toISOString() },
+        ],
+      }),
+    });
+  });
+
+  // Mock store stats
+  await page.route('**/api/admin/store/stats', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        pending_count: 0,
+        published_count: hasData ? 5 : 0,
+        rejected_count: 0,
+        total_installs: 0,
+        rejection_rate: 0,
+      }),
     });
   });
 }
 
-async function loginAndNavigateToTools(page: Page) {
+async function loginAndNavigateToEngagement(page: Page) {
   await loginToDashboard(page);
-  await navigateToTab(page, 'Tool Usage');
+  await navigateToTab(page, 'Engagement');
   await page.waitForTimeout(500);
 }
 
-test.describe('Tools Tab - Overview', () => {
-  test('renders Tools tab with header', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+test.describe('Engagement Tab - Overview', () => {
+  test('renders Engagement tab with header', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
     // Check header — Dashboard top bar shows the active tab name
-    await expect(page.getByRole('heading', { name: 'Tool Usage', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Engagement', level: 1 })).toBeVisible();
   });
 
-  test('displays all main sections', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays time range selector', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Check for main sections
-    await expect(page.getByText('Request Distribution')).toBeVisible();
-    await expect(page.getByText('Average Response Time')).toBeVisible();
-    await expect(page.getByText('Tool Usage Details')).toBeVisible();
-  });
-});
-
-test.describe('Tools Tab - Charts', () => {
-  test('displays Request Distribution doughnut chart', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Check chart section
-    await expect(page.getByText('Request Distribution')).toBeVisible();
-
-    // Canvas element should be present for chart - use first() for multiple canvases
-    const chartContainer = page.locator('text=Request Distribution').locator('..').locator('..');
-    await expect(chartContainer.locator('canvas').first()).toBeVisible();
-  });
-
-  test('displays Average Response Time bar chart', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Check chart section
-    await expect(page.getByText('Average Response Time')).toBeVisible();
-
-    // Canvas element should be present for chart - use first() for multiple canvases
-    const chartContainer = page.locator('text=Average Response Time').locator('..').locator('..');
-    await expect(chartContainer.locator('canvas').first()).toBeVisible();
-  });
-
-  test('charts render with correct height', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Charts should have 300px height containers
-    const chartContainers = page.locator('[style*="height: 300px"]');
-    await expect(chartContainers.first()).toBeVisible();
+    await expect(page.getByText('Time Range:')).toBeVisible();
+    await expect(page.getByText('7 Days')).toBeVisible();
+    await expect(page.getByText('14 Days')).toBeVisible();
+    await expect(page.getByText('30 Days')).toBeVisible();
+    await expect(page.getByText('90 Days')).toBeVisible();
   });
 });
 
-test.describe('Tools Tab - Usage Details Table', () => {
-  test('displays table with all column headers', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+test.describe('Engagement Tab - User Engagement Tiers', () => {
+  test('displays Daily Active stat card', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Check table headers
-    await expect(page.getByRole('columnheader', { name: 'Tool Name' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Requests' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Success Rate' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Avg Response Time' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Errors' })).toBeVisible();
-    await expect(page.getByRole('columnheader', { name: 'Share' })).toBeVisible();
+    await expect(page.getByText('Daily Active')).toBeVisible();
+    // 2 users active within last 24h
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Daily Active' }).getByText('2')).toBeVisible();
   });
 
-  test('displays tool names in table', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays Weekly Active stat card', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Tool names should be formatted nicely (Get Activities instead of get_activities)
-    await expect(page.getByText('Get Activities')).toBeVisible();
-    await expect(page.getByText('Get Athlete')).toBeVisible();
-    await expect(page.getByText('Get Stats')).toBeVisible();
+    await expect(page.getByText('Weekly Active')).toBeVisible();
+    // 1 user active within last 7 days (but not last 24h)
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Weekly Active' }).getByText('1')).toBeVisible();
   });
 
-  test('displays request counts in table', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays Monthly Active stat card', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Request counts should be formatted with commas
-    await expect(page.getByText('4,500')).toBeVisible();
-    await expect(page.getByText('450')).toBeVisible();
+    await expect(page.getByText('Monthly Active')).toBeVisible();
   });
 
-  test('displays success rates with percentage', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays Dormant stat card', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Success rates should show percentage
-    await expect(page.getByText('98.9%')).toBeVisible();
-    await expect(page.getByText('96.7%')).toBeVisible();
-  });
-
-  test('displays success rate progress bars', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Progress bars should be visible (bg-pierre-activity for high success rate >= 95%)
-    const progressBars = page.locator('.bg-pierre-activity.h-2.rounded-full');
-    await expect(progressBars.first()).toBeVisible();
-  });
-
-  test('displays average response times in table', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Response times should show ms suffix
-    await expect(page.getByText('120ms')).toBeVisible();
-    await expect(page.getByText('85ms')).toBeVisible();
-  });
-
-  test('displays error counts with badges', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Error counts should have colored badges
-    const errorBadges = page.locator('.rounded-full').filter({ hasText: /^\d+$/ });
-    await expect(errorBadges.first()).toBeVisible();
-  });
-
-  test('displays share percentages in table', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Share percentages (get_activities has 4500/5550 = ~81%)
-    await expect(page.locator('td').filter({ hasText: /\d+\.\d+%/ }).first()).toBeVisible();
-  });
-
-  test('table rows are hoverable', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Table rows should be visible and interactive
-    const tableRow = page.locator('tbody tr').first();
-    await expect(tableRow).toBeVisible();
-    // Hover over row to verify it's interactive
-    await tableRow.hover();
-  });
-
-  test('displays color indicators for each tool', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // Color indicators (small colored circles next to tool names)
-    const colorIndicators = page.locator('.w-3.h-3.rounded-full');
-    await expect(colorIndicators.first()).toBeVisible();
+    await expect(page.getByText('Dormant')).toBeVisible();
   });
 });
 
-test.describe('Tools Tab - Summary Stats', () => {
-  test('displays Tools Used stat card', async ({ page }) => {
-    await setupToolsMocks(page, { toolCount: 5 });
-    await loginAndNavigateToTools(page);
+test.describe('Engagement Tab - Coach Leaderboard', () => {
+  test('displays Coach Leaderboard section', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Tools Used')).toBeVisible();
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Tools Used' }).getByText('5')).toBeVisible();
+    await expect(page.getByText('Coach Leaderboard')).toBeVisible();
   });
 
-  test('displays Total Requests stat card', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays coach names in leaderboard', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Total Requests')).toBeVisible();
-    // Total: 4500 + 450 + 300 + 200 + 100 = 5,550
-    await expect(page.getByText('5,550')).toBeVisible();
+    await expect(page.getByText('Marathon Coach')).toBeVisible();
+    await expect(page.getByText('Recovery Advisor')).toBeVisible();
+    await expect(page.getByText('Nutrition Planner')).toBeVisible();
   });
 
-  test('displays Overall Success Rate stat card', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays category badges', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    await expect(page.getByText('Overall Success Rate')).toBeVisible();
-    // Weighted average success rate
-    const successRateStat = page.locator('.stat-card-dark').filter({ hasText: 'Overall Success Rate' });
-    await expect(successRateStat.locator('text=/\\d+\\.\\d+%/')).toBeVisible();
+    await expect(page.getByText('running')).toBeVisible();
+    await expect(page.getByText('recovery')).toBeVisible();
+    await expect(page.getByText('nutrition')).toBeVisible();
   });
 
-  test('displays Avg Response Time summary stat', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('displays token counts in leaderboard', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Should have Avg Response Time in summary stats
-    const statCards = page.locator('.stat-card-dark');
-    await expect(statCards.filter({ hasText: 'Avg Response Time' })).toBeVisible();
+    // Token counts are formatted with commas
+    await expect(page.getByText('15,000')).toBeVisible();
+    await expect(page.getByText('8,500')).toBeVisible();
   });
 
-  test('summary stats are in a 4-column grid', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
+  test('coaches are ranked by token usage', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
 
-    // Grid should have 4 stat cards
-    const statsGrid = page.locator('.grid.grid-cols-1.md\\:grid-cols-4');
-    await expect(statsGrid).toBeVisible();
-  });
-});
-
-test.describe('Tools Tab - Empty State', () => {
-  test('shows empty state when no tool data', async ({ page }) => {
-    await setupToolsMocks(page, { hasData: false });
-    await loginAndNavigateToTools(page);
-
-    // Empty state message
-    await expect(page.getByText('No tool usage data')).toBeVisible();
-    await expect(page.getByText('Start making API calls to see tool usage breakdown')).toBeVisible();
-  });
-
-  test('shows wrench icon in empty state', async ({ page }) => {
-    await setupToolsMocks(page, { hasData: false });
-    await loginAndNavigateToTools(page);
-
-    // Wrench emoji placeholder
-    await expect(page.locator('text=🔧')).toBeVisible();
+    // Marathon Coach should be #1 (most tokens)
+    const rows = page.locator('tbody tr');
+    await expect(rows.first()).toContainText('Marathon Coach');
+    await expect(rows.nth(1)).toContainText('Recovery Advisor');
+    await expect(rows.nth(2)).toContainText('Nutrition Planner');
   });
 });
 
-test.describe('Tools Tab - Loading State', () => {
+test.describe('Engagement Tab - Platform Stats', () => {
+  test('displays Platform Stats section', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    await expect(page.getByText('Platform Stats')).toBeVisible();
+  });
+
+  test('displays Total Users count', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    await expect(page.getByText('Total Users')).toBeVisible();
+  });
+
+  test('displays Total Coaches count', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    await expect(page.getByText('Total Coaches')).toBeVisible();
+  });
+
+  test('displays Published Coaches count', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    await expect(page.getByText('Published Coaches')).toBeVisible();
+  });
+});
+
+test.describe('Engagement Tab - Empty State', () => {
+  test('shows empty state when no data', async ({ page }) => {
+    await setupEngagementMocks(page, { hasData: false });
+    await loginAndNavigateToEngagement(page);
+
+    await expect(page.getByText('No engagement data yet')).toBeVisible();
+    await expect(page.getByText('User activity will be tracked as people use the platform.')).toBeVisible();
+  });
+});
+
+test.describe('Engagement Tab - Time Range Interaction', () => {
+  test('clicking 30 Days changes selection', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    const thirtyDayButton = page.locator('button').filter({ hasText: '30 Days' });
+    await thirtyDayButton.click();
+    await page.waitForTimeout(300);
+
+    // The button should now have the active styling
+    await expect(thirtyDayButton).toHaveClass(/pierre-violet/);
+  });
+
+  test('clicking 90 Days changes selection', async ({ page }) => {
+    await setupEngagementMocks(page);
+    await loginAndNavigateToEngagement(page);
+
+    const ninetyDayButton = page.locator('button').filter({ hasText: '90 Days' });
+    await ninetyDayButton.click();
+    await page.waitForTimeout(300);
+
+    // The button should now have the active styling
+    await expect(ninetyDayButton).toHaveClass(/pierre-violet/);
+  });
+});
+
+test.describe('Engagement Tab - Loading State', () => {
   test('shows loading spinner while data loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/dashboard/tool-usage*', async (route) => {
+    await page.route('**/api/admin/coaches', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+      });
+    });
+
+    await page.route('**/api/admin/users*', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ users: [] }),
       });
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Tool Usage');
+    await navigateToTab(page, 'Engagement');
 
     // Should show loading spinner
     await expect(page.locator('.pierre-spinner')).toBeVisible({ timeout: 5000 });
-  });
-});
-
-test.describe('Tools Tab - Responsive Layout', () => {
-  test('charts stack vertically on mobile', async ({ page }) => {
-    await setupToolsMocks(page);
-
-    // Set mobile viewport
-    await page.setViewportSize({ width: 375, height: 667 });
-
-    await loginAndNavigateToTools(page);
-
-    // Charts should be in a grid that becomes single column on mobile
-    const chartsGrid = page.locator('.grid.grid-cols-1');
-    await expect(chartsGrid.first()).toBeVisible();
-  });
-
-  test('table is horizontally scrollable on mobile', async ({ page }) => {
-    await setupToolsMocks(page);
-
-    // Set mobile viewport
-    await page.setViewportSize({ width: 375, height: 667 });
-
-    await loginAndNavigateToTools(page);
-
-    // Table should have overflow-x-auto
-    const tableContainer = page.locator('.overflow-x-auto');
-    await expect(tableContainer).toBeVisible();
-  });
-});
-
-test.describe('Tools Tab - Data Accuracy', () => {
-  test('calculates share percentages correctly', async ({ page }) => {
-    await setupToolsMocks(page, { toolCount: 2 });
-    await loginAndNavigateToTools(page);
-
-    // With only 2 tools (4500 + 450 = 4950 total)
-    // get_activities: 4500/4950 = 90.9%
-    // get_athlete: 450/4950 = 9.1%
-    await expect(page.getByText('90.9%')).toBeVisible();
-  });
-
-  test('calculates error counts from success rate', async ({ page }) => {
-    await setupToolsMocks(page);
-    await loginAndNavigateToTools(page);
-
-    // get_activities: 4500 requests, 98.9% success = ~50 errors
-    // Error count badge should be visible - use first() for multiple badges
-    await expect(page.locator('.rounded-full').filter({ hasText: /^\d+$/ }).first()).toBeVisible();
   });
 });

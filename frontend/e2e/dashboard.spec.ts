@@ -143,8 +143,8 @@ test.describe('Dashboard Navigation', () => {
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Overview")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Monitor")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Tool Usage")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Engagement")') })).toBeVisible();
   });
 
   test('shows Users tab only for admin users', async ({ page }) => {
@@ -377,30 +377,54 @@ test.describe('Dashboard Content Loading', () => {
     await expect(page.getByText(/Total|Requests|Keys/i).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('loads Monitor tab content correctly', async ({ page }) => {
+  test('loads Activity tab content correctly', async ({ page }) => {
     await setupFullDashboardMocks(page, { isAdmin: true });
+
+    // Mock recent activity endpoint
+    await page.route('**/api/admin/analytics/recent-activity', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          recent_llm_calls: [],
+          recent_conversations: [],
+          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, estimated_cost_today: 0 },
+        }),
+      });
+    });
+
     await loginAndGoToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Navigate to Monitor tab (admin only)
-    await navigateToTab(page, 'Monitor');
+    // Navigate to Activity tab (admin only)
+    await navigateToTab(page, 'Activity');
 
     // Wait for tab content to load — Dashboard header bar shows active tab name
-    await expect(page.getByRole('heading', { name: 'Monitor', level: 1 })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Activity', level: 1 })).toBeVisible({ timeout: 10000 });
   });
 
-  test('loads Tools tab content correctly', async ({ page }) => {
+  test('loads Engagement tab content correctly', async ({ page }) => {
     await setupFullDashboardMocks(page, { isAdmin: true });
+
+    // Mock system coaches and users for engagement tab
+    await page.route('**/api/admin/coaches', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ coaches: [], total: 0, metadata: { timestamp: new Date().toISOString(), api_version: '1.0' } }),
+      });
+    });
+
     await loginAndGoToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Navigate to Tools tab (admin only)
-    await navigateToTab(page, 'Tool Usage');
+    // Navigate to Engagement tab (admin only)
+    await navigateToTab(page, 'Engagement');
 
-    // Wait for lazy-loaded component and check for tools-specific content
-    await expect(page.getByText('Tool Usage Details')).toBeVisible({ timeout: 10000 });
+    // Wait for tab content to load — Dashboard header bar shows active tab name
+    await expect(page.getByRole('heading', { name: 'Engagement', level: 1 })).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -418,8 +442,8 @@ test.describe('Dashboard Header', () => {
     await navigateToTab(page, 'Analytics');
     await expect(page.locator('header h1')).toContainText('Analytics');
 
-    await navigateToTab(page, 'Monitor');
-    await expect(page.locator('header h1')).toContainText('Monitor');
+    await navigateToTab(page, 'Activity');
+    await expect(page.locator('header h1')).toContainText('Activity');
   });
 
   test('header is sticky on scroll', async ({ page }) => {

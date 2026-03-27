@@ -4,26 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Line, Doughnut, Bar } from 'react-chartjs-2';
 import { usageApi } from '../services/api';
+import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
+import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 import type { LlmConsumptionResponse, ConsumptionBreakdownItem } from '../services/api/usage';
 import { QUERY_KEYS } from '../constants/queryKeys';
-
-type TimeRange = '7d' | '30d' | '90d';
-
-const TIME_RANGE_DAYS: Record<TimeRange, number> = {
-  '7d': 7,
-  '30d': 30,
-  '90d': 90,
-};
-
-const TIME_RANGE_LABELS: Record<TimeRange, string> = {
-  '7d': '7 Days',
-  '30d': '30 Days',
-  '90d': '90 Days',
-};
 
 // Pierre brand colors for charts
 const CHART_COLORS = [
@@ -89,9 +76,9 @@ function groupBreakdown(
 }
 
 export default function LlmConsumptionPanel() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const { timeRange, setTimeRange } = useAdminTimeRange();
 
-  const days = TIME_RANGE_DAYS[timeRange];
+  const days = timeRange;
 
   const { data, isLoading, error } = useQuery<LlmConsumptionResponse>({
     queryKey: [...QUERY_KEYS.usage.llmConsumption(days), 'admin-panel'],
@@ -270,19 +257,22 @@ export default function LlmConsumptionPanel() {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-white">LLM Consumption Analytics</h2>
         <div className="flex rounded-lg bg-white/10 p-1">
-          {(Object.keys(TIME_RANGE_LABELS) as TimeRange[]).map((range) => (
-            <button
-              key={range}
-              onClick={() => setTimeRange(range)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                timeRange === range
-                  ? 'bg-pierre-violet text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              {TIME_RANGE_LABELS[range]}
-            </button>
-          ))}
+          {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
+            const numValue = Number(value) as AdminTimeRange;
+            return (
+              <button
+                key={value}
+                onClick={() => setTimeRange(numValue)}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                  timeRange === numValue
+                    ? 'bg-pierre-violet text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

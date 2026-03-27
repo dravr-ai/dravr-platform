@@ -14,6 +14,7 @@ use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
     config::social::SocialInsightsConfig,
     errors::{AppError, ErrorCode},
+    llm::pricing::calculate_cost,
     mcp::resources::ServerResources,
     middleware::{extract_auth_from_headers, require_admin},
     models::UserStatus,
@@ -374,6 +375,10 @@ impl WebAdminRoutes {
             .route(
                 "/api/admin/tools/tenant/{tenant_id}/summary",
                 get(Self::handle_get_tool_summary),
+            )
+            .route(
+                "/api/admin/analytics/recent-activity",
+                get(Self::handle_recent_activity),
             )
             .with_state(resources)
     }
@@ -1572,6 +1577,138 @@ impl WebAdminRoutes {
                     summary.enabled_tools, summary.total_tools
                 ),
                 "data": summary
+            })),
+        )
+            .into_response())
+    }
+
+    /// GET `/api/admin/analytics/recent-activity` - Real-time activity feed for admin dashboard
+    ///
+    /// Returns recent LLM calls, recent conversations, and summary stats for the
+    /// activity tab polling endpoint.
+    async fn handle_recent_activity(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        debug!(
+            user_id = %auth.user_id,
+            "Admin querying recent activity"
+        );
+
+        // Limit for recent items
+        let recent_limit: i64 = 20;
+
+        // Time boundary for "today" stats
+        let today_start = chrono::Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .map_or_else(chrono::Utc::now, |t| {
+                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc)
+            });
+        let today_str = today_start.to_rfc3339();
+
+        // Time boundary for "active conversations" (last 15 minutes)
+        let fifteen_min_ago = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
+
+        // Fetch all data concurrently
+        let (recent_llm, recent_convos, llm_calls_today, active_convos, llm_totals) = tokio::join!(
+            resources
+                .repos
+                .llm_usage
+                .get_recent_llm_calls_admin(recent_limit),
+            resources
+                .repos
+                .chat
+                .get_recent_conversations_admin(recent_limit),
+            resources.repos.llm_usage.count_llm_calls_since(&today_str),
+            resources
+                .repos
+                .chat
+                .count_active_conversations_since(&fifteen_min_ago),
+            resources.repos.llm_usage.sum_llm_usage_since(&today_str),
+        );
+
+        // Resolve results, defaulting to empty/zero on error
+        let recent_llm = recent_llm.unwrap_or_default();
+        let recent_convos = recent_convos.unwrap_or_default();
+        let llm_calls_today = llm_calls_today.unwrap_or(0);
+        let active_convos = active_convos.unwrap_or(0);
+        let (total_calls_today, total_tokens_today) = llm_totals.unwrap_or((0, 0));
+
+        // Build LLM calls response with cost estimation
+        let llm_calls_json: Vec<serde_json::Value> = recent_llm
+            .iter()
+            .map(|r| {
+                let cost =
+                    calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens);
+                serde_json::json!({
+                    "id": r.id,
+                    "provider": r.provider,
+                    "model": r.model,
+                    "total_tokens": r.total_tokens,
+                    "cost_usd": cost,
+                    "call_type": r.call_type,
+                    "execution_time_ms": r.execution_time_ms,
+                    "created_at": r.created_at,
+                })
+            })
+            .collect();
+
+        // Build conversations response — look up user emails for display
+        let mut conversations_json: Vec<serde_json::Value> =
+            Vec::with_capacity(recent_convos.len());
+        for convo in &recent_convos {
+            // Resolve user email for display (non-critical, use empty on failure)
+            let user_email = if let Ok(user_uuid) = convo.user_id.parse::<Uuid>() {
+                resources
+                    .repos
+                    .users
+                    .get_global(user_uuid)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|u| u.email)
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+
+            conversations_json.push(serde_json::json!({
+                "id": convo.id,
+                "title": convo.title,
+                "updated_at": convo.updated_at,
+                "user_email": user_email,
+            }));
+        }
+
+        // Estimate cost for today using pricing
+        let estimated_cost_today = if total_calls_today > 0 {
+            // Use average cost per token from recent calls as approximation
+            recent_llm
+                .iter()
+                .map(|r| {
+                    calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens)
+                })
+                .sum::<f64>()
+                / recent_llm.len().max(1) as f64
+                * total_calls_today as f64
+        } else {
+            0.0
+        };
+
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "recent_llm_calls": llm_calls_json,
+                "recent_conversations": conversations_json,
+                "summary": {
+                    "active_conversations": active_convos,
+                    "llm_calls_today": llm_calls_today,
+                    "total_tokens_today": total_tokens_today,
+                    "estimated_cost_today": estimated_cost_today,
+                }
             })),
         )
             .into_response())

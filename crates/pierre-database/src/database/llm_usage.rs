@@ -202,4 +202,104 @@ impl LlmUsageRepository for Database {
     ) -> AppResult<Vec<super::llm_usage::LlmUsageDailyRow>> {
         self.get_llm_usage_daily_series_impl(tenant_id, since).await
     }
+
+    async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>> {
+        let rows = sqlx::query_as::<
+            _,
+            (
+                String,
+                String,
+                String,
+                Option<String>,
+                String,
+                String,
+                i64,
+                i64,
+                i64,
+                String,
+                i64,
+                Option<i64>,
+                String,
+            ),
+        >(
+            r"
+            SELECT id, tenant_id, user_id, conversation_id, provider, model,
+                   prompt_tokens, completion_tokens, total_tokens, call_type,
+                   tool_calls_count, execution_time_ms, created_at
+            FROM llm_usage
+            ORDER BY created_at DESC
+            LIMIT $1
+            ",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query recent LLM calls: {e}")))?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    tenant_id,
+                    user_id,
+                    conversation_id,
+                    provider,
+                    model,
+                    prompt_tokens,
+                    completion_tokens,
+                    total_tokens,
+                    call_type,
+                    tool_calls_count,
+                    execution_time_ms,
+                    created_at,
+                )| {
+                    LlmUsageRecord {
+                        id,
+                        tenant_id,
+                        user_id,
+                        conversation_id,
+                        provider,
+                        model,
+                        prompt_tokens,
+                        completion_tokens,
+                        total_tokens,
+                        call_type,
+                        tool_calls_count,
+                        execution_time_ms,
+                        created_at,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
+        let row = sqlx::query_as::<_, (i64,)>(
+            r"
+            SELECT COUNT(*) FROM llm_usage WHERE created_at >= $1
+            ",
+        )
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count LLM calls: {e}")))?;
+
+        Ok(row.0)
+    }
+
+    async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)> {
+        let row = sqlx::query_as::<_, (i64, i64)>(
+            r"
+            SELECT COALESCE(COUNT(*), 0), COALESCE(SUM(total_tokens), 0)
+            FROM llm_usage WHERE created_at >= $1
+            ",
+        )
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to sum LLM usage: {e}")))?;
+
+        Ok(row)
+    }
 }

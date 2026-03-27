@@ -567,4 +567,53 @@ impl ChatRepository for Database {
     ) -> AppResult<i64> {
         Self::chat_delete_all_user_conversations_impl(self, user_id, tenant_id).await
     }
+
+    async fn get_recent_conversations_admin(
+        &self,
+        limit: i64,
+    ) -> AppResult<Vec<ConversationRecord>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, user_id, tenant_id, title, model, system_prompt,
+                   total_tokens, created_at, updated_at, group_id
+            FROM chat_conversations
+            ORDER BY updated_at DESC
+            LIMIT $1
+            ",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query recent conversations: {e}")))?;
+
+        Ok(rows
+            .iter()
+            .map(|row| ConversationRecord {
+                id: row.get("id"),
+                user_id: row.get("user_id"),
+                tenant_id: row.get("tenant_id"),
+                title: row.get("title"),
+                model: row.get("model"),
+                system_prompt: row.get("system_prompt"),
+                total_tokens: row.get("total_tokens"),
+                created_at: row.get("created_at"),
+                updated_at: row.get("updated_at"),
+                group_id: row.get("group_id"),
+            })
+            .collect())
+    }
+
+    async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64> {
+        let row = sqlx::query_as::<_, (i64,)>(
+            r"
+            SELECT COUNT(*) FROM chat_conversations WHERE updated_at >= $1
+            ",
+        )
+        .bind(since)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to count active conversations: {e}")))?;
+
+        Ok(row.0)
+    }
 }
