@@ -35,6 +35,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::OnceLock;
 use tokio::sync::RwLock;
@@ -538,7 +539,7 @@ impl WhoopProvider {
     /// Convert WHOOP recovery + cycle data to recovery metrics
     ///
     /// Recovery provides HRV, resting HR, temperature. Cycle provides daily strain.
-    /// Joined by cycle_id to produce a complete recovery picture.
+    /// Joined by `cycle_id` to produce a complete recovery picture.
     fn convert_recovery_to_metrics(
         recovery: &WhoopRecovery,
         cycle_strain: Option<f64>,
@@ -1019,7 +1020,7 @@ impl FitnessProvider for WhoopProvider {
         };
 
         // Build cycle_id → strain lookup from cycle data (best-effort, non-fatal)
-        let strain_by_cycle_id: std::collections::HashMap<i64, f64> = match cycle_result {
+        let strain_by_cycle_id: HashMap<i64, f64> = match cycle_result {
             Ok(resp) => resp
                 .records
                 .iter()
@@ -1032,7 +1033,7 @@ impl FitnessProvider for WhoopProvider {
                 .collect(),
             Err(e) => {
                 warn!("Failed to fetch WHOOP cycle data for strain: {e}");
-                std::collections::HashMap::new()
+                HashMap::new()
             }
         };
 
