@@ -768,6 +768,28 @@ pub fn handle_calculate_recovery_score(
             }
         }
 
+        // Fetch WHOOP cycle strain via recovery metrics (best-effort, non-fatal)
+        let daily_strain = if sleep_provider_used.as_deref().is_some_and(|p| p == "whoop") {
+            let provider = executor
+                .auth_service
+                .create_authenticated_provider("whoop", user_uuid, request.tenant_id.as_deref())
+                .await
+                .ok();
+            if let Some(provider) = provider {
+                let end = Utc::now();
+                let start = end - chrono::Duration::days(3);
+                provider
+                    .get_recovery_metrics(start, end)
+                    .await
+                    .ok()
+                    .and_then(|metrics| metrics.first().and_then(|m| m.training_load))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let result = UniversalResponse {
             success: true,
             result: Some(serde_json::json!({
@@ -777,6 +799,7 @@ pub fn handle_calculate_recovery_score(
                     "atl": training_load.atl,
                     "tsb": training_load.tsb,
                 },
+                "whoop_daily_strain": daily_strain,
                 "sleep_quality_score": sleep_quality_score,
                 "hrv_status": hrv_status,
                 "providers_used": {
