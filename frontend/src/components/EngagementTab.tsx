@@ -78,10 +78,10 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
     }
   }
 
-  // Build coach leaderboard sorted by total_tokens (proxy for usage)
+  // Build coach leaderboard sorted by token_count (proxy for usage)
   const coaches = coachesData?.coaches || [];
   const sortedCoaches = [...coaches]
-    .sort((a, b) => (b.total_tokens ?? 0) - (a.total_tokens ?? 0))
+    .sort((a, b) => (b.token_count ?? 0) - (a.token_count ?? 0))
     .slice(0, 20);
 
   const totalCoaches = coaches.length;
@@ -173,7 +173,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-white text-right">
-                        {(coach.total_tokens ?? 0).toLocaleString()}
+                        {(coach.token_count ?? 0).toLocaleString()}
                       </td>
                     </tr>
                   ))}
