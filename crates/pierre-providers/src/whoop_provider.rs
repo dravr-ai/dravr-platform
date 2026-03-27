@@ -83,9 +83,11 @@ struct WhoopWorkout {
     start: String,
     /// End time of workout (ISO 8601)
     end: String,
-    /// Sport ID (WHOOP internal sport classification, null for unclassified)
+    /// Sport ID (legacy field, removed from v2 API after 2025-09-01)
     sport_id: Option<i32>,
-    /// Workout score details
+    /// Sport name (v2 primary sport identifier, e.g. "running", "cycling")
+    sport_name: Option<String>,
+    /// Workout score details (present only when `score_state` is `SCORED`)
     score: Option<WhoopWorkoutScore>,
 }
 
@@ -154,15 +156,23 @@ struct WhoopStageSummary {
 struct WhoopCycle {
     /// Cycle ID (integer, shared with recovery via `cycle_id`)
     id: i64,
-    /// Cycle score with strain data
+    /// Score state: SCORED, PENDING_SCORE, or UNSCORABLE
+    score_state: Option<String>,
+    /// Cycle score with strain data (present only when score_state is SCORED)
     score: Option<WhoopCycleScore>,
 }
 
-/// WHOOP cycle score with daily strain
+/// WHOOP cycle score with daily strain and heart rate
 #[derive(Debug, Deserialize)]
 struct WhoopCycleScore {
     /// Daily strain score (0-21 scale)
     strain: Option<f64>,
+    /// Total energy expenditure in kilojoules
+    kilojoule: Option<f64>,
+    /// Average heart rate during the cycle
+    average_heart_rate: Option<i32>,
+    /// Maximum heart rate during the cycle
+    max_heart_rate: Option<i32>,
 }
 
 /// WHOOP recovery response (v2: separate endpoint from cycles)
@@ -170,9 +180,13 @@ struct WhoopCycleScore {
 struct WhoopRecovery {
     /// Cycle ID linking recovery to its cycle (for strain data join)
     cycle_id: Option<i64>,
+    /// Associated sleep record ID
+    sleep_id: Option<String>,
+    /// Score state: SCORED, PENDING_SCORE, or UNSCORABLE
+    score_state: Option<String>,
     /// Timestamp when the recovery was created
     created_at: Option<String>,
-    /// Recovery score details
+    /// Recovery score details (present only when score_state is SCORED)
     score: Option<WhoopRecoveryScore>,
 }
 
@@ -185,6 +199,8 @@ struct WhoopRecoveryScore {
     resting_heart_rate: Option<f64>,
     /// Heart rate variability (RMSSD in milliseconds)
     hrv_rmssd_milli: Option<f64>,
+    /// Blood oxygen saturation percentage
+    spo2_percentage: Option<f64>,
     /// Skin temperature in Celsius
     skin_temp_celsius: Option<f64>,
 }
@@ -367,9 +383,8 @@ impl WhoopProvider {
         AppError::external_service("WHOOP", err.to_string())
     }
 
-    /// Convert WHOOP sport ID to our `SportType` enum
-    fn parse_sport_type(sport_id: i32) -> SportType {
-        // WHOOP sport IDs (from their API documentation)
+    /// Convert WHOOP sport ID to our `SportType` enum (legacy v1 field)
+    fn parse_sport_id(sport_id: i32) -> SportType {
         match sport_id {
             0 => SportType::Workout,             // Generic activity
             1 | 33 => SportType::Run,            // Running / Outdoor run
@@ -396,6 +411,48 @@ impl WhoopProvider {
         }
     }
 
+    /// Convert WHOOP v2 sport name string to our `SportType` enum
+    fn parse_sport_name(name: &str) -> SportType {
+        match name.to_lowercase().as_str() {
+            "running" | "outdoor run" => SportType::Run,
+            "indoor run" | "treadmill" => SportType::VirtualRun,
+            "cycling" | "outdoor cycling" => SportType::Ride,
+            "indoor cycling" | "spinning" | "spin" => SportType::VirtualRide,
+            "mountain biking" => SportType::MountainBike,
+            "swimming" | "open water swimming" | "lap swimming" => SportType::Swim,
+            "rowing" => SportType::Rowing,
+            "yoga" => SportType::Yoga,
+            "pilates" => SportType::Pilates,
+            "weightlifting" | "functional fitness" | "strength training" => {
+                SportType::StrengthTraining
+            }
+            "cross-country skiing" => SportType::CrossCountrySkiing,
+            "alpine skiing" | "downhill skiing" => SportType::AlpineSkiing,
+            "snowboarding" => SportType::Snowboarding,
+            "hiking" => SportType::Hike,
+            "walking" => SportType::Walk,
+            "golf" => SportType::Golf,
+            "tennis" => SportType::Tennis,
+            "basketball" => SportType::Basketball,
+            "soccer" | "football" => SportType::Soccer,
+            "rock climbing" | "climbing" => SportType::RockClimbing,
+            "activity" => SportType::Workout,
+            other => SportType::Other(format!("whoop_{other}")),
+        }
+    }
+
+    /// Resolve the sport type from a WHOOP workout, preferring sport_name (v2)
+    /// and falling back to sport_id (legacy)
+    fn resolve_sport_type(workout: &WhoopWorkout) -> SportType {
+        if let Some(name) = &workout.sport_name {
+            return Self::parse_sport_name(name);
+        }
+        if let Some(id) = workout.sport_id {
+            return Self::parse_sport_id(id);
+        }
+        SportType::Workout
+    }
+
     /// Convert WHOOP workout to our Activity model
     fn convert_workout(workout: &WhoopWorkout) -> AppResult<Activity> {
         let start_date = DateTime::parse_from_rfc3339(&workout.start)
@@ -408,13 +465,24 @@ impl WhoopProvider {
 
         let duration_seconds = (end_date - start_date).num_seconds().unsigned_abs();
 
+        let sport_type = Self::resolve_sport_type(workout);
         let score = workout.score.as_ref();
 
-        let sport_id = workout.sport_id.unwrap_or(0);
+        // Build sport detail string from whichever identifier is available
+        let sport_detail = workout.sport_name.as_ref().map_or_else(
+            || {
+                workout.sport_id.map_or_else(
+                    || "whoop_unknown".to_owned(),
+                    |id| format!("whoop_sport_{id}"),
+                )
+            },
+            |name| format!("whoop_{name}"),
+        );
+
         Ok(ActivityBuilder::new(
             workout.id.clone(),
-            format!("WHOOP {}", Self::parse_sport_type(sport_id).display_name()),
-            Self::parse_sport_type(sport_id),
+            format!("WHOOP {}", sport_type.display_name()),
+            sport_type,
             start_date,
             duration_seconds,
             oauth_providers::WHOOP,
@@ -429,7 +497,7 @@ impl WhoopProvider {
                 .map(|kj| (kj * 0.239) as u32),
         )
         .training_stress_score_opt(score.and_then(|s| s.strain).map(|s| s as f32))
-        .sport_type_detail_opt(Some(format!("whoop_sport_{sport_id}")))
+        .sport_type_detail_opt(Some(sport_detail))
         .build())
     }
 
