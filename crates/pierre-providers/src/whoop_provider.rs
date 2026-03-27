@@ -83,8 +83,8 @@ struct WhoopWorkout {
     start: String,
     /// End time of workout (ISO 8601)
     end: String,
-    /// Sport ID (WHOOP internal sport classification)
-    sport_id: i32,
+    /// Sport ID (WHOOP internal sport classification, null for unclassified)
+    sport_id: Option<i32>,
     /// Workout score details
     score: Option<WhoopWorkoutScore>,
 }
@@ -410,13 +410,11 @@ impl WhoopProvider {
 
         let score = workout.score.as_ref();
 
+        let sport_id = workout.sport_id.unwrap_or(0);
         Ok(ActivityBuilder::new(
             workout.id.clone(),
-            format!(
-                "WHOOP {}",
-                Self::parse_sport_type(workout.sport_id).display_name()
-            ),
-            Self::parse_sport_type(workout.sport_id),
+            format!("WHOOP {}", Self::parse_sport_type(sport_id).display_name()),
+            Self::parse_sport_type(sport_id),
             start_date,
             duration_seconds,
             oauth_providers::WHOOP,
@@ -431,7 +429,7 @@ impl WhoopProvider {
                 .map(|kj| (kj * 0.239) as u32),
         )
         .training_stress_score_opt(score.and_then(|s| s.strain).map(|s| s as f32))
-        .sport_type_detail_opt(Some(format!("whoop_sport_{}", workout.sport_id)))
+        .sport_type_detail_opt(Some(format!("whoop_sport_{sport_id}")))
         .build())
     }
 
