@@ -868,6 +868,17 @@ impl ChatRoutes {
     fn build_recovery_tools() -> Vec<FunctionDeclaration> {
         vec![
             FunctionDeclaration {
+                name: "calculate_recovery_score".to_owned(),
+                description: "Calculate recovery score with daily strain (WHOOP cycles), HRV, sleep quality, and TSB. Use when user asks about recovery, daily strain, WHOOP cycles, or training readiness.".to_owned(),
+                parameters: Some(serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "activity_provider": {"type": "string"},
+                        "sleep_provider": {"type": "string"}
+                    }
+                })),
+            },
+            FunctionDeclaration {
                 name: "suggest_rest_day".to_owned(),
                 description: "AI recommendation for rest day".to_owned(),
                 parameters: Some(serde_json::json!({
