@@ -742,6 +742,18 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<i64>;
+
+    /// Get recently updated conversations across all tenants (admin view)
+    ///
+    /// Returns the last `limit` conversations ordered by `updated_at` descending.
+    /// Includes the associated `user_id` for display. Used by the admin activity dashboard.
+    async fn get_recent_conversations_admin(
+        &self,
+        limit: i64,
+    ) -> AppResult<Vec<ConversationRecord>>;
+
+    /// Count conversations updated since a given timestamp (admin view, cross-tenant)
+    async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64>;
 }
 
 /// User MCP token management repository
@@ -948,6 +960,20 @@ pub trait LlmUsageRepository: Send + Sync {
         tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>>;
+
+    /// Get the most recent LLM usage records across all tenants (admin view)
+    ///
+    /// Returns the last `limit` LLM calls ordered by creation time descending.
+    /// Used by the admin real-time activity dashboard.
+    async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>>;
+
+    /// Count LLM calls created since a given timestamp (admin view, cross-tenant)
+    async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64>;
+
+    /// Sum LLM usage since a given timestamp (admin view, cross-tenant).
+    ///
+    /// Returns a tuple of (`total_calls`, `total_tokens`) for pricing calculations.
+    async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)>;
 }
 
 /// Usage counter repository for rate limiting and quota enforcement

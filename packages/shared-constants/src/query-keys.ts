@@ -147,6 +147,7 @@ export const QUERY_KEYS = {
       ['request-logs', apiKeyId, filter] as const,
     requestStats: (apiKeyId?: string, timeRange?: string) =>
       ['request-stats', apiKeyId, timeRange] as const,
+    recentActivity: () => ['admin-recent-activity'] as const,
   },
 
   // ==================== A2A (Agent-to-Agent) ====================

@@ -1,353 +1,216 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Playwright E2E tests for the Monitor tab.
-// ABOUTME: Tests real-time stats, filters, request logs, and empty states.
+// ABOUTME: Playwright E2E tests for the Activity tab (previously Monitor).
+// ABOUTME: Tests real-time activity feed, summary stats, LLM calls list, and empty states.
 
 import { test, expect, type Page } from '@playwright/test';
 import { setupDashboardMocks, loginToDashboard, navigateToTab } from './test-helpers';
 
-// Helper to set up authenticated state with Monitor API mocks
-async function setupMonitorMocks(
+// Helper to set up authenticated state with Activity API mocks
+async function setupActivityMocks(
   page: Page,
   options: {
-    hasRequests?: boolean;
-    requestCount?: number;
+    hasData?: boolean;
   } = {}
 ) {
-  const { hasRequests = true, requestCount = 10 } = options;
+  const { hasData = true } = options;
 
   // Set up base dashboard mocks (includes login mock)
   await setupDashboardMocks(page, { role: 'admin' });
 
-  // Mock request logs endpoint
-  await page.route('**/api/dashboard/request-logs*', async (route) => {
-    if (!hasRequests) {
+  // Mock recent activity endpoint
+  await page.route('**/api/admin/analytics/recent-activity', async (route) => {
+    if (!hasData) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
+        body: JSON.stringify({
+          recent_llm_calls: [],
+          recent_conversations: [],
+          summary: {
+            active_conversations: 0,
+            llm_calls_today: 0,
+            total_tokens_today: 0,
+            estimated_cost_today: 0,
+          },
+        }),
       });
       return;
     }
 
-    const logs = Array.from({ length: requestCount }, (_, i) => ({
-      id: `req-${i + 1}`,
-      timestamp: new Date(Date.now() - i * 60000).toISOString(),
-      tool_name: ['get_activities', 'get_athlete', 'get_stats', 'get_activity_intelligence'][i % 4],
-      status_code: i === 3 ? 500 : i === 7 ? 404 : 200,
-      response_time_ms: 50 + Math.floor(Math.random() * 200),
-      api_key_id: 'key-1',
-      api_key_name: 'Production API',
-      error_message: i === 3 ? 'Internal server error' : i === 7 ? 'Activity not found' : undefined,
-    }));
+    const llmCalls = [
+      { id: 'llm-1', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 1500, cost_usd: 0.0012, call_type: 'chat', execution_time_ms: 230, created_at: new Date(Date.now() - 60000).toISOString() },
+      { id: 'llm-2', provider: 'groq', model: 'llama-3.3-70b', total_tokens: 800, cost_usd: 0.0005, call_type: 'insight', execution_time_ms: 150, created_at: new Date(Date.now() - 120000).toISOString() },
+      { id: 'llm-3', provider: 'google', model: 'gemini-2.0-flash', total_tokens: 2200, cost_usd: 0.0018, call_type: 'chat', execution_time_ms: 340, created_at: new Date(Date.now() - 300000).toISOString() },
+    ];
 
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(logs),
-    });
-  });
+    const conversations = [
+      { id: 'conv-1', title: 'Training Plan Review', updated_at: new Date(Date.now() - 30000).toISOString(), user_email: 'alice@acme.com' },
+      { id: 'conv-2', title: 'Recovery Analysis', updated_at: new Date(Date.now() - 180000).toISOString(), user_email: 'bob@acme.com' },
+    ];
 
-  // Mock request stats endpoint
-  await page.route('**/api/dashboard/request-stats*', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        total_requests: hasRequests ? 156 : 0,
-        successful_requests: hasRequests ? 148 : 0,
-        average_response_time: hasRequests ? 95.5 : 0,
-        requests_per_minute: hasRequests ? 2.6 : 0,
+        recent_llm_calls: llmCalls,
+        recent_conversations: conversations,
+        summary: {
+          active_conversations: 3,
+          llm_calls_today: 42,
+          total_tokens_today: 58000,
+          estimated_cost_today: 0.045,
+        },
       }),
     });
   });
 }
 
-async function loginAndNavigateToMonitor(page: Page) {
+async function loginAndNavigateToActivity(page: Page) {
   await loginToDashboard(page);
-  await navigateToTab(page, 'Monitor');
+  await navigateToTab(page, 'Activity');
   await page.waitForTimeout(500);
 }
 
-test.describe('Monitor Tab - Stats Display', () => {
-  test('renders Monitor tab with header and description', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+test.describe('Activity Tab - Summary Stats', () => {
+  test('renders Activity tab with header', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
     // Check header — Dashboard top bar shows the active tab name
-    await expect(page.getByRole('heading', { name: 'Monitor', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Activity', level: 1 })).toBeVisible();
   });
 
-  test('displays Total Requests stat card', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays Active Conversations stat card', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Total Requests')).toBeVisible();
-    // Use exact match to avoid matching '156ms' from response times
-    await expect(page.getByText('156', { exact: true })).toBeVisible();
+    await expect(page.getByText('Active Conversations (15m)')).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Active Conversations' }).getByText('3')).toBeVisible();
   });
 
-  test('displays Success Rate stat card', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays LLM Calls Today stat card', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Success Rate')).toBeVisible();
-    // 148/156 = 94.9%
-    await expect(page.getByText('94.9%')).toBeVisible();
+    await expect(page.getByText('LLM Calls Today')).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'LLM Calls Today' }).getByText('42')).toBeVisible();
   });
 
-  test('displays Avg Response Time stat card', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays Tokens Today stat card', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Avg Response Time')).toBeVisible();
-    // Use locator within the stat card to avoid matching response times in the request log
-    const avgResponseCard = page.locator('div').filter({ hasText: 'Avg Response Time' }).first();
-    await expect(avgResponseCard).toBeVisible();
+    await expect(page.getByText('Tokens Today')).toBeVisible();
   });
 
-  test('displays Requests/min stat card', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays Est. Cost Today stat card', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Requests/min')).toBeVisible();
-    await expect(page.getByText('2.6')).toBeVisible();
+    await expect(page.getByText('Est. Cost Today')).toBeVisible();
   });
 });
 
-test.describe('Monitor Tab - Filters', () => {
-  test('displays Time Range filter with all options', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+test.describe('Activity Tab - LLM Calls List', () => {
+  test('displays Recent LLM Calls section', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Check Time Range filter label
-    await expect(page.getByText('Time Range')).toBeVisible();
-
-    // Check dropdown has options
-    const timeRangeSelect = page.locator('select').filter({ hasText: 'Last Hour' });
-    await expect(timeRangeSelect.locator('option[value="1h"]')).toHaveText('Last Hour');
-    await expect(timeRangeSelect.locator('option[value="24h"]')).toHaveText('Last 24 Hours');
-    await expect(timeRangeSelect.locator('option[value="7d"]')).toHaveText('Last 7 Days');
-    await expect(timeRangeSelect.locator('option[value="30d"]')).toHaveText('Last 30 Days');
+    await expect(page.getByText('Recent LLM Calls')).toBeVisible();
   });
 
-  test('Time Range filter changes data request', async ({ page }) => {
-    await setupMonitorMocks(page, { hasRequests: false });
-    await loginAndNavigateToMonitor(page);
+  test('displays LLM call entries with provider/model', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Change to 24h
-    const timeRangeSelect = page.locator('select').first();
-    await timeRangeSelect.selectOption('24h');
-    await page.waitForTimeout(500);
-
-    // Change to 7d
-    await timeRangeSelect.selectOption('7d');
-    await page.waitForTimeout(500);
+    await expect(page.getByText('google/gemini-2.0-flash').first()).toBeVisible();
+    await expect(page.getByText('groq/llama-3.3-70b')).toBeVisible();
   });
 
-  test('displays Status filter with options', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays call type badges', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Check Status filter label - use exact match to avoid matching description text
-    await expect(page.getByText('Status', { exact: true })).toBeVisible();
-
-    // Check dropdown has options
-    const statusSelect = page.locator('select').filter({ hasText: 'All Status' });
-    await expect(statusSelect.locator('option[value="all"]')).toHaveText('All Status');
-    await expect(statusSelect.locator('option[value="success"]')).toHaveText('Success (2xx)');
-    await expect(statusSelect.locator('option[value="error"]')).toHaveText('Error (4xx/5xx)');
+    await expect(page.getByText('chat').first()).toBeVisible();
+    await expect(page.getByText('insight')).toBeVisible();
   });
 
-  test('Status filter changes to Success only', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays token counts', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Find status filter and change it
-    const statusSelect = page.locator('select').nth(1);
-    await statusSelect.selectOption('success');
-
-    // Wait for filter to apply
-    await page.waitForTimeout(500);
-  });
-
-  test('Status filter changes to Error only', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Find status filter and change it
-    const statusSelect = page.locator('select').nth(1);
-    await statusSelect.selectOption('error');
-
-    await page.waitForTimeout(500);
-  });
-
-  test('displays Tool filter with options', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Check Tool filter label - use exact match to avoid matching sidebar
-    await expect(page.getByText('Tool', { exact: true })).toBeVisible();
-
-    // Check dropdown has options
-    const toolSelect = page.locator('select').filter({ hasText: 'All Tools' });
-    await expect(toolSelect.locator('option[value="all"]')).toHaveText('All Tools');
-    await expect(toolSelect.locator('option[value="get_activities"]')).toHaveText('Get Activities');
-    await expect(toolSelect.locator('option[value="get_athlete"]')).toHaveText('Get Athlete');
-  });
-
-  test('Tool filter changes selection', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Find tool filter and change it
-    const toolSelect = page.locator('select').nth(2);
-    await toolSelect.selectOption('get_activities');
-
-    await page.waitForTimeout(500);
+    // Token counts are formatted (e.g. "1.5K tokens")
+    await expect(page.getByText('1.5K tokens')).toBeVisible();
   });
 });
 
-test.describe('Monitor Tab - Request Log', () => {
-  test('displays Request Log section with count', async ({ page }) => {
-    await setupMonitorMocks(page, { requestCount: 10 });
-    await loginAndNavigateToMonitor(page);
+test.describe('Activity Tab - Conversations List', () => {
+  test('displays Recent Conversations section', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('Request Log')).toBeVisible();
-    await expect(page.getByText('Showing 10 requests')).toBeVisible();
+    await expect(page.getByText('Recent Conversations')).toBeVisible();
   });
 
-  test('displays request entries with tool names', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays conversation titles', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Check tool names are visible
-    await expect(page.getByText('get_activities').first()).toBeVisible();
-    await expect(page.getByText('get_athlete').first()).toBeVisible();
+    await expect(page.getByText('Training Plan Review')).toBeVisible();
+    await expect(page.getByText('Recovery Analysis')).toBeVisible();
   });
 
-  test('displays status codes with appropriate colors', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
+  test('displays user emails', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
 
-    // Check for success status codes (200)
-    await expect(page.getByText('200').first()).toBeVisible();
-
-    // Check for error status codes (500, 404)
-    await expect(page.getByText('500').first()).toBeVisible();
-  });
-
-  test('displays success/error icons for requests', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Check success and error icons are present
-    await expect(page.locator('text=✅').first()).toBeVisible();
-    await expect(page.locator('text=❌').first()).toBeVisible();
-  });
-
-  test('displays response times for each request', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Response times should be displayed (in ms format)
-    await expect(page.locator('text=/\\d+ms/').first()).toBeVisible();
-  });
-
-  test('displays timestamps for each request', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Timestamps should be visible (date format) - uses text-zinc-500 class
-    const datePattern = await page.locator('.text-zinc-500').filter({ hasText: /\d{1,2}\/\d{1,2}\/\d{4}/ }).first();
-    await expect(datePattern).toBeVisible();
-  });
-
-  test('displays error messages for failed requests', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Error message should be visible for failed request
-    await expect(page.getByText('Internal server error')).toBeVisible();
+    await expect(page.getByText('alice@acme.com')).toBeVisible();
+    await expect(page.getByText('bob@acme.com')).toBeVisible();
   });
 });
 
-test.describe('Monitor Tab - Empty States', () => {
-  test('shows empty state message when no requests', async ({ page }) => {
-    await setupMonitorMocks(page, { hasRequests: false });
-    await loginAndNavigateToMonitor(page);
+test.describe('Activity Tab - Empty State', () => {
+  test('shows empty state message when no activity', async ({ page }) => {
+    await setupActivityMocks(page, { hasData: false });
+    await loginAndNavigateToActivity(page);
 
-    // Check empty state is displayed
-    await expect(page.getByText('No requests yet')).toBeVisible();
-    await expect(page.getByText('Start making API calls to see request logs here')).toBeVisible();
+    await expect(page.getByText('No activity yet')).toBeVisible();
+    await expect(page.getByText('LLM calls and conversations will appear here in real-time.')).toBeVisible();
   });
 
-  test('shows chart icon in empty state', async ({ page }) => {
-    await setupMonitorMocks(page, { hasRequests: false });
-    await loginAndNavigateToMonitor(page);
+  test('shows zero stats when no activity', async ({ page }) => {
+    await setupActivityMocks(page, { hasData: false });
+    await loginAndNavigateToActivity(page);
 
-    // Check for placeholder icon
-    await expect(page.locator('text=📊')).toBeVisible();
-  });
-
-  test('shows zero stats when no requests', async ({ page }) => {
-    await setupMonitorMocks(page, { hasRequests: false });
-    await loginAndNavigateToMonitor(page);
-
-    // Stats should show zeros
-    await expect(page.getByText('0.0%')).toBeVisible(); // Success rate
+    // All stat cards should show 0
+    const statCards = page.locator('.stat-card-dark');
+    await expect(statCards.filter({ hasText: 'LLM Calls Today' }).getByText('0')).toBeVisible();
   });
 });
 
-test.describe('Monitor Tab - Loading States', () => {
+test.describe('Activity Tab - Loading State', () => {
   test('shows loading spinner while data loads', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'admin' });
 
-    await page.route('**/api/dashboard/request-logs*', async (route) => {
+    await page.route('**/api/admin/analytics/recent-activity', async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify([]),
-      });
-    });
-
-    await page.route('**/api/dashboard/request-stats*', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ total_requests: 0, successful_requests: 0, average_response_time: 0, requests_per_minute: 0 }),
+        body: JSON.stringify({
+          recent_llm_calls: [],
+          recent_conversations: [],
+          summary: { active_conversations: 0, llm_calls_today: 0, total_tokens_today: 0, estimated_cost_today: 0 },
+        }),
       });
     });
 
     await loginToDashboard(page);
-    await navigateToTab(page, 'Monitor');
+    await navigateToTab(page, 'Activity');
 
     // Should show loading spinner
     await expect(page.locator('.pierre-spinner')).toBeVisible({ timeout: 5000 });
-  });
-});
-
-test.describe('Monitor Tab - Real-time Indicator', () => {
-  test('displays real-time indicator', async ({ page }) => {
-    await setupMonitorMocks(page);
-    await loginAndNavigateToMonitor(page);
-
-    // Real-time indicator component should be present
-    // The RealTimeIndicator component shows connection status
-    await expect(page.locator('[class*="ml-auto"]')).toBeVisible();
-  });
-});
-
-test.describe('Monitor Tab - Request Log Scrolling', () => {
-  test('request log has scrollable container for many entries', async ({ page }) => {
-    await setupMonitorMocks(page, { requestCount: 50 });
-    await loginAndNavigateToMonitor(page);
-
-    // Check that the container has overflow styling
-    const requestLogContainer = page.locator('.max-h-96.overflow-y-auto');
-    await expect(requestLogContainer).toBeVisible();
   });
 });

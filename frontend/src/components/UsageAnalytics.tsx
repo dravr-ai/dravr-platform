@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+// ABOUTME: Usage analytics dashboard showing API request volume, error rates, and tool breakdown
+// ABOUTME: Reads shared admin time range from localStorage for consistent cross-tab state
+
 import { useQuery } from '@tanstack/react-query';
 import { dashboardApi } from '../services/api';
+import { useAdminTimeRange, ADMIN_TIME_RANGE_LABELS } from '../hooks/useAdminTimeRange';
+import type { AdminTimeRange } from '../hooks/useAdminTimeRange';
 import type { ChartData, ChartOptions, AnalyticsData, TimeSeriesPoint, TopTool } from '../types/chart';
 import {
   Chart as ChartJS,
@@ -35,7 +39,7 @@ ChartJS.register(
 );
 
 export default function UsageAnalytics() {
-  const [timeRange, setTimeRange] = useState<number>(30);
+  const { timeRange, setTimeRange } = useAdminTimeRange();
 
   const { data: analytics, isLoading } = useQuery<AnalyticsData>({
     queryKey: QUERY_KEYS.dashboard.usageAnalytics(timeRange),
@@ -167,15 +171,24 @@ export default function UsageAnalytics() {
       <div className="card-admin">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-semibold text-white">Usage Analytics</h2>
-          <select
-            value={timeRange}
-            onChange={(e) => setTimeRange(Number(e.target.value))}
-            className="select-dark w-auto"
-          >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-          </select>
+          <div className="flex rounded-lg bg-white/10 p-1">
+            {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
+              const numValue = Number(value) as AdminTimeRange;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setTimeRange(numValue)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    timeRange === numValue
+                      ? 'bg-pierre-violet text-white shadow-sm'
+                      : 'text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -270,9 +283,12 @@ export default function UsageAnalytics() {
         )}
 
         {(!analytics?.time_series?.length && !analytics?.top_tools?.length) && (
-          <div className="text-center py-8 text-zinc-500">
-            <p className="text-lg mb-2">No usage data yet</p>
-            <p>Start making API calls to see analytics here</p>
+          <div className="text-center py-12 text-zinc-400">
+            <svg className="w-12 h-12 mx-auto mb-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+            </svg>
+            <p className="text-lg mb-2 text-white">No conversations yet</p>
+            <p>Users will see analytics here once they start chatting.</p>
           </div>
         )}
       </div>

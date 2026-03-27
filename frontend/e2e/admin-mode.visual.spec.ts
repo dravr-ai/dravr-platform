@@ -147,58 +147,58 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // ========================================
-  // Request Monitor Tab
+  // Activity Tab
   // ========================================
-  test.describe('Request Monitor Tab', () => {
+  test.describe('Activity Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
-    test('monitor - displays request list', async ({ page }) => {
-      await navigateToTab(page, 'Monitor');
+    test('activity - displays recent activity feed', async ({ page }) => {
+      await navigateToTab(page, 'Activity');
       await waitForNetworkIdle(page);
 
-      // Verify the Monitor tab content renders
+      // Verify the Activity tab content renders
       const mainContent = page.locator('main');
       await expect(mainContent).toBeVisible();
 
-      await takeVisualScreenshot(page, 'admin-monitor', 'request-list');
+      await takeVisualScreenshot(page, 'admin-activity', 'feed');
     });
 
-    test('monitor - filter by status works', async ({ page }) => {
-      await navigateToTab(page, 'Monitor');
+    test('activity - displays summary stats', async ({ page }) => {
+      await navigateToTab(page, 'Activity');
       await waitForNetworkIdle(page);
 
-      // Look for filter controls
-      const filterControls = page.locator('select, [role="combobox"], input[type="search"]');
-      const hasFilters = await filterControls.first().isVisible().catch(() => false);
+      // Look for stat cards
+      const statCards = page.locator('.stat-card-dark');
+      const hasStats = await statCards.first().isVisible().catch(() => false);
 
-      if (hasFilters) {
-        await takeVisualScreenshot(page, 'admin-monitor', 'filters');
+      if (hasStats) {
+        await takeVisualScreenshot(page, 'admin-activity', 'stats');
       }
     });
   });
 
   // ========================================
-  // Tools Tab
+  // Engagement Tab
   // ========================================
-  test.describe('Tools Tab', () => {
+  test.describe('Engagement Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
-    test('tools - displays tool list', async ({ page }) => {
-      await navigateToTab(page, 'Tool Usage');
+    test('engagement - displays coach leaderboard', async ({ page }) => {
+      await navigateToTab(page, 'Engagement');
       await waitForNetworkIdle(page);
 
       const mainContent = page.locator('main');
       await expect(mainContent).toBeVisible();
 
-      await takeVisualScreenshot(page, 'admin-tools', 'list');
+      await takeVisualScreenshot(page, 'admin-engagement', 'leaderboard');
     });
 
-    test('tools - search filters results', async ({ page }) => {
-      await navigateToTab(page, 'Tool Usage');
+    test('engagement - time range selector works', async ({ page }) => {
+      await navigateToTab(page, 'Engagement');
       await waitForNetworkIdle(page);
 
       const searchInput = page.locator('input[type="search"], input[placeholder*="Search"]');

@@ -75,6 +75,35 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
     );
   }
 
+  // Detect when platform has no meaningful data (no connections, no requests)
+  const totalConnections = (overview?.total_api_keys || 0) + (a2aOverview?.total_clients || 0);
+  const totalRequests = (overview?.total_requests_today || 0) + (overview?.total_requests_this_month || 0) + (a2aOverview?.requests_today || 0) + (a2aOverview?.requests_this_month || 0);
+  const isEmptyPlatform = totalConnections === 0 && totalRequests === 0 && pendingUsersCount === 0 && pendingCoachReviews === 0;
+
+  if (isEmptyPlatform) {
+    return (
+      <div className="space-y-6">
+        <Card variant="dark" className="!p-8">
+          <div className="text-center py-8">
+            <svg className="w-16 h-16 mx-auto mb-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            <h2 className="text-2xl font-bold text-white mb-3">Your platform is ready!</h2>
+            <p className="text-zinc-400 mb-6 max-w-md mx-auto">
+              Invite users to get started. Once they connect and start chatting, you will see activity, engagement, and analytics here.
+            </p>
+            <button
+              onClick={() => onNavigate?.('users')}
+              className="px-6 py-2.5 rounded-lg bg-pierre-violet/20 text-pierre-violet-light font-medium hover:bg-pierre-violet/30 transition-colors border border-pierre-violet/30"
+            >
+              Go to Users
+            </button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero Stats Row - Dark Theme */}

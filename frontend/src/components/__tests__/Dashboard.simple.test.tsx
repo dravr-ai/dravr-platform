@@ -21,12 +21,12 @@ vi.mock('../UsageAnalytics', () => ({
   default: () => <div data-testid="usage-analytics">Analytics Component</div>
 }));
 
-vi.mock('../RequestMonitor', () => ({
-  default: () => <div data-testid="request-monitor">Monitor Component</div>
+vi.mock('../ActivityTab', () => ({
+  default: () => <div data-testid="activity-tab">Activity Component</div>
 }));
 
-vi.mock('../ToolUsageBreakdown', () => ({
-  default: () => <div data-testid="tool-breakdown">Tools Component</div>
+vi.mock('../EngagementTab', () => ({
+  default: () => <div data-testid="engagement-tab">Engagement Component</div>
 }));
 
 vi.mock('../UnifiedConnections', () => ({
@@ -137,8 +137,8 @@ describe('Dashboard Component', () => {
     expect(screen.getAllByText('Overview').length).toBeGreaterThan(0);
     expect(screen.getAllByText('API Keys').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Monitor').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Tool Usage').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
   });
 
@@ -195,7 +195,7 @@ describe('Dashboard Component', () => {
     });
   });
 
-  it('should switch to Monitor tab', async () => {
+  it('should switch to Activity tab', async () => {
     const user = userEvent.setup();
 
     await act(async () => {
@@ -203,16 +203,16 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Monitor');
+    const buttons = screen.getAllByText('Activity');
     await user.click(buttons[0]);
 
     // Wait for lazy component to load
     await waitFor(() => {
-      expect(screen.getByTestId('request-monitor')).toBeInTheDocument();
+      expect(screen.getByTestId('activity-tab')).toBeInTheDocument();
     });
   });
 
-  it('should switch to Tool Usage tab', async () => {
+  it('should switch to Engagement tab', async () => {
     const user = userEvent.setup();
 
     await act(async () => {
@@ -220,12 +220,12 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('Tool Usage');
+    const buttons = screen.getAllByText('Engagement');
     await user.click(buttons[0]);
 
     // Wait for lazy component to load
     await waitFor(() => {
-      expect(screen.getByTestId('tool-breakdown')).toBeInTheDocument();
+      expect(screen.getByTestId('engagement-tab')).toBeInTheDocument();
     });
   });
 
