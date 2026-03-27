@@ -5,7 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::circuit_breaker::CircuitBreaker;
-use super::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
+use super::core::{
+    ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+};
 use super::errors::provider::ProviderError;
 use super::utils::{self, RetryConfig};
 use crate::constants::oauth::GARMIN_DEFAULT_SCOPES;
@@ -18,6 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
+use std::sync::OnceLock;
 use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
@@ -69,6 +72,7 @@ pub struct GarminProvider {
     credentials: RwLock<Option<OAuth2Credentials>>,
     client: Client,
     circuit_breaker: CircuitBreaker,
+    token_refresh_callback: OnceLock<TokenRefreshCallback>,
 }
 
 impl GarminProvider {
@@ -93,6 +97,7 @@ impl GarminProvider {
             credentials: RwLock::new(None),
             // Clone Arc<Client> from shared singleton - cheap reference counting operation
             client: shared_client().clone(),
+            token_refresh_callback: OnceLock::new(),
         }
     }
 
@@ -106,6 +111,7 @@ impl GarminProvider {
             credentials: RwLock::new(None),
             // Clone Arc<Client> from shared singleton - cheap reference counting operation
             client: shared_client().clone(),
+            token_refresh_callback: OnceLock::new(),
         }
     }
 
@@ -304,6 +310,10 @@ impl FitnessProvider for GarminProvider {
         Ok(())
     }
 
+    fn set_token_refresh_callback(&self, callback: TokenRefreshCallback) {
+        let _ = self.token_refresh_callback.set(callback);
+    }
+
     async fn is_authenticated(&self) -> bool {
         if let Some(creds) = self.credentials.read().await.as_ref() {
             if creds.access_token.is_some() {
@@ -361,7 +371,13 @@ impl FitnessProvider for GarminProvider {
         // Preserve original scopes
         new_credentials.scopes = credentials.scopes;
 
-        *self.credentials.write().await = Some(new_credentials);
+        *self.credentials.write().await = Some(new_credentials.clone());
+
+        // Persist refreshed token to database via callback
+        if let Some(callback) = self.token_refresh_callback.get() {
+            callback(new_credentials).await;
+        }
+
         Ok(())
     }
 
