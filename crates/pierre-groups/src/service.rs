@@ -83,7 +83,7 @@ impl GroupService {
             // Find groups this user belongs to with this coach
             let groups = self
                 .repo
-                .find_groups_for_user_and_coach(user_id, coach_id, tenant_id)
+                .find_groups_for_user_and_coach(user_id, coach_id)
                 .await?;
 
             match groups.len() {
@@ -114,7 +114,7 @@ impl GroupService {
 
         let member_count = self
             .repo
-            .count_members(&group.id.to_string(), tenant_id)
+            .count_members(&group.id.to_string())
             .await
             .unwrap_or(0) as usize;
 
@@ -313,7 +313,7 @@ impl GroupService {
 
         let current_count = self
             .repo
-            .count_members(&invite.group_id.to_string(), tenant_id)
+            .count_members(&invite.group_id.to_string())
             .await?;
         if current_count >= i64::from(group.max_members) {
             return Err(AppError::invalid_input("This group is full"));
@@ -357,13 +357,8 @@ impl GroupService {
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn leave_group(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        self.repo.remove_member(group_id, user_id, tenant_id).await
+    pub async fn leave_group(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
+        self.repo.remove_member(group_id, user_id).await
     }
 
     /// List members
@@ -371,12 +366,8 @@ impl GroupService {
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn list_members(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupMember>> {
-        self.repo.list_members(group_id, tenant_id).await
+    pub async fn list_members(&self, group_id: &str) -> AppResult<Vec<GroupMember>> {
+        self.repo.list_members(group_id).await
     }
 
     /// Remove a member (admin action)
@@ -384,13 +375,8 @@ impl GroupService {
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn remove_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
-        self.repo.remove_member(group_id, user_id, tenant_id).await
+    pub async fn remove_member(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
+        self.repo.remove_member(group_id, user_id).await
     }
 
     /// Update member role
@@ -402,12 +388,9 @@ impl GroupService {
         &self,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
         role: GroupRole,
     ) -> AppResult<bool> {
-        self.repo
-            .update_member_role(group_id, user_id, tenant_id, role)
-            .await
+        self.repo.update_member_role(group_id, user_id, role).await
     }
 
     // ========================================================================
@@ -452,12 +435,8 @@ impl GroupService {
     /// # Errors
     ///
     /// Returns an error if database operations fail.
-    pub async fn list_invites(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupInvite>> {
-        self.repo.list_invites(group_id, tenant_id).await
+    pub async fn list_invites(&self, group_id: &str) -> AppResult<Vec<GroupInvite>> {
+        self.repo.list_invites(group_id).await
     }
 
     // ========================================================================

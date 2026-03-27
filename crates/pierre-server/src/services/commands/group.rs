@@ -63,7 +63,7 @@ impl CommandHandler for GroupStatusHandler {
             .resources
             .repos
             .groups
-            .count_members(&group.id.to_string(), ctx.tenant_id)
+            .count_members(&group.id.to_string())
             .await
             .unwrap_or(0);
 
@@ -103,7 +103,7 @@ impl CommandHandler for GroupMembersHandler {
             .resources
             .repos
             .groups
-            .list_members(&group.id.to_string(), ctx.tenant_id)
+            .list_members(&group.id.to_string())
             .await?;
 
         let mut text = String::with_capacity(256);

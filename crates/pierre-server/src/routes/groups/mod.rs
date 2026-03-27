@@ -662,16 +662,11 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        let members = resources
-            .repos
-            .groups
-            .list_members(&group_id, tenant_id)
-            .await?;
+        let members = resources.repos.groups.list_members(&group_id).await?;
 
         let member_responses: Vec<MemberResponse> =
             members.into_iter().map(MemberResponse::from).collect();
@@ -692,7 +687,6 @@ impl GroupRoutes {
         Path((group_id, target_user_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
@@ -718,7 +712,7 @@ impl GroupRoutes {
         let removed = resources
             .repos
             .groups
-            .remove_member(&group_id, target_uuid, tenant_id)
+            .remove_member(&group_id, target_uuid)
             .await?;
 
         if !removed {
@@ -736,7 +730,6 @@ impl GroupRoutes {
         Json(body): Json<UpdateRoleBody>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         let caller_member = Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
@@ -763,7 +756,7 @@ impl GroupRoutes {
         let updated = resources
             .repos
             .groups
-            .update_member_role(&group_id, target_uuid, tenant_id, body.role)
+            .update_member_role(&group_id, target_uuid, body.role)
             .await?;
 
         if !updated {
@@ -790,7 +783,6 @@ impl GroupRoutes {
         Json(body): Json<UpdatePeerConsentBody>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
@@ -798,7 +790,7 @@ impl GroupRoutes {
         let updated = resources
             .repos
             .groups
-            .update_peer_sharing_consent(&group_id, auth.user_id, tenant_id, body.consent)
+            .update_peer_sharing_consent(&group_id, auth.user_id, body.consent)
             .await?;
 
         if !updated {
@@ -887,16 +879,11 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let invites = resources
-            .repos
-            .groups
-            .list_invites(&group_id, tenant_id)
-            .await?;
+        let invites = resources.repos.groups.list_invites(&group_id).await?;
 
         let invite_responses: Vec<InviteResponse> =
             invites.into_iter().map(InviteResponse::from).collect();
@@ -917,16 +904,11 @@ impl GroupRoutes {
         Path((group_id, invite_id)): Path<(String, String)>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let deactivated = resources
-            .repos
-            .groups
-            .deactivate_invite(&invite_id, tenant_id)
-            .await?;
+        let deactivated = resources.repos.groups.deactivate_invite(&invite_id).await?;
 
         if !deactivated {
             return Err(AppError::not_found(format!("Invite {invite_id}")));
@@ -993,7 +975,7 @@ impl GroupRoutes {
         let current_count = resources
             .repos
             .groups
-            .count_members(&invite.group_id.to_string(), group_tenant_id)
+            .count_members(&invite.group_id.to_string())
             .await?;
 
         if current_count >= i64::from(group.max_members) {
@@ -1047,7 +1029,6 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
 
@@ -1062,7 +1043,7 @@ impl GroupRoutes {
         let left = resources
             .repos
             .groups
-            .remove_member(&group_id, auth.user_id, tenant_id)
+            .remove_member(&group_id, auth.user_id)
             .await?;
 
         if !left {
@@ -1084,17 +1065,12 @@ impl GroupRoutes {
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
-        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         // Compute stats from live member count (fitness snapshots not yet wired)
-        let member_count = resources
-            .repos
-            .groups
-            .count_members(&group_id, tenant_id)
-            .await?;
+        let member_count = resources.repos.groups.count_members(&group_id).await?;
 
         let stats = GroupAggregateStats {
             total_members: member_count,
@@ -1133,11 +1109,7 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
-        let member_count = resources
-            .repos
-            .groups
-            .count_members(&group_id, tenant_id)
-            .await?;
+        let member_count = resources.repos.groups.count_members(&group_id).await?;
 
         // Baseline report without fitness snapshots
         let stats = GroupAggregateStats {
