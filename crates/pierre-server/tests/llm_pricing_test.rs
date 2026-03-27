@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_mcp_server::llm::pricing::calculate_cost;
+use pierre_mcp_server::llm::pricing::{calculate_cost, estimate_tokens};
 
 #[test]
 fn test_known_model_cost() {
@@ -108,4 +108,58 @@ fn test_all_production_models_have_pricing() {
             "Production model {provider}/{model} has ZERO pricing — dashboard will show $0.00!"
         );
     }
+}
+
+// ============================================================================
+// Token Estimation Tests
+// ============================================================================
+
+#[test]
+fn test_estimate_tokens_basic() {
+    // 4 chars per token: "hello world!" = 12 chars = 3 prompt tokens
+    // "ok" = 2 chars = 1 completion token (min 1)
+    let (prompt, completion) = estimate_tokens("hello world!", "ok");
+    assert_eq!(prompt, 3);
+    assert_eq!(completion, 1);
+}
+
+#[test]
+fn test_estimate_tokens_empty_returns_min_one() {
+    // Empty strings should return minimum of 1 token each
+    let (prompt, completion) = estimate_tokens("", "");
+    assert_eq!(prompt, 1, "Empty prompt should estimate as 1 token minimum");
+    assert_eq!(
+        completion, 1,
+        "Empty completion should estimate as 1 token minimum"
+    );
+}
+
+#[test]
+fn test_estimate_tokens_long_text() {
+    // 400 chars prompt / 4 = 100 tokens, 200 chars completion / 4 = 50 tokens
+    let prompt_text = "a".repeat(400);
+    let completion_text = "b".repeat(200);
+    let (prompt, completion) = estimate_tokens(&prompt_text, &completion_text);
+    assert_eq!(prompt, 100);
+    assert_eq!(completion, 50);
+}
+
+#[test]
+fn test_estimate_tokens_short_text_floors() {
+    // 5 chars / 4 = 1 token (integer division floors)
+    let (prompt, completion) = estimate_tokens("hello", "hi!");
+    assert_eq!(prompt, 1, "5 chars / 4 = 1 (integer floor)");
+    assert_eq!(completion, 1, "3 chars / 4 = 0, clamped to 1");
+}
+
+#[test]
+fn test_estimate_tokens_realistic_conversation() {
+    // Simulate a real prompt with system message + user query
+    let prompt = "You are a helpful fitness assistant.\n\nWhat's a good 5K training plan?";
+    let completion = "Here's a great 8-week 5K training plan for beginners...";
+    let (prompt_tokens, completion_tokens) = estimate_tokens(prompt, completion);
+
+    // 70 chars / 4 = 17, 55 chars / 4 = 13
+    assert_eq!(prompt_tokens, 17);
+    assert_eq!(completion_tokens, 13);
 }

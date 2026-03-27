@@ -39,6 +39,7 @@ use pierre_core::models::coaches::DataRequirements;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_llm::pricing::estimate_tokens;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 use serde::{Deserialize, Serialize};
@@ -1281,9 +1282,9 @@ impl ChatRoutes {
         #[allow(clippy::cast_possible_truncation)]
         let execution_time_ms = start_time.elapsed().as_millis() as u64;
 
-        // Extract token counts from usage
-        let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
-        let prompt_tokens = result.usage.as_ref().map(|u| u.prompt_tokens);
+        // Extract token counts from usage, falling back to character-based estimation
+        // when the provider doesn't return real counts (e.g., CLI-based providers)
+        let (prompt_tokens, token_count) = Self::extract_or_estimate_tokens(&result, &llm_messages);
 
         // Process content: parse insight JSON if applicable
         let final_content = Self::post_process_content(&result.content, is_insight_request);
@@ -1621,6 +1622,33 @@ impl ChatRoutes {
                 warn!("Failed to increment {counter_type} counter: {e}");
             }
         }
+    }
+
+    /// Extract real token counts from provider usage, or estimate from content length.
+    ///
+    /// CLI-based and headless providers (e.g., `copilot_headless`, Claude Code) return
+    /// `usage: None`. In that case, we estimate tokens from the conversation text
+    /// using a character-based heuristic (~4 chars per token).
+    fn extract_or_estimate_tokens(
+        result: &chat_tool_loop::ToolLoopResult,
+        llm_messages: &[ChatMessage],
+    ) -> (Option<u32>, Option<u32>) {
+        result.usage.as_ref().map_or_else(
+            || {
+                let prompt_text: String = llm_messages
+                    .iter()
+                    .map(|m| m.content.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                let (est_prompt, est_completion) = estimate_tokens(&prompt_text, &result.content);
+                debug!(
+                    est_prompt,
+                    est_completion, "Using estimated token counts (provider returned no usage)"
+                );
+                (Some(est_prompt), Some(est_completion))
+            },
+            |usage| (Some(usage.prompt_tokens), Some(usage.completion_tokens)),
+        )
     }
 
     /// Record LLM usage after chat completion for cost tracking and quota enforcement

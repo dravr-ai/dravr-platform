@@ -21,6 +21,8 @@ use pierre_database::plugins::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
     MessagingRepository, TenantRepository, UserRepository,
 };
+use pierre_llm::pricing::estimate_tokens;
+use pierre_llm::TokenUsage;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use rand::Rng;
@@ -1724,6 +1726,30 @@ pub async fn dispatch_and_respond(dispatch: PendingDispatch) {
     send_outbound_response(&dispatch, &outgoing).await;
 }
 
+/// Extract real token counts from provider usage, or estimate from content length.
+///
+/// Returns `(prompt_tokens, completion_tokens)` as i64 for direct use in usage recording.
+/// When real usage is unavailable (CLI-based providers), estimates from the user message
+/// and completion text using a character-based heuristic.
+fn estimate_or_extract_messaging_tokens(
+    usage: Option<&TokenUsage>,
+    user_text: &str,
+    completion_text: &str,
+) -> (i64, i64) {
+    usage.map_or_else(
+        || {
+            let (est_prompt, est_completion) = estimate_tokens(user_text, completion_text);
+            debug!(
+                est_prompt,
+                est_completion,
+                "Using estimated token counts for messaging (provider returned no usage)"
+            );
+            (i64::from(est_prompt), i64::from(est_completion))
+        },
+        |u| (i64::from(u.prompt_tokens), i64::from(u.completion_tokens)),
+    )
+}
+
 /// Record LLM usage to the `llm_usage` table after a messaging dispatch
 async fn record_messaging_llm_usage(
     dispatch: &PendingDispatch,
@@ -1731,8 +1757,17 @@ async fn record_messaging_llm_usage(
     execution_time_ms: u64,
 ) {
     let tenant_id_str = dispatch.channel_tenant_id.to_string();
-    let prompt_count = i64::from(result.usage.as_ref().map_or(0, |u| u.prompt_tokens));
-    let completion_count = i64::from(result.usage.as_ref().map_or(0, |u| u.completion_tokens));
+
+    // Use real token counts when available, fall back to character-based estimation
+    // for providers that don't return usage (e.g., CLI-based providers).
+    // For prompt estimation we only have the user's message text — the full prompt
+    // (system prompt + history) is built inside the orchestration layer and not
+    // returned. This underestimates prompt tokens but provides a useful baseline.
+    let (prompt_count, completion_count) = estimate_or_extract_messaging_tokens(
+        result.usage.as_ref(),
+        &dispatch.text_content,
+        &result.content,
+    );
 
     #[allow(clippy::cast_possible_wrap)]
     let exec_time = execution_time_ms as i64;
@@ -1775,8 +1810,13 @@ async fn increment_messaging_usage_counters(
         admin_config,
     );
 
-    let total_tokens = i64::from(result.usage.as_ref().map_or(0, |u| u.prompt_tokens))
-        + i64::from(result.usage.as_ref().map_or(0, |u| u.completion_tokens));
+    // Use real token counts when available, fall back to estimation for CLI providers
+    let (est_prompt, est_completion) = estimate_or_extract_messaging_tokens(
+        result.usage.as_ref(),
+        &dispatch.text_content,
+        &result.content,
+    );
+    let total_tokens = est_prompt + est_completion;
 
     // Build list of (counter_type, amount) pairs to increment
     let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
