@@ -152,7 +152,7 @@ struct WhoopStageSummary {
 /// WHOOP cycle response (v2: daily physiological cycle with strain)
 #[derive(Debug, Deserialize)]
 struct WhoopCycle {
-    /// Cycle ID (integer, shared with recovery via cycle_id)
+    /// Cycle ID (integer, shared with recovery via `cycle_id`)
     id: i64,
     /// Cycle score with strain data
     score: Option<WhoopCycleScore>,
