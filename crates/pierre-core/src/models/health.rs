@@ -39,10 +39,10 @@ pub struct RecoveryMetrics {
     /// Respiratory rate while resting
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resting_respiratory_rate: Option<f32>,
-    /// Raw HRV RMSSD value in milliseconds (for trend analysis)
+    /// Raw HRV `RMSSD` value in milliseconds (for trend analysis)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hrv_rmssd_milli: Option<f32>,
-    /// Blood oxygen saturation percentage (SpO2, 0-100)
+    /// Blood oxygen saturation percentage (`SpO2`, 0-100)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spo2_percentage: Option<f32>,
     /// Average heart rate during the physiological cycle

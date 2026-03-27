@@ -156,9 +156,7 @@ struct WhoopStageSummary {
 struct WhoopCycle {
     /// Cycle ID (integer, shared with recovery via `cycle_id`)
     id: i64,
-    /// Score state: SCORED, PENDING_SCORE, or UNSCORABLE
-    score_state: Option<String>,
-    /// Cycle score with strain data (present only when score_state is SCORED)
+    /// Cycle score with strain data (present only when `score_state` is `SCORED`)
     score: Option<WhoopCycleScore>,
 }
 
@@ -186,7 +184,7 @@ struct WhoopRecovery {
     score_state: Option<String>,
     /// Timestamp when the recovery was created
     created_at: Option<String>,
-    /// Recovery score details (present only when score_state is SCORED)
+    /// Recovery score details (present only when `score_state` is `SCORED`)
     score: Option<WhoopRecoveryScore>,
 }
 
@@ -441,8 +439,8 @@ impl WhoopProvider {
         }
     }
 
-    /// Resolve the sport type from a WHOOP workout, preferring sport_name (v2)
-    /// and falling back to sport_id (legacy)
+    /// Resolve the sport type from a WHOOP workout, preferring `sport_name` (v2)
+    /// and falling back to `sport_id` (legacy)
     fn resolve_sport_type(workout: &WhoopWorkout) -> SportType {
         if let Some(name) = &workout.sport_name {
             return Self::parse_sport_name(name);
@@ -604,7 +602,7 @@ impl WhoopProvider {
 
     /// Convert WHOOP recovery + cycle data to recovery metrics
     ///
-    /// Recovery provides HRV, resting HR, SpO2, temperature.
+    /// Recovery provides HRV, resting HR, `SpO2`, temperature.
     /// Cycle provides daily strain, kilojoules, and heart rate.
     /// Joined by `cycle_id` to produce a complete recovery picture.
     fn convert_recovery_to_metrics(
