@@ -148,9 +148,33 @@ struct WhoopStageSummary {
     disturbance_count: Option<i32>,
 }
 
+/// WHOOP cycle response (v2: daily physiological cycle with strain)
+#[derive(Debug, Deserialize)]
+struct WhoopCycle {
+    /// Cycle ID (integer, shared with recovery via cycle_id)
+    id: i64,
+    /// Cycle score with strain data
+    score: Option<WhoopCycleScore>,
+}
+
+/// WHOOP cycle score with daily strain
+#[derive(Debug, Deserialize)]
+struct WhoopCycleScore {
+    /// Daily strain score (0-21 scale)
+    strain: Option<f64>,
+    /// Kilojoules burned during the cycle
+    kilojoule: Option<f64>,
+    /// Average heart rate during the cycle
+    average_heart_rate: Option<i32>,
+    /// Maximum heart rate during the cycle
+    max_heart_rate: Option<i32>,
+}
+
 /// WHOOP recovery response (v2: separate endpoint from cycles)
 #[derive(Debug, Deserialize)]
 struct WhoopRecovery {
+    /// Cycle ID linking recovery to its cycle (for strain data join)
+    cycle_id: Option<i64>,
     /// Timestamp when the recovery was created
     created_at: Option<String>,
     /// Recovery score details
@@ -517,9 +541,13 @@ impl WhoopProvider {
         })
     }
 
-    /// Convert WHOOP recovery response to recovery metrics (v2: recovery is a separate endpoint)
+    /// Convert WHOOP recovery + cycle data to recovery metrics
+    ///
+    /// Recovery provides HRV, resting HR, temperature. Cycle provides daily strain.
+    /// Joined by cycle_id to produce a complete recovery picture.
     fn convert_recovery_to_metrics(
         recovery: &WhoopRecovery,
+        cycle_strain: Option<f64>,
         date: DateTime<Utc>,
     ) -> RecoveryMetrics {
         let score = recovery.score.as_ref();
@@ -538,9 +566,9 @@ impl WhoopProvider {
                     "low".to_owned()
                 }
             }),
-            sleep_score: None,   // Sleep score comes from separate sleep endpoint
-            stress_level: None,  // WHOOP doesn't have explicit stress metric
-            training_load: None, // Strain is on the cycle endpoint, not recovery
+            sleep_score: None,  // Sleep score comes from separate sleep endpoint
+            stress_level: None, // WHOOP doesn't have explicit stress metric
+            training_load: cycle_strain.map(|s| s as f32),
             resting_heart_rate: score.and_then(|r| r.resting_heart_rate).map(|hr| hr as u32),
             body_temperature: score.and_then(|r| r.skin_temp_celsius).map(|t| t as f32),
             resting_respiratory_rate: None,
@@ -970,15 +998,18 @@ impl FitnessProvider for WhoopProvider {
         let start_str = start_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
         let end_str = end_date.format("%Y-%m-%dT%H:%M:%S%.3fZ");
 
-        // v2: Recovery is a separate endpoint from cycles
-        let endpoint = format!("recovery?start={start_str}&end={end_str}&limit=25");
+        // Fetch recovery and cycle data in parallel, then join by cycle_id
+        let recovery_endpoint = format!("recovery?start={start_str}&end={end_str}&limit=25");
+        let cycle_endpoint = format!("cycle?start={start_str}&end={end_str}&limit=25");
+
+        let (recovery_result, cycle_result) = tokio::join!(
+            self.api_request::<WhoopPaginatedResponse<WhoopRecovery>>(&recovery_endpoint),
+            self.api_request::<WhoopPaginatedResponse<WhoopCycle>>(&cycle_endpoint),
+        );
 
         // WHOOP returns 404 for collection endpoints when no data exists in range
-        let response: WhoopPaginatedResponse<WhoopRecovery> = match self
-            .api_request(&endpoint)
-            .await
-        {
-            Ok(resp) => resp,
+        let recoveries = match recovery_result {
+            Ok(resp) => resp.records,
             Err(e) if e.to_string().contains("No data available from WHOOP") => {
                 info!("No WHOOP recovery data in range {start_str}..{end_str}, returning empty");
                 return Ok(vec![]);
@@ -993,16 +1024,38 @@ impl FitnessProvider for WhoopProvider {
             }
         };
 
-        let mut metrics = Vec::with_capacity(response.records.len());
-        for recovery in &response.records {
-            // Use created_at timestamp if available, otherwise fall back to current time
+        // Build cycle_id → strain lookup from cycle data (best-effort, non-fatal)
+        let strain_by_cycle_id: std::collections::HashMap<i64, f64> = match cycle_result {
+            Ok(resp) => resp
+                .records
+                .iter()
+                .filter_map(|c| {
+                    c.score
+                        .as_ref()
+                        .and_then(|s| s.strain)
+                        .map(|strain| (c.id, strain))
+                })
+                .collect(),
+            Err(e) => {
+                warn!("Failed to fetch WHOOP cycle data for strain: {e}");
+                std::collections::HashMap::new()
+            }
+        };
+
+        let mut metrics = Vec::with_capacity(recoveries.len());
+        for recovery in &recoveries {
             let date = recovery
                 .created_at
                 .as_ref()
                 .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
                 .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc));
 
-            metrics.push(Self::convert_recovery_to_metrics(recovery, date));
+            // Join strain from cycle data by cycle_id
+            let strain = recovery
+                .cycle_id
+                .and_then(|cid| strain_by_cycle_id.get(&cid).copied());
+
+            metrics.push(Self::convert_recovery_to_metrics(recovery, strain, date));
         }
 
         Ok(metrics)
