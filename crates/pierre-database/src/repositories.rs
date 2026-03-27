@@ -2102,44 +2102,38 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Add a member to a group
     async fn add_member(&self, member: &GroupMember) -> AppResult<GroupMember>;
 
-    /// Remove a member from a group (soft removal via `left_at` timestamp)
-    async fn remove_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<bool>;
+    /// Remove a member from a group (soft removal via `left_at` timestamp).
+    /// No tenant filter — members join cross-tenant via invite codes.
+    async fn remove_member(&self, group_id: &str, user_id: Uuid) -> AppResult<bool>;
 
     /// Get member by `group_id` + `user_id` (unique constraint, no tenant filter needed)
     async fn get_member(&self, group_id: &str, user_id: Uuid) -> AppResult<Option<GroupMember>>;
 
-    /// List active members of a group
-    async fn list_members(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupMember>>;
+    /// List active members of a group.
+    /// No tenant filter — members join cross-tenant via invite codes.
+    async fn list_members(&self, group_id: &str) -> AppResult<Vec<GroupMember>>;
 
-    /// Update a member's role
+    /// Update a member's role.
+    /// No tenant filter — admins manage cross-tenant members.
     async fn update_member_role(
         &self,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
         role: GroupRole,
     ) -> AppResult<bool>;
 
-    /// Update a member's peer sharing consent
+    /// Update a member's peer sharing consent.
+    /// No tenant filter — members update their own consent cross-tenant.
     async fn update_peer_sharing_consent(
         &self,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
         consent: bool,
     ) -> AppResult<bool>;
 
-    /// Count active members in a group
-    async fn count_members(&self, group_id: &str, tenant_id: TenantId) -> AppResult<i64>;
+    /// Count active members in a group.
+    /// No tenant filter — members join cross-tenant via invite codes.
+    async fn count_members(&self, group_id: &str) -> AppResult<i64>;
 
     // -- Invites --
 
@@ -2152,24 +2146,21 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// Increment the use count of an invite
     async fn increment_invite_use_count(&self, invite_id: &str) -> AppResult<bool>;
 
-    /// Deactivate an invite
-    async fn deactivate_invite(&self, invite_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+    /// Deactivate an invite. Invite IDs are globally unique — no tenant filter needed.
+    async fn deactivate_invite(&self, invite_id: &str) -> AppResult<bool>;
 
-    /// List invites for a group
-    async fn list_invites(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupInvite>>;
+    /// List invites for a group.
+    /// No tenant filter — cross-tenant admins view invites by `group_id`.
+    async fn list_invites(&self, group_id: &str) -> AppResult<Vec<GroupInvite>>;
 
     // -- Context queries --
 
-    /// Find groups a user belongs to that use a specific coach
+    /// Find groups a user belongs to that use a specific coach.
+    /// No tenant filter — groups span tenants via cross-tenant membership.
     async fn find_groups_for_user_and_coach(
         &self,
         user_id: Uuid,
         coach_id: &str,
-        tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>>;
 
     /// Count groups owned by a user (for tier limit enforcement)

@@ -294,23 +294,17 @@ impl CoachingGroupRepository for PostgresDatabase {
             .ok_or_else(|| AppError::internal("Member not found after creation"))
     }
 
-    async fn remove_member(
-        &self,
-        group_id: &str,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> AppResult<bool> {
+    async fn remove_member(&self, group_id: &str, user_id: Uuid) -> AppResult<bool> {
         let group_uuid = parse_uuid(group_id)?;
         let now = Utc::now();
 
         let result = sqlx::query(
             r"UPDATE coaching_group_members SET left_at = $1
-              WHERE group_id = $2 AND user_id = $3 AND tenant_id = $4 AND left_at IS NULL",
+              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL",
         )
         .bind(now)
         .bind(group_uuid)
         .bind(user_id)
-        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to remove member: {e}")))?;
@@ -338,24 +332,20 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(row.as_ref().map(row_to_member))
     }
 
-    async fn list_members(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupMember>> {
+    async fn list_members(&self, group_id: &str) -> AppResult<Vec<GroupMember>> {
         let group_uuid = parse_uuid(group_id)?;
 
+        // No tenant filter — members join cross-tenant via invite codes
         let rows = sqlx::query(
             r"SELECT m.id, m.group_id, m.user_id, m.tenant_id, m.role,
               m.peer_sharing_consent, m.consent_given_at, m.joined_at, m.left_at,
               u.email AS display_name
               FROM coaching_group_members m
               LEFT JOIN users u ON u.id = m.user_id
-              WHERE m.group_id = $1 AND m.tenant_id = $2 AND m.left_at IS NULL
+              WHERE m.group_id = $1 AND m.left_at IS NULL
               ORDER BY m.joined_at ASC",
         )
         .bind(group_uuid)
-        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list members: {e}")))?;
@@ -367,19 +357,17 @@ impl CoachingGroupRepository for PostgresDatabase {
         &self,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
         role: GroupRole,
     ) -> AppResult<bool> {
         let group_uuid = parse_uuid(group_id)?;
 
         let result = sqlx::query(
             r"UPDATE coaching_group_members SET role = $1
-              WHERE group_id = $2 AND user_id = $3 AND tenant_id = $4 AND left_at IS NULL",
+              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL",
         )
         .bind(role.as_str())
         .bind(group_uuid)
         .bind(user_id)
-        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update member role: {e}")))?;
@@ -391,7 +379,6 @@ impl CoachingGroupRepository for PostgresDatabase {
         &self,
         group_id: &str,
         user_id: Uuid,
-        tenant_id: TenantId,
         consent: bool,
     ) -> AppResult<bool> {
         let group_uuid = parse_uuid(group_id)?;
@@ -399,13 +386,12 @@ impl CoachingGroupRepository for PostgresDatabase {
 
         let result = sqlx::query(
             r"UPDATE coaching_group_members SET peer_sharing_consent = $1, consent_given_at = $2
-              WHERE group_id = $3 AND user_id = $4 AND tenant_id = $5 AND left_at IS NULL",
+              WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL",
         )
         .bind(consent)
         .bind(now)
         .bind(group_uuid)
         .bind(user_id)
-        .bind(tenant_id.to_string())
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to update peer sharing consent: {e}")))?;
@@ -413,7 +399,7 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn count_members(&self, group_id: &str, _tenant_id: TenantId) -> AppResult<i64> {
+    async fn count_members(&self, group_id: &str) -> AppResult<i64> {
         let group_uuid = parse_uuid(group_id)?;
 
         // Count by group_id only — members may be from different tenants
@@ -495,37 +481,30 @@ impl CoachingGroupRepository for PostgresDatabase {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn deactivate_invite(&self, invite_id: &str, tenant_id: TenantId) -> AppResult<bool> {
+    async fn deactivate_invite(&self, invite_id: &str) -> AppResult<bool> {
         let invite_uuid = parse_uuid(invite_id)?;
 
-        let result = sqlx::query(
-            r"UPDATE group_invites SET is_active = false
-              WHERE id = $1 AND tenant_id = $2",
-        )
-        .bind(invite_uuid)
-        .bind(tenant_id.to_string())
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to deactivate invite: {e}")))?;
+        // Invite IDs are globally unique — no tenant filter needed
+        let result = sqlx::query(r"UPDATE group_invites SET is_active = false WHERE id = $1")
+            .bind(invite_uuid)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to deactivate invite: {e}")))?;
 
         Ok(result.rows_affected() > 0)
     }
 
-    async fn list_invites(
-        &self,
-        group_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Vec<GroupInvite>> {
+    async fn list_invites(&self, group_id: &str) -> AppResult<Vec<GroupInvite>> {
         let group_uuid = parse_uuid(group_id)?;
 
+        // No tenant filter — invites belong to the group, admins view cross-tenant
         let rows = sqlx::query(
             r"SELECT id, group_id, tenant_id, code, created_by, expires_at, max_uses,
               use_count, is_active, created_at FROM group_invites
-              WHERE group_id = $1 AND tenant_id = $2
+              WHERE group_id = $1
               ORDER BY created_at DESC",
         )
         .bind(group_uuid)
-        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to list invites: {e}")))?;
@@ -539,19 +518,18 @@ impl CoachingGroupRepository for PostgresDatabase {
         &self,
         user_id: Uuid,
         coach_id: &str,
-        tenant_id: TenantId,
     ) -> AppResult<Vec<CoachingGroup>> {
+        // No tenant filter — groups span tenants via cross-tenant membership
         let rows = sqlx::query(
             r"SELECT g.id, g.tenant_id, g.name, g.description, g.coach_id, g.owner_id,
               g.peer_data_sharing, g.max_members, g.is_active, g.created_at, g.updated_at
               FROM coaching_groups g
               JOIN coaching_group_members m ON m.group_id = g.id
-              WHERE m.user_id = $1 AND g.coach_id = $2 AND g.tenant_id = $3
+              WHERE m.user_id = $1 AND g.coach_id = $2
               AND m.left_at IS NULL AND g.is_active = true",
         )
         .bind(user_id)
         .bind(coach_id)
-        .bind(tenant_id.to_string())
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to find groups for user+coach: {e}")))?;
