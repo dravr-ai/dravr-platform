@@ -277,6 +277,8 @@ impl WhoopProvider {
     where
         T: for<'de> Deserialize<'de>,
     {
+        info!("WHOOP API request: GET {url}");
+
         let response = self
             .client
             .get(url)
@@ -288,7 +290,8 @@ impl WhoopProvider {
             })?;
 
         let status = response.status();
-        debug!("WHOOP API response status: {status}");
+        let final_url = response.url().clone();
+        info!("WHOOP API response: {status} (final URL: {final_url})");
 
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();
