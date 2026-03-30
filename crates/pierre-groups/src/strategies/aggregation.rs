@@ -14,6 +14,8 @@ use pierre_core::models::groups::{
 };
 use uuid::Uuid;
 
+use crate::service::{TREND_DECLINING_FRACTION, TREND_IMPROVING_FRACTION};
+
 /// Strategy for computing and serving group-level statistics.
 ///
 /// Implementations trade off freshness vs latency.
@@ -41,6 +43,47 @@ pub trait GroupAggregationStrategy: Send + Sync {
 pub struct LiveAggregation;
 
 impl LiveAggregation {
+    /// Derive the group-level weekly trend from per-member volume changes.
+    ///
+    /// Compares average current-week volume to average prior-week volume.
+    /// Returns `Improving` when the increase exceeds [`TREND_IMPROVING_FRACTION`],
+    /// `Declining` when the decrease exceeds [`TREND_DECLINING_FRACTION`],
+    /// and `Stable` otherwise.
+    fn compute_weekly_trend(snapshots: &[MemberFitnessSnapshot]) -> GroupTrend {
+        let pairs: Vec<(f64, f64)> = snapshots
+            .iter()
+            .filter_map(|s| {
+                s.previous_week_volume_km
+                    .map(|prev| (s.weekly_volume_km, prev))
+            })
+            .collect();
+
+        if pairs.is_empty() {
+            return GroupTrend::Stable;
+        }
+
+        let current_avg = pairs.iter().map(|(c, _)| c).sum::<f64>() / pairs.len() as f64;
+        let prev_avg = pairs.iter().map(|(_, p)| p).sum::<f64>() / pairs.len() as f64;
+
+        if prev_avg <= 0.0 {
+            return if current_avg > 0.0 {
+                GroupTrend::Improving
+            } else {
+                GroupTrend::Stable
+            };
+        }
+
+        let change_fraction = (current_avg - prev_avg) / prev_avg;
+
+        if change_fraction > TREND_IMPROVING_FRACTION {
+            GroupTrend::Improving
+        } else if change_fraction < -TREND_DECLINING_FRACTION {
+            GroupTrend::Declining
+        } else {
+            GroupTrend::Stable
+        }
+    }
+
     fn compute_stats(snapshots: &[MemberFitnessSnapshot]) -> GroupAggregateStats {
         let total = i64::try_from(snapshots.len()).unwrap_or_default();
         let active = i64::try_from(
@@ -72,13 +115,15 @@ impl LiveAggregation {
         )
         .unwrap_or_default();
 
+        let weekly_trend = Self::compute_weekly_trend(snapshots);
+
         GroupAggregateStats {
             total_members: total,
             active_members: active,
             avg_weekly_volume_km: avg_volume,
             avg_ctl,
             flagged_members: flagged,
-            weekly_trend: GroupTrend::Stable,
+            weekly_trend,
         }
     }
 }

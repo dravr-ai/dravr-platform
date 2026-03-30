@@ -87,6 +87,7 @@ impl GroupSummarizationStrategy for RosterCardSummarizer {
                 MemberFlag::Inactive => text.push_str(" [INACTIVE]"),
                 MemberFlag::PersonalRecord => text.push_str(" [PR]"),
                 MemberFlag::InjuryRisk => text.push_str(" [INJURY RISK]"),
+                MemberFlag::VolumeDrop => text.push_str(" [VOLUME DROP]"),
             }
         }
 
@@ -154,6 +155,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                     MemberFlag::Inactive => "inactive",
                     MemberFlag::PersonalRecord => "new PR",
                     MemberFlag::InjuryRisk => "injury risk",
+                    MemberFlag::VolumeDrop => "volume drop",
                 })
                 .collect();
             let _ = writeln!(text, "  Flags: {}", flag_strs.join(", "));

@@ -10,6 +10,8 @@
 //! group CRUD, membership, invites, and analytics. All endpoints require
 //! JWT authentication. Admin-only operations check the caller's `GroupRole`.
 
+mod snapshots;
+
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -32,8 +34,8 @@ use crate::{
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupHealthFlag, GroupInvite,
-    GroupMember, GroupRole, GroupSummary, GroupTrend, GroupWeeklyReport, JoinGroupRequest,
-    UpdateGroupRequest,
+    GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, JoinGroupRequest,
+    MemberFitnessSnapshot, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 
@@ -1106,8 +1108,18 @@ impl GroupRoutes {
     }
 
     // ========================================================================
-    // Analytics handlers (placeholder — full integration requires fitness snapshots)
+    // Analytics handlers — compute stats from real member fitness data
     // ========================================================================
+
+    /// Fetch members and build fitness snapshots for the given group.
+    async fn fetch_snapshots(
+        resources: &Arc<ServerResources>,
+        group_id: &str,
+        tenant_id: &str,
+    ) -> Result<Vec<MemberFitnessSnapshot>, AppError> {
+        let members = resources.repos.groups.list_members(group_id).await?;
+        Ok(snapshots::build_member_snapshots(resources, &members, tenant_id).await)
+    }
 
     /// GET `/api/groups/:group_id/stats` — Get aggregate stats for a group
     async fn handle_get_stats(
@@ -1117,21 +1129,16 @@ impl GroupRoutes {
         Query(_period): Query<PeriodQuery>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
+        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        // Compute stats from live member count (fitness snapshots not yet wired)
-        let member_count = resources.repos.groups.count_members(&group_id).await?;
+        let member_snapshots =
+            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
 
-        let stats = GroupAggregateStats {
-            total_members: member_count,
-            active_members: member_count,
-            avg_weekly_volume_km: 0.0,
-            avg_ctl: None,
-            flagged_members: 0,
-            weekly_trend: GroupTrend::default(),
-        };
+        let group_service = resources.group_service();
+        let stats = group_service.compute_aggregate_stats(&member_snapshots);
 
         let response = StatsResponse {
             stats,
@@ -1161,28 +1168,11 @@ impl GroupRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
-        let member_count = resources.repos.groups.count_members(&group_id).await?;
+        let member_snapshots =
+            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
 
-        // Baseline report without fitness snapshots
-        let stats = GroupAggregateStats {
-            total_members: member_count,
-            active_members: member_count,
-            avg_weekly_volume_km: 0.0,
-            avg_ctl: None,
-            flagged_members: 0,
-            weekly_trend: GroupTrend::default(),
-        };
-
-        let report = GroupWeeklyReport {
-            summary: format!(
-                "{} has {} member(s). Fitness snapshot integration pending.",
-                group.name, member_count
-            ),
-            highlights: Vec::new(),
-            concerns: Vec::new(),
-            recommendations: Vec::new(),
-            stats,
-        };
+        let group_service = resources.group_service();
+        let report = group_service.compute_weekly_report(&member_snapshots, &group.name);
 
         let response = WeeklyReportResponse {
             report,
@@ -1199,14 +1189,20 @@ impl GroupRoutes {
         Path(group_id): Path<String>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
+        let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role for health flags
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        // Return empty flags until fitness snapshots are wired
+        let member_snapshots =
+            Self::fetch_snapshots(&resources, &group_id, &tenant_id.to_string()).await?;
+
+        let group_service = resources.group_service();
+        let flags = group_service.compute_health_flags(&member_snapshots);
+
         let response = HealthFlagsResponse {
-            flags: Vec::new(),
-            total: 0,
+            total: flags.len(),
+            flags,
             metadata: Self::build_metadata(),
         };
 

@@ -9,14 +9,36 @@ use std::sync::Arc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{
     CoachingGroup, CreateGroupRequest, GroupAggregateStats, GroupContext, GroupHealthFlag,
-    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupWeeklyReport, HealthFlagSeverity,
-    MemberFitnessSnapshot, MemberFlag, MemberGroupComparison, MemberSummaryCard,
-    OvertrainingRiskLevel, UpdateGroupRequest,
+    GroupInvite, GroupMember, GroupRole, GroupSummary, GroupTrend, GroupWeeklyReport,
+    HealthFlagSeverity, MemberFitnessSnapshot, MemberFlag, MemberGroupComparison,
+    MemberSummaryCard, OvertrainingRiskLevel, UpdateGroupRequest,
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::CoachingGroupRepository;
 use tracing::info;
 use uuid::Uuid;
+
+// ============================================================================
+// Health Flag Thresholds
+// ============================================================================
+
+/// TSB threshold below which a member is flagged as overreaching (warning)
+pub const OVERREACHING_TSB_THRESHOLD: f64 = -20.0;
+
+/// TSB threshold below which a member is at high fatigue/injury risk (critical)
+pub const HIGH_FATIGUE_TSB_THRESHOLD: f64 = -30.0;
+
+/// Days without activity before a member is flagged as inactive
+pub const INACTIVITY_DAYS_THRESHOLD: i32 = 7;
+
+/// Weekly volume drop percentage (0.0–1.0) from baseline to trigger a flag
+pub const VOLUME_DROP_FRACTION_THRESHOLD: f64 = 0.30;
+
+/// Weekly trend threshold: volume increase above this fraction = "improving"
+pub const TREND_IMPROVING_FRACTION: f64 = 0.05;
+
+/// Weekly trend threshold: volume decrease beyond this fraction = "declining"
+pub const TREND_DECLINING_FRACTION: f64 = 0.05;
 
 use crate::strategies::context::select_context_strategy;
 use crate::strategies::tier::GroupTierStrategy;
@@ -467,35 +489,84 @@ impl GroupService {
         aggregator.compare_member(user_id, snapshots)
     }
 
-    /// Get health flags for all members
+    /// Get health flags for all members based on physiological thresholds.
+    ///
+    /// Flags produced:
+    /// - **Overreaching** (warning): TSB below [`OVERREACHING_TSB_THRESHOLD`] (-20)
+    /// - **`InjuryRisk`** (critical): TSB below [`HIGH_FATIGUE_TSB_THRESHOLD`] (-30)
+    /// - **Inactive** (warning): no activity for [`INACTIVITY_DAYS_THRESHOLD`]+ days
+    /// - **`VolumeDrop`**: weekly volume dropped more than
+    ///   [`VOLUME_DROP_FRACTION_THRESHOLD`] (30%) from prior-week baseline
     #[must_use]
     pub fn compute_health_flags(
         &self,
         snapshots: &[MemberFitnessSnapshot],
     ) -> Vec<GroupHealthFlag> {
+        // Compute group average volume as baseline for volume-drop detection
+        let baseline_volume = Self::compute_baseline_volume(snapshots);
+
         snapshots
             .iter()
             .filter_map(|s| {
                 let mut flags = Vec::new();
 
-                if matches!(s.overtraining_risk, OvertrainingRiskLevel::High) {
+                // TSB-based flags
+                if let Some(tsb) = s.tsb {
+                    if tsb < HIGH_FATIGUE_TSB_THRESHOLD {
+                        flags.push(GroupHealthFlag {
+                            user_id: s.user_id,
+                            display_name: s.display_name.clone(),
+                            flag_type: MemberFlag::InjuryRisk,
+                            severity: HealthFlagSeverity::Critical,
+                            detail: format!("TSB at {tsb:+.0}, high injury risk"),
+                        });
+                    } else if tsb < OVERREACHING_TSB_THRESHOLD {
+                        flags.push(GroupHealthFlag {
+                            user_id: s.user_id,
+                            display_name: s.display_name.clone(),
+                            flag_type: MemberFlag::Overreaching,
+                            severity: HealthFlagSeverity::Warning,
+                            detail: format!("TSB at {tsb:+.0}, recommend recovery"),
+                        });
+                    }
+                } else if matches!(s.overtraining_risk, OvertrainingRiskLevel::High) {
+                    // Fall back to the risk level when TSB is absent
                     flags.push(GroupHealthFlag {
                         user_id: s.user_id,
                         display_name: s.display_name.clone(),
                         flag_type: MemberFlag::Overreaching,
                         severity: HealthFlagSeverity::Warning,
-                        detail: format!("TSB at {:+.0}, recommend recovery", s.tsb.unwrap_or(0.0)),
+                        detail: "High overtraining risk detected, recommend recovery".to_owned(),
                     });
                 }
 
+                // Inactivity flag
                 if let Some(days) = s.days_since_last_activity {
-                    if days > 14 {
+                    if days >= INACTIVITY_DAYS_THRESHOLD {
                         flags.push(GroupHealthFlag {
                             user_id: s.user_id,
                             display_name: s.display_name.clone(),
                             flag_type: MemberFlag::Inactive,
                             severity: HealthFlagSeverity::Warning,
                             detail: format!("No activity for {days} days"),
+                        });
+                    }
+                }
+
+                // Volume drop flag (compare against group baseline)
+                if baseline_volume > 0.0 && s.weekly_volume_km > 0.0 {
+                    let drop_fraction = (baseline_volume - s.weekly_volume_km) / baseline_volume;
+                    if drop_fraction >= VOLUME_DROP_FRACTION_THRESHOLD {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let pct = (drop_fraction * 100.0).round() as u32;
+                        flags.push(GroupHealthFlag {
+                            user_id: s.user_id,
+                            display_name: s.display_name.clone(),
+                            flag_type: MemberFlag::VolumeDrop,
+                            severity: HealthFlagSeverity::Info,
+                            detail: format!(
+                                "Weekly volume {pct}% below group average, possible detraining"
+                            ),
                         });
                     }
                 }
@@ -510,7 +581,23 @@ impl GroupService {
             .collect()
     }
 
-    /// Generate a weekly report
+    /// Compute group average weekly volume as a baseline for drop detection
+    fn compute_baseline_volume(snapshots: &[MemberFitnessSnapshot]) -> f64 {
+        let active: Vec<f64> = snapshots
+            .iter()
+            .filter(|s| s.weekly_volume_km > 0.0)
+            .map(|s| s.weekly_volume_km)
+            .collect();
+        if active.is_empty() {
+            return 0.0;
+        }
+        active.iter().sum::<f64>() / active.len() as f64
+    }
+
+    /// Generate a deterministic (non-AI) weekly report from member snapshots.
+    ///
+    /// Includes summary, highlights (members in fresh form), concerns from
+    /// health flags, and recommendations derived from flag count and trend.
     #[must_use]
     pub fn compute_weekly_report(
         &self,
@@ -520,10 +607,30 @@ impl GroupService {
         let stats = self.compute_aggregate_stats(snapshots);
         let flags = self.compute_health_flags(snapshots);
 
+        let trend_label = match stats.weekly_trend {
+            GroupTrend::Improving => "improving",
+            GroupTrend::Declining => "declining",
+            GroupTrend::Stable => "stable",
+        };
+
         let summary = format!(
-            "{} had {}/{} active members this week with average volume of {:.1}km.",
-            group_name, stats.active_members, stats.total_members, stats.avg_weekly_volume_km
+            "{group_name} had {}/{} active members this week with average volume of {:.1}km. \
+             Overall trend: {trend_label}.",
+            stats.active_members, stats.total_members, stats.avg_weekly_volume_km
         );
+
+        // Highlights: members with positive TSB (fresh form)
+        let highlights: Vec<String> = snapshots
+            .iter()
+            .filter(|s| s.tsb.is_some_and(|tsb| tsb > 0.0))
+            .map(|s| {
+                format!(
+                    "{} is in fresh form (TSB {:+.0})",
+                    s.display_name,
+                    s.tsb.unwrap_or(0.0)
+                )
+            })
+            .collect();
 
         let concerns: Vec<String> = flags
             .iter()
@@ -537,10 +644,23 @@ impl GroupService {
                 stats.flagged_members
             ));
         }
+        match stats.weekly_trend {
+            GroupTrend::Declining => {
+                recommendations.push(
+                    "Group volume is declining — check in with less active members.".to_owned(),
+                );
+            }
+            GroupTrend::Improving => {
+                recommendations.push(
+                    "Good momentum — ensure recovery keeps pace with rising volume.".to_owned(),
+                );
+            }
+            GroupTrend::Stable => {}
+        }
 
         GroupWeeklyReport {
             summary,
-            highlights: Vec::new(),
+            highlights,
             concerns,
             recommendations,
             stats,

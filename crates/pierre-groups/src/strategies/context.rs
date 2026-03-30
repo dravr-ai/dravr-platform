@@ -134,6 +134,7 @@ impl GroupContextStrategy for GroupOverviewContext {
                         MemberFlag::Inactive => "inactive",
                         MemberFlag::PersonalRecord => "new PR",
                         MemberFlag::InjuryRisk => "injury risk",
+                        MemberFlag::VolumeDrop => "volume drop",
                     })
                     .collect();
                 let _ = writeln!(text, "  - {}: {}", m.display_name, flag_names.join(", "));

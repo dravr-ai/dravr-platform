@@ -241,6 +241,8 @@ pub struct MemberFitnessSnapshot {
     pub tsb: Option<f64>,
     /// Weekly volume in kilometers
     pub weekly_volume_km: f64,
+    /// Previous week's volume in kilometers (for trend calculation)
+    pub previous_week_volume_km: Option<f64>,
     /// Number of activities this week
     pub weekly_activity_count: i32,
     /// Primary sport type
@@ -315,6 +317,8 @@ pub enum MemberFlag {
     InjuryRisk,
     /// No activity for extended period
     Inactive,
+    /// Weekly volume dropped significantly from baseline
+    VolumeDrop,
 }
 
 /// Formatted group summary block for LLM injection
