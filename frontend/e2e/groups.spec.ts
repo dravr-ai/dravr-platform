@@ -668,13 +668,11 @@ test.describe('Group Coaching - Invite Links', () => {
   test('join modal opens with pre-filled code from URL', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
     await setupGroupMocks(page);
-    // Navigate to the invite link path directly
-    await page.goto('/groups/join/TESTCODE');
-    // Login flow
     await loginToDashboard(page);
-    // After login, the app should detect the invite code and open join modal
+    // Navigate to the invite link route after login
+    await page.goto('/groups/join/TESTCODE');
+    // The join modal should open with the code pre-filled
     await expect(page.getByText('Join a Group')).toBeVisible({ timeout: 10000 });
-    // Code should be pre-filled
     const codeInput = page.getByPlaceholder('e.g., abc123');
     await expect(codeInput).toHaveValue('TESTCODE');
   });
