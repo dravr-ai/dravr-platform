@@ -493,6 +493,33 @@ impl ChatRoutes {
             _ => None,
         };
 
+        // Collect member user_ids from groups for snapshot fetching
+        let member_user_ids: Vec<Uuid> = if let Some(ref gid) = resolved_group_id {
+            resources
+                .repos
+                .groups
+                .list_members(gid)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| m.user_id)
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Fetch fitness snapshots for group members (graceful fallback to empty)
+        let snapshots = if member_user_ids.is_empty() {
+            Vec::new()
+        } else {
+            crate::services::group_fitness::fetch_member_snapshots(
+                resources,
+                &member_user_ids,
+                tenant_id,
+            )
+            .await
+        };
+
         match group_service
             .inject_group_context(
                 augmented,
@@ -500,7 +527,7 @@ impl ChatRoutes {
                 user_id,
                 tenant_id,
                 resolved_group_id.as_deref(),
-                &[],
+                &snapshots,
             )
             .await
         {

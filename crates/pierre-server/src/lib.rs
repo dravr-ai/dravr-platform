@@ -172,7 +172,7 @@ pub mod websocket;
 pub mod test_utils;
 
 /// Domain service layer for protocol-agnostic business logic
-pub(crate) mod services;
+pub mod services;
 
 // Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(feature = "client-messaging")]
