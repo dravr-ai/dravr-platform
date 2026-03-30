@@ -3,6 +3,7 @@
 name: Backend CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
     paths:
