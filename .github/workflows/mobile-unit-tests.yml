@@ -19,7 +19,6 @@ on:
     paths:
       - 'frontend-mobile/**'
       - 'packages/**'
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
