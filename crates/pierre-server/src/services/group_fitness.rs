@@ -10,12 +10,13 @@
 //! for all members of a coaching group. Used by the group context injection
 //! system to give the AI coach data-driven group advice.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
-use pierre_core::models::TenantId;
+use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -60,6 +61,123 @@ pub async fn fetch_member_snapshots(
     join_all(futures).await
 }
 
+/// Fetch display name for a user from the global user database.
+///
+/// Returns the user's display name if set, email prefix if not, or "Unknown"
+/// if the user cannot be fetched.
+async fn fetch_user_display_name(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
+    match resources.repos.users.get_global(user_id).await {
+        Ok(Some(user)) => user
+            .display_name
+            .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Unknown").to_owned()),
+        Ok(None) => "Unknown".to_owned(),
+        Err(e) => {
+            debug!(user_id = %user_id, error = %e, "Failed to fetch user for snapshot");
+            "Unknown".to_owned()
+        }
+    }
+}
+
+/// Compute training load metrics from a list of activities.
+///
+/// Uses `TrainingLoadCalculator` to compute CTL, ATL, and TSB.
+/// Returns `(None, None, None)` if calculation fails.
+fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64>, Option<f64>) {
+    let calculator = TrainingLoadCalculator::new();
+    match calculator.calculate_training_load(
+        activities, None, // FTP
+        None, // LTHR
+        None, // max_hr
+        None, // resting_hr
+        None, // weight_kg
+    ) {
+        Ok(load) => (Some(load.ctl), Some(load.atl), Some(load.tsb)),
+        Err(e) => {
+            debug!(error = ?e, "Training load calculation failed");
+            (None, None, None)
+        }
+    }
+}
+
+/// Compute weekly metrics from activities in the past 7 days.
+///
+/// Returns `(activity_count, volume_km, days_since_last)`.
+fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, f64, Option<i32>) {
+    let seven_days_ago = now - Duration::days(7);
+    let weekly_activities: Vec<_> = activities
+        .iter()
+        .filter(|a| a.start_date() >= seven_days_ago)
+        .collect();
+
+    #[allow(clippy::cast_possible_wrap)]
+    let weekly_activity_count = weekly_activities.len().min(i32::MAX as usize) as i32;
+
+    let weekly_volume_km = weekly_activities
+        .iter()
+        .filter_map(|a| a.distance_meters())
+        .sum::<f64>()
+        / 1000.0;
+
+    let days_since_last = activities
+        .iter()
+        .map(Activity::start_date)
+        .max()
+        .map(|last| {
+            #[allow(clippy::cast_lossless)]
+            {
+                (now - last).num_days().min(i64::from(i32::MAX)) as i32
+            }
+        });
+
+    (weekly_activity_count, weekly_volume_km, days_since_last)
+}
+
+/// Get the first connected provider name for a user.
+///
+/// Returns the provider name, or None if no provider is connected.
+async fn get_first_connected_provider(
+    resources: &Arc<ServerResources>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Option<String> {
+    let conns = resources
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .ok()?;
+
+    conns.first().map(|c| c.provider.clone())
+}
+
+/// Fetch activities from an authenticated provider.
+///
+/// Returns activities, or None if provider creation or fetch fails.
+async fn fetch_activities_from_provider(
+    auth_service: &AuthService,
+    provider_name: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Option<Vec<Activity>> {
+    let tenant_id_str = tenant_id.to_string();
+    let provider = auth_service
+        .create_authenticated_provider(provider_name, user_id, Some(&tenant_id_str))
+        .await
+        .ok()?;
+
+    // Fetch recent activities for training load calculation
+    let now = Utc::now();
+    let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
+    let params = ActivityQueryParams {
+        limit: Some(MAX_ACTIVITIES_PER_USER),
+        offset: None,
+        before: None,
+        after: Some(lookback_start),
+    };
+
+    provider.get_activities_with_params(&params).await.ok()
+}
+
 /// Fetch a single member's fitness snapshot.
 ///
 /// Attempts to find a connected provider for the user and compute training
@@ -73,76 +191,25 @@ async fn fetch_single_member_snapshot(
     let now = Utc::now();
 
     // Get display name from user profile
-    let display_name = match resources.repos.users.get_global(user_id).await {
-        Ok(Some(user)) => user
-            .display_name
-            .unwrap_or_else(|| user.email.split('@').next().unwrap_or("Unknown").to_owned()),
-        Ok(None) => "Unknown".to_owned(),
-        Err(e) => {
-            debug!(user_id = %user_id, error = %e, "Failed to fetch user for snapshot");
-            "Unknown".to_owned()
-        }
-    };
+    let display_name = fetch_user_display_name(resources, user_id).await;
 
-    // Find connected providers for this user
-    let connections = match resources
-        .repos
-        .provider_connections
-        .get_for_user(user_id, Some(tenant_id))
-        .await
-    {
-        Ok(conns) => conns,
-        Err(e) => {
-            debug!(user_id = %user_id, error = %e, "Failed to fetch provider connections");
-            return empty_snapshot(user_id, display_name, now);
-        }
-    };
-
-    if connections.is_empty() {
+    // Get first connected provider name
+    let Some(provider_name) = get_first_connected_provider(resources, user_id, tenant_id).await
+    else {
         return empty_snapshot(user_id, display_name, now);
-    }
+    };
 
-    // Try the first connected provider
-    let provider_name = &connections[0].provider;
+    // Fetch activities from the provider
     let auth_service = AuthService::new(Arc::clone(resources));
-
-    let tenant_id_str = tenant_id.to_string();
-    let provider = match auth_service
-        .create_authenticated_provider(provider_name, user_id, Some(&tenant_id_str))
-        .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            debug!(
-                user_id = %user_id,
-                provider = %provider_name,
-                error = ?e,
-                "Failed to create authenticated provider for snapshot"
-            );
-            return empty_snapshot(user_id, display_name, now);
-        }
-    };
-
-    // Fetch recent activities for training load calculation
-    let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
-    let params = ActivityQueryParams {
-        limit: Some(MAX_ACTIVITIES_PER_USER),
-        offset: None,
-        before: None,
-        after: Some(lookback_start),
-    };
-
-    let activities = match provider.get_activities_with_params(&params).await {
-        Ok(acts) => acts,
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_name,
-                error = %e,
-                "Failed to fetch activities for snapshot"
-            );
-            return empty_snapshot(user_id, display_name, now);
-        }
+    let Some(activities) =
+        fetch_activities_from_provider(&auth_service, &provider_name, user_id, tenant_id).await
+    else {
+        warn!(
+            user_id = %user_id,
+            provider = %provider_name,
+            "Failed to fetch activities for snapshot"
+        );
+        return empty_snapshot(user_id, display_name, now);
     };
 
     if activities.is_empty() {
@@ -150,52 +217,14 @@ async fn fetch_single_member_snapshot(
     }
 
     // Compute training load (CTL, ATL, TSB)
-    let calculator = TrainingLoadCalculator::new();
-    let (ctl, atl, tsb) = match calculator.calculate_training_load(
-        &activities,
-        None, // FTP
-        None, // LTHR
-        None, // max_hr
-        None, // resting_hr
-        None, // weight_kg
-    ) {
-        Ok(load) => (Some(load.ctl), Some(load.atl), Some(load.tsb)),
-        Err(e) => {
-            debug!(user_id = %user_id, error = ?e, "Training load calculation failed");
-            (None, None, None)
-        }
-    };
+    let (ctl, atl, tsb) = compute_training_metrics(&activities);
 
     // Compute weekly volume and activity count (last 7 days)
-    let seven_days_ago = now - Duration::days(7);
-    let weekly_activities: Vec<_> = activities
-        .iter()
-        .filter(|a| a.start_date() >= seven_days_ago)
-        .collect();
-
-    #[allow(clippy::cast_possible_truncation)]
-    let weekly_activity_count = weekly_activities.len() as i32;
-
-    let weekly_volume_km = weekly_activities
-        .iter()
-        .filter_map(|a| a.distance_meters())
-        .sum::<f64>()
-        / 1000.0;
+    let (weekly_activity_count, weekly_volume_km, days_since_last) =
+        compute_weekly_metrics(&activities, now);
 
     // Determine primary sport from most common activity type
     let primary_sport = determine_primary_sport(&activities);
-
-    // Determine days since last activity
-    let days_since_last =
-        activities
-            .iter()
-            .map(|a| a.start_date())
-            .max()
-            .map(|last: chrono::DateTime<Utc>| {
-                #[allow(clippy::cast_possible_truncation)]
-                let days = (now - last).num_days() as i32;
-                days
-            });
 
     // Assess overtraining risk from TSB and ATL/CTL ratio
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
@@ -221,7 +250,7 @@ async fn fetch_single_member_snapshot(
 fn empty_snapshot(
     user_id: Uuid,
     display_name: String,
-    computed_at: chrono::DateTime<Utc>,
+    computed_at: DateTime<Utc>,
 ) -> MemberFitnessSnapshot {
     MemberFitnessSnapshot {
         user_id,
@@ -243,12 +272,12 @@ fn empty_snapshot(
 /// Determine the primary sport type from a list of activities.
 ///
 /// Returns the most frequently occurring sport type, or `None` if empty.
-fn determine_primary_sport(activities: &[pierre_core::models::Activity]) -> Option<String> {
+fn determine_primary_sport(activities: &[Activity]) -> Option<String> {
     if activities.is_empty() {
         return None;
     }
 
-    let mut counts = std::collections::HashMap::new();
+    let mut counts = HashMap::new();
     for activity in activities {
         *counts.entry(activity.sport_type().clone()).or_insert(0u32) += 1;
     }
@@ -270,38 +299,31 @@ fn assess_overtraining_risk(
     atl: Option<f64>,
     tsb: Option<f64>,
 ) -> OvertrainingRiskLevel {
-    let tsb_risk = tsb.map_or(OvertrainingRiskLevel::Low, |tsb_val| {
+    // Check TSB threshold
+    if let Some(tsb_val) = tsb {
         if tsb_val < -30.0 {
-            OvertrainingRiskLevel::High
-        } else if tsb_val < -10.0 {
-            OvertrainingRiskLevel::Moderate
-        } else {
-            OvertrainingRiskLevel::Low
+            return OvertrainingRiskLevel::High;
         }
-    });
+        if tsb_val < -10.0 {
+            return OvertrainingRiskLevel::Moderate;
+        }
+    }
 
-    let ratio_risk = match (atl, ctl) {
-        (Some(atl_val), Some(ctl_val)) if ctl_val > 1.0 => {
+    // Check ATL/CTL ratio
+    if let (Some(atl_val), Some(ctl_val)) = (atl, ctl) {
+        if ctl_val > 0.0 {
             let ratio = atl_val / ctl_val;
             if ratio > 1.5 {
-                OvertrainingRiskLevel::High
-            } else if ratio > 1.3 {
-                OvertrainingRiskLevel::Moderate
-            } else {
-                OvertrainingRiskLevel::Low
+                return OvertrainingRiskLevel::High;
+            }
+            if ratio > 1.3 {
+                return OvertrainingRiskLevel::Moderate;
             }
         }
-        _ => OvertrainingRiskLevel::Low,
-    };
-
-    // Return the higher risk level
-    match (tsb_risk, ratio_risk) {
-        (OvertrainingRiskLevel::High, _) | (_, OvertrainingRiskLevel::High) => {
-            OvertrainingRiskLevel::High
-        }
-        (OvertrainingRiskLevel::Moderate, _) | (_, OvertrainingRiskLevel::Moderate) => {
-            OvertrainingRiskLevel::Moderate
-        }
-        _ => OvertrainingRiskLevel::Low,
     }
+
+    OvertrainingRiskLevel::Low
 }
+
+/// Alias for backwards compatibility with external references
+pub type MemberSnapshot = MemberFitnessSnapshot;

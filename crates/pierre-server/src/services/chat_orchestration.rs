@@ -20,6 +20,8 @@ use crate::protocols::universal::UniversalExecutor;
 use crate::routes::chat::ChatRoutes;
 use crate::routes::chat_tool_loop::{self, ToolLoopParams};
 use crate::routes::create_chat_provider;
+#[cfg(feature = "tools-groups")]
+use crate::services::group_fitness::{fetch_member_snapshots, MemberSnapshot};
 use pierre_core::models::AddMessageParams;
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -173,12 +175,68 @@ pub async fn persist_assistant_response(
 /// Default max tool iterations for messaging conversations
 const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 
+/// Resolve group context for a user in a conversation.
+///
+/// Uses conversation's `group_id` if set, otherwise finds group from user membership.
+/// Returns resolved group ID and member snapshots.
+#[cfg(feature = "tools-groups")]
+async fn resolve_group_context(
+    resources: &Arc<ServerResources>,
+    user_id: &str,
+    conversation_group_id: Option<&str>,
+    tool_tenant_id: TenantId,
+) -> AppResult<(Option<String>, Vec<MemberSnapshot>)> {
+    let user_uuid = parse_uuid(user_id).unwrap_or_default();
+
+    // Resolve group: use conversation group_id or find from membership
+    let resolved_group_id = if let Some(gid) = conversation_group_id {
+        Some(gid.to_owned())
+    } else {
+        match resources.repos.groups.list_groups_for_user(user_uuid).await {
+            Ok(groups) if groups.len() == 1 => Some(groups[0].id.to_string()),
+            Ok(_) => None,
+            Err(e) => {
+                tracing::debug!("Failed to check group membership: {e}");
+                None
+            }
+        }
+    };
+
+    // Fetch member snapshots if we have a resolved group
+    let snapshots = if let Some(ref gid) = resolved_group_id {
+        let member_ids: Vec<uuid::Uuid> = resources
+            .repos
+            .groups
+            .list_members(gid)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.user_id)
+            .collect();
+        if member_ids.is_empty() {
+            Vec::new()
+        } else {
+            fetch_member_snapshots(resources, &member_ids, tool_tenant_id).await
+        }
+    } else {
+        Vec::new()
+    };
+
+    Ok((resolved_group_id, snapshots))
+}
+
 /// Dispatch a user message through the LLM pipeline and return the assistant's text response.
 ///
 /// `conversation_tenant_id` is used for conversation/message DB lookups.
 /// `tool_tenant_id` is used for tool execution (OAuth, activities, etc.).
 /// These differ when a messaging user belongs to a different tenant than the
 /// bot that owns the channel webhook.
+///
+/// # Errors
+///
+/// Returns database errors on conversation/message retrieval or persistence failures.
+/// Returns LLM provider errors on chat completion failures.
+/// Returns tool execution errors from the tool loop.
 pub async fn dispatch_and_get_response_with_tool_tenant(
     resources: &Arc<ServerResources>,
     conversation_id: &str,
@@ -219,46 +277,10 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     #[cfg(feature = "tools-groups")]
     let base_prompt = {
         let group_service = resources.group_service();
+        let (resolved_group_id, snapshots) =
+            resolve_group_context(resources, user_id, conv.group_id.as_deref(), tool_tenant_id)
+                .await?;
         let user_uuid = parse_uuid(user_id).unwrap_or_default();
-
-        // Resolve group: use conversation group_id or find from membership
-        let resolved_group_id = if conv.group_id.is_some() {
-            conv.group_id.clone()
-        } else {
-            match resources.repos.groups.list_groups_for_user(user_uuid).await {
-                Ok(groups) if groups.len() == 1 => Some(groups[0].id.to_string()),
-                Ok(_) => None,
-                Err(e) => {
-                    tracing::debug!("Failed to check group membership: {e}");
-                    None
-                }
-            }
-        };
-
-        // Fetch member snapshots if we have a resolved group
-        let snapshots = if let Some(ref gid) = resolved_group_id {
-            let member_ids: Vec<uuid::Uuid> = resources
-                .repos
-                .groups
-                .list_members(gid)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|m| m.user_id)
-                .collect();
-            if member_ids.is_empty() {
-                Vec::new()
-            } else {
-                crate::services::group_fitness::fetch_member_snapshots(
-                    resources,
-                    &member_ids,
-                    tool_tenant_id,
-                )
-                .await
-            }
-        } else {
-            Vec::new()
-        };
 
         group_service
             .inject_group_context(
