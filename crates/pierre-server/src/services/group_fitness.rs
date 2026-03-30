@@ -250,7 +250,7 @@ fn determine_primary_sport(activities: &[pierre_core::models::Activity]) -> Opti
 
     let mut counts = std::collections::HashMap::new();
     for activity in activities {
-        *counts.entry(activity.sport_type.clone()).or_insert(0u32) += 1;
+        *counts.entry(activity.sport_type().clone()).or_insert(0u32) += 1;
     }
 
     counts
