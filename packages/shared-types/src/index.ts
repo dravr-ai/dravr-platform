@@ -116,6 +116,35 @@ export type {
   ListResponse,
 } from './api.js';
 
+// Group coaching types (groups, membership, invites, stats)
+export type {
+  GroupRole,
+  OvertrainingRiskLevel,
+  GroupTrend,
+  SummaryDetailLevel,
+  MemberFlag,
+  HealthFlagSeverity,
+  CoachingGroup,
+  GroupMember,
+  GroupInvite,
+  CreateGroupRequest,
+  UpdateGroupRequest,
+  JoinGroupRequest,
+  UpdateMemberRoleRequest,
+  UpdatePeerConsentRequest,
+  CreateInviteRequest,
+  GroupSummary,
+  GroupAggregateStats,
+  MemberGroupComparison,
+  GroupHealthFlag,
+  GroupWeeklyReport,
+  ListGroupsResponse,
+  GroupMembersResponse,
+  GroupInvitesResponse,
+  GroupStatsResponse,
+  GroupPermissionsResponse,
+} from './groups.js';
+
 // Notification types (push notifications, device tokens, preferences)
 export type {
   NotificationCategory,
