@@ -54,6 +54,9 @@ impl<'a> UsageCounterService<'a> {
     /// Automatically computes the current period based on `counter_type` prefix:
     /// - `daily_*` → `YYYY-MM-DD`
     /// - `weekly_*` → most recent Sunday `YYYY-MM-DD`
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
     pub async fn increment(
         &self,
         tenant_id: &str,
@@ -72,6 +75,9 @@ impl<'a> UsageCounterService<'a> {
     /// Get the current value of a counter for the current period
     ///
     /// Returns 0 if no counter exists for the current period.
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
     pub async fn get_current(
         &self,
         tenant_id: &str,
@@ -92,6 +98,9 @@ impl<'a> UsageCounterService<'a> {
     /// - The soft limit for this counter type
     /// - The burst multiplier (hard limit = soft limit * multiplier)
     /// - The warning threshold percentage
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
     pub async fn check_limit(
         &self,
         tenant_id: &str,
@@ -152,6 +161,9 @@ impl<'a> UsageCounterService<'a> {
     /// Delete counters older than the given number of days
     ///
     /// Computes a cutoff date and removes all counter records with periods before it.
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
     pub async fn prune_old_counters(&self, days: i64) -> AppResult<u64> {
         let cutoff = Utc::now() - Duration::days(days);
         let cutoff_str = cutoff.format("%Y-%m-%d").to_string();

@@ -13,6 +13,8 @@ use super::chat_tool_loop::{self, ToolLoopParams};
 use crate::models::ConnectionType;
 use crate::models::TenantId;
 use crate::protocols::universal::UniversalResponse;
+#[cfg(feature = "tools-groups")]
+use crate::services::group_fitness::fetch_member_snapshots;
 use crate::{
     errors::AppError,
     llm::{
@@ -46,7 +48,6 @@ use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, fmt::Write, sync::Arc, time::Instant};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-
 // ============================================================================
 // Constants
 // ============================================================================
@@ -512,12 +513,7 @@ impl ChatRoutes {
         let snapshots = if member_user_ids.is_empty() {
             Vec::new()
         } else {
-            crate::services::group_fitness::fetch_member_snapshots(
-                resources,
-                &member_user_ids,
-                tenant_id,
-            )
-            .await
+            fetch_member_snapshots(resources, &member_user_ids, tenant_id).await
         };
 
         match group_service
