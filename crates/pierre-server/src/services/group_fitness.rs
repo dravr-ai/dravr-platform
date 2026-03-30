@@ -170,7 +170,7 @@ async fn fetch_single_member_snapshot(
     let seven_days_ago = now - Duration::days(7);
     let weekly_activities: Vec<_> = activities
         .iter()
-        .filter(|a| a.start_date >= seven_days_ago)
+        .filter(|a| a.start_date() >= seven_days_ago)
         .collect();
 
     #[allow(clippy::cast_possible_truncation)]
@@ -178,7 +178,7 @@ async fn fetch_single_member_snapshot(
 
     let weekly_volume_km = weekly_activities
         .iter()
-        .filter_map(|a| a.distance_meters)
+        .filter_map(|a| a.distance_meters())
         .sum::<f64>()
         / 1000.0;
 
@@ -186,11 +186,16 @@ async fn fetch_single_member_snapshot(
     let primary_sport = determine_primary_sport(&activities);
 
     // Determine days since last activity
-    let days_since_last = activities.iter().map(|a| a.start_date).max().map(|last| {
-        #[allow(clippy::cast_possible_truncation)]
-        let days = (now - last).num_days() as i32;
-        days
-    });
+    let days_since_last =
+        activities
+            .iter()
+            .map(|a| a.start_date())
+            .max()
+            .map(|last: chrono::DateTime<Utc>| {
+                #[allow(clippy::cast_possible_truncation)]
+                let days = (now - last).num_days() as i32;
+                days
+            });
 
     // Assess overtraining risk from TSB and ATL/CTL ratio
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
@@ -202,9 +207,10 @@ async fn fetch_single_member_snapshot(
         atl,
         tsb,
         weekly_volume_km,
+        previous_week_volume_km: None,
         weekly_activity_count,
         primary_sport,
-        vdot: None, // VDOT requires specific race data; computed separately
+        vdot: None,
         overtraining_risk,
         days_since_last_activity: days_since_last,
         computed_at: now,
@@ -224,6 +230,7 @@ fn empty_snapshot(
         atl: None,
         tsb: None,
         weekly_volume_km: 0.0,
+        previous_week_volume_km: None,
         weekly_activity_count: 0,
         primary_sport: None,
         vdot: None,
