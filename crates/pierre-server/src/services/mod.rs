@@ -55,3 +55,7 @@ pub mod slack_ops_notifier;
 /// Slash command handlers for messaging platforms
 #[cfg(feature = "client-messaging")]
 pub mod commands;
+
+/// Batch fitness snapshot fetcher for group coaching context
+#[cfg(feature = "tools-groups")]
+pub mod group_fitness;

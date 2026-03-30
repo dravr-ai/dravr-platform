@@ -221,9 +221,9 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         let group_service = resources.group_service();
         let user_uuid = parse_uuid(user_id).unwrap_or_default();
 
-        let conversation_group_id = conv.group_id.as_deref();
-        let resolved_group_id = if conversation_group_id.is_some() {
-            conversation_group_id.map(ToOwned::to_owned)
+        // Resolve group: use conversation group_id or find from membership
+        let resolved_group_id = if conv.group_id.is_some() {
+            conv.group_id.clone()
         } else {
             match resources.repos.groups.list_groups_for_user(user_uuid).await {
                 Ok(groups) if groups.len() == 1 => Some(groups[0].id.to_string()),
@@ -235,6 +235,31 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
             }
         };
 
+        // Fetch member snapshots if we have a resolved group
+        let snapshots = if let Some(ref gid) = resolved_group_id {
+            let member_ids: Vec<uuid::Uuid> = resources
+                .repos
+                .groups
+                .list_members(gid)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|m| m.user_id)
+                .collect();
+            if member_ids.is_empty() {
+                Vec::new()
+            } else {
+                crate::services::group_fitness::fetch_member_snapshots(
+                    resources,
+                    &member_ids,
+                    tool_tenant_id,
+                )
+                .await
+            }
+        } else {
+            Vec::new()
+        };
+
         group_service
             .inject_group_context(
                 base_prompt,
@@ -242,7 +267,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
                 user_uuid,
                 tool_tenant_id,
                 resolved_group_id.as_deref(),
-                &[],
+                &snapshots,
             )
             .await
             .unwrap_or_else(|_| base_prompt.to_owned())
