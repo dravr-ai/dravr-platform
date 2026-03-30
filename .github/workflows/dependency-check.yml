@@ -74,11 +74,11 @@ jobs:
 
       - name: Determine if updates exist
         id: check
+        env:
+          COMPAT: ${{ steps.compatible.outputs.COMPATIBLE }}
+          INCOMPAT: ${{ steps.incompatible.outputs.INCOMPATIBLE }}
+          AUDIT_EXIT: ${{ steps.audit.outputs.exit_code }}
         run: |
-          COMPAT="${{ steps.compatible.outputs.COMPATIBLE }}"
-          INCOMPAT="${{ steps.incompatible.outputs.INCOMPATIBLE }}"
-          AUDIT_EXIT="${{ steps.audit.outputs.exit_code }}"
-
           HAS_UPDATES=false
 
           # Check if compatible output contains actual upgrades (look for "new req" column)
