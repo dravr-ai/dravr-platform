@@ -184,3 +184,9 @@ export interface GroupInvitesResponse {
 export interface GroupStatsResponse {
   stats: GroupAggregateStats;
 }
+
+/** Group creation permission check result */
+export interface GroupPermissionsResponse {
+  can_create: boolean;
+  policy: string;
+}

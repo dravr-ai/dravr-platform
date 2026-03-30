@@ -152,11 +152,22 @@ const mockStats = {
 
 interface GroupMockOptions {
   userGroupRole?: 'owner' | 'admin' | 'member';
+  canCreateGroup?: boolean;
+  groupCreationPolicy?: string;
 }
 
 async function setupGroupMocks(page: Page, options: GroupMockOptions = {}) {
-  const { userGroupRole = 'owner' } = options;
+  const { userGroupRole = 'owner', canCreateGroup = true, groupCreationPolicy = 'everyone' } = options;
   const mockMembers = buildMockMembers(userGroupRole);
+
+  // Group creation permissions
+  await page.route('**/api/groups/permissions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ can_create: canCreateGroup, policy: groupCreationPolicy }),
+    });
+  });
 
   // Groups list
   await page.route('**/api/groups', async (route) => {
@@ -635,5 +646,58 @@ test.describe('Group Coaching - Settings', () => {
     await expect(page.getByText('This will permanently archive')).toBeVisible();
     await page.getByRole('button', { name: /Delete/i }).last().click();
     await expect(page.getByText('Group deleted')).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ============================================================================
+// Invite Link Tests
+// ============================================================================
+
+test.describe('Group Coaching - Invite Links', () => {
+  test('copy button produces full invite URL', async ({ page }) => {
+    await loginAndGoToGroups(page, { userGroupRole: 'owner' });
+    await goToGroupDetail(page);
+    await page.getByRole('tab', { name: /Invites/ }).click();
+    // Verify invite code is visible
+    await expect(page.getByText('MRT2026X')).toBeVisible();
+    // The copy button should exist next to the invite code
+    const copyButton = page.getByRole('button', { name: 'Copy invite link to clipboard' });
+    await expect(copyButton).toBeVisible();
+  });
+
+  test('join modal opens with pre-filled code from URL', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupGroupMocks(page);
+    // Navigate to the invite link path directly
+    await page.goto('/groups/join/TESTCODE');
+    // Login flow
+    await loginToDashboard(page);
+    // After login, the app should detect the invite code and open join modal
+    await expect(page.getByText('Join a Group')).toBeVisible({ timeout: 10000 });
+    // Code should be pre-filled
+    const codeInput = page.getByPlaceholder('e.g., abc123');
+    await expect(codeInput).toHaveValue('TESTCODE');
+  });
+});
+
+// ============================================================================
+// Group Creation Permission Tests
+// ============================================================================
+
+test.describe('Group Coaching - Creation Permissions', () => {
+  test('shows Create Group button when user has permission', async ({ page }) => {
+    await loginAndGoToGroups(page, { canCreateGroup: true, groupCreationPolicy: 'everyone' });
+    await expect(page.getByRole('button', { name: /Create Group/ })).toBeVisible();
+  });
+
+  test('hides Create Group button when policy is admins_only and user is not admin', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupGroupMocks(page, { canCreateGroup: false, groupCreationPolicy: 'admins_only' });
+    await loginToDashboard(page);
+    await navigateToTab(page, 'Groups');
+    // Create Group button should not be visible
+    await expect(page.getByRole('button', { name: /Create Group/ })).not.toBeVisible();
+    // Join Group button should still be visible
+    await expect(page.getByRole('button', { name: /Join Group/ })).toBeVisible();
   });
 });

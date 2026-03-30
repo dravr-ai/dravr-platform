@@ -4,11 +4,11 @@
 // ABOUTME: Main groups management page listing the user's coaching groups
 // ABOUTME: Provides group creation via modal and navigation to group details
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { Users, Plus, LogIn } from 'lucide-react';
-import { useMyGroups, useCreateGroup } from '../../hooks/useGroups';
+import { useMyGroups, useCreateGroup, useGroupPermissions } from '../../hooks/useGroups';
 import { coachesApi } from '../../services/api';
 import { Button, Card, Input, Select, Modal, ModalActions, useErrorToast, useSuccessToast } from '../ui';
 import GroupCard from './GroupCard';
@@ -18,6 +18,8 @@ import type { CreateGroupRequest } from '@pierre/shared-types';
 
 interface GroupManagementProps {
   onSelectGroup: (groupId: string) => void;
+  pendingInviteCode?: string;
+  onInviteCodeConsumed?: () => void;
 }
 
 const MAX_MEMBERS_OPTIONS: SelectOption[] = [
@@ -29,14 +31,25 @@ const MAX_MEMBERS_OPTIONS: SelectOption[] = [
   { value: '50', label: '50 members' },
 ];
 
-export default function GroupManagement({ onSelectGroup }: GroupManagementProps) {
+export default function GroupManagement({ onSelectGroup, pendingInviteCode, onInviteCodeConsumed }: GroupManagementProps) {
   const { groups, isLoading } = useMyGroups();
   const { createGroup, isPending: isCreating } = useCreateGroup();
+  const { canCreate } = useGroupPermissions();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isJoinOpen, setIsJoinOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | undefined>(undefined);
+
+  // Auto-open JoinGroupModal when an invite link code is pending
+  useEffect(() => {
+    if (pendingInviteCode) {
+      setInviteCode(pendingInviteCode);
+      setIsJoinOpen(true);
+      onInviteCodeConsumed?.();
+    }
+  }, [pendingInviteCode, onInviteCodeConsumed]);
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formCoachId, setFormCoachId] = useState('');
@@ -108,12 +121,14 @@ export default function GroupManagement({ onSelectGroup }: GroupManagementProps)
               Join Group
             </span>
           </Button>
-          <Button variant="primary" onClick={handleOpenCreate}>
-            <span className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              Create Group
-            </span>
-          </Button>
+          {canCreate && (
+            <Button variant="primary" onClick={handleOpenCreate}>
+              <span className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Create Group
+              </span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -136,9 +151,11 @@ export default function GroupManagement({ onSelectGroup }: GroupManagementProps)
               <Button variant="secondary" onClick={() => setIsJoinOpen(true)}>
                 Join with Code
               </Button>
-              <Button variant="primary" onClick={handleOpenCreate}>
-                Create Group
-              </Button>
+              {canCreate && (
+                <Button variant="primary" onClick={handleOpenCreate}>
+                  Create Group
+                </Button>
+              )}
             </div>
           </div>
         </Card>
@@ -213,7 +230,11 @@ export default function GroupManagement({ onSelectGroup }: GroupManagementProps)
       {/* Join Group Modal */}
       <JoinGroupModal
         isOpen={isJoinOpen}
-        onClose={() => setIsJoinOpen(false)}
+        onClose={() => {
+          setIsJoinOpen(false);
+          setInviteCode(undefined);
+        }}
+        initialCode={inviteCode}
       />
     </div>
   );
