@@ -85,6 +85,7 @@ COPY --from=builder /app/target/release/seed-coaches /app/seed-coaches
 COPY --from=builder /app/target/release/seed-mobility /app/seed-mobility
 COPY --from=builder /app/target/release/seed-synthetic-activities /app/seed-synthetic-activities
 COPY --from=builder /app/coaches /app/coaches
+COPY --from=builder /app/commands /app/commands
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
 COPY docker/images/server/seed-entrypoint.sh /app/seed-entrypoint.sh
 COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless

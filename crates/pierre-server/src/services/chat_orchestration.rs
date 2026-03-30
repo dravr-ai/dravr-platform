@@ -213,18 +213,35 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         .as_deref()
         .unwrap_or_else(|| get_pierre_system_prompt());
 
-    // Inject group coaching context before appending messaging constraints
+    // Inject group coaching context before appending messaging constraints.
+    // Resolve group from user membership when conversation has no group_id,
+    // matching the pattern used in chat.rs::inject_group_context_if_applicable.
     #[cfg(feature = "tools-groups")]
     let base_prompt = {
         let group_service = resources.group_service();
         let user_uuid = parse_uuid(user_id).unwrap_or_default();
+
+        let conversation_group_id = conv.group_id.as_deref();
+        let resolved_group_id = if conversation_group_id.is_some() {
+            conversation_group_id.map(ToOwned::to_owned)
+        } else {
+            match resources.repos.groups.list_groups_for_user(user_uuid).await {
+                Ok(groups) if groups.len() == 1 => Some(groups[0].id.to_string()),
+                Ok(_) => None,
+                Err(e) => {
+                    tracing::debug!("Failed to check group membership: {e}");
+                    None
+                }
+            }
+        };
+
         group_service
             .inject_group_context(
                 base_prompt,
                 "",
                 user_uuid,
                 tool_tenant_id,
-                conv.group_id.as_deref(),
+                resolved_group_id.as_deref(),
                 &[],
             )
             .await
