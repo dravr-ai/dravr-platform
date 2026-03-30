@@ -4,9 +4,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+/// Account management commands (logout, profile)
 pub mod account;
+/// Group coaching commands (status, invite, members, leave)
 pub mod group;
+/// Help command listing available commands
 pub mod help;
+/// Status command showing user and platform state
 pub mod status;
 
 use std::collections::HashMap;
