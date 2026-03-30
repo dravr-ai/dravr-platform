@@ -4,23 +4,31 @@
 // ABOUTME: Modal dialog for joining a coaching group via invite code
 // ABOUTME: Includes invite code input, consent checkbox, and error handling for invalid codes
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useJoinGroup } from '../../hooks/useGroups';
 import { Modal, ModalActions, Button, Input, useErrorToast, useSuccessToast } from '../ui';
 
 interface JoinGroupModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialCode?: string;
 }
 
-export default function JoinGroupModal({ isOpen, onClose }: JoinGroupModalProps) {
+export default function JoinGroupModal({ isOpen, onClose, initialCode }: JoinGroupModalProps) {
   const { joinGroup, isPending } = useJoinGroup();
   const showError = useErrorToast();
   const showSuccess = useSuccessToast();
 
-  const [inviteCode, setInviteCode] = useState('');
+  const [inviteCode, setInviteCode] = useState(initialCode ?? '');
   const [consentGiven, setConsentGiven] = useState(false);
   const [fieldError, setFieldError] = useState('');
+
+  // Sync invite code when initialCode changes (e.g., opened via invite link)
+  useEffect(() => {
+    if (initialCode) {
+      setInviteCode(initialCode);
+    }
+  }, [initialCode]);
 
   const resetForm = () => {
     setInviteCode('');

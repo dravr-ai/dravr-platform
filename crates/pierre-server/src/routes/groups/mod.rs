@@ -242,6 +242,16 @@ pub struct HealthFlagsResponse {
     pub metadata: GroupMetadata,
 }
 
+/// Response for group creation permissions check
+#[derive(Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct GroupPermissionsResponse {
+    /// Whether the current user can create groups
+    pub can_create: bool,
+    /// Current group creation policy for the tenant
+    pub policy: String,
+}
+
 // ============================================================================
 // Request Types
 // ============================================================================
@@ -332,6 +342,8 @@ impl GroupRoutes {
                 "/api/groups/{group_id}/invites/{invite_id}",
                 delete(Self::handle_deactivate_invite),
             )
+            // Permissions
+            .route("/api/groups/permissions", get(Self::handle_get_permissions))
             // Join / Leave
             .route("/api/groups/join", post(Self::handle_join_by_invite_code))
             .route(
@@ -555,6 +567,46 @@ impl GroupRoutes {
 
         let response: GroupResponse = created.into();
         Ok((StatusCode::CREATED, Json(response)).into_response())
+    }
+
+    /// GET /api/groups/permissions — Check if the current user can create groups
+    async fn handle_get_permissions(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate(&headers, &resources).await?;
+        let tenant_id = Self::get_tenant_id(&auth)?;
+
+        // Check tenant role — admins/owners always allowed
+        let user_role = resources
+            .repos
+            .tenants
+            .get_user_role(auth.user_id, tenant_id)
+            .await
+            .unwrap_or(None);
+
+        let is_tenant_admin = user_role
+            .as_deref()
+            .is_some_and(|r| r == "owner" || r == "admin");
+
+        // Retrieve the group_creation_policy from admin config
+        let policy = if let Some(ref config_service) = resources.admin_config {
+            config_service
+                .get_value("group_creation_policy", Some(&tenant_id.to_string()))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "admins_only".to_owned())
+        } else {
+            "admins_only".to_owned()
+        };
+
+        let can_create = is_tenant_admin || policy == "everyone";
+
+        let response = GroupPermissionsResponse { can_create, policy };
+
+        Ok((StatusCode::OK, Json(response)).into_response())
     }
 
     /// GET /api/groups — List groups the current user belongs to

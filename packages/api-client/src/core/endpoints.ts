@@ -210,6 +210,8 @@ export const ENDPOINTS = {
     INVITE: (groupId: string, inviteId: string) => `/api/groups/${groupId}/invites/${inviteId}`,
     /** Join a group via invite code */
     JOIN: '/api/groups/join',
+    /** Check group creation permissions */
+    PERMISSIONS: '/api/groups/permissions',
     /** Leave a group */
     LEAVE: (id: string) => `/api/groups/${id}/leave`,
     /** Group aggregate stats */

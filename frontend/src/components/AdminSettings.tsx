@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
+import { useGroupPermissions } from '../hooks/useGroups';
 import { Card } from './ui';
 import type { SocialInsightsConfig } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -49,6 +50,19 @@ export default function AdminSettings() {
     mutationFn: () => adminApi.resetSocialInsightsConfig(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminSettings.socialInsightsConfig() });
+    },
+  });
+
+  // Group creation policy
+  const { policy: groupCreationPolicy, isLoading: groupPolicyLoading } = useGroupPermissions();
+
+  const updateGroupPolicyMutation = useMutation({
+    mutationFn: (newPolicy: string) => adminApi.updateConfig({
+      parameters: { group_creation_policy: newPolicy },
+      reason: 'Admin updated group creation policy',
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.permissions() });
     },
   });
 
@@ -191,6 +205,67 @@ export default function AdminSettings() {
         </div>
       </Card>
 
+
+      {/* Group Creation Policy */}
+      <Card variant="dark">
+        <h2 className="text-lg font-semibold text-white mb-4">Group Permissions</h2>
+
+        <div className="space-y-4">
+          <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+            <div className="flex-1 mr-4 mb-3">
+              <h3 className="font-medium text-white">Group Creation Policy</h3>
+              <p className="text-sm text-zinc-400 mt-1">
+                Controls who can create coaching groups within the tenant.
+              </p>
+            </div>
+            {groupPolicyLoading ? (
+              <div className="w-48 h-10 bg-white/10 rounded-lg animate-pulse" />
+            ) : (
+              <select
+                value={groupCreationPolicy}
+                onChange={(e) => updateGroupPolicyMutation.mutate(e.target.value)}
+                disabled={updateGroupPolicyMutation.isPending}
+                className="w-48 px-3 py-2 bg-[#151520] text-white border border-white/10 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet disabled:opacity-50"
+              >
+                <option value="admins_only">Admins Only</option>
+                <option value="everyone">Everyone</option>
+              </select>
+            )}
+          </div>
+
+          {/* Status indicator */}
+          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+            groupCreationPolicy === 'everyone'
+              ? 'bg-pierre-activity/15 text-pierre-activity border border-pierre-activity/30'
+              : 'bg-white/5 text-zinc-400 border border-white/10'
+          }`}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {groupCreationPolicy === 'everyone' ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              )}
+            </svg>
+            <span>
+              {groupCreationPolicy === 'everyone'
+                ? 'All users can create coaching groups.'
+                : 'Only tenant admins and owners can create coaching groups.'}
+            </span>
+          </div>
+
+          {/* Mutation status */}
+          {updateGroupPolicyMutation.isSuccess && (
+            <div className="p-3 rounded-lg bg-pierre-activity/15 text-pierre-activity text-sm border border-pierre-activity/30">
+              Group creation policy updated successfully.
+            </div>
+          )}
+          {updateGroupPolicyMutation.isError && (
+            <div className="p-3 rounded-lg bg-pierre-red-500/15 text-pierre-red-400 text-sm border border-pierre-red-500/30">
+              Failed to update policy. Please try again.
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Social Insights Configuration */}
       <Card variant="dark">

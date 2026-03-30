@@ -71,7 +71,12 @@ const PierreLogo = () => (
   </svg>
 );
 
-export default function Dashboard() {
+interface DashboardProps {
+  pendingInviteCode?: string | null;
+  onInviteCodeConsumed?: () => void;
+}
+
+export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: DashboardProps) {
   const { user, logout } = useAuth();
   // Default tab depends on user role: admin sees 'overview', regular users see 'chat'
   const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
@@ -94,6 +99,14 @@ export default function Dashboard() {
 
   // Groups state — null shows list, a group ID shows detail
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+
+  // Auto-navigate to Groups tab when an invite link is detected
+  useEffect(() => {
+    if (pendingInviteCode) {
+      setActiveTab('groups');
+      setSelectedGroupId(null);
+    }
+  }, [pendingInviteCode]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -529,7 +542,7 @@ export default function Dashboard() {
             {selectedGroupId ? (
               <GroupDetail groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} />
             ) : (
-              <GroupManagement onSelectGroup={setSelectedGroupId} />
+              <GroupManagement onSelectGroup={setSelectedGroupId} pendingInviteCode={pendingInviteCode ?? undefined} onInviteCodeConsumed={onInviteCodeConsumed} />
             )}
           </Suspense>
         )}

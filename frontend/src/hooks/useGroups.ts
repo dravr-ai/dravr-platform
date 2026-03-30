@@ -338,6 +338,24 @@ export function useUpdatePeerConsent(groupId: string) {
 }
 
 /**
+ * Fetches group creation permissions for the current user.
+ */
+export function useGroupPermissions() {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.groups.permissions(),
+    queryFn: () => groupsApi.getPermissions(),
+    staleTime: 60_000,
+  });
+
+  return {
+    canCreate: query.data?.can_create ?? true,
+    policy: query.data?.policy ?? 'everyone',
+    isLoading: query.isLoading,
+    isError: query.isError,
+  };
+}
+
+/**
  * Invalidates all group-related queries.
  * Useful after bulk operations or navigation changes.
  */

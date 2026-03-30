@@ -24,6 +24,7 @@ import type {
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupPermissionsResponse,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -44,6 +45,7 @@ export type {
   GroupMembersResponse,
   GroupInvitesResponse,
   GroupStatsResponse,
+  GroupPermissionsResponse,
 };
 
 /**
@@ -137,6 +139,14 @@ export function createGroupsApi(axios: AxiosInstance) {
     /** Deactivate an invite (admin/owner only) */
     async deactivateInvite(groupId: string, inviteId: string): Promise<void> {
       await axios.delete(ENDPOINTS.GROUPS.INVITE(groupId, inviteId));
+    },
+
+    // ==================== PERMISSIONS ====================
+
+    /** Check if the current user can create groups */
+    async getPermissions(): Promise<GroupPermissionsResponse> {
+      const response = await axios.get<GroupPermissionsResponse>(ENDPOINTS.GROUPS.PERMISSIONS);
+      return response.data;
     },
 
     // ==================== ANALYTICS ====================

@@ -90,16 +90,18 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
   };
 
   const handleCopyLink = async (code: string, inviteId: string) => {
-    const link = `${window.location.origin}/groups/join?code=${encodeURIComponent(code)}`;
+    const link = `${window.location.origin}/groups/join/${encodeURIComponent(code)}`;
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(inviteId);
+      showSuccess('Invite link copied!', 'Share this link with people you want to invite.');
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
       // Fallback: copy just the code
       try {
         await navigator.clipboard.writeText(code);
         setCopiedId(inviteId);
+        showSuccess('Invite code copied!', 'Share this code with people you want to invite.');
         setTimeout(() => setCopiedId(null), 2000);
       } catch {
         showError('Copy failed', 'Could not copy to clipboard.');

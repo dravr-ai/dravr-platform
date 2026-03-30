@@ -40,6 +40,14 @@ function getOAuthCallbackParams(): { provider: string; success: boolean; error?:
   return null;
 }
 
+/**
+ * Check if the current URL is an invite link: /groups/join/:code
+ */
+function getGroupInviteCode(): string | null {
+  const match = window.location.pathname.match(/^\/groups\/join\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
@@ -48,6 +56,7 @@ function AppContent() {
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
   const [resetEmail, setResetEmail] = useState<string>('');
   const [oauthCallback, setOauthCallback] = useState<{ provider: string; success: boolean; error?: string } | null>(null);
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const localQueryClient = useQueryClient();
 
   // Check for OAuth callback params on mount
@@ -60,6 +69,16 @@ function AppContent() {
       localQueryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connections() });
     }
   }, [localQueryClient]);
+
+  // Check for group invite link on mount: /groups/join/:code
+  useEffect(() => {
+    const code = getGroupInviteCode();
+    if (code) {
+      setPendingInviteCode(code);
+      // Clean the URL so the invite path doesn't persist on refresh
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, []);
 
   // Show OAuth callback result page
   if (oauthCallback) {
@@ -194,7 +213,7 @@ function AppContent() {
     <div className="min-h-screen bg-pierre-dark">
       <ConnectionBanner />
       <ImpersonationBanner />
-      <Dashboard />
+      <Dashboard pendingInviteCode={pendingInviteCode} onInviteCodeConsumed={() => setPendingInviteCode(null)} />
     </div>
   );
 }
