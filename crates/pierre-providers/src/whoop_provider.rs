@@ -178,10 +178,6 @@ struct WhoopCycleScore {
 struct WhoopRecovery {
     /// Cycle ID linking recovery to its cycle (for strain data join)
     cycle_id: Option<i64>,
-    /// Associated sleep record ID
-    sleep_id: Option<String>,
-    /// Score state: SCORED, PENDING_SCORE, or UNSCORABLE
-    score_state: Option<String>,
     /// Timestamp when the recovery was created
     created_at: Option<String>,
     /// Recovery score details (present only when `score_state` is `SCORED`)
