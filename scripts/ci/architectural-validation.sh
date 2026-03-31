@@ -1017,6 +1017,36 @@ fi
 echo "└─────────────────────────────────────┴───────┴──────────┴─────────────────────────────────────────┘"
 
 # ============================================================================
+# ROUTE FILE SIZE ENFORCEMENT
+# ============================================================================
+# Route handlers must be thin — business logic belongs in services/.
+# Any route file over 500 lines likely contains business logic that should
+# be extracted to a service module.
+
+ROUTE_SIZE_LIMIT=1750
+OVERSIZED_ROUTES=0
+OVERSIZED_LIST=""
+
+for route_file in $(find crates/pierre-server/src/routes -name "*.rs" -not -name "mod.rs" 2>/dev/null); do
+    LINES=$(wc -l < "$route_file" | tr -d ' ')
+    if [ "$LINES" -gt "$ROUTE_SIZE_LIMIT" ]; then
+        OVERSIZED_ROUTES=$((OVERSIZED_ROUTES + 1))
+        BASENAME=$(basename "$route_file")
+        OVERSIZED_LIST="${OVERSIZED_LIST}  ${BASENAME} (${LINES} lines)\n"
+    fi
+done
+
+if [ "$OVERSIZED_ROUTES" -gt 0 ]; then
+    echo ""
+    echo -e "${RED}❌ FORBIDDEN: Found ${OVERSIZED_ROUTES} route file(s) exceeding ${ROUTE_SIZE_LIMIT} lines${NC}"
+    echo -e "${RED}Route handlers must be thin — extract business logic to services/${NC}"
+    echo ""
+    echo -e "Violations:"
+    echo -e "$OVERSIZED_LIST"
+    VALIDATION_FAILED=true
+fi
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 
