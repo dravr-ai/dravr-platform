@@ -7,6 +7,10 @@
 # Additional clippy allows permitted in dravr-platform beyond baseline
 allowed_extra = "trivially_copy_pass_by_ref"
 
+[test_modules]
+# Platform enforces no #[cfg(test)] in src/ (tests in external tests/ directory)
+enforce_no_cfg_test = true
+
 [ci_integrity]
 # Terraform workflows legitimately use continue-on-error for plan steps
 exclude_workflows = ["terraform.yml"]
