@@ -13,11 +13,10 @@
 use crate::{
     admin::{models::CreateAdminTokenRequest, AdminPermission},
     config::social::SocialInsightsConfig,
-    errors::{AppError, ErrorCode},
-    llm::pricing::calculate_cost,
+    errors::AppError,
     mcp::resources::ServerResources,
     middleware::{extract_auth_from_headers, require_admin},
-    models::UserStatus,
+    services::admin_ops,
 };
 use axum::{
     extract::{Path, Query, State},
@@ -27,13 +26,10 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
 use pierre_core::models::TenantId;
-use pierre_database::database::repositories::UserMcpTokenRepository;
-use pierre_database::database::CreateUserMcpTokenRequest;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 /// Response for pending users list
@@ -162,140 +158,6 @@ pub struct UserActivityQuery {
     pub days: Option<u32>,
 }
 
-/// Auto-create a default MCP token for a newly activated user.
-/// This is a non-fatal operation - failure is logged but does not propagate.
-async fn create_default_mcp_token_for_user(
-    database: &dyn UserMcpTokenRepository,
-    user_id: uuid::Uuid,
-) {
-    let token_request = CreateUserMcpTokenRequest {
-        name: "Default Token".to_owned(),
-        expires_in_days: None, // Never expires
-    };
-
-    match database.create_token(user_id, &token_request).await {
-        Ok(token_result) => {
-            info!(
-                user_id = %user_id,
-                token_id = %token_result.token.id,
-                "Auto-created default MCP token for user"
-            );
-        }
-        Err(e) => {
-            // Log error but don't fail - user can create token manually
-            warn!(
-                user_id = %user_id,
-                error = %e,
-                "Failed to auto-create MCP token for user (non-fatal)"
-            );
-        }
-    }
-}
-
-/// Assigns a user to the admin's tenant for multi-tenant isolation.
-/// This ensures the user sees the same prompts, configuration, etc. as other users in the tenant.
-///
-/// Uses `active_tenant_id` from the admin's JWT claims to determine the target tenant.
-/// If the admin has no active tenant in their session, the assignment is skipped.
-async fn assign_user_to_admin_tenant(
-    resources: &Arc<ServerResources>,
-    active_tenant_id: Option<Uuid>,
-    target_user_id: uuid::Uuid,
-) -> Result<(), AppError> {
-    if let Some(tid) = active_tenant_id {
-        let tenant_id = TenantId::from(tid);
-        // Update user's tenant_id in users table (kept in sync with tenant_users junction)
-        resources
-            .repos
-            .users
-            .update_tenant_id(target_user_id, tenant_id)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to assign user to admin's tenant");
-                AppError::internal(format!("Failed to assign tenant: {e}"))
-            })?;
-        info!(
-            user_id = %target_user_id,
-            tenant_id = %tenant_id,
-            "Assigned approved user to admin's tenant"
-        );
-    }
-    Ok(())
-}
-
-/// Get the admin user's tenant scope for listing queries.
-///
-/// Super-admins see all tenants (returns None). Regular admins are scoped
-/// to their `active_tenant_id` from JWT claims (returns `Some(tenant_id)`).
-/// Returns an error if a non-super-admin has no active tenant in their session.
-async fn get_admin_tenant_scope(
-    resources: &Arc<ServerResources>,
-    admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
-) -> Result<Option<TenantId>, AppError> {
-    // SECURITY: Global lookup — resolving admin's own tenant scope
-    let user = resources
-        .repos
-        .users
-        .get_global(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
-        .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-
-    // Super-admins see all tenants
-    if user.role.is_super_admin() {
-        return Ok(None);
-    }
-
-    // Use active_tenant_id from JWT claims (admin's selected tenant)
-    let tid =
-        active_tenant_id.ok_or_else(|| AppError::auth_invalid("No active tenant in session"))?;
-    Ok(Some(TenantId::from(tid)))
-}
-
-/// Verify an admin user belongs to the target tenant.
-///
-/// Super-admin users can access any tenant. Regular admins are restricted
-/// to tenants they belong to via the `tenant_users` junction table.
-async fn verify_admin_tenant_access(
-    resources: &Arc<ServerResources>,
-    admin_user_id: Uuid,
-    target_tenant_id: TenantId,
-) -> Result<(), AppError> {
-    // SECURITY: Global lookup — verifying admin's own tenant access
-    let user = resources
-        .repos
-        .users
-        .get_global(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to fetch admin user: {e}")))?
-        .ok_or_else(|| AppError::not_found("Admin user not found"))?;
-
-    // Super-admins can access any tenant
-    if user.role.is_super_admin() {
-        return Ok(());
-    }
-
-    // Regular admins must belong to the target tenant
-    let admin_tenants = resources
-        .repos
-        .tenants
-        .list_for_user(admin_user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to get admin tenants: {e}")))?;
-
-    let belongs_to_tenant = admin_tenants.iter().any(|t| t.id == target_tenant_id);
-
-    if belongs_to_tenant {
-        Ok(())
-    } else {
-        Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "Admin does not belong to the target tenant",
-        ))
-    }
-}
-
 /// Web admin routes - accessible via browser for admin users
 pub struct WebAdminRoutes;
 
@@ -411,7 +273,8 @@ impl WebAdminRoutes {
 
         // Scope listing to admin's tenant (super-admins see all tenants)
         let admin_tenant_id =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
+            admin_ops::get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id)
+                .await?;
 
         // Fetch users with Pending status
         let users = resources
@@ -419,10 +282,7 @@ impl WebAdminRoutes {
             .users
             .get_by_status("pending", admin_tenant_id)
             .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to fetch pending users from database");
-                AppError::internal(format!("Failed to fetch pending users: {e}"))
-            })?;
+            .map_err(|e| AppError::internal(format!("Failed to fetch pending users: {e}")))?;
 
         // Convert to summaries
         let user_summaries: Vec<UserSummary> = users
@@ -466,7 +326,8 @@ impl WebAdminRoutes {
 
         // Scope listing to admin's tenant (super-admins see all tenants)
         let admin_tenant_id =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
+            admin_ops::get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id)
+                .await?;
 
         // Fetch users by status and combine (no get_all_users method exists)
         let mut all_users = Vec::new();
@@ -477,10 +338,7 @@ impl WebAdminRoutes {
                 .users
                 .get_by_status(status, admin_tenant_id)
                 .await
-                .map_err(|e| {
-                    error!(error = %e, status = status, "Failed to fetch users from database");
-                    AppError::internal(format!("Failed to fetch {status} users: {e}"))
-                })?;
+                .map_err(|e| AppError::internal(format!("Failed to fetch {status} users: {e}")))?;
             all_users.extend(users);
         }
 
@@ -536,10 +394,7 @@ impl WebAdminRoutes {
             .admin
             .list_tokens(false)
             .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to fetch admin tokens from database");
-                AppError::internal(format!("Failed to fetch admin tokens: {e}"))
-            })?;
+            .map_err(|e| AppError::internal(format!("Failed to fetch admin tokens: {e}")))?;
 
         // Convert to summaries
         let token_summaries: Vec<AdminTokenSummary> = tokens
@@ -578,7 +433,6 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Json(request): Json<ApproveUserRequest>,
     ) -> Result<Response, AppError> {
-        // Authenticate and verify admin status
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
         info!(
@@ -587,60 +441,17 @@ impl WebAdminRoutes {
             "Web admin approving user"
         );
 
-        // Parse user ID
-        let user_uuid = uuid::Uuid::parse_str(&user_id).map_err(|e| {
-            error!(error = %e, "Invalid user ID format");
-            AppError::invalid_input(format!("Invalid user ID format: {e}"))
-        })?;
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        // Tenant-scoped lookup: admin can only approve users in their own tenant
-        let admin_tenant =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
-        let user = if let Some(tid) = admin_tenant {
-            resources.repos.users.get(user_uuid, tid).await
-        } else {
-            resources.repos.users.get_global(user_uuid).await
-        }
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
-
-        if user.user_status == UserStatus::Active {
-            return Ok((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "success": false,
-                    "message": "User is already approved"
-                })),
-            )
-                .into_response());
-        }
-
-        // Use the admin user's UUID as the approver for proper audit trail
-        let updated_user = resources
-            .repos
-            .users
-            .update_status(user_uuid, UserStatus::Active, Some(auth.user_id))
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to update user status in database");
-                AppError::internal(format!("Failed to approve user: {e}"))
-            })?;
-
-        // Assign approved user to admin's tenant for multi-tenant isolation
-        assign_user_to_admin_tenant(&resources, auth.active_tenant_id, user_uuid).await?;
-
-        // Auto-create a default MCP token for the newly approved user
-        create_default_mcp_token_for_user(resources.repos.user_mcp_tokens.as_ref(), user_uuid)
-            .await;
-
-        let reason = request.reason.as_deref().unwrap_or("No reason provided");
-        info!("User {} approved successfully. Reason: {}", user_id, reason);
+        let result = admin_ops::approve_user(
+            &resources,
+            auth.user_id,
+            auth.active_tenant_id,
+            user_uuid,
+            request.reason.as_deref(),
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -648,9 +459,9 @@ impl WebAdminRoutes {
                 success: true,
                 message: "User approved successfully".to_owned(),
                 user: UserStatusChangeUser {
-                    id: updated_user.id.to_string(),
-                    email: updated_user.email,
-                    user_status: updated_user.user_status.to_string(),
+                    id: result.user_id,
+                    email: result.email,
+                    user_status: result.user_status,
                 },
             }),
         )
@@ -664,7 +475,6 @@ impl WebAdminRoutes {
         Path(user_id): Path<String>,
         Json(request): Json<SuspendUserRequest>,
     ) -> Result<Response, AppError> {
-        // Authenticate and verify admin status
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
         info!(
@@ -673,56 +483,17 @@ impl WebAdminRoutes {
             "Web admin suspending user"
         );
 
-        // Parse user ID
-        let user_uuid = uuid::Uuid::parse_str(&user_id).map_err(|e| {
-            error!(error = %e, "Invalid user ID format");
-            AppError::invalid_input(format!("Invalid user ID format: {e}"))
-        })?;
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        // Tenant-scoped lookup: admin can only suspend users in their own tenant
-        let admin_tenant =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
-        let user = if let Some(tid) = admin_tenant {
-            resources.repos.users.get(user_uuid, tid).await
-        } else {
-            resources.repos.users.get_global(user_uuid).await
-        }
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {}", user_id);
-            AppError::not_found("User not found")
-        })?;
-
-        if user.user_status == UserStatus::Suspended {
-            return Ok((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "success": false,
-                    "message": "User is already suspended"
-                })),
-            )
-                .into_response());
-        }
-
-        // Use the admin user's UUID for audit trail (Note: approved_by is used for both approve/suspend)
-        let updated_user = resources
-            .repos
-            .users
-            .update_status(user_uuid, UserStatus::Suspended, Some(auth.user_id))
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to update user status in database");
-                AppError::internal(format!("Failed to suspend user: {e}"))
-            })?;
-
-        let reason = request.reason.as_deref().unwrap_or("No reason provided");
-        info!(
-            "User {} suspended successfully. Reason: {}",
-            user_id, reason
-        );
+        let result = admin_ops::suspend_user(
+            &resources,
+            auth.user_id,
+            auth.active_tenant_id,
+            user_uuid,
+            request.reason.as_deref(),
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -730,40 +501,13 @@ impl WebAdminRoutes {
                 success: true,
                 message: "User suspended successfully".to_owned(),
                 user: UserStatusChangeUser {
-                    id: updated_user.id.to_string(),
-                    email: updated_user.email,
-                    user_status: updated_user.user_status.to_string(),
+                    id: result.user_id,
+                    email: result.email,
+                    user_status: result.user_status,
                 },
             }),
         )
             .into_response())
-    }
-
-    /// Verify the authenticated user has super-admin privileges
-    async fn require_super_admin(
-        user_id: Uuid,
-        resources: &Arc<ServerResources>,
-    ) -> Result<(), AppError> {
-        // SECURITY: Global lookup — checking admin's own super-admin role
-        let user = resources
-            .repos
-            .users
-            .get_global(user_id)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
-            .ok_or_else(|| AppError::not_found("User not found"))?;
-
-        if !user.role.is_super_admin() {
-            warn!(
-                user_id = %user_id,
-                "Non-super-admin attempted privileged operation"
-            );
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Super-admin privileges required to create super-admin tokens",
-            ));
-        }
-        Ok(())
     }
 
     /// Build a `CreateAdminTokenRequest` from the web request payload
@@ -794,7 +538,7 @@ impl WebAdminRoutes {
 
         // Only super-admins can create super-admin tokens
         if request.is_super_admin.unwrap_or(false) {
-            Self::require_super_admin(auth.user_id, &resources).await?;
+            admin_ops::require_super_admin(auth.user_id, &resources).await?;
         }
 
         info!(
@@ -815,10 +559,7 @@ impl WebAdminRoutes {
                 &resources.jwks_manager,
             )
             .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to create admin token");
-                AppError::internal(format!("Failed to create admin token: {e}"))
-            })?;
+            .map_err(|e| AppError::internal(format!("Failed to create admin token: {e}")))?;
 
         info!(
             token_id = %generated_token.token_id,
@@ -859,10 +600,7 @@ impl WebAdminRoutes {
             .admin
             .get_token_by_id(&token_id)
             .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to fetch admin token from database");
-                AppError::internal(format!("Failed to fetch admin token: {e}"))
-            })?
+            .map_err(|e| AppError::internal(format!("Failed to fetch admin token: {e}")))?
             .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))?;
 
         Ok((
@@ -901,10 +639,7 @@ impl WebAdminRoutes {
             .admin
             .deactivate_token(&token_id)
             .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to revoke admin token");
-                AppError::internal(format!("Failed to revoke admin token: {e}"))
-            })?;
+            .map_err(|e| AppError::internal(format!("Failed to revoke admin token: {e}")))?;
 
         info!(
             "Admin token {} revoked successfully via web admin",
@@ -932,10 +667,6 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
-        use rand::distributions::Alphanumeric;
-        use rand::Rng;
-        use sha2::{Digest, Sha256};
-
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
         info!(
@@ -947,40 +678,13 @@ impl WebAdminRoutes {
         let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        // Tenant-scoped lookup: admin can only reset passwords for users in their tenant
-        let admin_tenant =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
-        let user = if let Some(tid) = admin_tenant {
-            resources.repos.users.get(user_uuid, tid).await
-        } else {
-            resources.repos.users.get_global(user_uuid).await
-        }
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-        // Generate a cryptographically random reset token (48 chars alphanumeric)
-        let raw_token: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(48)
-            .map(char::from)
-            .collect();
-
-        // Store only the SHA-256 hash of the token in the database
-        let token_hash = format!("{:x}", Sha256::digest(raw_token.as_bytes()));
-
-        let admin_id_str = auth.user_id.to_string();
-        resources
-            .repos
-            .password_reset
-            .store_token(user_uuid, &token_hash, &admin_id_str)
-            .await
-            .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;
-
-        info!(
-            admin_id = %auth.user_id,
-            target_user_id = %user_id,
-            "Password reset token issued via web admin"
-        );
+        let result = admin_ops::generate_password_reset_token(
+            &resources,
+            auth.user_id,
+            auth.active_tenant_id,
+            user_uuid,
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -988,9 +692,9 @@ impl WebAdminRoutes {
                 "success": true,
                 "message": "Password reset token issued",
                 "data": {
-                    "reset_token": raw_token,
-                    "expires_in_seconds": 3600,
-                    "user_email": user.email,
+                    "reset_token": result.reset_token,
+                    "expires_in_seconds": result.expires_in_seconds,
+                    "user_email": result.user_email,
                     "note": "Deliver this token to the user. They must call POST /api/auth/complete-reset with the token and their new password within 1 hour."
                 }
             })),
@@ -1006,66 +710,16 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
-        debug!(
-            admin_id = %auth.user_id,
-            target_user_id = %user_id,
-            "Web admin fetching user rate limit"
-        );
-
-        let user_uuid = uuid::Uuid::parse_str(&user_id)
+        let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        // Tenant-scoped lookup: admin can only view metrics for users in their tenant
-        let admin_tenant =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
-        let user = if let Some(tid) = admin_tenant {
-            resources.repos.users.get(user_uuid, tid).await
-        } else {
-            resources.repos.users.get_global(user_uuid).await
-        }
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-        // Get current monthly usage
-        let monthly_used = resources
-            .repos
-            .usage
-            .get_jwt_current_usage(user_uuid)
-            .await
-            .unwrap_or(0);
-
-        // Get daily usage from activity logs (today's requests)
-        let now = chrono::Utc::now();
-        let today_start = now.date_naive().and_hms_opt(0, 0, 0).map_or(now, |t| {
-            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc)
-        });
-        let daily_used = resources
-            .repos
-            .usage
-            .get_top_tools_analysis(user_uuid, today_start, now)
-            .await
-            .map(|tools| {
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                tools.iter().map(|t| t.request_count as u32).sum::<u32>()
-            })
-            .unwrap_or(0);
-
-        // Calculate limits based on tier
-        let monthly_limit = user.tier.monthly_limit();
-        let daily_limit = monthly_limit.map(|m| m / 30);
-
-        // Calculate remaining
-        let monthly_remaining = monthly_limit.map(|l| l.saturating_sub(monthly_used));
-        let daily_remaining = daily_limit.map(|l| l.saturating_sub(daily_used));
-
-        // Calculate reset times
-        let daily_reset = (now + chrono::Duration::days(1))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .map_or(now, |t| {
-                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc)
-            });
-        let monthly_reset = UnifiedRateLimitCalculator::calculate_monthly_reset();
+        let limits = admin_ops::compute_user_rate_limits(
+            &resources,
+            auth.user_id,
+            auth.active_tenant_id,
+            user_uuid,
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -1073,23 +727,23 @@ impl WebAdminRoutes {
                 "success": true,
                 "message": "Rate limit information retrieved",
                 "data": {
-                    "user_id": user_uuid.to_string(),
-                    "tier": user.tier.to_string(),
+                    "user_id": limits.user_id,
+                    "tier": limits.tier,
                     "rate_limits": {
                         "daily": {
-                            "limit": daily_limit,
-                            "used": daily_used,
-                            "remaining": daily_remaining,
+                            "limit": limits.daily_limit,
+                            "used": limits.daily_used,
+                            "remaining": limits.daily_remaining,
                         },
                         "monthly": {
-                            "limit": monthly_limit,
-                            "used": monthly_used,
-                            "remaining": monthly_remaining,
+                            "limit": limits.monthly_limit,
+                            "used": limits.monthly_used,
+                            "remaining": limits.monthly_remaining,
                         },
                     },
                     "reset_times": {
-                        "daily_reset": daily_reset.to_rfc3339(),
-                        "monthly_reset": monthly_reset.to_rfc3339(),
+                        "daily_reset": limits.daily_reset.to_rfc3339(),
+                        "monthly_reset": limits.monthly_reset.to_rfc3339(),
                     },
                 }
             })),
@@ -1106,58 +760,17 @@ impl WebAdminRoutes {
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
 
-        debug!(
-            admin_id = %auth.user_id,
-            target_user_id = %user_id,
-            "Web admin fetching user activity"
-        );
-
-        let user_uuid = uuid::Uuid::parse_str(&user_id)
+        let user_uuid = Uuid::parse_str(&user_id)
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
-        // Tenant-scoped lookup: admin can only view activity for users in their tenant
-        let admin_tenant =
-            get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id).await?;
-        if let Some(tid) = admin_tenant {
-            resources.repos.users.get(user_uuid, tid).await
-        } else {
-            resources.repos.users.get_global(user_uuid).await
-        }
-        .map_err(|e| AppError::internal(format!("Failed to fetch user: {e}")))?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-
-        // Get time range for activity using days parameter (default 30)
-        let days = i64::from(params.days.unwrap_or(30).clamp(1, 365));
-        let now = chrono::Utc::now();
-        let start_time = now - chrono::Duration::days(days);
-
-        // Get top tools usage
-        let top_tools_raw = resources
-            .repos
-            .usage
-            .get_top_tools_analysis(user_uuid, start_time, now)
-            .await
-            .unwrap_or_default();
-
-        // Calculate total requests and percentages
-        let total_requests: u64 = top_tools_raw.iter().map(|t| t.request_count).sum();
-        let top_tools: Vec<serde_json::Value> = top_tools_raw
-            .into_iter()
-            .map(|t| {
-                let percentage = if total_requests > 0 {
-                    #[allow(clippy::cast_precision_loss)]
-                    let pct = (t.request_count as f64 / total_requests as f64) * 100.0;
-                    pct
-                } else {
-                    0.0
-                };
-                serde_json::json!({
-                    "tool_name": t.tool_name,
-                    "call_count": t.request_count,
-                    "percentage": percentage,
-                })
-            })
-            .collect();
+        let activity = admin_ops::compute_user_activity(
+            &resources,
+            auth.user_id,
+            auth.active_tenant_id,
+            user_uuid,
+            params.days,
+        )
+        .await?;
 
         Ok((
             StatusCode::OK,
@@ -1165,10 +778,10 @@ impl WebAdminRoutes {
                 "success": true,
                 "message": "User activity retrieved",
                 "data": {
-                    "user_id": user_uuid.to_string(),
-                    "period_days": days,
-                    "total_requests": total_requests,
-                    "top_tools": top_tools,
+                    "user_id": activity.user_id,
+                    "period_days": activity.period_days,
+                    "total_requests": activity.total_requests,
+                    "top_tools": activity.top_tools,
                 }
             })),
         )
@@ -1182,24 +795,7 @@ impl WebAdminRoutes {
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
-        // Get effective auto-approval setting
-        // Precedence: env var (if set) > database > default
-        let enabled = if resources.config.app_behavior.auto_approve_users_from_env {
-            resources.config.app_behavior.auto_approve_users
-        } else {
-            match resources.database.is_auto_approval_enabled().await {
-                Ok(Some(db_setting)) => db_setting,
-                Ok(None) => resources.config.app_behavior.auto_approve_users,
-                Err(e) => {
-                    error!(error = %e, "Failed to get auto-approval setting");
-                    return Err(AppError::internal(format!(
-                        "Failed to get auto-approval setting: {e}"
-                    )));
-                }
-            }
-        };
-
-        let domains = &resources.config.app_behavior.auto_approve_domains;
+        let settings = admin_ops::get_auto_approval_settings(&resources).await?;
 
         Ok((
             StatusCode::OK,
@@ -1207,8 +803,8 @@ impl WebAdminRoutes {
                 "success": true,
                 "message": "Auto-approval setting retrieved",
                 "data": {
-                    "enabled": enabled,
-                    "auto_approve_domains": domains,
+                    "enabled": settings.enabled,
+                    "auto_approve_domains": settings.auto_approve_domains,
                     "description": "When enabled, all new registrations are auto-approved. \
                         When disabled, only emails from auto_approve_domains are auto-approved."
                 }
@@ -1236,14 +832,7 @@ impl WebAdminRoutes {
             "Setting auto-approval"
         );
 
-        resources
-            .database
-            .set_auto_approval_enabled(enabled)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to set auto-approval setting");
-                AppError::internal(format!("Failed to set auto-approval setting: {e}"))
-            })?;
+        admin_ops::set_auto_approval(&resources, enabled).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1276,15 +865,7 @@ impl WebAdminRoutes {
     ) -> Result<impl IntoResponse, AppError> {
         Self::authenticate_admin(&headers, &resources).await?;
 
-        let config = resources
-            .database
-            .get_social_insights_config()
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to get social insights config");
-                AppError::internal(format!("Failed to get social insights config: {e}"))
-            })?
-            .unwrap_or_default();
+        let config = admin_ops::get_social_insights_config(&resources).await?;
 
         Ok((
             StatusCode::OK,
@@ -1310,14 +891,7 @@ impl WebAdminRoutes {
             "Updating social insights configuration"
         );
 
-        resources
-            .database
-            .set_social_insights_config(&config)
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to set social insights config");
-                AppError::internal(format!("Failed to set social insights config: {e}"))
-            })?;
+        admin_ops::set_social_insights_config(&resources, &config).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1347,16 +921,7 @@ impl WebAdminRoutes {
             "Resetting social insights configuration to defaults"
         );
 
-        resources
-            .database
-            .delete_social_insights_config()
-            .await
-            .map_err(|e| {
-                error!(error = %e, "Failed to reset social insights config");
-                AppError::internal(format!("Failed to reset social insights config: {e}"))
-            })?;
-
-        let default_config = SocialInsightsConfig::default();
+        let default_config = admin_ops::reset_social_insights_config(&resources).await?;
 
         info!(
             user_id = %auth.user_id,
@@ -1458,7 +1023,7 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
 
         let tools = resources
             .tool_selection
@@ -1484,7 +1049,7 @@ impl WebAdminRoutes {
         Json(request): Json<SetToolOverrideRequest>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
 
         info!(
             "Setting tool override: tenant={}, tool={}, enabled={}, by={}",
@@ -1526,7 +1091,7 @@ impl WebAdminRoutes {
         Path((tenant_id, tool_name)): Path<(TenantId, String)>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
 
         info!(
             "Removing tool override: tenant={}, tool={}, by={}",
@@ -1561,7 +1126,7 @@ impl WebAdminRoutes {
         Path(tenant_id): Path<TenantId>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate_admin(&headers, &resources).await?;
-        verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
+        admin_ops::verify_admin_tenant_access(&resources, auth.user_id, tenant_id).await?;
 
         let summary = resources
             .tool_selection
@@ -1590,124 +1155,20 @@ impl WebAdminRoutes {
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        Self::authenticate_admin(&headers, &resources).await?;
 
-        debug!(
-            user_id = %auth.user_id,
-            "Admin querying recent activity"
-        );
-
-        // Limit for recent items
-        let recent_limit: i64 = 20;
-
-        // Time boundary for "today" stats
-        let today_start = chrono::Utc::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .map_or_else(chrono::Utc::now, |t| {
-                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(t, chrono::Utc)
-            });
-        let today_str = today_start.to_rfc3339();
-
-        // Time boundary for "active conversations" (last 15 minutes)
-        let fifteen_min_ago = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
-
-        // Fetch all data concurrently
-        let (recent_llm, recent_convos, llm_calls_today, active_convos, llm_totals) = tokio::join!(
-            resources
-                .repos
-                .llm_usage
-                .get_recent_llm_calls_admin(recent_limit),
-            resources
-                .repos
-                .chat
-                .get_recent_conversations_admin(recent_limit),
-            resources.repos.llm_usage.count_llm_calls_since(&today_str),
-            resources
-                .repos
-                .chat
-                .count_active_conversations_since(&fifteen_min_ago),
-            resources.repos.llm_usage.sum_llm_usage_since(&today_str),
-        );
-
-        // Resolve results, defaulting to empty/zero on error
-        let recent_llm = recent_llm.unwrap_or_default();
-        let recent_convos = recent_convos.unwrap_or_default();
-        let llm_calls_today = llm_calls_today.unwrap_or(0);
-        let active_convos = active_convos.unwrap_or(0);
-        let (total_calls_today, total_tokens_today) = llm_totals.unwrap_or((0, 0));
-
-        // Build LLM calls response with cost estimation
-        let llm_calls_json: Vec<serde_json::Value> = recent_llm
-            .iter()
-            .map(|r| {
-                let cost =
-                    calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens);
-                serde_json::json!({
-                    "id": r.id,
-                    "provider": r.provider,
-                    "model": r.model,
-                    "total_tokens": r.total_tokens,
-                    "cost_usd": cost,
-                    "call_type": r.call_type,
-                    "execution_time_ms": r.execution_time_ms,
-                    "created_at": r.created_at,
-                })
-            })
-            .collect();
-
-        // Build conversations response — look up user emails for display
-        let mut conversations_json: Vec<serde_json::Value> =
-            Vec::with_capacity(recent_convos.len());
-        for convo in &recent_convos {
-            // Resolve user email for display (non-critical, use empty on failure)
-            let user_email = if let Ok(user_uuid) = convo.user_id.parse::<Uuid>() {
-                resources
-                    .repos
-                    .users
-                    .get_global(user_uuid)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|u| u.email)
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-
-            conversations_json.push(serde_json::json!({
-                "id": convo.id,
-                "title": convo.title,
-                "updated_at": convo.updated_at,
-                "user_email": user_email,
-            }));
-        }
-
-        // Estimate cost for today using pricing
-        let estimated_cost_today = if total_calls_today > 0 {
-            // Use average cost per token from recent calls as approximation
-            recent_llm
-                .iter()
-                .map(|r| {
-                    calculate_cost(&r.provider, &r.model, r.prompt_tokens, r.completion_tokens)
-                })
-                .sum::<f64>()
-                / recent_llm.len().max(1) as f64
-                * total_calls_today as f64
-        } else {
-            0.0
-        };
+        let activity = admin_ops::fetch_recent_activity(&resources).await?;
 
         Ok((
             StatusCode::OK,
             Json(serde_json::json!({
-                "recent_llm_calls": llm_calls_json,
-                "recent_conversations": conversations_json,
+                "recent_llm_calls": activity.recent_llm_calls,
+                "recent_conversations": activity.recent_conversations,
                 "summary": {
-                    "active_conversations": active_convos,
-                    "llm_calls_today": llm_calls_today,
-                    "total_tokens_today": total_tokens_today,
-                    "estimated_cost_today": estimated_cost_today,
+                    "active_conversations": activity.summary.active_conversations,
+                    "llm_calls_today": activity.summary.llm_calls_today,
+                    "total_tokens_today": activity.summary.total_tokens_today,
+                    "estimated_cost_today": activity.summary.estimated_cost_today,
                 }
             })),
         )

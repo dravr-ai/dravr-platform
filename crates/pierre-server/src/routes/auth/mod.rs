@@ -19,10 +19,11 @@ mod login;
 mod oauth;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte;
-mod types;
+pub(crate) mod types;
 
+pub use crate::services::oauth_flow::OAuthService;
 pub use login::AuthService;
-pub use oauth::{OAuthRoutes, OAuthService};
+pub use oauth::OAuthRoutes;
 
 pub use types::{
     ChangePasswordRequest, CompleteResetRequest, ConnectionStatus, FirebaseLoginRequest,

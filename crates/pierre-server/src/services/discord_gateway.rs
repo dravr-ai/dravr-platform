@@ -19,7 +19,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::mcp::resources::ServerResources;
-use crate::routes::messaging::webhooks;
+use crate::services::messaging_ingress;
 
 /// Start the Discord Gateway background service
 ///
@@ -97,7 +97,7 @@ async fn dispatch_message(
 ) {
     let messages = vec![message];
 
-    let (_stored, pending_dispatches) = webhooks::persist_inbound(
+    let (_stored, pending_dispatches) = messaging_ingress::persist_inbound(
         resources,
         "discord",
         tenant_id,
@@ -109,7 +109,7 @@ async fn dispatch_message(
 
     for dispatch in pending_dispatches {
         tokio::spawn(async move {
-            webhooks::dispatch_and_respond(dispatch).await;
+            messaging_ingress::dispatch_and_respond(dispatch).await;
         });
     }
 }

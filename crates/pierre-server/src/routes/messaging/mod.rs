@@ -11,7 +11,7 @@
 //! authentication. Webhook endpoints use channel-specific signature verification.
 
 mod config;
-mod linking;
+pub(crate) mod linking;
 pub(crate) mod slack_actions;
 mod templates;
 pub(crate) mod webhooks;
