@@ -109,8 +109,7 @@ fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, 
         .filter(|a| a.start_date() >= seven_days_ago)
         .collect();
 
-    #[allow(clippy::cast_possible_wrap)]
-    let weekly_activity_count = weekly_activities.len().min(i32::MAX as usize) as i32;
+    let weekly_activity_count = i32::try_from(weekly_activities.len()).unwrap_or(i32::MAX);
 
     let weekly_volume_km = weekly_activities
         .iter()
@@ -122,12 +121,7 @@ fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, 
         .iter()
         .map(Activity::start_date)
         .max()
-        .map(|last| {
-            #[allow(clippy::cast_lossless)]
-            {
-                (now - last).num_days().min(i64::from(i32::MAX)) as i32
-            }
-        });
+        .map(|last| i32::try_from((now - last).num_days()).unwrap_or(i32::MAX));
 
     (weekly_activity_count, weekly_volume_km, days_since_last)
 }
