@@ -69,7 +69,7 @@ const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from this analys
 /// AND as text content using syntax like `<function(name)>{...}</function>` or
 /// `<function/name>{...}</function>`.
 /// This helper removes that synthetic syntax to avoid displaying it to users.
-pub(super) fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
+pub(crate) fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
     use regex::Regex;
     use std::sync::OnceLock;
 

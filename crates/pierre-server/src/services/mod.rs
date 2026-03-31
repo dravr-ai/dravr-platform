@@ -60,6 +60,10 @@ pub mod commands;
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
 
+/// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes)
+#[cfg(feature = "client-chat")]
+pub mod tool_execution;
+
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
