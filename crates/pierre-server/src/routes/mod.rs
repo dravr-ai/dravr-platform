@@ -76,7 +76,9 @@ pub mod health_data;
 #[cfg(feature = "client-chat")]
 pub mod chat;
 
-// chat_tool_loop moved to services/tool_execution.rs
+/// Tool loop strategies for chat conversations (API and CLI modes)
+#[cfg(feature = "client-chat")]
+pub mod chat_tool_loop;
 
 /// Usage quota status routes
 #[cfg(feature = "client-chat")]
