@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+# ABOUTME: Platform-specific validation extensions for dravr-platform
+# ABOUTME: Extends .build/validation/patterns.toml baseline (never weakens it)
+
+[clippy_allows]
+# Additional clippy allows permitted in dravr-platform beyond baseline
+allowed_extra = "trivially_copy_pass_by_ref"
+
+[ci_integrity]
+# Terraform workflows legitimately use continue-on-error for plan steps
+exclude_workflows = ["terraform.yml"]
