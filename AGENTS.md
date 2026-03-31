@@ -288,11 +288,14 @@ bun run test:e2e
 
 ## Git Hooks - MANDATORY for ALL AI Agents
 
-**⚠️ MANDATORY - Run this at the START OF EVERY SESSION:**
+**⚠️ MANDATORY - Run these at the START OF EVERY SESSION:**
 ```bash
+git submodule update --init --recursive
 git config core.hooksPath .githooks
 ```
-This enables pre-commit, commit-msg, and pre-push hooks. Sessions get archived/revived, so this must run EVERY time you start working, not just once.
+The first command initializes the shared build config (`.build/`). The second enables git hooks. Sessions get archived/revived, so these must run EVERY time you start working, not just once.
+
+**Shared Build Config (`.build/`):** The `.build/` directory is a git submodule containing shared lint rules, architectural validation, and configuration from `dravr-build-config`. Run `.build/validation/validate.sh` before pushing — it must exit 0.
 
 **NEVER use `--no-verify` when committing or pushing.** The hooks enforce:
 - SPDX license headers on all source files
