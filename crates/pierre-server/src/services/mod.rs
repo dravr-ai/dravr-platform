@@ -16,7 +16,10 @@ pub mod coaches;
 /// Coach markdown import: URL fetching, security validation, warnings, definition conversion
 pub mod coach_import;
 
-/// OAuth flow orchestration: state validation, redirect URL parsing
+/// Authentication service: registration, login, password management, token refresh
+pub mod auth;
+
+/// OAuth flow orchestration: state validation, token exchange, credential storage
 pub mod oauth_flow;
 
 /// Recipe import/export and markdown conversion
@@ -52,6 +55,10 @@ pub mod discord_gateway;
 /// Slack operations notifier for deploy and user lifecycle events
 pub mod slack_ops_notifier;
 
+/// Messaging ingress: OTP flow, channel linking, session resolution, slash command dispatch
+#[cfg(feature = "client-messaging")]
+pub mod messaging_ingress;
+
 /// Slash command handlers for messaging platforms
 #[cfg(feature = "client-messaging")]
 pub mod commands;
@@ -63,6 +70,9 @@ pub mod group_fitness;
 /// Tool execution strategies for multi-turn LLM chat (API, headless, CLI modes)
 #[cfg(feature = "client-chat")]
 pub mod tool_execution;
+
+/// Admin operations: user lifecycle, token management, settings, and analytics
+pub mod admin_ops;
 
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]

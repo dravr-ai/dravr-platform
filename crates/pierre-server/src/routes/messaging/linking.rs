@@ -87,7 +87,7 @@ fn resolve_tenant_id(auth: &AuthResult) -> TenantId {
 }
 
 /// Generate a cryptographically random linking code
-pub(super) fn generate_link_code() -> String {
+pub fn generate_link_code() -> String {
     let mut rng = rand::thread_rng();
     (0..LINK_CODE_LENGTH)
         .map(|_| {
