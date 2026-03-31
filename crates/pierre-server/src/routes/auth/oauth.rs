@@ -110,23 +110,16 @@ impl OAuthService {
         let parsed_state = self.consume_and_validate_state(state, provider).await?;
         let user_id = parsed_state.user_id;
         let mobile_redirect_url = parsed_state.mobile_redirect_url;
-        let pkce_code_verifier = parsed_state.pkce_code_verifier;
-        let state_tenant_id = parsed_state.tenant_id;
+        let flow_label = if mobile_redirect_url.is_some() {
+            " (mobile flow)"
+        } else {
+            ""
+        };
 
-        info!(
-            "Processing OAuth callback for user {} provider {}{}",
-            user_id,
-            provider,
-            if mobile_redirect_url.is_some() {
-                " (mobile flow)"
-            } else {
-                ""
-            }
-        );
+        info!("Processing OAuth callback for user {user_id} provider {provider}{flow_label}");
 
         // Get user and tenant from database
         let (user, tenant_id) = self.get_user_and_tenant(user_id, provider).await?;
-        let user_email = user.email.clone();
 
         // Exchange OAuth code for access token (with PKCE if verifier was stored)
         // Pass tenant_id from state so exchange uses tenant-specific credentials if available
@@ -135,26 +128,17 @@ impl OAuthService {
                 code,
                 provider,
                 user_id,
-                pkce_code_verifier.as_deref(),
-                state_tenant_id,
+                parsed_state.pkce_code_verifier.as_deref(),
+                parsed_state.tenant_id,
             )
             .await?;
 
-        info!(
-            "Successfully exchanged OAuth code for user {} provider {}",
-            user_id, provider
-        );
+        info!("Successfully exchanged OAuth code for user {user_id} provider {provider}");
 
-        // Store token and send notifications
+        // Persist token and dispatch all post-connection side effects
         let expires_at = self
-            .store_oauth_token(user_id, tenant_id, provider, &token)
+            .finalize_oauth_connection(user_id, tenant_id, provider, &user.email, &token)
             .await?;
-        self.send_oauth_notifications(user_id, provider, &expires_at)
-            .await?;
-        self.notify_bridge_oauth_success(provider, &token).await;
-
-        // Send ops notification for provider connection
-        crate::ops_notifier().notify_oauth_connected(&user_email, provider);
 
         Ok(OAuthCallbackResponse {
             user_id: user_id.to_string(),
@@ -163,6 +147,41 @@ impl OAuthService {
             scopes: token.scope.unwrap_or_else(|| "read".to_owned()),
             mobile_redirect_url,
         })
+    }
+
+    /// Persist the OAuth token and dispatch all post-connection side effects.
+    ///
+    /// Stores the token, sends UI/bridge notifications, and logs the ops event.
+    async fn finalize_oauth_connection(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: String,
+        provider: &str,
+        user_email: &str,
+        token: &OAuth2Token,
+    ) -> AppResult<chrono::DateTime<chrono::Utc>> {
+        let expires_at = self
+            .store_oauth_token(user_id, tenant_id, provider, token)
+            .await?;
+        self.send_oauth_notifications(user_id, provider, &expires_at)
+            .await?;
+        self.notify_bridge_oauth_success(provider, token).await;
+
+        // Send ops notification for provider connection
+        crate::ops_notifier().notify_oauth_connected(user_email, provider);
+
+        // Health data backfill is triggered by the callback handler after this returns.
+        // The scheduler will also auto-detect this user on subsequent cycles.
+        #[cfg(feature = "health-sync")]
+        {
+            tracing::info!(
+                user_id = %user_id,
+                provider = provider,
+                "Health data sync: provider connected, backfill triggered from callback handler"
+            );
+        }
+
+        Ok(expires_at)
     }
 
     /// Consume and validate OAuth state from server-side storage
@@ -1086,6 +1105,9 @@ pub(super) async fn handle_oauth_callback(
 
     match oauth_routes.handle_callback(code, state, &provider).await {
         Ok(response) => {
+            #[cfg(feature = "health-sync")]
+            spawn_health_backfill(&resources, &response.user_id, &response.provider);
+
             // Priority: mobile redirect URL > frontend URL > render template
             // Mobile apps pass redirect URL through OAuth state for deep linking
             if let Some(mobile_url) = &response.mobile_redirect_url {
@@ -1725,4 +1747,38 @@ fn categorize_oauth_error(error: &AppError) -> (&'static str, Option<&'static st
             Some("An unexpected error occurred during the OAuth authorization process."),
         )
     }
+}
+
+/// Spawn background health data backfill after a successful OAuth connection.
+///
+/// Triggers a 30-day backfill via the sync orchestrator so the user gets
+/// historical data immediately after connecting a wearable provider.
+#[cfg(feature = "health-sync")]
+fn spawn_health_backfill(resources: &ServerResources, user_id: &str, provider: &str) {
+    const BACKFILL_DAYS: u32 = 30;
+
+    let Some(orchestrator) = resources.sync_orchestrator.clone() else {
+        return;
+    };
+    let user_id = user_id.to_owned();
+    let provider = provider.to_owned();
+    tokio::spawn(async move {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            days = BACKFILL_DAYS,
+            "Triggering initial health data backfill after OAuth connection"
+        );
+        if let Err(e) = orchestrator
+            .backfill(&user_id, &provider, BACKFILL_DAYS)
+            .await
+        {
+            tracing::error!(
+                error = %e,
+                user_id = %user_id,
+                provider = %provider,
+                "Initial health data backfill failed"
+            );
+        }
+    });
 }

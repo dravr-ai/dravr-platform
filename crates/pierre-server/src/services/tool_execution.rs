@@ -1,4 +1,4 @@
-// ABOUTME: Strategy pattern for LLM tool execution loops in chat conversations
+// ABOUTME: Service layer for LLM tool execution loops in chat conversations
 // ABOUTME: Supports API-based, headless (Copilot ACP), and CLI-based tool calling modes
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -985,6 +985,8 @@ impl MultiTenantMcpServer {
         use crate::routes::dashboard::DashboardRoutes;
         #[cfg(feature = "client-settings")]
         use crate::routes::fitness::FitnessConfigurationRoutes;
+        #[cfg(feature = "client-settings")]
+        use crate::routes::health_data::HealthDataRoutes;
         #[cfg(feature = "client-impersonation")]
         use crate::routes::impersonation::ImpersonationRoutes;
         #[cfg(feature = "client-chat")]
@@ -1121,7 +1123,15 @@ impl MultiTenantMcpServer {
         #[cfg(feature = "client-settings")]
         let app = app
             .merge(ConfigurationRoutes::routes(Arc::clone(resources)))
-            .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)));
+            .merge(FitnessConfigurationRoutes::routes(Arc::clone(resources)))
+            .merge(HealthDataRoutes::routes(Arc::clone(resources)));
+
+        // Webhook routes for provider-pushed health data (WHOOP, Garmin, Oura)
+        #[cfg(feature = "health-sync")]
+        let app = {
+            use crate::routes::webhooks::WebhookRoutes;
+            app.merge(WebhookRoutes::routes(Arc::clone(resources)))
+        };
 
         #[cfg(feature = "client-chat")]
         let app = app

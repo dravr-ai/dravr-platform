@@ -51,6 +51,7 @@ rand_chacha = "0.3"
 ring = "0.17"
 subtle = "2.6"
 hex = "0.4"
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.1.0" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.4.4", optional = true }
 
 [lints]

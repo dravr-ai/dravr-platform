@@ -68,13 +68,15 @@ pub mod configuration;
 #[cfg(feature = "client-settings")]
 pub mod fitness;
 
+/// Health data persistence routes (sleep, recovery, snapshots, data sources)
+#[cfg(feature = "client-settings")]
+pub mod health_data;
+
 /// Chat conversation routes for AI assistants
 #[cfg(feature = "client-chat")]
 pub mod chat;
 
-/// Tool loop strategies for chat conversations (API and CLI modes)
-#[cfg(feature = "client-chat")]
-pub mod chat_tool_loop;
+// chat_tool_loop moved to services/tool_execution.rs
 
 /// Usage quota status routes
 #[cfg(feature = "client-chat")]
@@ -204,6 +206,9 @@ pub use configuration::ConfigurationRoutes;
 #[cfg(feature = "client-settings")]
 pub use fitness::FitnessConfigurationRoutes;
 
+#[cfg(feature = "client-settings")]
+pub use health_data::HealthDataRoutes;
+
 #[cfg(feature = "client-chat")]
 pub use chat::ChatRoutes;
 
@@ -267,6 +272,12 @@ pub use openapi::OpenApiRoutes;
 #[cfg(feature = "protocol-rest")]
 /// OAuth routes (alias for `OAuthService`)
 pub type OAuthRoutes = OAuthService;
+
+/// Webhook endpoints for provider-pushed health data
+#[cfg(feature = "health-sync")]
+pub mod webhooks;
+#[cfg(feature = "health-sync")]
+pub use webhooks::WebhookRoutes;
 
 use crate::errors::AppError as ServerAppError;
 use pierre_llm::ChatProvider;

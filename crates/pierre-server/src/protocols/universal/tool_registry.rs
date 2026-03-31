@@ -97,6 +97,16 @@ pub enum ToolId {
     /// Optimize sleep duration based on training load and recovery needs
     OptimizeSleepSchedule,
 
+    // Health data persistence query tools
+    /// Get stored sleep sessions for a user within a date range
+    GetSleepSessions,
+    /// Get stored recovery metrics for a user within a date range
+    GetRecoveryMetrics,
+    /// Get stored health snapshots (body composition, vitals) for a user
+    GetHealthSnapshots,
+    /// List data sources (devices/providers) for a user
+    ListDataSources,
+
     // Fitness configuration management tools
     /// Get user fitness configuration settings
     GetFitnessConfig,
@@ -235,6 +245,10 @@ impl ToolId {
             "suggest_rest_day" => Some(Self::SuggestRestDay),
             "track_sleep_trends" => Some(Self::TrackSleepTrends),
             "optimize_sleep_schedule" => Some(Self::OptimizeSleepSchedule),
+            "get_sleep_sessions" => Some(Self::GetSleepSessions),
+            "get_recovery_metrics" => Some(Self::GetRecoveryMetrics),
+            "get_health_snapshots" => Some(Self::GetHealthSnapshots),
+            "list_data_sources" => Some(Self::ListDataSources),
             "get_fitness_config" => Some(Self::GetFitnessConfig),
             "set_fitness_config" => Some(Self::SetFitnessConfig),
             "list_fitness_configs" => Some(Self::ListFitnessConfigs),
@@ -322,6 +336,10 @@ impl ToolId {
             Self::SuggestRestDay => "suggest_rest_day",
             Self::TrackSleepTrends => "track_sleep_trends",
             Self::OptimizeSleepSchedule => "optimize_sleep_schedule",
+            Self::GetSleepSessions => "get_sleep_sessions",
+            Self::GetRecoveryMetrics => "get_recovery_metrics",
+            Self::GetHealthSnapshots => "get_health_snapshots",
+            Self::ListDataSources => "list_data_sources",
             Self::GetFitnessConfig => "get_fitness_config",
             Self::SetFitnessConfig => "set_fitness_config",
             Self::ListFitnessConfigs => "list_fitness_configs",
@@ -410,6 +428,10 @@ impl ToolId {
             Self::SuggestRestDay => "AI-powered rest day recommendation",
             Self::TrackSleepTrends => "Track sleep patterns and correlate with performance",
             Self::OptimizeSleepSchedule => "Optimize sleep based on training load",
+            Self::GetSleepSessions => "Get stored sleep sessions from the database",
+            Self::GetRecoveryMetrics => "Get stored recovery and readiness metrics",
+            Self::GetHealthSnapshots => "Get stored health snapshots (body composition, vitals)",
+            Self::ListDataSources => "List connected data sources (devices and providers)",
             Self::GetFitnessConfig => "Get user fitness config including HR zones",
             Self::SetFitnessConfig => "Save user fitness config for zones and params",
             Self::ListFitnessConfigs => "List all fitness configuration names for user",

@@ -24,6 +24,8 @@ pub mod coaching_groups;
 pub mod errors;
 /// User fitness configuration storage and retrieval
 pub mod fitness_configurations;
+/// Health persistence: data sources, sleep, recovery, health snapshots
+pub mod health_persistence;
 /// Impersonation session management for super admin user impersonation
 pub mod impersonation;
 /// LLM credential management and admin config overrides
