@@ -22,6 +22,8 @@ pub mod coaches;
 pub mod coaching_groups;
 /// Encryption support (AES-256-GCM)
 pub mod encryption;
+/// Health persistence: data sources, sleep, recovery, health snapshots
+pub mod health_persistence;
 /// Messaging gateway repository implementations
 pub mod messaging;
 /// Mobility repository implementation (stretching exercises and yoga poses)

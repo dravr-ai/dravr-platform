@@ -91,6 +91,7 @@ provider-whoop = ["pierre-providers/provider-whoop"]
 provider-coros = ["pierre-providers/provider-coros"]
 provider-synthetic = ["pierre-providers/provider-synthetic"]
 provider-sciotte = ["pierre-providers/provider-sciotte", "dep:dravr-sciotte"]
+health-sync = ["dep:dravr-enforme", "dep:dravr-equilibre-sync"]
 all-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-synthetic", "provider-sciotte"]
 production-providers = ["provider-strava", "provider-garmin", "provider-terra", "provider-fitbit", "provider-whoop", "provider-coros", "provider-sciotte"]
 
@@ -119,6 +120,7 @@ tools-goals = []           # set_goal, track_progress, suggest_goals
 tools-config = []          # fitness config tools, user configuration
 tools-nutrition = []       # daily_nutrition, nutrient_timing, food search
 tools-sleep = []           # sleep_quality, recovery_score, rest_day
+tools-health-data = []     # sleep_sessions, recovery, health_snapshots, data_sources persistence queries
 tools-recipes = []         # validate_recipe, save_recipe, list_recipes
 tools-coaches = []         # coach CRUD, activate, favorites
 tools-admin = ["tools-coaches"]  # admin tools depend on coach tools
@@ -128,7 +130,7 @@ tools-groups = ["dep:pierre-groups"]  # group coaching tools (create, join, mana
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]
-tools-wellness = ["tools-sleep", "tools-nutrition", "tools-recipes", "tools-mobility"]
+tools-wellness = ["tools-sleep", "tools-nutrition", "tools-recipes", "tools-mobility", "tools-health-data"]
 
 # ═══════════════════════════════════════════════════════════════
 # PROTOCOL FEATURES
@@ -197,7 +199,7 @@ oauth = []
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync"]
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
@@ -223,6 +225,8 @@ pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true 
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.4.4", optional = true }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.2.2", features = ["notifications"] }
+dravr-enforme = { version = "0.1.0", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.0", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
+dravr-equilibre-sync = { package = "dravr-equilibre", version = "0.2", optional = true }
 
 tokio = { version = "1.50", features = ["rt-multi-thread", "macros", "net", "time", "fs", "signal", "io-std", "io-util", "sync"] }
 tokio-stream = "0.1"

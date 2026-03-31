@@ -28,6 +28,7 @@ use pierre_core::models::mobility::{
 
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::DataSource;
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, ConnectionType,
     ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest, FriendConnection,
@@ -44,11 +45,14 @@ use pierre_core::models::{
     AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, TenantId,
     TenantOAuthCredentials,
 };
+use pierre_core::models::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
 use pierre_core::pagination::{CursorPage, PaginationParams, StoreSortOrder};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
+
+use serde::{Deserialize, Serialize};
 
 use crate::database::store_listings::{CoachWithListing, StoreListing};
 use crate::seed_models::{
@@ -57,6 +61,48 @@ use crate::seed_models::{
     SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
     SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
+
+// ================================
+// Sync Cursor Row Types
+// ================================
+
+/// Database row for `sync_state` table
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncCursorRow {
+    /// Unique identifier for this sync state record
+    pub id: String,
+    /// User who owns this sync cursor
+    pub user_id: String,
+    /// Tenant context for multi-tenant isolation
+    pub tenant_id: String,
+    /// Provider being synced (e.g., "whoop", "garmin")
+    pub provider: String,
+    /// Data type being synced (e.g., "sleep", "recovery", "health")
+    pub data_type: String,
+    /// Provider-specific cursor token for pagination
+    pub cursor_value: Option<String>,
+    /// When the last sync completed (RFC 3339)
+    pub last_sync_at: Option<String>,
+    /// Current sync status (pending, completed, failed)
+    pub last_sync_status: String,
+    /// Total records synced in the last batch
+    pub records_synced: i64,
+    /// Error message from the last failed sync
+    pub error_message: Option<String>,
+    /// Number of consecutive retry attempts
+    pub retry_count: i64,
+    /// When to attempt the next retry (RFC 3339)
+    pub next_retry_at: Option<String>,
+}
+
+/// Connected user info for sync scheduling
+#[derive(Debug, Clone)]
+pub struct ConnectedUserRow {
+    /// User identifier
+    pub user_id: String,
+    /// Tenant identifier
+    pub tenant_id: String,
+}
 
 // ================================
 // Repository Trait Definitions
@@ -2191,6 +2237,146 @@ pub trait CoachingGroupRepository: Send + Sync {
 
     /// Count groups owned by a user (for tier limit enforcement)
     async fn count_groups_for_owner(&self, owner_id: Uuid, tenant_id: TenantId) -> AppResult<i64>;
+}
+
+// ================================
+// Health persistence repository traits
+// ================================
+
+/// Data source (device/provider) tracking repository
+#[async_trait]
+pub trait DataSourceRepository: Send + Sync {
+    /// Upsert a data source record (insert or update on conflict)
+    async fn upsert_data_source(
+        &self,
+        tenant_id: &TenantId,
+        source: &DataSource,
+    ) -> AppResult<String>;
+    /// Get a data source by ID
+    async fn get_data_source(&self, id: &str) -> AppResult<Option<DataSource>>;
+    /// List data sources for a user
+    async fn list_data_sources(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Vec<DataSource>>;
+    /// List data sources for a user filtered by provider
+    async fn list_data_sources_by_provider(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Vec<DataSource>>;
+    /// Delete a data source
+    async fn delete_data_source(&self, id: &str) -> AppResult<()>;
+}
+
+/// Sleep session persistence repository
+#[async_trait]
+pub trait SleepRepository: Send + Sync {
+    /// Insert or update a sleep session
+    async fn upsert_sleep_session(
+        &self,
+        tenant_id: &TenantId,
+        session: &StoredSleepSession,
+    ) -> AppResult<String>;
+    /// Get sleep sessions for a user within a date range
+    async fn get_sleep_sessions(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<StoredSleepSession>>;
+    /// Get the most recent sleep session for a user
+    async fn get_latest_sleep_session(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<StoredSleepSession>>;
+    /// Delete sleep sessions for a user and provider
+    async fn delete_sleep_sessions(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<u64>;
+}
+
+/// Recovery metrics persistence repository
+#[async_trait]
+pub trait RecoveryRepository: Send + Sync {
+    /// Insert or update recovery metrics for a date
+    async fn upsert_recovery_metrics(
+        &self,
+        tenant_id: &TenantId,
+        metrics: &StoredRecoveryMetrics,
+    ) -> AppResult<String>;
+    /// Get recovery metrics for a user within a date range
+    async fn get_recovery_metrics(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<StoredRecoveryMetrics>>;
+    /// Get the most recent recovery metrics for a user
+    async fn get_latest_recovery(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<StoredRecoveryMetrics>>;
+}
+
+/// Health snapshot persistence repository
+#[async_trait]
+pub trait HealthSnapshotRepository: Send + Sync {
+    /// Insert or update a health snapshot for a date
+    async fn upsert_health_snapshot(
+        &self,
+        tenant_id: &TenantId,
+        snapshot: &StoredHealthMetrics,
+    ) -> AppResult<String>;
+    /// Get health snapshots for a user within a date range
+    async fn get_health_snapshots(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<Vec<StoredHealthMetrics>>;
+    /// Get the most recent health snapshot for a user
+    async fn get_latest_health_snapshot(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+    ) -> AppResult<Option<StoredHealthMetrics>>;
+}
+
+// ================================
+// Sync Cursor Repository
+// ================================
+
+/// Sync cursor repository for CDC-based incremental sync tracking
+#[async_trait]
+pub trait SyncCursorRepository: Send + Sync {
+    /// Get the sync cursor for a user+provider+`data_type`
+    async fn get_sync_cursor(
+        &self,
+        user_id: &str,
+        tenant_id: &TenantId,
+        provider: &str,
+        data_type: &str,
+    ) -> AppResult<Option<SyncCursorRow>>;
+
+    /// Upsert (insert or update) a sync cursor
+    async fn upsert_sync_cursor(&self, cursor: &SyncCursorRow) -> AppResult<()>;
+
+    /// List all connected users for a given provider
+    async fn list_connected_provider_users(
+        &self,
+        provider: &str,
+    ) -> AppResult<Vec<ConnectedUserRow>>;
 }
 
 // ================================

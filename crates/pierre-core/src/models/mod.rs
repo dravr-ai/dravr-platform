@@ -40,6 +40,9 @@ mod tenant;
 mod tool_selection;
 mod user;
 
+/// Data source and device tracking (from dravr-equilibre)
+pub mod data_source;
+
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{
@@ -53,6 +56,21 @@ pub use sleep::{SleepSession, SleepStage, SleepStageType};
 
 // Health domain
 pub use health::{HealthMetrics, RecoveryMetrics};
+
+// Data source domain (from dravr-equilibre)
+pub use data_source::{DataSource, DevicePriority, DeviceType, ProviderPriority};
+
+// Stored health models for persistence (from dravr-equilibre)
+pub use dravr_equilibre::{
+    EventCategory, EventRecord, StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession,
+    SyncResult, SyncStatus, WorkoutDetails as StoredWorkoutDetails,
+};
+
+// Time-series types (from dravr-riviere)
+pub use dravr_riviere::{
+    AggregatedPoint, Aggregation, DataPoint, QueryResult as TimeSeriesQueryResult, SeriesType,
+    TimeRange,
+};
 
 // Nutrition domain
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};

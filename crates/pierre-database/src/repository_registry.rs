@@ -11,13 +11,14 @@ use crate::database::Database as SqliteDatabase;
 use crate::plugins::postgres::PostgresDatabase;
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
-    CoachingGroupRepository, FitnessConfigRepository, ImpersonationRepository, InsightRepository,
-    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
-    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
-    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
-    RecipeRepository, SecurityRepository, SeederRepository, SocialRepository,
-    StoreListingsRepository, TenantRepository, ToolSelectionRepository, UsageCounterRepository,
-    UsageRepository, UserMcpTokenRepository, UserRepository,
+    CoachingGroupRepository, DataSourceRepository, FitnessConfigRepository,
+    HealthSnapshotRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
+    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
+    PasswordResetRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
+    RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository, SocialRepository,
+    StoreListingsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
+    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -88,6 +89,16 @@ pub struct RepositoryRegistry {
     pub a2a: Arc<dyn A2ARepository>,
     /// Coaching group CRUD, membership, and invites
     pub groups: Arc<dyn CoachingGroupRepository>,
+    /// Data source (device/provider) tracking
+    pub data_sources: Arc<dyn DataSourceRepository>,
+    /// Sleep session persistence
+    pub sleep: Arc<dyn SleepRepository>,
+    /// Recovery metrics persistence
+    pub recovery: Arc<dyn RecoveryRepository>,
+    /// Health snapshot persistence
+    pub health_snapshots: Arc<dyn HealthSnapshotRepository>,
+    /// Sync cursor tracking for CDC-based incremental sync
+    pub sync_cursors: Arc<dyn SyncCursorRepository>,
 }
 
 impl RepositoryRegistry {
@@ -128,7 +139,12 @@ impl RepositoryRegistry {
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
             a2a: db.clone(),
-            groups: db,
+            groups: db.clone(),
+            data_sources: db.clone(),
+            sleep: db.clone(),
+            recovery: db.clone(),
+            health_snapshots: db.clone(),
+            sync_cursors: db,
         }
     }
 
@@ -167,7 +183,12 @@ impl RepositoryRegistry {
             usage_counters: db.clone(),
             user_mcp_tokens: db.clone(),
             a2a: db.clone(),
-            groups: db,
+            groups: db.clone(),
+            data_sources: db.clone(),
+            sleep: db.clone(),
+            recovery: db.clone(),
+            health_snapshots: db.clone(),
+            sync_cursors: db,
         }
     }
 }

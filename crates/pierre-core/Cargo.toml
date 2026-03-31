@@ -96,6 +96,12 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.3
 # pierre-core re-exports Activity, SportType, and intelligence types
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.1.3" }
 
+# Health and wellness domain models with composition-based provider traits
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.1.0" }
+
+# Time-series storage engine for metric persistence
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.1.0" }
+
 # Optional: OpenAPI schema generation
 utoipa = { version = "5.4", optional = true }
 

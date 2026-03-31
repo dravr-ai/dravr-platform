@@ -32,6 +32,10 @@ use super::handlers::{
     handle_suggest_stretches_for_activity, handle_suggest_yoga_sequence, handle_track_progress,
     handle_track_sleep_trends, handle_update_user_configuration, handle_validate_configuration,
 };
+use super::handlers::{
+    handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
+    handle_list_data_sources,
+};
 use super::tool_registry::{ToolId, ToolInfo, ToolRegistry};
 use crate::constants::time_constants::SECONDS_PER_HOUR_F64;
 use crate::intelligence::physiological_constants::business_thresholds::{
@@ -485,6 +489,25 @@ impl UniversalExecutor {
         ));
     }
 
+    fn register_health_data_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::GetSleepSessions,
+            |executor, request| Box::pin(handle_get_sleep_sessions(executor, request)),
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::GetRecoveryMetrics,
+            |executor, request| Box::pin(handle_get_recovery_metrics(executor, request)),
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::GetHealthSnapshots,
+            |executor, request| Box::pin(handle_get_health_snapshots(executor, request)),
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::ListDataSources,
+            |executor, request| Box::pin(handle_list_data_sources(executor, request)),
+        ));
+    }
+
     fn register_all_tools(registry: &mut ToolRegistry) {
         Self::register_strava_tools(registry);
         Self::register_connection_tools(registry);
@@ -496,6 +519,7 @@ impl UniversalExecutor {
         Self::register_recipe_tools(registry);
         Self::register_coaches_tools(registry);
         Self::register_mobility_tools(registry);
+        Self::register_health_data_tools(registry);
     }
 
     /// Execute a tool with type-safe routing (no string matching!)

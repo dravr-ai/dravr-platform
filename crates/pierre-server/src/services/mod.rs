@@ -59,3 +59,7 @@ pub mod commands;
 /// Batch fitness snapshot fetcher for group coaching context
 #[cfg(feature = "tools-groups")]
 pub mod group_fitness;
+
+/// Health data sync adapter bridging dravr-enforme store traits to pierre-database
+#[cfg(feature = "health-sync")]
+pub mod health_sync;

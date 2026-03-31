@@ -14,6 +14,8 @@ pub mod connections;
 pub mod fitness_api;
 /// Goal setting and tracking tool handlers
 pub mod goals;
+/// Health data persistence query tool handlers (sleep, recovery, health, data sources)
+pub mod health_data;
 /// Activity intelligence and analysis tool handlers
 pub mod intelligence;
 /// Mobility tool handlers (stretching exercises, yoga poses)
@@ -122,4 +124,10 @@ pub use coaches::{
 pub use mobility::{
     handle_get_stretching_exercise, handle_get_yoga_pose, handle_list_stretching_exercises,
     handle_list_yoga_poses, handle_suggest_stretches_for_activity, handle_suggest_yoga_sequence,
+};
+
+/// Re-export health data persistence query handlers
+pub use health_data::{
+    handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
+    handle_list_data_sources,
 };

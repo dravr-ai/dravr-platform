@@ -221,6 +221,12 @@ pub struct ServerResources {
     /// Notification service facade for dispatch, scheduling, and persistence
     #[cfg(feature = "client-notifications")]
     pub notification_service: Option<Arc<NotificationService>>,
+    /// Health data sync orchestrator for wearable provider synchronization
+    #[cfg(feature = "health-sync")]
+    pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
+    /// Abort handle for the background health data sync scheduler task
+    #[cfg(feature = "health-sync")]
+    pub sync_scheduler_abort_handle: Option<AbortHandle>,
     /// Abort handle for the background notification scheduler task
     #[cfg(feature = "client-notifications")]
     pub scheduler_abort_handle: Option<AbortHandle>,
@@ -257,6 +263,10 @@ impl ServerResources {
 
         let database_arc = Arc::new(database);
         let repos = Arc::new(database_arc.repositories());
+
+        #[cfg(feature = "health-sync")]
+        let (sync_orchestrator, sync_scheduler_abort_handle) = Self::init_health_sync(&repos);
+
         let auth_manager_arc = Arc::new(auth_manager);
 
         // Create tenant OAuth client and provider registry once
@@ -444,6 +454,10 @@ impl ServerResources {
             command_registry,
             #[cfg(feature = "client-messaging")]
             command_handler_registry,
+            #[cfg(feature = "health-sync")]
+            sync_orchestrator: Some(sync_orchestrator),
+            #[cfg(feature = "health-sync")]
+            sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
         }
     }
 
@@ -457,6 +471,22 @@ impl ServerResources {
         };
         info!("Notification service initialized");
         Arc::new(service)
+    }
+
+    /// Initialize the health data sync orchestrator and start its background scheduler.
+    ///
+    /// Returns the orchestrator and the abort handle for the scheduler task.
+    #[cfg(feature = "health-sync")]
+    fn init_health_sync(
+        repos: &Arc<RepositoryRegistry>,
+    ) -> (Arc<dravr_enforme::SyncOrchestrator>, AbortHandle) {
+        use crate::services::health_sync::PierreSyncStorage;
+
+        let adapter = PierreSyncStorage::new(Arc::clone(repos));
+        let orchestrator = adapter.into_orchestrator();
+        let join_handle = Arc::clone(&orchestrator).start_scheduler();
+        info!("Health data sync scheduler started");
+        (orchestrator, join_handle.abort_handle())
     }
 
     /// Create and initialize the tool registry with all built-in tools

@@ -1387,9 +1387,111 @@ dependencies = [
 ]
 
 [[package]]
+name = "dravr-enforme"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.1.0#c66653d3440ff2b02e449731a29342955c83e607"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "dravr-equilibre 0.2.1",
+ "dravr-riviere 0.2.1",
+ "dravr-sciotte 0.5.0",
+ "hex",
+ "http",
+ "rand 0.8.5",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "dravr-equilibre"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-equilibre.git?tag=v0.1.0#5ccba1764720c9c5dd6f1262b3bb3896b1d8be0c"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "dravr-equilibre"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f004622e234e92b892d3bef72544092861104aab2393eb22cb572944b7c1c86f"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "dravr-riviere"
+version = "0.1.0"
+source = "git+https://github.com/dravr-ai/dravr-riviere.git?tag=v0.1.0#a8c2e1b104139d04534dbbf02b43158aa0f8ddbe"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "dravr-riviere"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b03fa248e804799c4b8e0b47e428328725244f880f3a4647fe27be48a38f52"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-sciotte"
 version = "0.4.4"
 source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.4.4#502f2dc0e8dd3cecb0e209020894c730605824a6"
+dependencies = [
+ "async-trait",
+ "base64",
+ "chromiumoxide",
+ "chrono",
+ "dirs 6.0.0",
+ "futures",
+ "moka",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "dravr-sciotte"
+version = "0.5.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.0#31ab15de3f1924de0f9c3833c35163ab550aab77"
 dependencies = [
  "async-trait",
  "base64",
@@ -3058,6 +3160,8 @@ dependencies = [
  "chrono",
  "dravr-cageux",
  "dravr-canot",
+ "dravr-equilibre 0.1.0",
+ "dravr-riviere 0.1.0",
  "embacle",
  "http",
  "rand 0.8.5",
@@ -3170,7 +3274,8 @@ dependencies = [
  "base64",
  "bitflags",
  "chrono",
- "dravr-sciotte",
+ "dravr-equilibre 0.1.0",
+ "dravr-sciotte 0.4.4",
  "futures-util",
  "hex",
  "num-traits",
@@ -3211,7 +3316,9 @@ dependencies = [
  "cron",
  "dashmap",
  "dirs 5.0.1",
- "dravr-sciotte",
+ "dravr-enforme",
+ "dravr-equilibre 0.2.1",
+ "dravr-sciotte 0.4.4",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",
