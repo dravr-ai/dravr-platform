@@ -5,7 +5,7 @@
 // ABOUTME: Collapsed pill with icons + "+" button that expands to show labeled menu items
 
 import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, useWindowDimensions, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -59,6 +59,7 @@ export function ExpandableTabBar() {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
 
+  const { width: screenWidth } = useWindowDimensions();
   const expandHeight = useSharedValue(COLLAPSED_HEIGHT);
   const expandOpacity = useSharedValue(0);
   const plusRotation = useSharedValue(0);
@@ -71,11 +72,13 @@ export function ExpandableTabBar() {
     return Math.max(0, idx);
   }, [segments]);
 
+  // Pill width = screen - outer padding (32) - gap (10) - plus button (48)
+  const pillWidth = screenWidth - 32 - 10 - PLUS_BUTTON_SIZE;
+
   const tabWidth = useMemo(() => {
-    const totalPadding = 32;
-    const pillWidth = 300;
-    return (pillWidth - totalPadding) / TAB_COUNT;
-  }, []);
+    const iconRowPadding = 32;
+    return (pillWidth - iconRowPadding) / TAB_COUNT;
+  }, [pillWidth]);
 
   // Compute indicator position from active index
   const updateIndicatorPosition = useCallback(
@@ -85,12 +88,6 @@ export function ExpandableTabBar() {
     },
     [tabWidth, activeIndicatorX],
   );
-
-  // Set initial indicator position
-  React.useEffect(() => {
-    const targetX = 16 + activeIndex * tabWidth + tabWidth / 2 - 10;
-    activeIndicatorX.value = targetX;
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update indicator when active tab changes
   React.useEffect(() => {
@@ -302,6 +299,7 @@ export function ExpandableTabBar() {
                 style={[
                   {
                     position: 'absolute',
+                    left: 0,
                     bottom: 8,
                     width: 20,
                     height: 3,

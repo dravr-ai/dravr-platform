@@ -2,7 +2,7 @@
 // ABOUTME: Shows available providers with connection status and OAuth flow initiation
 
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
 import type { ViewStyle } from 'react-native';
 import { colors, spacing, borderRadius } from '../../constants/theme';
 import type { ExtendedProviderStatus } from '../../types';
@@ -34,17 +34,21 @@ const providerModalContainerStyle: ViewStyle = {
 interface ProviderModalProps {
   visible: boolean;
   providers: ExtendedProviderStatus[];
+  connectingProvider: string | null;
   onClose: () => void;
   onSelectConnected: (provider: string) => void;
   onConnectProvider: (provider: string) => void;
+  onConnectSciotte: (target: 'strava' | 'garmin') => void;
 }
 
 export function ProviderModal({
   visible,
   providers,
+  connectingProvider,
   onClose,
   onSelectConnected,
   onConnectProvider,
+  onConnectSciotte,
 }: ProviderModalProps) {
   return (
     <Modal
@@ -58,7 +62,10 @@ export function ProviderModal({
         activeOpacity={1}
         onPress={onClose}
       >
-        <View style={providerModalContainerStyle}>
+        <View
+          style={providerModalContainerStyle}
+          onStartShouldSetResponder={() => true}
+        >
           <Text className="text-lg font-semibold text-text-primary text-center mb-1">Connect a Provider</Text>
           <Text className="text-sm text-text-secondary text-center mb-6">
             To analyze your fitness data, please connect a provider first.
@@ -68,27 +75,37 @@ export function ProviderModal({
             const icon = PROVIDER_ICONS[provider.provider] || '🔗';
             const isConnected = provider.connected;
             const requiresOAuth = provider.requires_oauth;
+            const isSciotte = provider.provider.startsWith('sciotte');
+            const isConnectable = isConnected || requiresOAuth || isSciotte;
             const displayName = provider.display_name || provider.provider;
+            const isConnecting = connectingProvider === provider.provider;
+            const isOtherConnecting = connectingProvider !== null && !isConnecting;
 
             return (
               <TouchableOpacity
                 key={provider.provider}
                 className={`flex-row items-center bg-background-secondary rounded-lg p-4 mb-2 border ${
-                  isConnected ? 'border-accent-primary' : 'border-border-default'
+                  isConnected ? 'border-accent-primary' : isConnecting ? 'border-accent-secondary' : 'border-border-default'
                 }`}
                 onPress={() => {
                   if (isConnected) {
                     onSelectConnected(provider.provider);
+                  } else if (isSciotte) {
+                    onConnectSciotte(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
                   } else if (requiresOAuth) {
                     onConnectProvider(provider.provider);
                   }
                 }}
-                disabled={!isConnected && !requiresOAuth}
+                disabled={!isConnectable || isOtherConnecting || isConnecting}
               >
-                <Text className="text-2xl mr-4">{icon}</Text>
+                {isConnecting ? (
+                  <ActivityIndicator size="small" color={colors.primary[500]} className="mr-4" />
+                ) : (
+                  <Text className="text-2xl mr-4">{icon}</Text>
+                )}
                 <View className="flex-1">
-                  <Text className="text-base text-text-primary font-medium">
-                    {isConnected ? displayName : `Connect ${displayName}`}
+                  <Text className={`text-base font-medium ${isOtherConnecting ? 'text-text-tertiary' : 'text-text-primary'}`}>
+                    {isConnecting ? `Connecting ${displayName}...` : isConnected ? displayName : `Connect ${displayName}`}
                   </Text>
                   {isConnected && (
                     <Text className="text-xs text-accent-primary">Connected ✓</Text>

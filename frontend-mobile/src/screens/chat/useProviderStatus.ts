@@ -13,6 +13,7 @@ export interface ProviderStatusState {
   connectedProviders: ExtendedProviderStatus[];
   selectedProvider: string | null;
   providerModalVisible: boolean;
+  connectingProvider: string | null;
   error: string | null;
 }
 
@@ -32,6 +33,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   const [connectedProviders, setConnectedProviders] = useState<ExtendedProviderStatus[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [providerModalVisible, setProviderModalVisible] = useState(false);
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadProviderStatus = useCallback(async () => {
@@ -74,11 +76,15 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     provider: string,
     onSuccess?: () => Promise<void>
   ) => {
-    setProviderModalVisible(false);
+    setConnectingProvider(provider);
+    setError(null);
     try {
-      setError(null);
       const returnUrl = getOAuthCallbackUrl();
       const oauthResponse = await oauthApi.initMobileOAuth(provider, returnUrl);
+
+      // Dismiss modal only after OAuth URL is ready and browser is about to open
+      setProviderModalVisible(false);
+      setConnectingProvider(null);
 
       const result = await WebBrowser.openAuthSessionAsync(
         oauthResponse.authorization_url,
@@ -116,6 +122,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
         console.log('OAuth cancelled by user');
       }
     } catch (err) {
+      setConnectingProvider(null);
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect provider';
       setError(errorMessage);
       console.error('Failed to start OAuth:', err);
@@ -127,6 +134,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     connectedProviders,
     selectedProvider,
     providerModalVisible,
+    connectingProvider,
     error,
     loadProviderStatus,
     hasConnectedProvider,
