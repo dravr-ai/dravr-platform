@@ -388,8 +388,8 @@ export function ChatScreen() {
     <View className="flex-1 bg-background-primary" testID="chat-screen">
       <KeyboardAvoidingView
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         <ChatHeader
           currentConversation={conversations.currentConversation}
