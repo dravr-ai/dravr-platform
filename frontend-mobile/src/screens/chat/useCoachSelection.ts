@@ -130,7 +130,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
         throw new Error('Failed to create conversation');
       }
 
-      const initialMessage = coach.description || `Let's get started with ${coach.title}!`;
+      const initialMessage = coach.startup_query || `Let's get started with ${coach.title}!`;
 
       const userMessage: Message = {
         id: `temp-${Date.now()}`,
