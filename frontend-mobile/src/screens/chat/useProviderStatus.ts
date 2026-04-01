@@ -14,6 +14,7 @@ export interface ProviderStatusState {
   selectedProvider: string | null;
   providerModalVisible: boolean;
   connectingProvider: string | null;
+  needsCredentialsProvider: string | null;
   error: string | null;
 }
 
@@ -22,6 +23,7 @@ export interface ProviderStatusActions {
   hasConnectedProvider: () => boolean;
   setSelectedProvider: (provider: string | null) => void;
   setProviderModalVisible: (visible: boolean) => void;
+  setNeedsCredentialsProvider: (provider: string | null) => void;
   handleConnectProvider: (
     provider: string,
     onSuccess?: () => Promise<void>
@@ -34,6 +36,7 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [providerModalVisible, setProviderModalVisible] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [needsCredentialsProvider, setNeedsCredentialsProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadProviderStatus = useCallback(async () => {
@@ -124,9 +127,20 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     } catch (err) {
       setConnectingProvider(null);
       const errorMessage = err instanceof Error ? err.message : 'Failed to connect provider';
-      setError(errorMessage);
-      console.error('Failed to start OAuth:', err);
-      Alert.alert('Error', 'Failed to connect provider. Please try again.');
+
+      // Detect missing OAuth credentials — show credential entry instead of error
+      const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
+        || errorMessage.toLowerCase().includes('client credentials not configured')
+        || errorMessage.toLowerCase().includes('configuration');
+
+      if (isCredentialError) {
+        setProviderModalVisible(false);
+        setNeedsCredentialsProvider(provider);
+      } else {
+        setError(errorMessage);
+        console.error('Failed to start OAuth:', err);
+        Alert.alert('Error', 'Failed to connect provider. Please try again.');
+      }
     }
   }, [loadProviderStatus]);
 
@@ -135,11 +149,13 @@ export function useProviderStatus(): ProviderStatusState & ProviderStatusActions
     selectedProvider,
     providerModalVisible,
     connectingProvider,
+    needsCredentialsProvider,
     error,
     loadProviderStatus,
     hasConnectedProvider,
     setSelectedProvider,
     setProviderModalVisible,
+    setNeedsCredentialsProvider,
     handleConnectProvider,
     getCachedConnectedProvider,
   };
