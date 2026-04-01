@@ -5,7 +5,7 @@
 // ABOUTME: Coordinates conversation, message, provider, coach, and voice input state
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import Toast from 'react-native-toast-message';
@@ -22,6 +22,7 @@ import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './MessageList';
 import { ProviderModal } from './ProviderModal';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { useConversations } from './useConversations';
 import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
@@ -456,6 +457,28 @@ export function ChatScreen() {
           }}
           target={sciotteTarget ?? 'strava'}
         />
+
+        {providerStatus.needsCredentialsProvider !== null && (
+          <Modal visible animationType="slide" transparent onRequestClose={() => providerStatus.setNeedsCredentialsProvider(null)}>
+            <View className="flex-1 bg-black/60 justify-end">
+              <View
+                className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
+                onStartShouldSetResponder={() => true}
+              >
+                <View className="items-center mb-2">
+                  <View className="w-10 h-1 rounded-full bg-border-default" />
+                </View>
+                <OAuthCredentialsSection />
+                <TouchableOpacity
+                  className="mt-4 py-3 items-center"
+                  onPress={() => providerStatus.setNeedsCredentialsProvider(null)}
+                >
+                  <Text className="text-base text-text-tertiary">Close</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
 
         <PromptDialog
           visible={renamePromptVisible}

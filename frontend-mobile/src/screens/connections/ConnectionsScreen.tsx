@@ -17,8 +17,10 @@ import * as Linking from 'expo-linking';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients } from '../../constants/theme';
+import { Modal } from 'react-native';
 import { Card, DragIndicator } from '../../components/ui';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
+import { OAuthCredentialsSection } from '../../components/OAuthCredentialsSection';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
@@ -33,6 +35,7 @@ export function ConnectionsScreen() {
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
+  const [showCredentials, setShowCredentials] = useState(false);
 
   const loadConnectionStatus = useCallback(async () => {
     try {
@@ -105,9 +108,18 @@ export function ConnectionsScreen() {
       } else if (result.type === 'cancel') {
         console.log('OAuth cancelled by user');
       }
-    } catch (error) {
-      console.error('Failed to start OAuth flow:', error);
-      Alert.alert('Error', 'Failed to start authentication. Please try again.');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect';
+      const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
+        || errorMessage.toLowerCase().includes('client credentials not configured')
+        || errorMessage.toLowerCase().includes('configuration');
+
+      if (isCredentialError) {
+        setShowCredentials(true);
+      } else {
+        console.error('Failed to start OAuth flow:', err);
+        Alert.alert('Error', 'Failed to start authentication. Please try again.');
+      }
     } finally {
       setConnectingProvider(null);
     }
@@ -297,6 +309,26 @@ export function ConnectionsScreen() {
         }}
         target={sciotteTarget ?? 'strava'}
       />
+
+      <Modal visible={showCredentials} animationType="slide" transparent onRequestClose={() => setShowCredentials(false)}>
+        <View className="flex-1 bg-black/60 justify-end">
+          <View
+            className="bg-background-primary rounded-t-3xl pt-4 pb-10 px-4"
+            onStartShouldSetResponder={() => true}
+          >
+            <View className="items-center mb-2">
+              <View className="w-10 h-1 rounded-full bg-border-default" />
+            </View>
+            <OAuthCredentialsSection />
+            <TouchableOpacity
+              className="mt-4 py-3 items-center"
+              onPress={() => setShowCredentials(false)}
+            >
+              <Text className="text-base text-text-tertiary">Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
