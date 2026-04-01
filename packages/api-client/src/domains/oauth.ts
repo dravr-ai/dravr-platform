@@ -110,6 +110,48 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       return response.authorization_url;
     },
 
+    /**
+     * Start Sciotte credential login flow (headless browser).
+     * Returns status: 'connected', 'two_factor_choice', 'otp_required', 'number_match', or error.
+     */
+    async sciotteLogin(params: {
+      email: string;
+      password: string;
+      method: 'email' | 'google' | 'apple';
+      target: 'strava' | 'garmin';
+    }): Promise<SciotteLoginResponse> {
+      const response = await axios.post<SciotteLoginResponse>(
+        '/api/providers/sciotte/login',
+        params,
+        { timeout: 1_200_000 },
+      );
+      return response.data;
+    },
+
+    /**
+     * Select a 2FA option during Sciotte login.
+     */
+    async sciotteSelect2FA(optionId: string): Promise<SciotteLoginResponse> {
+      const response = await axios.post<SciotteLoginResponse>(
+        '/api/providers/sciotte/select-2fa',
+        { option_id: optionId },
+        { timeout: 1_200_000 },
+      );
+      return response.data;
+    },
+
+    /**
+     * Submit OTP code during Sciotte login.
+     */
+    async sciotteSubmitOTP(code: string): Promise<SciotteLoginResponse> {
+      const response = await axios.post<SciotteLoginResponse>(
+        '/api/providers/sciotte/submit-otp',
+        { code },
+        { timeout: 1_200_000 },
+      );
+      return response.data;
+    },
+
     // Aliases for backward compatibility
     getOAuthStatus() {
       return this.getStatus();
@@ -119,6 +161,13 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       return this.getAuthorizeUrl(provider, redirectUri);
     },
   };
+}
+
+export interface SciotteLoginResponse {
+  status: 'connected' | 'two_factor_choice' | 'otp_required' | 'number_match' | 'error';
+  error?: string;
+  options?: Array<{ id: string; label: string }>;
+  number?: string;
 }
 
 export type OAuthApi = ReturnType<typeof createOAuthApi>;

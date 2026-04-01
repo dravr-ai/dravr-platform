@@ -21,6 +21,7 @@ import { ChatHeader } from './ChatHeader';
 import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './MessageList';
 import { ProviderModal } from './ProviderModal';
+import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { useConversations } from './useConversations';
 import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
@@ -46,6 +47,7 @@ export function ChatScreen() {
   const [shareToFeedVisibility, setShareToFeedVisibility] = useState<ShareVisibility>('friends_only');
   const [isSharing, setIsSharing] = useState(false);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
 
   // Custom hooks
   const conversations = useConversations();
@@ -435,9 +437,24 @@ export function ChatScreen() {
         <ProviderModal
           visible={providerStatus.providerModalVisible}
           providers={providerStatus.connectedProviders}
+          connectingProvider={providerStatus.connectingProvider}
           onClose={handleProviderModalClose}
           onSelectConnected={handleProviderSelect}
           onConnectProvider={handleConnectProvider}
+          onConnectSciotte={(target) => {
+            providerStatus.setProviderModalVisible(false);
+            setSciotteTarget(target);
+          }}
+        />
+
+        <SciotteLoginModal
+          visible={sciotteTarget !== null}
+          onClose={() => setSciotteTarget(null)}
+          onConnected={() => {
+            providerStatus.loadProviderStatus();
+            setSciotteTarget(null);
+          }}
+          target={sciotteTarget ?? 'strava'}
         />
 
         <PromptDialog

@@ -18,6 +18,7 @@ import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, spacing, glassCard, gradients } from '../../constants/theme';
 import { Card, DragIndicator } from '../../components/ui';
+import { SciotteLoginModal } from '../../components/SciotteLoginModal';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ExtendedProviderStatus } from '../../types';
@@ -31,6 +32,7 @@ export function ConnectionsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sciotteTarget, setSciotteTarget] = useState<'strava' | 'garmin' | null>(null);
 
   const loadConnectionStatus = useCallback(async () => {
     try {
@@ -193,11 +195,17 @@ export function ConnectionsScreen() {
                 </TouchableOpacity>
               )}
             </>
-          ) : requiresOAuth ? (
+          ) : requiresOAuth || provider.provider.startsWith('sciotte') ? (
             <TouchableOpacity
               className="flex-1 py-2 rounded-lg items-center"
               style={{ backgroundColor: config.color }}
-              onPress={() => handleConnect(provider.provider, provider.display_name)}
+              onPress={() => {
+                if (provider.provider.startsWith('sciotte')) {
+                  setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
+                } else {
+                  handleConnect(provider.provider, provider.display_name);
+                }
+              }}
               disabled={isConnecting}
             >
               {isConnecting ? (
@@ -206,17 +214,7 @@ export function ConnectionsScreen() {
                 <Text className="text-base font-semibold text-text-primary">Connect</Text>
               )}
             </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              className="bg-primary-500/20 px-2 py-1 rounded"
-              onPress={() => Alert.alert(
-                provider.display_name,
-                'Demo data is available automatically — just ask your coach about your training and synthetic activities will be used.',
-              )}
-            >
-              <Text className="text-sm text-primary-400 font-medium">Demo</Text>
-            </TouchableOpacity>
-          )}
+          ) : null}
         </View>
       </Card>
     );
@@ -289,6 +287,16 @@ export function ConnectionsScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <SciotteLoginModal
+        visible={sciotteTarget !== null}
+        onClose={() => setSciotteTarget(null)}
+        onConnected={() => {
+          loadConnectionStatus();
+          setSciotteTarget(null);
+        }}
+        target={sciotteTarget ?? 'strava'}
+      />
     </SafeAreaView>
   );
 }
