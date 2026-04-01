@@ -1467,8 +1467,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.4.4"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.4.4#502f2dc0e8dd3cecb0e209020894c730605824a6"
+version = "0.5.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.0#31ab15de3f1924de0f9c3833c35163ab550aab77"
 dependencies = [
  "async-trait",
  "base64",
@@ -1490,8 +1490,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.0#31ab15de3f1924de0f9c3833c35163ab550aab77"
+version = "0.5.3"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.3#86f11f76b8b0f58c395bcc06876e913ca20f506d"
 dependencies = [
  "async-trait",
  "base64",
@@ -2289,7 +2289,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3275,7 +3275,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "dravr-equilibre 0.1.0",
- "dravr-sciotte 0.4.4",
+ "dravr-sciotte 0.5.3",
  "futures-util",
  "hex",
  "num-traits",
@@ -3318,7 +3318,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-enforme",
  "dravr-equilibre 0.2.1",
- "dravr-sciotte 0.4.4",
+ "dravr-sciotte 0.5.3",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",
@@ -3564,7 +3564,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.2",
  "rustls",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3601,7 +3601,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
