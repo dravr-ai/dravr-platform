@@ -429,49 +429,47 @@ export function MessageList({
     </View>
   );
 
-  const renderCoachGridCard = (coach: Coach) => (
-    <TouchableOpacity
-      key={coach.id}
-      className="bg-background-secondary rounded-xl p-4 w-[48%] border border-border-subtle mb-2"
-      onPress={() => onCoachSelect(coach)}
-      activeOpacity={0.7}
-    >
-      <View className="flex-row justify-between items-start mb-1 gap-2">
-        <Text className="flex-1 text-sm font-semibold text-text-primary leading-[18px]" numberOfLines={2}>
+  const renderCoachCard = (coach: Coach) => {
+    const categoryColor = COACH_CATEGORY_BADGE_BG[coach.category] || 'rgba(124, 58, 237, 0.15)';
+
+    return (
+      <TouchableOpacity
+        key={coach.id}
+        className="bg-background-secondary rounded-2xl px-5 pt-4 pb-5 mb-3"
+        onPress={() => onCoachSelect(coach)}
+        activeOpacity={0.7}
+      >
+        {/* Top row: category icon + category label + chevron */}
+        <View className="flex-row items-center mb-3">
+          <View
+            className="w-8 h-8 rounded-lg items-center justify-center mr-2"
+            style={{ backgroundColor: categoryColor }}
+          >
+            <Text className="text-base">{COACH_CATEGORY_ICONS[coach.category]}</Text>
+          </View>
+          <Text className="text-xs font-semibold uppercase tracking-wide flex-1" style={{ color: colors.pierre.violet }}>
+            {coach.category}
+          </Text>
+          {coach.is_favorite && (
+            <Text className="text-sm mr-1" style={{ color: '#F59E0B' }}>★</Text>
+          )}
+          <Text className="text-lg text-text-tertiary">›</Text>
+        </View>
+
+        {/* Coach name — large, like Health app values */}
+        <Text className="text-lg font-bold text-text-primary mb-1" numberOfLines={2}>
           {coach.title}
         </Text>
-        <View
-          className="w-7 h-7 rounded items-center justify-center"
-          style={{ backgroundColor: COACH_CATEGORY_BADGE_BG[coach.category] }}
-        >
-          <Text className="text-sm">
-            {COACH_CATEGORY_ICONS[coach.category]}
+
+        {/* Description */}
+        {coach.description && (
+          <Text className="text-sm text-text-secondary leading-5" numberOfLines={2}>
+            {coach.description}
           </Text>
-        </View>
-      </View>
-      {coach.description && (
-        <Text className="text-xs text-text-secondary leading-4 mb-1" numberOfLines={2}>
-          {coach.description}
-        </Text>
-      )}
-      <View className="flex-row items-center gap-2 mt-1">
-        {coach.is_system && (
-          <View className="px-2 py-0.5 rounded" style={{ backgroundColor: 'rgba(124, 58, 237, 0.15)' }}>
-            <Text className="text-xs font-medium" style={{ color: '#7C3AED' }}>System</Text>
-          </View>
         )}
-        {coach.is_favorite && (
-          <View className="px-1 py-0.5 rounded" style={{ backgroundColor: 'rgba(245, 158, 11, 0.15)' }}>
-            <Text className="text-xs" style={{ color: '#F59E0B' }}>★</Text>
-          </View>
-        )}
-        <View className="flex-1" />
-        {coach.use_count > 0 && (
-          <Text className="text-xs text-text-tertiary">{coach.use_count}×</Text>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmptyChat = () => (
     <ScrollView
@@ -482,10 +480,8 @@ export function MessageList({
     >
       {!isCoachConversation && coaches.length > 0 && (
         <View className="w-full px-1">
-          <Text className="text-lg font-semibold text-text-primary mb-4">🎯 Your Coaches</Text>
-          <View className="flex-row flex-wrap justify-between gap-2">
-            {coaches.map((coach) => renderCoachGridCard(coach))}
-          </View>
+          <Text className="text-sm font-semibold text-text-tertiary uppercase tracking-wide mb-3 ml-1">Your Coaches</Text>
+          {coaches.map((coach) => renderCoachCard(coach))}
         </View>
       )}
 
