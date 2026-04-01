@@ -342,39 +342,25 @@ export function MessageList({
 
     const isUser = item.role === 'user';
     const isError = item.isError === true;
-    const timestamp = item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
     return (
       <View className={`mb-4 ${isUser ? 'items-end' : ''}`}>
-        <Text className="text-xs text-zinc-500 mb-1 px-1">{timestamp}</Text>
-        <View
-          className={`flex-row max-w-[85%] rounded-2xl p-4 ${
-            isUser ? 'rounded-br-[4px]' : 'rounded-bl-[4px]'
-          } ${isError ? 'border border-error' : ''}`}
-          style={[
-            isUser ? { backgroundColor: colors.pierre.violet } : undefined,
-            !isUser && !isError ? {
-              backgroundColor: 'rgba(30, 30, 46, 0.9)',
-              borderWidth: 1,
-              borderColor: 'rgba(139, 92, 246, 0.2)',
-              ...aiGlow.ambient,
-            } : undefined,
-            isError ? { backgroundColor: 'rgba(239, 68, 68, 0.15)' } : undefined,
-          ]}
-        >
-          {!isUser && (
-            <View className="w-8 h-8 rounded-full mr-2 overflow-hidden">
-              <Image
-                source={require('../../../assets/pierre-logo.png')}
-                className="w-8 h-8"
-                resizeMode="cover"
-              />
-            </View>
-          )}
-          <View className="flex-1">
-            {renderMessageContent(item.content, isUser, item.id)}
+        {isUser ? (
+          /* User message — right-aligned bubble with distinct background */
+          <View
+            className="max-w-[85%] rounded-2xl rounded-br-[4px] px-4 py-3"
+            style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.25)' }}
+          >
+            {renderMessageContent(item.content, true, item.id)}
           </View>
-        </View>
+        ) : (
+          /* Assistant message — full-width, no bubble, like Claude */
+          <View
+            className={`w-full ${isError ? 'bg-error/10 rounded-xl p-3 border border-error/30' : ''}`}
+          >
+            {renderMessageContent(item.content, false, item.id)}
+          </View>
+        )}
         {!isUser && (
           <View className="flex-row mt-1 gap-4">
             {isError ? (
@@ -494,7 +480,7 @@ export function MessageList({
 
         {/* Description */}
         {coach.description && (
-          <Text className="text-sm text-text-secondary leading-5" numberOfLines={2}>
+          <Text className="text-sm text-text-secondary leading-5" numberOfLines={5}>
             {coach.description}
           </Text>
         )}
@@ -505,7 +491,7 @@ export function MessageList({
   const renderEmptyChat = () => (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, paddingBottom: 64 }}
+      contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: spacing.xs, paddingVertical: spacing.md, paddingBottom: 140 }}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
@@ -555,7 +541,7 @@ export function MessageList({
         renderItem={renderMessage}
         keyExtractor={(item, index) => item?.id ?? `fallback-${index}`}
 
-        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: 64 }}
+        contentContainerStyle={{ paddingHorizontal: spacing.md, paddingVertical: spacing.md, paddingBottom: 140 }}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={onScrollToBottom}
         ListFooterComponent={isSending ? renderThinkingIndicator : null}
