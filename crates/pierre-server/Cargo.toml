@@ -223,7 +223,7 @@ pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional =
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.4.4", optional = true }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v0.5.3", optional = true }
 dravr-tronc = { git = "https://github.com/dravr-ai/dravr-tronc.git", tag = "v0.2.2", features = ["notifications"] }
 dravr-enforme = { version = "0.1.0", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.1.0", optional = true, features = ["provider-whoop", "provider-garmin", "provider-strava"] }
 dravr-equilibre-sync = { package = "dravr-equilibre", version = "0.2", optional = true }

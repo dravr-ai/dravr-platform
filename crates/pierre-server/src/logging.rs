@@ -208,6 +208,13 @@ impl LoggingConfig {
                     .parse()
                     .unwrap_or_else(|_| tracing::Level::INFO.into()),
             )
+            // Suppress chromiumoxide internal WS errors — these are noisy when
+            // Chrome exits (even gracefully) and not actionable for operators
+            .add_directive(
+                "chromiumoxide=warn"
+                    .parse()
+                    .unwrap_or_else(|_| tracing::Level::WARN.into()),
+            )
             // Keep our application logs at desired level
             .add_directive(
                 format!("pierre_mcp_server={}", self.level)
