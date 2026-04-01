@@ -85,10 +85,6 @@ export function ChatInputBar({
           borderRadius: 9999,
         }}
       >
-        {/* Paperclip icon per Stitch spec */}
-        <TouchableOpacity className="w-8 h-8 items-center justify-center mr-1">
-          <Ionicons name="attach-outline" size={22} color={colors.text.tertiary} />
-        </TouchableOpacity>
         <TextInput
           ref={inputRef}
           className="flex-1 text-base text-text-primary py-2 max-h-[100px]"
