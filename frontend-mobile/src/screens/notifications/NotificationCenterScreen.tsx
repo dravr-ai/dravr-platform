@@ -240,12 +240,12 @@ export function NotificationCenterScreen() {
       </View>
 
       {/* Category filter tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        className="border-b border-white/5"
-        contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 6 }}
-      >
+      <View className="border-b border-white/5">
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 6, alignItems: 'center' }}
+        >
         {categoryFilters.map(({ key, label }) => {
           const isActive = selectedCategory === key;
           const Icon = CATEGORY_ICONS[key];
@@ -271,7 +271,8 @@ export function NotificationCenterScreen() {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Notification list */}
       <ScrollView
