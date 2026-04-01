@@ -5,7 +5,7 @@
 // ABOUTME: Coordinates conversation, message, provider, coach, and voice input state
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Modal, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Modal, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 import Toast from 'react-native-toast-message';
@@ -386,10 +386,8 @@ export function ChatScreen() {
 
   return (
     <View className="flex-1 bg-background-primary" testID="chat-screen">
-      <KeyboardAvoidingView
+      <View
         className="flex-1"
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         <ChatHeader
           currentConversation={conversations.currentConversation}
@@ -504,7 +502,7 @@ export function ChatScreen() {
           onEdit={handleEditShare}
           onClose={handleCloseShareModal}
         />
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }
