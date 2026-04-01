@@ -48,6 +48,7 @@ const createMockCoach = (overrides: Partial<Coach> = {}): Coach => ({
   title: 'Marathon Coach',
   description: 'Analyze your running data and provide training recommendations',
   system_prompt: 'You are an expert marathon coach',
+  startup_query: 'Analyze my recent training and provide recommendations',
   category: 'training',
   tags: ['running'],
   is_favorite: false,
@@ -163,7 +164,7 @@ describe('useCoachSelection', () => {
     });
 
     it('should set initial user message then update with API response', async () => {
-      const coach = createMockCoach({ description: 'Analyze my running' });
+      const coach = createMockCoach({ startup_query: 'Analyze my running' });
       const conversation = createMockConversation();
       const createConversation = jest.fn().mockResolvedValue(conversation);
       const setMessages = jest.fn();
@@ -215,8 +216,8 @@ describe('useCoachSelection', () => {
       expect(updatedMessages[1].execution_time_ms).toBe(3000);
     });
 
-    it('should send coach description as the initial message', async () => {
-      const coach = createMockCoach({ description: 'Provide a marathon training plan' });
+    it('should send coach startup_query as the initial message', async () => {
+      const coach = createMockCoach({ startup_query: 'Provide a marathon training plan' });
       const conversation = createMockConversation({ id: 'conv-42' });
       const createConversation = jest.fn().mockResolvedValue(conversation);
       const setMessages = jest.fn();
@@ -224,7 +225,7 @@ describe('useCoachSelection', () => {
       const scrollToBottom = jest.fn();
 
       mockSendMessage.mockResolvedValue({
-        user_message: { id: 'msg-1', role: 'user', content: coach.description, created_at: new Date().toISOString() },
+        user_message: { id: 'msg-1', role: 'user', content: coach.startup_query, created_at: new Date().toISOString() },
         assistant_message: { id: 'msg-2', role: 'assistant', content: 'Plan ready', created_at: new Date().toISOString() },
       });
 
@@ -376,8 +377,8 @@ describe('useCoachSelection', () => {
       );
     });
 
-    it('should use fallback message when coach has no description', async () => {
-      const coach = createMockCoach({ title: 'Nutrition Coach', description: '' });
+    it('should use fallback message when coach has no startup_query', async () => {
+      const coach = createMockCoach({ title: 'Nutrition Coach', startup_query: undefined });
       const conversation = createMockConversation();
       const createConversation = jest.fn().mockResolvedValue(conversation);
       const setMessages = jest.fn();
