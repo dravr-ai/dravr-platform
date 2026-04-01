@@ -113,6 +113,37 @@ const markdownStyles = {
     height: 1,
     marginVertical: spacing.sm,
   },
+  table: {
+    borderWidth: 1,
+    borderColor: colors.border.default,
+    borderRadius: borderRadius.sm,
+    marginVertical: spacing.sm,
+  },
+  thead: {
+    backgroundColor: colors.background.tertiary,
+  },
+  th: {
+    padding: 8,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border.default,
+    fontWeight: '600' as const,
+    fontSize: fontSize.sm,
+    color: colors.text.primary,
+  },
+  tr: {
+    borderBottomWidth: 1,
+    borderColor: colors.border.subtle,
+    flexDirection: 'row' as const,
+  },
+  td: {
+    padding: 8,
+    borderRightWidth: 1,
+    borderColor: colors.border.subtle,
+    fontSize: fontSize.sm,
+    color: colors.text.secondary,
+    flexShrink: 1,
+  },
 };
 
 // Helper to detect OAuth authorization URLs

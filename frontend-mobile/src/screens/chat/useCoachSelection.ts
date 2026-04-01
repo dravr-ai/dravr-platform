@@ -30,6 +30,7 @@ export interface CoachSelectionActions {
     coach: Coach,
     options: {
       createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation | null>;
+      conversationError: string | null;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -108,6 +109,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
     coach: Coach,
     options: {
       createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation | null>;
+      conversationError: string | null;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -127,7 +129,8 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
       });
 
       if (!conversation) {
-        throw new Error('Failed to create conversation');
+        // Use the error message from createConversation (includes quota details)
+        throw new Error(options.conversationError || 'Failed to create conversation');
       }
 
       const initialMessage = coach.startup_query || `Let's get started with ${coach.title}!`;

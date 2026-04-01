@@ -129,8 +129,8 @@ export function ExpandableTabBar() {
       if (activeIndex !== index) {
         router.navigate(`/(app)/(tabs)/${TAB_ROUTES[index]}`);
       } else if (TAB_ROUTES[index] === '(chat)') {
-        // Re-tap ChatTab resets to coach selection
-        router.navigate({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: undefined } });
+        // Re-tap ChatTab resets to coach selection — replace forces re-render
+        router.replace({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: 'new' } });
       }
 
       updateIndicatorPosition(index);
@@ -145,7 +145,7 @@ export function ExpandableTabBar() {
         icon: MessageSquarePlus,
         label: 'New Chat',
         onPress: () => {
-          router.navigate({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: undefined } });
+          router.replace({ pathname: '/(app)/(tabs)/(chat)', params: { conversationId: 'new' } });
           updateIndicatorPosition(0);
         },
       },

@@ -101,10 +101,10 @@ export function ChatScreen() {
   }, [conversations.currentConversation]);
 
   // Handle navigation params for conversation selection
-  // Clear conversation when navigating to chat without a conversationId
+  // Clear conversation when navigating to chat without a conversationId (or with 'new')
   useEffect(() => {
     const conversationId = params?.conversationId;
-    if (conversationId === undefined && conversations.currentConversation !== null) {
+    if ((conversationId === undefined || conversationId === 'new') && conversations.currentConversation !== null) {
       conversations.setCurrentConversation(null);
       messagesHook.clearMessages();
     }
@@ -210,6 +210,7 @@ export function ChatScreen() {
       startCoachConversation: async (coach) => {
         await coachSelection.startCoachConversation(coach, {
           createConversation: conversations.createConversation,
+          conversationError: conversations.error,
           setMessages: messagesHook.setMessages,
           setIsSending: messagesHook.setIsSending,
           scrollToBottom: messagesHook.scrollToBottom,
@@ -223,6 +224,7 @@ export function ChatScreen() {
   const startCoachConversation = useCallback(async (coach: Coach) => {
     await coachSelection.startCoachConversation(coach, {
       createConversation: conversations.createConversation,
+      conversationError: conversations.error,
       setMessages: messagesHook.setMessages,
       setIsSending: messagesHook.setIsSending,
       scrollToBottom: messagesHook.scrollToBottom,

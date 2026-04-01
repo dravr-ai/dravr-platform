@@ -121,6 +121,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -151,6 +152,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -184,6 +186,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -234,6 +237,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -261,6 +265,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -288,6 +293,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -309,6 +315,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -338,6 +345,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -365,6 +373,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -395,6 +404,7 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
+          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
