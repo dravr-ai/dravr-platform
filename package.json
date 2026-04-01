@@ -12,8 +12,8 @@
     "typecheck:packages": "bun run typecheck --filter './packages/*'",
     "lint:packages": "bun run lint --filter './packages/*'",
     "test:packages": "bun run test --filter './packages/*'",
-    "scan:skills": "uvx mcp-scan@latest --skills .claude/skills",
-    "scan:mcp": "uvx mcp-scan@latest .mcp.json"
+    "scan:skills": "uvx snyk-agent-scan@latest --skills .claude/skills",
+    "scan:mcp": "uvx snyk-agent-scan@latest .mcp.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.18.2"
