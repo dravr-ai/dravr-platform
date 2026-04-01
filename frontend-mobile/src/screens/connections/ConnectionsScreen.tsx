@@ -171,59 +171,60 @@ export function ConnectionsScreen() {
     const isConnected = provider.connected;
     const isConnecting = connectingProvider === provider.provider;
     const requiresOAuth = provider.requires_oauth;
+    const isSciotte = provider.provider.startsWith('sciotte');
+    const canConnect = requiresOAuth || isSciotte;
 
     return (
       <Card key={provider.provider} className="mb-3">
-        <View className="flex-row items-start mb-3">
+        <View className="flex-row items-center">
+          {/* Provider icon */}
           <View
-            className="w-12 h-12 rounded-lg items-center justify-center mr-3"
+            className="w-11 h-11 rounded-xl items-center justify-center mr-3"
             style={{ backgroundColor: config.color }}
           >
-            <Text className="text-2xl font-bold text-text-primary">{config.icon}</Text>
+            <Text className="text-xl font-bold text-white">{config.icon}</Text>
           </View>
-          <View className="flex-1">
-            <Text className="text-lg font-semibold text-text-primary mb-0.5">{provider.display_name}</Text>
-            <Text className="text-sm text-text-secondary leading-5">{config.description}</Text>
-            {provider.capabilities.length > 0 && (
-              <Text className="text-xs text-text-tertiary mt-1">
-                Capabilities: {provider.capabilities.join(', ')}
-              </Text>
-            )}
-          </View>
-        </View>
 
-        <View className="flex-row items-center justify-between">
+          {/* Provider info */}
+          <View className="flex-1 mr-3">
+            <Text className="text-base font-semibold text-text-primary">{provider.display_name}</Text>
+            <Text className="text-xs text-text-secondary mt-0.5" numberOfLines={1}>{config.description}</Text>
+          </View>
+
+          {/* Action button — right-aligned pill */}
           {isConnected ? (
-            <>
-              <View className="bg-success/20 px-2 py-1 rounded">
-                <Text className="text-sm text-success font-medium">Connected</Text>
+            <View className="flex-row items-center">
+              <View className="flex-row items-center bg-success/15 px-3 py-1.5 rounded-full mr-1">
+                <Text className="text-xs text-success font-semibold">Connected</Text>
               </View>
-              {requiresOAuth && (
+              {(requiresOAuth || isSciotte) && (
                 <TouchableOpacity
-                  className="px-3 py-2"
+                  className="p-2"
                   onPress={() => handleDisconnect(provider.provider, provider.display_name)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Text className="text-sm text-error font-medium">Disconnect</Text>
+                  <Feather name="x-circle" size={16} color={colors.text.tertiary} />
                 </TouchableOpacity>
               )}
-            </>
-          ) : requiresOAuth || provider.provider.startsWith('sciotte') ? (
+            </View>
+          ) : canConnect ? (
             <TouchableOpacity
-              className="flex-1 py-2 rounded-lg items-center"
+              className="px-5 py-2 rounded-full"
               style={{ backgroundColor: config.color }}
               onPress={() => {
-                if (provider.provider.startsWith('sciotte')) {
+                if (isSciotte) {
                   setSciotteTarget(provider.provider === 'sciotte_garmin' ? 'garmin' : 'strava');
                 } else {
                   handleConnect(provider.provider, provider.display_name);
                 }
               }}
               disabled={isConnecting}
+              activeOpacity={0.7}
             >
               {isConnecting ? (
-                <ActivityIndicator size="small" color={colors.text.primary} />
+                <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-base font-semibold text-text-primary">Connect</Text>
+                <Text className="text-sm font-semibold text-white">Connect</Text>
               )}
             </TouchableOpacity>
           ) : null}
