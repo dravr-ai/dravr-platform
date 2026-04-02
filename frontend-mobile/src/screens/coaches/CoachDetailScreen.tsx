@@ -15,10 +15,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
+import Markdown from 'react-native-markdown-display';
+import { Platform } from 'react-native';
+import { colors, spacing, fontSize, borderRadius, glassCard, gradients, buttonGlow } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Coach } from '../../types';
+
+const coachMarkdownStyles = {
+  body: { color: colors.text.secondary, fontSize: fontSize.md, lineHeight: fontSize.md * 1.6 },
+  heading2: { color: colors.text.primary, fontSize: fontSize.lg, fontWeight: '600' as const, marginTop: spacing.sm, marginBottom: spacing.xs },
+  heading3: { color: colors.text.primary, fontSize: fontSize.md, fontWeight: '600' as const, marginTop: spacing.xs },
+  strong: { color: colors.text.primary, fontWeight: '700' as const },
+  em: { color: colors.text.secondary, fontStyle: 'italic' as const },
+  bullet_list: { marginLeft: spacing.sm },
+  ordered_list: { marginLeft: spacing.sm },
+  list_item: { marginBottom: spacing.xs },
+  code_inline: { backgroundColor: colors.background.tertiary, color: colors.primary[400], paddingHorizontal: 4, borderRadius: 4, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: fontSize.sm },
+  fence: { backgroundColor: colors.background.tertiary, borderRadius: borderRadius.sm, padding: spacing.sm, marginVertical: spacing.xs },
+  link: { color: colors.primary[400], textDecorationLine: 'underline' as const },
+  hr: { backgroundColor: colors.border.default, height: 1, marginVertical: spacing.sm },
+};
 
 // Coach category colors matching Stitch UX spec
 const COACH_CATEGORY_COLORS: Record<string, string> = {
@@ -214,7 +231,9 @@ export function CoachDetailScreen() {
 
         {/* Description */}
         {coach.description && (
-          <Text className="text-base text-text-secondary px-5 leading-[22px] mb-3">{coach.description}</Text>
+          <View className="px-5 mb-3">
+            <Markdown style={coachMarkdownStyles}>{coach.description}</Markdown>
+          </View>
         )}
 
         {/* Tags */}
@@ -326,9 +345,7 @@ export function CoachDetailScreen() {
                 style={{ height: 2, width: '100%' }}
               />
               <View className="p-4">
-                <Text className="text-sm text-text-secondary leading-5 font-mono">
-                  {coach.system_prompt}
-                </Text>
+                <Markdown style={coachMarkdownStyles}>{coach.system_prompt}</Markdown>
               </View>
             </View>
           </View>
