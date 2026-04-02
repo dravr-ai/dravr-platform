@@ -161,6 +161,7 @@ fn get_all_tool_names() -> Vec<&'static str> {
         "predict_performance",
         "analyze_training_load",
         "analyze_weather_impact",
+        "get_weather_forecast",
         // Configuration tools
         "get_configuration_catalog",
         "get_configuration_profiles",

@@ -70,6 +70,8 @@ pub enum ToolId {
     AnalyzeTrainingLoad,
     /// Analyze weather impact on activity performance
     AnalyzeWeatherImpact,
+    /// Get weather forecast for a location and future date
+    GetWeatherForecast,
 
     // Configuration management tools
     /// Get the complete configuration catalog with all available parameters
@@ -234,6 +236,7 @@ impl ToolId {
             "predict_performance" => Some(Self::PredictPerformance),
             "analyze_training_load" => Some(Self::AnalyzeTrainingLoad),
             "analyze_weather_impact" => Some(Self::AnalyzeWeatherImpact),
+            "get_weather_forecast" => Some(Self::GetWeatherForecast),
             "get_configuration_catalog" => Some(Self::GetConfigurationCatalog),
             "get_configuration_profiles" => Some(Self::GetConfigurationProfiles),
             "get_user_configuration" => Some(Self::GetUserConfiguration),
@@ -325,6 +328,7 @@ impl ToolId {
             Self::PredictPerformance => "predict_performance",
             Self::AnalyzeTrainingLoad => "analyze_training_load",
             Self::AnalyzeWeatherImpact => "analyze_weather_impact",
+            Self::GetWeatherForecast => "get_weather_forecast",
             Self::GetConfigurationCatalog => "get_configuration_catalog",
             Self::GetConfigurationProfiles => "get_configuration_profiles",
             Self::GetUserConfiguration => "get_user_configuration",
@@ -415,6 +419,9 @@ impl ToolId {
             Self::PredictPerformance => "Predict future performance based on training",
             Self::AnalyzeTrainingLoad => "Analyze training load and recovery metrics",
             Self::AnalyzeWeatherImpact => "Analyze weather impact on activity performance",
+            Self::GetWeatherForecast => {
+                "Get weather forecast for a location and date for outdoor activities"
+            }
             Self::GetConfigurationCatalog => "Get configuration catalog with parameters",
             Self::GetConfigurationProfiles => "Get available configuration profiles",
             Self::GetUserConfiguration => "Get current user's configuration settings",
@@ -482,10 +489,11 @@ impl ToolId {
     #[must_use]
     pub const fn requires_auth(&self) -> bool {
         match self {
-            // Config tools that don't need auth
+            // Config tools and stateless utilities that don't need auth
             Self::GetConfigurationCatalog
             | Self::GetConfigurationProfiles
-            | Self::ValidateConfiguration => false,
+            | Self::ValidateConfiguration
+            | Self::GetWeatherForecast => false,
             // All other tools require authentication
             _ => true,
         }

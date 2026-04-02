@@ -11,19 +11,20 @@
 //! - `DetectPatternsTool` - Detect training patterns and overtraining signs
 //! - `CalculateFitnessScoreTool` - Calculate overall fitness score
 //! - `AnalyzeWeatherImpactTool` - Analyze weather impact on activity performance
+//! - `GetWeatherForecastTool` - Get weather forecast for a location and date
 //!
 //! These tools use the intelligence module directly for efficient analysis.
 
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use chrono::{Duration, NaiveDate, NaiveTime, Utc};
 use serde_json::{json, Value};
 use tracing::info;
 
 use crate::config::environment::default_provider;
 use crate::errors::AppResult;
-use crate::intelligence::weather::WeatherService;
+use crate::intelligence::weather::{WeatherDifficulty, WeatherService};
 use crate::intelligence::{PatternDetector, RiskLevel, TrainingLoadCalculator, TrainingStatus};
 use crate::mcp::schema::{JsonSchema, PropertySchema};
 use crate::models::Activity;
@@ -727,6 +728,175 @@ impl McpTool for AnalyzeWeatherImpactTool {
 }
 
 // ============================================================================
+// GetWeatherForecastTool - Get weather forecast for a location and date
+// ============================================================================
+
+/// Maximum number of days ahead that `OpenWeatherMap` free tier supports for forecasts
+const FORECAST_MAX_DAYS: i64 = 5;
+/// Default forecast hour when no specific time is requested (2:00 PM local)
+const DEFAULT_FORECAST_HOUR: u32 = 14;
+
+/// Tool for getting weather forecast for a location and future date.
+pub struct GetWeatherForecastTool;
+
+#[async_trait]
+impl McpTool for GetWeatherForecastTool {
+    fn name(&self) -> &'static str {
+        "get_weather_forecast"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get weather forecast for a location and date. Use when user asks about future weather conditions for outdoor activities."
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "location".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "City name (e.g., 'Bromont', 'Montreal, QC') or 'lat,lon' coordinates (e.g., '45.5,-72.1')".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "date".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Date in YYYY-MM-DD format (up to 5 days ahead). Defaults to today if omitted."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["location".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::READS_DATA
+    }
+
+    async fn execute(&self, args: Value, _context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let Some(location) = args.get("location").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "location is required"
+            })));
+        };
+
+        let today = Utc::now().date_naive();
+
+        let forecast_date = if let Some(date_str) = args.get("date").and_then(Value::as_str) {
+            match NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                Ok(d) => d,
+                Err(_) => {
+                    return Ok(ToolResult::error(json!({
+                        "error": format!("Invalid date format: '{date_str}'. Use YYYY-MM-DD format."),
+                        "example": "2026-04-05"
+                    })));
+                }
+            }
+        } else {
+            today
+        };
+
+        // Validate date is not too far in the future
+        let days_ahead = (forecast_date - today).num_days();
+        if days_ahead > FORECAST_MAX_DAYS {
+            return Ok(ToolResult::ok(json!({
+                "location": location,
+                "date": forecast_date.to_string(),
+                "forecast_available": false,
+                "message": format!(
+                    "Weather forecast is only available up to {} days ahead. Requested date is {} days away.",
+                    FORECAST_MAX_DAYS, days_ahead
+                )
+            })));
+        }
+
+        // Allow past dates up to 1 day back for "today" timezone edge cases
+        if days_ahead < -1 {
+            return Ok(ToolResult::error(json!({
+                "error": format!("Cannot get forecast for past date: {forecast_date}"),
+                "hint": "Use analyze_weather_impact with an activity_id for past weather analysis"
+            })));
+        }
+
+        let mut weather_service = WeatherService::with_default_config();
+
+        // Geocode the location
+        let (lat, lon) = match weather_service.geocode_location(location).await {
+            Ok(coords) => coords,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Could not find location '{location}': {e}"),
+                    "hint": "Try a city name like 'Montreal' or coordinates like '45.5,-73.6'"
+                })));
+            }
+        };
+
+        // Build timestamp at default forecast hour (14:00 UTC)
+        let Some(forecast_time) = NaiveTime::from_hms_opt(DEFAULT_FORECAST_HOUR, 0, 0) else {
+            return Ok(ToolResult::error(json!({
+                "error": "Internal error: invalid forecast hour configuration"
+            })));
+        };
+        let forecast_datetime = forecast_date.and_time(forecast_time).and_utc();
+
+        // Get weather data
+        let weather = match weather_service
+            .get_weather_at_time(lat, lon, forecast_datetime)
+            .await
+        {
+            Ok(w) => w,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Weather data unavailable: {e}"),
+                    "location": location,
+                    "date": forecast_date.to_string()
+                })));
+            }
+        };
+
+        // Analyze conditions for outdoor activity suitability
+        let impact = weather_service.analyze_weather_impact(&weather);
+
+        let activity_rating = match impact.difficulty_level {
+            WeatherDifficulty::Ideal => "good",
+            WeatherDifficulty::Challenging => "fair",
+            WeatherDifficulty::Difficult | WeatherDifficulty::Extreme => "poor",
+        };
+
+        info!(
+            "Weather forecast for '{}' on {}: {}°C, {:?} conditions",
+            location, forecast_date, weather.temperature_celsius, activity_rating
+        );
+
+        Ok(ToolResult::ok(json!({
+            "location": location,
+            "coordinates": { "lat": lat, "lon": lon },
+            "date": forecast_date.to_string(),
+            "forecast_available": true,
+            "weather": {
+                "temperature_celsius": weather.temperature_celsius,
+                "humidity_percentage": weather.humidity_percentage,
+                "wind_speed_kmh": weather.wind_speed_kmh,
+                "conditions": weather.conditions
+            },
+            "outdoor_activity_rating": activity_rating,
+            "impact_factors": impact.impact_factors,
+            "performance_adjustment_percent": impact.performance_adjustment
+        })))
+    }
+}
+
+// ============================================================================
 // Module exports
 // ============================================================================
 
@@ -738,5 +908,6 @@ pub fn create_analytics_tools() -> Vec<Box<dyn McpTool>> {
         Box::new(DetectPatternsTool),
         Box::new(CalculateFitnessScoreTool),
         Box::new(AnalyzeWeatherImpactTool),
+        Box::new(GetWeatherForecastTool),
     ]
 }

@@ -1,5 +1,5 @@
 // ABOUTME: Intelligence handler module split into per-tool files for maintainability
-// ABOUTME: Re-exports all 9 intelligence handler functions from their dedicated modules
+// ABOUTME: Re-exports all 10 intelligence handler functions from their dedicated modules
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,6 +22,8 @@ mod recommendations;
 mod training_load;
 /// Performance trend analysis handler
 mod trends;
+/// Weather forecast handler
+mod weather_forecast;
 
 pub use activity::handle_get_activity_intelligence;
 pub use compare::handle_compare_activities;
@@ -32,3 +34,4 @@ pub use performance::handle_predict_performance;
 pub use recommendations::handle_generate_recommendations;
 pub use training_load::handle_analyze_training_load;
 pub use trends::handle_analyze_performance_trends;
+pub use weather_forecast::handle_get_weather_forecast;

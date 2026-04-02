@@ -10,7 +10,7 @@ use crate::constants::{
     json_fields::{ACTIVITY_ID, FORMAT, PROVIDER},
     tools::{
         ANALYZE_ACTIVITY, ANALYZE_WEATHER_IMPACT, DELETE_FITNESS_CONFIG, GET_FITNESS_CONFIG,
-        LIST_FITNESS_CONFIGS, SET_FITNESS_CONFIG,
+        GET_WEATHER_FORECAST, LIST_FITNESS_CONFIGS, SET_FITNESS_CONFIG,
     },
 };
 
@@ -34,6 +34,7 @@ pub(super) fn create_intelligence_tools() -> Vec<ToolSchema> {
         create_predict_performance_tool(),
         create_analyze_training_load_tool(),
         create_analyze_weather_impact_tool(),
+        create_get_weather_forecast_tool(),
         // Configuration Management Tools
         create_get_configuration_catalog_tool(),
         create_get_configuration_profiles_tool(),
@@ -706,6 +707,45 @@ fn create_analyze_weather_impact_tool() -> ToolSchema {
             schema_type: "object".into(),
             properties: Some(properties),
             required: Some(vec![ACTIVITY_ID.to_owned()]),
+        },
+        annotations: None,
+    }
+}
+
+/// Create the `get_weather_forecast` tool schema
+fn create_get_weather_forecast_tool() -> ToolSchema {
+    let mut properties = HashMap::new();
+
+    properties.insert(
+        "location".to_owned(),
+        PropertySchema {
+            property_type: "string".into(),
+            description: Some(
+                "City name (e.g., 'Bromont', 'Montreal, QC') or 'lat,lon' coordinates (e.g., '45.5,-72.1')".into(),
+            ),
+            ..Default::default()
+        },
+    );
+
+    properties.insert(
+        "date".to_owned(),
+        PropertySchema {
+            property_type: "string".into(),
+            description: Some(
+                "Date in YYYY-MM-DD format (up to 5 days ahead). Defaults to today if omitted."
+                    .into(),
+            ),
+            ..Default::default()
+        },
+    );
+
+    ToolSchema {
+        name: GET_WEATHER_FORECAST.to_owned(),
+        description: "Get weather forecast for a location and date. Use when user asks about future weather conditions for outdoor activities.".into(),
+        input_schema: JsonSchema {
+            schema_type: "object".into(),
+            properties: Some(properties),
+            required: Some(vec!["location".to_owned()]),
         },
         annotations: None,
     }

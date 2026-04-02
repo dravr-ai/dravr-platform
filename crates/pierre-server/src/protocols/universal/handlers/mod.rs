@@ -74,6 +74,8 @@ pub use intelligence::handle_detect_patterns;
 pub use intelligence::handle_generate_recommendations;
 /// Get comprehensive activity intelligence
 pub use intelligence::handle_get_activity_intelligence;
+/// Get weather forecast for a location and date
+pub use intelligence::handle_get_weather_forecast;
 /// Predict performance for goal distance
 pub use intelligence::handle_predict_performance;
 
