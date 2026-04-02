@@ -19,13 +19,13 @@ fn test_mcp_tool_schemas() {
     // Test that all analytics tools are properly defined
     let tools = get_tools();
 
-    // Should have all 70 tools:
+    // Should have all 69 tools:
     // - 35 fitness + 6 configuration + 7 recipe + 10 coach (original)
     // - 3 user coach preferences (hide, show, list_hidden)
     // - 8 admin coach tools (system coaches management)
     // Note: OAuth notification tools removed (get_notifications, mark_notifications_read, announce_oauth_success, check_oauth_notifications)
     // Note: connect_to_pierre removed - SDK bridge handles authentication locally via RFC 8414 discovery
-    assert_eq!(tools.len(), 70);
+    assert_eq!(tools.len(), 69);
 
     // Check key analytics tools are present
     let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();

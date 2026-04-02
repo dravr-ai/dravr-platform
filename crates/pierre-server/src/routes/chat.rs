@@ -884,18 +884,6 @@ impl ChatRoutes {
                     "required": ["provider"]
                 })),
             },
-            FunctionDeclaration {
-                name: "get_weather_forecast".to_owned(),
-                description: "Get weather forecast for a location and date. Use when user asks about future weather conditions for outdoor activities.".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string", "description": "City name or 'lat,lon' coordinates"},
-                        "date": {"type": "string", "description": "Date in YYYY-MM-DD format (up to 5 days ahead)"}
-                    },
-                    "required": ["location"]
-                })),
-            },
         ]
     }
 
@@ -942,7 +930,7 @@ impl ChatRoutes {
 
     /// Build Gemini tool definitions from MCP tool registry
     pub(crate) fn build_mcp_tools() -> Tool {
-        let mut declarations = Vec::with_capacity(15);
+        let mut declarations = Vec::with_capacity(14);
         declarations.extend(Self::build_connection_tools());
         declarations.extend(Self::build_activity_tools());
         declarations.extend(Self::build_analysis_tools());

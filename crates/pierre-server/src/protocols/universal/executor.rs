@@ -26,12 +26,11 @@ use super::handlers::{
     handle_get_activity_intelligence, handle_get_athlete, handle_get_configuration_catalog,
     handle_get_configuration_profiles, handle_get_connection_status, handle_get_food_details,
     handle_get_nutrient_timing, handle_get_stats, handle_get_stretching_exercise,
-    handle_get_user_configuration, handle_get_weather_forecast, handle_get_yoga_pose,
-    handle_list_stretching_exercises, handle_list_yoga_poses, handle_optimize_sleep_schedule,
-    handle_predict_performance, handle_search_food, handle_set_goal, handle_suggest_goals,
-    handle_suggest_rest_day, handle_suggest_stretches_for_activity, handle_suggest_yoga_sequence,
-    handle_track_progress, handle_track_sleep_trends, handle_update_user_configuration,
-    handle_validate_configuration,
+    handle_get_user_configuration, handle_get_yoga_pose, handle_list_stretching_exercises,
+    handle_list_yoga_poses, handle_optimize_sleep_schedule, handle_predict_performance,
+    handle_search_food, handle_set_goal, handle_suggest_goals, handle_suggest_rest_day,
+    handle_suggest_stretches_for_activity, handle_suggest_yoga_sequence, handle_track_progress,
+    handle_track_sleep_trends, handle_update_user_configuration, handle_validate_configuration,
 };
 use super::handlers::{
     handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
@@ -275,10 +274,6 @@ impl UniversalExecutor {
         registry.register(ToolInfo::async_tool(
             ToolId::AnalyzeTrainingLoad,
             |executor, request| Box::pin(handle_analyze_training_load(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetWeatherForecast,
-            |executor, request| Box::pin(handle_get_weather_forecast(executor, request)),
         ));
     }
 

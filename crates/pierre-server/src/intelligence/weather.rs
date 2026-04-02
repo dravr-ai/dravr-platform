@@ -70,8 +70,6 @@ pub struct WeatherService {
     weather_config: WeatherAnalysisConfig,
     /// In-memory cache of weather data
     cache: HashMap<String, CachedWeatherData>,
-    /// In-memory cache of geocoding results (city name → coordinates)
-    geocoding_cache: HashMap<String, (f64, f64)>,
     /// Optional API key for weather service
     api_key: Option<String>,
 }
@@ -116,15 +114,6 @@ struct OpenWeatherCondition {
     description: String,
 }
 
-/// Geocoding result from `OpenWeatherMap` Geocoding API
-#[derive(Debug, Deserialize)]
-struct GeocodingResult {
-    /// Latitude of the location
-    lat: f64,
-    /// Longitude of the location
-    lon: f64,
-}
-
 impl WeatherService {
     /// Create a new weather service with configuration and API key
     #[must_use]
@@ -135,7 +124,6 @@ impl WeatherService {
             api_config,
             weather_config: intelligence_config.weather_analysis.clone(),
             cache: HashMap::new(),
-            geocoding_cache: HashMap::new(),
             api_key,
         }
     }
@@ -161,7 +149,6 @@ impl WeatherService {
             api_config,
             weather_config,
             cache: HashMap::new(),
-            geocoding_cache: HashMap::new(),
             api_key,
         }
     }
@@ -326,106 +313,6 @@ impl WeatherService {
         })
     }
 
-    /// Geocode a location string to latitude/longitude coordinates
-    ///
-    /// Supports two formats:
-    /// - "lat,lon" — parsed directly as coordinates (e.g., "45.5,-72.1")
-    /// - City name — geocoded via `OpenWeatherMap` Geocoding API (e.g., "Bromont" or "Montreal, QC")
-    ///
-    /// Results are cached in-memory to avoid redundant API calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns `WeatherError::GeocodingFailed` if the location cannot be resolved
-    pub async fn geocode_location(&mut self, location: &str) -> Result<(f64, f64), WeatherError> {
-        // Try parsing as "lat,lon" coordinates first
-        if let Some((lat, lon)) = Self::parse_lat_lon(location) {
-            return Ok((lat, lon));
-        }
-
-        // Check geocoding cache
-        let cache_key = location.to_lowercase();
-        if let Some(&coords) = self.geocoding_cache.get(&cache_key) {
-            return Ok(coords);
-        }
-
-        // Call OpenWeatherMap Geocoding API
-        let api_key = self
-            .api_key
-            .as_ref()
-            .ok_or_else(|| WeatherError::GeocodingFailed {
-                location: location.to_owned(),
-                reason: "OpenWeather API key not configured".into(),
-            })?;
-
-        let url = format!(
-            "{}/geo/1.0/direct?q={}&limit=1&appid={}",
-            &self.api_config.base_url,
-            urlencoding::encode(location),
-            api_key
-        );
-
-        debug!(
-            "Geocoding location '{}' via {}/geo/1.0/direct",
-            location, &self.api_config.base_url
-        );
-
-        let response =
-            self.client
-                .get(&url)
-                .send()
-                .await
-                .map_err(|e| WeatherError::GeocodingFailed {
-                    location: location.to_owned(),
-                    reason: format!("Network error: {e}"),
-                })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "Unknown error".into());
-            return Err(WeatherError::GeocodingFailed {
-                location: location.to_owned(),
-                reason: format!("API returned status {status}: {error_text}"),
-            });
-        }
-
-        let results: Vec<GeocodingResult> =
-            response
-                .json()
-                .await
-                .map_err(|e| WeatherError::GeocodingFailed {
-                    location: location.to_owned(),
-                    reason: format!("Failed to parse response: {e}"),
-                })?;
-
-        let coords = results
-            .first()
-            .ok_or_else(|| WeatherError::GeocodingFailed {
-                location: location.to_owned(),
-                reason: "No results found for this location".into(),
-            })?;
-
-        let result = (coords.lat, coords.lon);
-        self.geocoding_cache.insert(cache_key, result);
-        Ok(result)
-    }
-
-    /// Try to parse a "lat,lon" coordinate string
-    fn parse_lat_lon(location: &str) -> Option<(f64, f64)> {
-        let parts: Vec<&str> = location.split(',').collect();
-        if parts.len() == 2 {
-            let lat = parts[0].trim().parse::<f64>().ok()?;
-            let lon = parts[1].trim().parse::<f64>().ok()?;
-            if (-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon) {
-                return Some((lat, lon));
-            }
-        }
-        None
-    }
-
     /// Get weather conditions for an activity's start location and time
     ///
     /// # Errors
@@ -580,15 +467,6 @@ pub enum WeatherError {
     /// Weather API is disabled in configuration
     #[error("Weather API is disabled")]
     ApiDisabled,
-
-    /// Geocoding failed: could not resolve location to coordinates
-    #[error("Geocoding failed for location '{location}': {reason}")]
-    GeocodingFailed {
-        /// Location string that could not be geocoded
-        location: String,
-        /// Reason for the geocoding failure
-        reason: String,
-    },
 
     /// Network communication error
     #[error("Network error: {0}")]
