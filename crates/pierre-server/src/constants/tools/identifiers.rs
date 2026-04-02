@@ -62,6 +62,8 @@ pub const GENERATE_RECOMMENDATIONS: &str = "generate_recommendations";
 pub const SUGGEST_GOALS: &str = "suggest_goals";
 /// Tool identifier for analyzing weather impact on activity performance
 pub const ANALYZE_WEATHER_IMPACT: &str = "analyze_weather_impact";
+/// Tool identifier for getting weather forecast for a location and date
+pub const GET_WEATHER_FORECAST: &str = "get_weather_forecast";
 
 /// Nutrition analysis tools
 pub const CALCULATE_DAILY_NUTRITION: &str = "calculate_daily_nutrition";
@@ -177,6 +179,7 @@ pub const PUBLIC_DISCOVERY_TOOLS: &[&str] = &[
     COMPARE_ACTIVITIES,
     DETECT_PATTERNS,
     ANALYZE_WEATHER_IMPACT,
+    GET_WEATHER_FORECAST,
     // Goal suggestions (read-only)
     SUGGEST_GOALS,
     // Nutrition (read-only)
