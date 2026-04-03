@@ -340,13 +340,13 @@ impl ActivityRetrievalContext {
     /// Calculate breakdown of activities by sport type
     #[allow(clippy::cast_precision_loss)]
     fn calculate_type_breakdown(activities: &[Activity]) -> Vec<ActivityTypeBreakdown> {
-        use std::collections::BTreeMap;
+        use std::collections::HashMap;
 
         if activities.is_empty() {
             return Vec::new();
         }
 
-        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        let mut counts: HashMap<String, usize> = HashMap::new();
         for activity in activities {
             let sport_type = match activity.sport_type() {
                 SportType::Other(s) => s.clone(),

@@ -45,25 +45,25 @@ async fn test_protocol_stream_cleanup_removes_from_user_sessions() {
         .await;
 
     // Verify protocol streams are registered
-    assert_eq!(manager.active_protocol_streams().await, 3);
+    assert_eq!(manager.active_protocol_streams(), 3);
 
     // Unregister session_1
-    manager.unregister_protocol_stream(&session_id_1).await;
+    manager.unregister_protocol_stream(&session_id_1);
 
     // Verify:
     // 1. Protocol stream count decreased
-    assert_eq!(manager.active_protocol_streams().await, 2);
+    assert_eq!(manager.active_protocol_streams(), 2);
 
     // 2. Session removed from user_sessions
     // (We can't directly access user_sessions, but we can verify via OAuth notification sending)
     // If session_1 is still in user_sessions, send_oauth_notification_to_protocol_streams would try to send to it
 
     // Unregister remaining sessions
-    manager.unregister_protocol_stream(&session_id_2).await;
-    assert_eq!(manager.active_protocol_streams().await, 1);
+    manager.unregister_protocol_stream(&session_id_2);
+    assert_eq!(manager.active_protocol_streams(), 1);
 
-    manager.unregister_protocol_stream(&session_id_3).await;
-    assert_eq!(manager.active_protocol_streams().await, 0);
+    manager.unregister_protocol_stream(&session_id_3);
+    assert_eq!(manager.active_protocol_streams(), 0);
 
     // After all sessions removed, user_sessions should be empty
     // (verified by the fact that cleanup completed without panics)
@@ -111,22 +111,22 @@ async fn test_protocol_stream_cleanup_with_multiple_users() {
         )
         .await;
 
-    assert_eq!(manager.active_protocol_streams().await, 3);
+    assert_eq!(manager.active_protocol_streams(), 3);
 
     // Unregister one session from user 1
-    manager.unregister_protocol_stream(&session_user1_a).await;
+    manager.unregister_protocol_stream(&session_user1_a);
 
     // User 1 should still have session_user1_b tracked
     // User 2 should still have session_user2_a tracked
-    assert_eq!(manager.active_protocol_streams().await, 2);
+    assert_eq!(manager.active_protocol_streams(), 2);
 
     // Unregister user 2's session
-    manager.unregister_protocol_stream(&session_user2_a).await;
-    assert_eq!(manager.active_protocol_streams().await, 1);
+    manager.unregister_protocol_stream(&session_user2_a);
+    assert_eq!(manager.active_protocol_streams(), 1);
 
     // Unregister last session from user 1
-    manager.unregister_protocol_stream(&session_user1_b).await;
-    assert_eq!(manager.active_protocol_streams().await, 0);
+    manager.unregister_protocol_stream(&session_user1_b);
+    assert_eq!(manager.active_protocol_streams(), 0);
 }
 
 #[allow(clippy::expect_used)]
@@ -149,11 +149,11 @@ async fn test_memory_leak_prevention_after_many_connects_disconnects() {
             .await;
 
         // Immediately unregister
-        manager.unregister_protocol_stream(&session_id).await;
+        manager.unregister_protocol_stream(&session_id);
     }
 
     // After 100 cycles, there should be no active streams
-    assert_eq!(manager.active_protocol_streams().await, 0);
+    assert_eq!(manager.active_protocol_streams(), 0);
 
     // The fact that this test completes without excessive memory usage
     // indicates the cleanup is working properly
@@ -178,19 +178,19 @@ async fn test_cleanup_inactive_connections() {
         )
         .await;
 
-    assert_eq!(manager.active_protocol_streams().await, 1);
+    assert_eq!(manager.active_protocol_streams(), 1);
 
     // Wait a bit
     sleep(Duration::from_millis(100)).await;
 
     // Cleanup connections inactive for more than 50ms (should not remove our connection)
-    manager.cleanup_inactive_connections(0).await;
+    manager.cleanup_inactive_connections(0);
 
     // Wait for cleanup with very short timeout (0 seconds = immediate)
     // This should remove the connection since it's now inactive
     sleep(Duration::from_millis(100)).await;
-    manager.cleanup_inactive_connections(0).await;
+    manager.cleanup_inactive_connections(0);
 
     // Connection should be cleaned up
-    assert_eq!(manager.active_protocol_streams().await, 0);
+    assert_eq!(manager.active_protocol_streams(), 0);
 }

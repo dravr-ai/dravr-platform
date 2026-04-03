@@ -316,7 +316,7 @@ pub(super) async fn handle_providers_status(
     }
 
     // Sort providers in a consistent display order
-    let provider_order: &[&str] = &[
+    let provider_order: HashMap<&str, usize> = [
         "synthetic",
         "synthetic_sleep",
         "sciotte",
@@ -327,11 +327,15 @@ pub(super) async fn handle_providers_status(
         "whoop",
         "coros",
         "terra",
-    ];
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, &name)| (name, i))
+    .collect();
     provider_statuses.sort_by_key(|p| {
         provider_order
-            .iter()
-            .position(|&name| name == p.provider)
+            .get(p.provider.as_str())
+            .copied()
             .unwrap_or(usize::MAX)
     });
 

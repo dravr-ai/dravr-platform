@@ -346,9 +346,13 @@ async fn test_websocket_connection_scenarios() -> Result<()> {
 
     // Test usage update broadcast
     let user_id = Uuid::new_v4();
-    websocket_manager
-        .broadcast_usage_update("test_api_key", &user_id, 10, 100, json!({"limited": false}))
-        .await;
+    websocket_manager.broadcast_usage_update(
+        "test_api_key",
+        &user_id,
+        10,
+        100,
+        json!({"limited": false}),
+    );
 
     // WebSocket manager was created successfully and methods work
 

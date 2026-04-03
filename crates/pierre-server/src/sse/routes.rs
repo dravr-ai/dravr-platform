@@ -162,7 +162,7 @@ impl SseRoutes {
             }
 
             // Clean up connection
-            manager_clone.unregister_notification_stream(user_id_clone).await;
+            manager_clone.unregister_notification_stream(user_id_clone);
         };
 
         // Configure keepalive with 15-second interval
@@ -263,7 +263,7 @@ impl SseRoutes {
             }
 
             // Clean up connection
-            manager_clone.unregister_protocol_stream(&session_id_clone).await;
+            manager_clone.unregister_protocol_stream(&session_id_clone);
         };
 
         // Configure keepalive with 15-second interval
@@ -335,9 +335,7 @@ impl SseRoutes {
             })?;
 
         let actual_client_id = task.client_id.clone();
-        let mut receiver = manager
-            .register_a2a_task_stream(task_id.clone(), actual_client_id)
-            .await;
+        let mut receiver = manager.register_a2a_task_stream(task_id.clone(), actual_client_id);
         let manager_clone = manager.clone();
         let task_id_clone = task_id.clone();
 
@@ -388,7 +386,7 @@ impl SseRoutes {
             }
 
             // Clean up connection
-            manager_clone.unregister_a2a_task_stream(&task_id_clone).await;
+            manager_clone.unregister_a2a_task_stream(&task_id_clone);
         };
 
         // Configure keepalive with 15-second interval
