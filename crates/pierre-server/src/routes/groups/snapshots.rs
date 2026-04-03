@@ -138,10 +138,14 @@ fn build_snapshot_from_activities(
     activities: &[Activity],
     now: chrono::DateTime<Utc>,
 ) -> MemberFitnessSnapshot {
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+
     // Compute training load (CTL/ATL/TSB)
     let calculator = TrainingLoadCalculator::new();
     let training_load = calculator.calculate_training_load(
-        activities, None, // FTP
+        &sorted, None, // FTP
         None, // LTHR
         None, // max_hr
         None, // resting_hr

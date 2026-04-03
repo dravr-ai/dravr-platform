@@ -6,7 +6,6 @@
 
 use crate::config::environment::default_provider;
 use crate::config::intelligence::IntelligenceConfig;
-use crate::intelligence::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use crate::intelligence::{SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
@@ -92,14 +91,21 @@ fn analyze_detailed_training_load(activities: &[Activity], timeframe: &str) -> s
         });
     }
 
+    // Sort activities oldest-first — the EMA calculation in TrainingLoadCalculator
+    // requires chronological order (it computes days_span = last_date - first_date
+    // and returns 0 if negative). Strava returns activities newest-first.
+    let mut sorted_activities = activities.to_vec();
+    sorted_activities.sort_by_key(Activity::start_date);
+
     // Use TrainingLoadCalculator from Phase 1 foundation
     let calculator = TrainingLoadCalculator::new();
 
     // Calculate training load (CTL, ATL, TSB) using real TSS calculation
     // Note: For accurate TSS, we'd need user's FTP, LTHR, max_hr, etc.
-    // For now, use None values which will trigger estimation
+    // For now, use None values which will trigger pace-based estimation
     let Ok(training_load) = calculator.calculate_training_load(
-        activities, None, // FTP
+        &sorted_activities,
+        None, // FTP
         None, // LTHR
         None, // max_hr
         None, // resting_hr
@@ -306,7 +312,6 @@ pub fn handle_analyze_training_load(
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
     Box::pin(async move {
         use parse_user_id_for_protocol;
-        use DEFAULT_ACTIVITY_LIMIT;
 
         // Check cancellation at start
         if let Some(token) = &request.cancellation_token {
@@ -380,10 +385,8 @@ pub fn handle_analyze_training_load(
                     }
                 }
 
-                match provider
-                    .get_activities(Some(DEFAULT_ACTIVITY_LIMIT), None)
-                    .await
-                {
+                let activity_limit = executor.resources.config.training_load_activity_limit;
+                match provider.get_activities(Some(activity_limit), None).await {
                     Ok(activities) => {
                         // Report progress before analysis
                         if let Some(reporter) = &request.progress_reporter {

@@ -146,7 +146,9 @@ fn calculate_prediction_confidence(
     };
 
     // Factor 2: Training volume (CTL)
-    let owned_activities: Vec<_> = activities.iter().copied().cloned().collect();
+    let mut owned_activities: Vec<_> = activities.iter().copied().cloned().collect();
+    // Sort oldest-first — EMA calculation requires chronological order
+    owned_activities.sort_by_key(Activity::start_date);
     let calculator = TrainingLoadCalculator::new();
     let ctl_score = if let Ok(training_load) =
         calculator.calculate_training_load(&owned_activities, None, None, None, None, None)
