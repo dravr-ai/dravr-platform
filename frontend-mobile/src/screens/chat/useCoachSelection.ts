@@ -2,6 +2,7 @@
 // ABOUTME: Handles coach loading, selection logic, and auto-sending initial messages
 
 import React, { useState, useCallback } from 'react';
+import { Alert } from 'react-native';
 import { chatApi, coachesApi } from '../../services/api';
 import { extractErrorMessage } from '../../utils/errorMessages';
 import type { Coach, Message, Conversation } from '../../types';
@@ -29,8 +30,7 @@ export interface CoachSelectionActions {
   startCoachConversation: (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation | null>;
-      conversationError: string | null;
+      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -108,8 +108,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
   const startCoachConversation = useCallback(async (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation | null>;
-      conversationError: string | null;
+      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -127,11 +126,6 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
         title: `Chat with ${coach.title}`,
         system_prompt: coach.system_prompt,
       });
-
-      if (!conversation) {
-        // Use the error message from createConversation (includes quota details)
-        throw new Error(options.conversationError || 'Failed to create conversation');
-      }
 
       const initialMessage = coach.startup_query || `Let's get started with ${coach.title}!`;
 
@@ -172,6 +166,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
     } catch (err) {
       const errorMessage = extractErrorMessage(err, 'Failed to start coach conversation');
       setError(errorMessage);
+      Alert.alert('Coach Error', errorMessage);
       console.error('Failed to start coach conversation:', err);
     } finally {
       options.setIsSending(false);

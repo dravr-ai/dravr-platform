@@ -20,6 +20,7 @@ import { Platform } from 'react-native';
 import { colors, spacing, fontSize, borderRadius, glassCard, gradients, buttonGlow } from '../../constants/theme';
 import { coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
 import type { Coach } from '../../types';
 
 const coachMarkdownStyles = {
@@ -272,7 +273,7 @@ export function CoachDetailScreen() {
                     style={{ height: 2, width: '100%' }}
                   />
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5">{coach.purpose}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.purpose}</Markdown>
                   </View>
                 </View>
               </View>
@@ -282,7 +283,7 @@ export function CoachDetailScreen() {
                 <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">When to Use</Text>
                 <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5">{coach.when_to_use}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.when_to_use}</Markdown>
                   </View>
                 </View>
               </View>
@@ -298,7 +299,7 @@ export function CoachDetailScreen() {
                     style={{ height: 2, width: '100%' }}
                   />
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5 font-mono">{coach.instructions}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.instructions}</Markdown>
                   </View>
                 </View>
               </View>
@@ -308,7 +309,7 @@ export function CoachDetailScreen() {
                 <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Example Inputs</Text>
                 <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5">{coach.example_inputs}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.example_inputs}</Markdown>
                   </View>
                 </View>
               </View>
@@ -318,7 +319,7 @@ export function CoachDetailScreen() {
                 <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Example Outputs</Text>
                 <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5">{coach.example_outputs}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.example_outputs}</Markdown>
                   </View>
                 </View>
               </View>
@@ -328,7 +329,7 @@ export function CoachDetailScreen() {
                 <Text className="text-sm font-semibold text-text-secondary uppercase tracking-wide mb-2">Success Criteria</Text>
                 <View style={{ ...glassCard, borderRadius: 12, overflow: 'hidden' }}>
                   <View className="p-4">
-                    <Text className="text-sm text-text-secondary leading-5">{coach.success_criteria}</Text>
+                    <Markdown style={coachMarkdownStyles}>{coach.success_criteria}</Markdown>
                   </View>
                 </View>
               </View>
@@ -390,14 +391,15 @@ export function CoachDetailScreen() {
           </View>
         </View>
 
-        {/* Bottom Spacer for Action Buttons */}
-        <View className="h-[120px]" />
+        {/* Bottom Spacer for Action Buttons + Tab Bar */}
+        <View style={{ height: TAB_BAR_BOTTOM_OFFSET + 80 }} />
       </ScrollView>
 
-      {/* Action Bar - Fixed at bottom with glassmorphism */}
+      {/* Action Bar - Fixed above floating tab bar */}
       <View
-        className="absolute bottom-0 left-0 right-0 flex-row p-4 pb-6 gap-3"
+        className="absolute left-0 right-0 flex-row p-4 pb-3 gap-3"
         style={{
+          bottom: TAB_BAR_BOTTOM_OFFSET,
           backgroundColor: 'rgba(15, 15, 23, 0.95)',
           borderTopWidth: 1,
           borderTopColor: 'rgba(139, 92, 246, 0.2)',

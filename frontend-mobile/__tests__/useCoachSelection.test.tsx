@@ -121,7 +121,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -152,7 +151,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -186,7 +184,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -237,7 +234,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -265,7 +261,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -293,7 +288,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -305,7 +299,7 @@ describe('useCoachSelection', () => {
 
     it('should handle conversation creation failure', async () => {
       const coach = createMockCoach();
-      const createConversation = jest.fn().mockResolvedValue(null);
+      const createConversation = jest.fn().mockRejectedValue(new Error('Failed to create conversation'));
       const setMessages = jest.fn();
       const setIsSending = jest.fn();
       const scrollToBottom = jest.fn();
@@ -315,7 +309,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -324,7 +317,7 @@ describe('useCoachSelection', () => {
 
       // Should still call setIsSending(false) in finally block
       expect(setIsSending).toHaveBeenLastCalledWith(false);
-      // Should set error state (no Alert — single error display only)
+      // Should set error state and show alert
       expect(result.current.error).toBe('Failed to create conversation');
       // Should NOT call sendMessage
       expect(mockSendMessage).not.toHaveBeenCalled();
@@ -345,7 +338,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -373,7 +365,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,
@@ -404,7 +395,6 @@ describe('useCoachSelection', () => {
       await act(async () => {
         await result.current.startCoachConversation(coach, {
           createConversation,
-          conversationError: null,
           setMessages,
           setIsSending,
           scrollToBottom,

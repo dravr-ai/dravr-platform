@@ -192,7 +192,7 @@ export function SearchFriendsScreen() {
           renderItem={renderUser}
 
           ListEmptyComponent={renderEmptyState}
-          contentContainerStyle={users.length === 0 ? { flexGrow: 1, paddingBottom: 100 } : { paddingVertical: spacing.sm, paddingBottom: 100 }}
+          contentContainerStyle={users.length === 0 ? { flexGrow: 1, paddingBottom: 160 } : { paddingVertical: spacing.sm, paddingBottom: 160 }}
           keyboardShouldPersistTaps="handled"
         />
       )}

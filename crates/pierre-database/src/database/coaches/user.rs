@@ -661,10 +661,11 @@ impl CoachesManager {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<Option<bool>> {
-        // Verify the coach exists in the tenant
+        // Verify the coach exists and is accessible to the user's tenant
+        // System coaches (is_system = 1) are accessible to all tenants
         let coach_exists = sqlx::query(
             r"
-            SELECT 1 FROM coaches WHERE id = $1 AND tenant_id = $2
+            SELECT 1 FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1)
             ",
         )
         .bind(coach_id)
