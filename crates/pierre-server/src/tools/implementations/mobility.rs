@@ -16,7 +16,7 @@
 //!
 //! All tools use direct database access for seeded mobility data.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -829,6 +829,7 @@ impl McpTool for SuggestYogaSequenceTool {
 
         // Build a balanced sequence with variety of categories
         let (mut sequence, mut total_time) = (Vec::new(), 0_u32);
+        let mut seen_ids: HashSet<&str> = HashSet::new();
         let target_time = duration_minutes * 60;
 
         for cat in YOGA_CATEGORY_ORDER {
@@ -836,6 +837,7 @@ impl McpTool for SuggestYogaSequenceTool {
                 break;
             }
             if let Some(pose) = all_poses.iter().find(|p| p.category == cat) {
+                seen_ids.insert(&pose.id);
                 total_time += pose.hold_duration_seconds;
                 sequence.push(pose.clone());
             }
@@ -847,7 +849,7 @@ impl McpTool for SuggestYogaSequenceTool {
                 break;
             }
 
-            if !sequence.iter().any(|p| p.id == pose.id) {
+            if seen_ids.insert(&pose.id) {
                 sequence.push(pose.clone());
                 total_time += pose.hold_duration_seconds;
             }
@@ -858,7 +860,7 @@ impl McpTool for SuggestYogaSequenceTool {
             .iter()
             .find(|p| p.pose_type == YogaPoseType::Relaxation)
         {
-            if !sequence.iter().any(|p| p.id == savasana.id) {
+            if seen_ids.insert(&savasana.id) {
                 sequence.push(savasana.clone());
             }
         }

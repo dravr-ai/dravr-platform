@@ -24,11 +24,12 @@ use axum::extract::ws::{Message, WebSocket};
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::{AuthManager, AuthResult};
 // UsageRepository dispatched through repos.usage
+use dashmap::DashMap;
 use pierre_database::RepositoryRegistry;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::{broadcast, mpsc::unbounded_channel, mpsc::UnboundedSender, RwLock};
+use std::sync::Arc;
+use tokio::sync::{broadcast, mpsc::unbounded_channel, mpsc::UnboundedSender};
 use tokio::time::{interval, Duration};
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
@@ -91,7 +92,7 @@ pub enum WebSocketMessage {
 pub struct WebSocketManager {
     repos: Arc<RepositoryRegistry>,
     auth_middleware: McpAuthMiddleware,
-    clients: Arc<RwLock<HashMap<Uuid, ClientConnection>>>,
+    clients: Arc<DashMap<Uuid, ClientConnection>>,
     broadcast_tx: broadcast::Sender<WebSocketMessage>,
 }
 
@@ -122,7 +123,7 @@ impl WebSocketManager {
         Self {
             repos,
             auth_middleware,
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: Arc::new(DashMap::new()),
             broadcast_tx,
         }
     }
@@ -237,16 +238,15 @@ impl WebSocketManager {
                                     subscriptions: Vec::new(),
                                     tx: tx.clone(), // Safe: mpsc::Sender clone for client storage
                                 };
-                                clients.write().await.insert(connection_id, client);
+                                clients.insert(connection_id, client);
                             }
                         }
                         Ok(WebSocketMessage::Subscribe { topics }) => {
-                            let is_authenticated =
-                                clients.read().await.contains_key(&connection_id);
+                            let is_authenticated = clients.contains_key(&connection_id);
                             let new_subscriptions =
                                 Self::handle_subscribe_message(topics, is_authenticated, &tx);
                             // Update subscriptions in the shared map
-                            if let Some(client) = clients.write().await.get_mut(&connection_id) {
+                            if let Some(mut client) = clients.get_mut(&connection_id) {
                                 client.subscriptions = new_subscriptions;
                             }
                         }
@@ -274,7 +274,7 @@ impl WebSocketManager {
 
         // Clean up on disconnect
         ws_send_task.abort();
-        self.clients.write().await.remove(&connection_id);
+        self.clients.remove(&connection_id);
     }
 
     /// Authenticate `WebSocket` user with JWT
@@ -292,7 +292,7 @@ impl WebSocketManager {
     }
 
     /// Broadcast usage update to subscribed clients
-    pub async fn broadcast_usage_update(
+    pub fn broadcast_usage_update(
         &self,
         api_key_id: &str,
         user_id: &Uuid,
@@ -307,8 +307,7 @@ impl WebSocketManager {
             rate_limit_status,
         };
 
-        self.send_to_user_subscribers(user_id, &message, "usage")
-            .await;
+        self.send_to_user_subscribers(user_id, &message, "usage");
     }
 
     /// Broadcast system statistics
@@ -324,22 +323,17 @@ impl WebSocketManager {
         let message = WebSocketMessage::SystemStats {
             total_requests_today: stats.total_requests_today,
             total_requests_this_month: stats.total_requests_this_month,
-            active_connections: self.clients.read().await.len(),
+            active_connections: self.clients.len(),
         };
 
-        self.broadcast_to_all(&message, "system").await;
+        self.broadcast_to_all(&message, "system");
         Ok(())
     }
 
     /// Send message to specific user's subscribers
-    async fn send_to_user_subscribers(
-        &self,
-        user_id: &Uuid,
-        message: &WebSocketMessage,
-        topic: &str,
-    ) {
-        let clients = self.clients.read().await;
-        for (_, client) in clients.iter() {
+    fn send_to_user_subscribers(&self, user_id: &Uuid, message: &WebSocketMessage, topic: &str) {
+        for entry in self.clients.iter() {
+            let client = entry.value();
             if client.user_id == *user_id && client.subscriptions.contains(&topic.to_owned()) {
                 if let Ok(msg_text) = serde_json::to_string(message) {
                     if let Err(e) = client.tx.send(Message::Text(msg_text.into())) {
@@ -356,7 +350,7 @@ impl WebSocketManager {
     }
 
     /// Broadcast message to all subscribers of a topic
-    async fn broadcast_to_all(&self, message: &WebSocketMessage, topic: &str) {
+    fn broadcast_to_all(&self, message: &WebSocketMessage, topic: &str) {
         // Use broadcast channel for efficient message distribution
         if let Err(e) = self.broadcast_tx.send(message.clone()) {
             // Safe: broadcast channel needs ownership while we reuse message below
@@ -364,8 +358,8 @@ impl WebSocketManager {
         }
 
         // Also send directly to subscribed clients for immediate delivery
-        let clients = self.clients.read().await;
-        for (_, client) in clients.iter() {
+        for entry in self.clients.iter() {
+            let client = entry.value();
             if client.subscriptions.contains(&topic.to_owned()) {
                 if let Ok(msg_text) = serde_json::to_string(message) {
                     if let Err(e) = client.tx.send(Message::Text(msg_text.into())) {

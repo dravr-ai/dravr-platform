@@ -183,6 +183,7 @@ fn create_test_config() -> Arc<ServerConfig> {
         usda_api_key: None,
         rate_limiting: RateLimitConfig::default(),
         sleep_tool_params: SleepToolParamsConfig::default(),
+        training_load_activity_limit: 200,
         goal_management: GoalManagementConfig::default(),
         training_zones: TrainingZonesConfig::default(),
         firebase: FirebaseConfig::default(),

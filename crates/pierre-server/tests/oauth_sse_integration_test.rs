@@ -130,8 +130,8 @@ async fn test_oauth_strava_with_sse_notifications() -> Result<()> {
     }
 
     // Test cleanup
-    sse_manager.unregister_notification_stream(user_id).await;
-    assert_eq!(sse_manager.active_notification_streams().await, 0);
+    sse_manager.unregister_notification_stream(user_id);
+    assert_eq!(sse_manager.active_notification_streams(), 0);
     println!("✅ SSE connection cleanup successful");
 
     println!("✅ OAuth+SSE integration test completed successfully!");
@@ -216,7 +216,7 @@ async fn test_mcp_client_oauth_notification_flow() -> Result<()> {
         }
     }
 
-    sse_manager.unregister_notification_stream(user_id).await;
+    sse_manager.unregister_notification_stream(user_id);
     println!("✅ MCP client disconnected");
 
     println!("✅ MCP client OAuth notification flow test completed!");
@@ -256,15 +256,13 @@ async fn test_oauth_sse_error_scenarios() -> Result<()> {
     // Test connection cleanup
     let test_user_id = uuid::Uuid::new_v4();
     let receiver = sse_manager.register_notification_stream(test_user_id).await;
-    assert_eq!(sse_manager.active_notification_streams().await, 1);
+    assert_eq!(sse_manager.active_notification_streams(), 1);
 
     drop(receiver); // Simulate client disconnect
 
     // Connection should still exist until explicitly cleaned up
-    sse_manager
-        .unregister_notification_stream(test_user_id)
-        .await;
-    assert_eq!(sse_manager.active_notification_streams().await, 0);
+    sse_manager.unregister_notification_stream(test_user_id);
+    assert_eq!(sse_manager.active_notification_streams(), 0);
     println!("✅ SSE connection cleanup on client disconnect");
 
     println!("✅ Error scenario tests completed!");
