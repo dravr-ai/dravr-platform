@@ -144,4 +144,26 @@ describe('ErrorBoundary', () => {
 
     expect(screen.getByText(/If this problem persists/)).toBeInTheDocument()
   })
+
+  it('should auto-reload on stale chunk errors from deploys', () => {
+    const reloadMock = vi.fn()
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, reload: reloadMock },
+      writable: true,
+    })
+
+    function StaleChunkThrower() {
+      throw new TypeError(
+        'Failed to fetch dynamically imported module: https://example.com/assets/Settings-abc123.js'
+      )
+    }
+
+    render(
+      <ErrorBoundary>
+        <StaleChunkThrower />
+      </ErrorBoundary>
+    )
+
+    expect(reloadMock).toHaveBeenCalledTimes(1)
+  })
 })

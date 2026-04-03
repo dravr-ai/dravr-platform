@@ -64,6 +64,16 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    // Auto-reload on stale chunk errors (deploy happened while user had old HTML cached)
+    if (
+      error.message.includes('Failed to fetch dynamically imported module') ||
+      error.message.includes('Loading chunk') ||
+      error.message.includes('Loading CSS chunk')
+    ) {
+      window.location.reload();
+      return;
+    }
+
     // Log the error to console
     console.error('ErrorBoundary caught an error:', error);
     console.error('Component stack:', errorInfo.componentStack);
