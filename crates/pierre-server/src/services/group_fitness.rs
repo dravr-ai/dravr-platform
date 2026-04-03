@@ -83,9 +83,13 @@ async fn fetch_user_display_name(resources: &Arc<ServerResources>, user_id: Uuid
 /// Uses `TrainingLoadCalculator` to compute CTL, ATL, and TSB.
 /// Returns `(None, None, None)` if calculation fails.
 fn compute_training_metrics(activities: &[Activity]) -> (Option<f64>, Option<f64>, Option<f64>) {
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+
     let calculator = TrainingLoadCalculator::new();
     match calculator.calculate_training_load(
-        activities, None, // FTP
+        &sorted, None, // FTP
         None, // LTHR
         None, // max_hr
         None, // resting_hr

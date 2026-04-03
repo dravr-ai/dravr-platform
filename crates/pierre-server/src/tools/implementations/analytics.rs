@@ -296,7 +296,8 @@ impl McpTool for AnalyzeTrainingLoadTool {
         };
 
         let after = Utc::now() - Duration::days(days);
-        let activities = match fetch_activities(provider.as_ref(), after.timestamp(), 500).await {
+        let mut activities = match fetch_activities(provider.as_ref(), after.timestamp(), 500).await
+        {
             Ok(acts) => acts,
             Err(e) => {
                 return Ok(ToolResult::error(json!({
@@ -313,6 +314,9 @@ impl McpTool for AnalyzeTrainingLoadTool {
                 "provider": provider_name
             })));
         }
+
+        // Sort activities oldest-first — EMA calculation requires chronological order
+        activities.sort_by_key(Activity::start_date);
 
         let calculator = TrainingLoadCalculator::new();
         let load =

@@ -178,10 +178,14 @@ fn generate_training_plan_recommendations(activities: &[Activity]) -> serde_json
     let volume_pattern = PatternDetector::detect_volume_progression(activities);
     let weekly_schedule = PatternDetector::detect_weekly_schedule(activities);
 
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+
     // Calculate training load metrics
     let calculator = TrainingLoadCalculator::new();
     let training_load = calculator
-        .calculate_training_load(activities, None, None, None, None, None)
+        .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
 
     let mut recommendations = Vec::new();
@@ -326,10 +330,14 @@ fn process_tsb_recommendations(
 
 /// Generate recovery recommendations using TSB and overtraining signals
 fn generate_recovery_recommendations(activities: &[Activity]) -> serde_json::Value {
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+
     // Calculate TSB (Training Stress Balance)
     let calculator = TrainingLoadCalculator::new();
     let training_load = calculator
-        .calculate_training_load(activities, None, None, None, None, None)
+        .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
 
     // Detect overtraining signals
@@ -778,10 +786,14 @@ fn generate_nutrition_recommendations(activities: &[Activity]) -> serde_json::Va
 
 /// Generate comprehensive recommendations combining all analyses
 fn generate_comprehensive_recommendations(activities: &[Activity]) -> serde_json::Value {
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted = activities.to_vec();
+    sorted.sort_by_key(Activity::start_date);
+
     // Comprehensive analysis using all available modules
     let calculator = TrainingLoadCalculator::new();
     let training_load = calculator
-        .calculate_training_load(activities, None, None, None, None, None)
+        .calculate_training_load(&sorted, None, None, None, None, None)
         .ok();
 
     let volume_pattern = PatternDetector::detect_volume_progression(activities);

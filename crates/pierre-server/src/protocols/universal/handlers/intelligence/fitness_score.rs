@@ -144,9 +144,12 @@ fn calculate_fitness_metrics(activities: &[Activity], timeframe: &str) -> serde_
     }
 
     // Component 1: CTL (Chronic Training Load) - 40% weight
+    // Sort oldest-first — EMA calculation requires chronological order
+    let mut sorted_activities = filtered_activities.clone();
+    sorted_activities.sort_by_key(Activity::start_date);
     let calculator = TrainingLoadCalculator::new();
     let training_load = calculator
-        .calculate_training_load(&filtered_activities, None, None, None, None, None)
+        .calculate_training_load(&sorted_activities, None, None, None, None, None)
         .ok();
 
     let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);

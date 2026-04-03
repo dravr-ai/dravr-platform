@@ -50,7 +50,7 @@ async fn fetch_provider_activities(
         .await?;
 
     #[allow(clippy::cast_possible_truncation)]
-    provider
+    let mut activities = provider
         .get_activities(
             Some(executor.resources.config.sleep_tool_params.activity_limit as usize),
             None,
@@ -63,7 +63,11 @@ async fn fetch_provider_activities(
                 "Failed to fetch activities from '{provider_name}': {e}"
             )),
             metadata: None,
-        })
+        })?;
+
+    // Sort oldest-first — EMA calculation in TrainingLoadCalculator requires chronological order
+    activities.sort_by_key(Activity::start_date);
+    Ok(activities)
 }
 
 /// Provider-agnostic sleep data fetcher
