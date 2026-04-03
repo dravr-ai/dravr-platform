@@ -422,6 +422,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-tungstenite"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8acc405d38be14342132609f06f02acaf825ddccfe76c4824a69281e0458ebd4"
+dependencies = [
+ "atomic-waker",
+ "futures-core",
+ "futures-io",
+ "futures-task",
+ "futures-util",
+ "log",
+ "pin-project-lite",
+ "tokio",
+ "tungstenite 0.28.0",
+]
+
+[[package]]
 name = "atoi"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -703,18 +720,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8380ce7721cc895fe8a184c49d615fe755b0c9a3d7986355cee847439fff907f"
 dependencies = [
  "async-std",
- "async-tungstenite",
+ "async-tungstenite 0.27.0",
  "base64",
  "bytes",
  "cfg-if",
- "chromiumoxide_cdp",
- "chromiumoxide_types",
+ "chromiumoxide_cdp 0.7.0",
+ "chromiumoxide_types 0.7.0",
  "dunce",
  "fnv",
  "futures",
  "futures-timer",
  "pin-project-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -726,13 +743,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "chromiumoxide"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26ed067eb6c1f660bdb87c05efb964421d2ca262bae0296cdfe38cf0cd949a3e"
+dependencies = [
+ "async-tungstenite 0.32.1",
+ "base64",
+ "bytes",
+ "chromiumoxide_cdp 0.9.1",
+ "chromiumoxide_types 0.9.1",
+ "dunce",
+ "fnv",
+ "futures",
+ "futures-timer",
+ "pin-project-lite",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "which 8.0.2",
+ "windows-registry",
+]
+
+[[package]]
 name = "chromiumoxide_cdp"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cadbfb52fa0aeca43626f6c42ca04184b108b786f8e45198dc41a42aedcf2e50"
 dependencies = [
- "chromiumoxide_pdl",
- "chromiumoxide_types",
+ "chromiumoxide_pdl 0.7.0",
+ "chromiumoxide_types 0.7.0",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chromiumoxide_cdp"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68a6a03a7ebac4ea85308f285d6959a3e6b2ce32a0c9465dc7a7b1db0144eec7"
+dependencies = [
+ "chromiumoxide_pdl 0.9.1",
+ "chromiumoxide_types 0.9.1",
  "serde",
  "serde_json",
 ]
@@ -743,7 +799,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c197aeb42872c5d4c923e7d8ad46d99a58fd0fec37f6491554ff677a6791d3c9"
 dependencies = [
- "chromiumoxide_types",
+ "chromiumoxide_types 0.7.0",
  "either",
  "heck 0.4.1",
  "once_cell",
@@ -755,10 +811,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "chromiumoxide_pdl"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c602dea92337bc4d824668d78c5b79c3b4ddb29b40dd7218282bbe8fd3fc2091"
+dependencies = [
+ "chromiumoxide_types 0.9.1",
+ "either",
+ "heck 0.5.0",
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "chromiumoxide_types"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "923486888790528d55ac37ec2f7483ed19eb8ccbb44701878e5856d1ceadf5d8"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chromiumoxide_types"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678d5146e74f16fc4a41978b275af572cd913de1f10270d2b93b6c276bc57d80"
 dependencies = [
  "serde",
  "serde_json",
@@ -1355,7 +1437,7 @@ dependencies = [
  "hmac",
  "html-escape",
  "http",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
@@ -1376,7 +1458,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "cron",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sqlx",
@@ -1400,7 +1482,7 @@ dependencies = [
  "hex",
  "http",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -1472,12 +1554,12 @@ source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.0#31ab15de3
 dependencies = [
  "async-trait",
  "base64",
- "chromiumoxide",
+ "chromiumoxide 0.7.0",
  "chrono",
  "dirs 6.0.0",
  "futures",
  "moka",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -1490,17 +1572,17 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.5"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.5#c7ad494b08f07781cc31a3c2ebcd7c998dcd5f4a"
+version = "0.5.6"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.6#f43680b833b76af88b2e0245cfa47a0c20719683"
 dependencies = [
  "async-trait",
  "base64",
- "chromiumoxide",
+ "chromiumoxide 0.9.1",
  "chrono",
  "dirs 6.0.0",
  "futures",
  "moka",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -1522,7 +1604,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -1614,14 +1696,14 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.14.8"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.14.8#a188b9d28696c75131b6c7ff621ffa39b7ee25ac"
+version = "0.14.10"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.14.10#b375103897b96bf411f0b77b70e503ed8e844a7c"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
  "base64",
  "bitflags",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",
@@ -3117,7 +3199,7 @@ dependencies = [
  "pierre-database",
  "pierre-llm",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "rsa",
  "serde",
@@ -3165,7 +3247,7 @@ dependencies = [
  "embacle",
  "http",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -3241,7 +3323,7 @@ dependencies = [
  "embacle",
  "futures-util",
  "pierre-core",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
@@ -3275,14 +3357,14 @@ dependencies = [
  "bitflags",
  "chrono",
  "dravr-equilibre 0.1.0",
- "dravr-sciotte 0.5.5",
+ "dravr-sciotte 0.5.6",
  "futures-util",
  "hex",
  "num-traits",
  "pierre-core",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
- "reqwest",
+ "reqwest 0.12.28",
  "ring",
  "serde",
  "serde_json",
@@ -3318,7 +3400,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-enforme",
  "dravr-equilibre 0.2.1",
- "dravr-sciotte 0.5.5",
+ "dravr-sciotte 0.5.6",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",
@@ -3350,7 +3432,7 @@ dependencies = [
  "rayon",
  "redis",
  "regex",
- "reqwest",
+ "reqwest 0.12.28",
  "reqwest-middleware",
  "ring",
  "rsa",
@@ -3867,6 +3949,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab3f43e3283ab1488b624b44b0e988d0acea0b3214e694730a055cb6b2efa801"
+dependencies = [
+ "base64",
+ "bytes",
+ "futures-core",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "percent-encoding",
+ "pin-project-lite",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "reqwest-middleware"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3875,7 +3986,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "http",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "thiserror 1.0.69",
  "tower-service",
@@ -5682,6 +5793,15 @@ dependencies = [
  "env_home",
  "rustix 1.1.4",
  "winsafe",
+]
+
+[[package]]
+name = "which"
+version = "8.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81995fafaaaf6ae47a7d0cc83c67caf92aeb7e5331650ae6ff856f7c0c60c459"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
