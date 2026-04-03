@@ -3,22 +3,8 @@ name: SDK Tests
 on:
   push:
     branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
-    paths:
-      - 'sdk/**'
-      - 'src/mcp/**'
-      - 'packages/mcp-types/**'
-      - 'scripts/testing/run-bridge-tests.sh'
-      - 'scripts/sdk/generate-sdk-types.js'
-      - '.github/workflows/sdk-tests.yml'
   pull_request:
     branches: [ main ]
-    paths:
-      - 'sdk/**'
-      - 'src/mcp/**'
-      - 'packages/mcp-types/**'
-      - 'scripts/testing/run-bridge-tests.sh'
-      - 'scripts/sdk/generate-sdk-types.js'
-      - '.github/workflows/sdk-tests.yml'
   workflow_dispatch:
 
 concurrency:
