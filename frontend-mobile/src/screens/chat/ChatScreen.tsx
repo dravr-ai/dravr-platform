@@ -210,7 +210,6 @@ export function ChatScreen() {
       startCoachConversation: async (coach) => {
         await coachSelection.startCoachConversation(coach, {
           createConversation: conversations.createConversation,
-          conversationError: conversations.error,
           setMessages: messagesHook.setMessages,
           setIsSending: messagesHook.setIsSending,
           scrollToBottom: messagesHook.scrollToBottom,
@@ -224,7 +223,6 @@ export function ChatScreen() {
   const startCoachConversation = useCallback(async (coach: Coach) => {
     await coachSelection.startCoachConversation(coach, {
       createConversation: conversations.createConversation,
-      conversationError: conversations.error,
       setMessages: messagesHook.setMessages,
       setIsSending: messagesHook.setIsSending,
       scrollToBottom: messagesHook.scrollToBottom,
@@ -249,11 +247,15 @@ export function ChatScreen() {
   const handleSendPromptMessage = useCallback(async (prompt: string) => {
     let conversationId = conversations.currentConversation?.id;
     if (!conversationId) {
-      const newConversation = await conversations.createConversation({
-        title: prompt.slice(0, 50),
-      });
-      if (!newConversation) return;
-      conversationId = newConversation.id;
+      try {
+        const newConversation = await conversations.createConversation({
+          title: prompt.slice(0, 50),
+        });
+        conversationId = newConversation.id;
+      } catch {
+        Alert.alert('Error', conversations.error || 'Failed to create conversation');
+        return;
+      }
     }
     await messagesHook.sendMessage(conversationId, prompt);
   }, [conversations, messagesHook]);

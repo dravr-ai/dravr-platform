@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, glassCard, buttonGlow } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { storeApi } from '../../services/api';
+import { TAB_BAR_BOTTOM_OFFSET } from '../../components/ui/ExpandableTabBar';
 import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoachDetail } from '../../types';
 // Coach category colors
@@ -291,12 +292,15 @@ export function StoreCoachDetailScreen() {
           </View>
         </View>
 
-        {/* Bottom Spacer for Install Button */}
-        <View style={{ height: 100 }} />
+        {/* Bottom Spacer for Install Button + Tab Bar */}
+        <View style={{ height: TAB_BAR_BOTTOM_OFFSET + 80 }} />
       </ScrollView>
 
-      {/* Install/Uninstall Button - Fixed at bottom */}
-      <View className="absolute bottom-0 left-0 right-0 bg-background-primary border-t border-border-subtle p-3 pb-5">
+      {/* Install/Uninstall Button - Fixed above floating tab bar */}
+      <View
+        className="absolute left-0 right-0 bg-background-primary border-t border-border-subtle p-3"
+        style={{ bottom: TAB_BAR_BOTTOM_OFFSET }}
+      >
         {isInstalled ? (
           <TouchableOpacity
             className="flex-row items-center justify-center py-3.5 rounded-xl"

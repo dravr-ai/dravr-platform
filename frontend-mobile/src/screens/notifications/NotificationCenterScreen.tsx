@@ -10,6 +10,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
+import { NotificationDetailModal } from '../../components/notifications/NotificationDetailModal';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
@@ -160,6 +161,7 @@ export function NotificationCenterScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [selectedCategory, setSelectedCategory] = useState<NotificationCategory | 'all'>('all');
+  const [detailNotification, setDetailNotification] = useState<NotificationItem | null>(null);
 
   const feedParams = selectedCategory === 'all'
     ? { limit: 50 }
@@ -173,11 +175,14 @@ export function NotificationCenterScreen() {
     if (!item.read_at) {
       markAsRead(item.id);
     }
-    // Deep-link routing based on notification data
+    setDetailNotification(item);
+  }, [markAsRead]);
+
+  const handleDetailNavigate = useCallback((item: NotificationItem) => {
     if (item.data?.route && typeof item.data.route === 'string') {
       router.push(item.data.route as never);
     }
-  }, [markAsRead, router]);
+  }, [router]);
 
   const handleAction = useCallback((item: NotificationItem, actionId: string) => {
     if (!item.read_at) {
@@ -314,6 +319,15 @@ export function NotificationCenterScreen() {
         {/* Bottom padding */}
         <View style={{ height: insets.bottom + 80 }} />
       </ScrollView>
+
+      {/* Notification detail overlay */}
+      <NotificationDetailModal
+        visible={detailNotification !== null}
+        notification={detailNotification}
+        onClose={() => setDetailNotification(null)}
+        onAction={handleAction}
+        onNavigate={handleDetailNavigate}
+      />
     </View>
   );
 }

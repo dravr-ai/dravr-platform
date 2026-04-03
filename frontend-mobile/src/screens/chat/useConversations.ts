@@ -17,7 +17,7 @@ export interface ConversationsState {
 export interface ConversationsActions {
   loadConversations: () => Promise<void>;
   setCurrentConversation: (conversation: Conversation | null) => void;
-  createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation | null>;
+  createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation>;
   deleteConversation: (conversationId: string) => Promise<void>;
   renameConversation: (conversationId: string, newTitle: string) => Promise<void>;
   handleNewChat: () => void;
@@ -59,7 +59,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
     }
   }, []);
 
-  const createConversation = useCallback(async (params: { title: string; system_prompt?: string }): Promise<Conversation | null> => {
+  const createConversation = useCallback(async (params: { title: string; system_prompt?: string }): Promise<Conversation> => {
     try {
       setError(null);
       const conversation = await chatApi.createConversation(params);
@@ -74,7 +74,7 @@ export function useConversations(): ConversationsState & ConversationsActions {
       const errorMessage = extractErrorMessage(err, 'Failed to create conversation');
       setError(errorMessage);
       console.error('Failed to create conversation:', err);
-      return null;
+      throw err;
     }
   }, []);
 

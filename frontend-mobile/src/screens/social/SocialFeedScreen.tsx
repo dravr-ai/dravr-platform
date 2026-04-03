@@ -260,7 +260,7 @@ export function SocialFeedScreen() {
           backgroundColor: colors.pierre.violet,
           ...buttonGlow,
         }}
-        onPress={() => router.push('/(app)/(tabs)/(social)/friends')}
+        onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
         <Feather name="user-plus" size={18} color="#FFFFFF" />
         <Text className="text-white text-base font-semibold">Find Friends</Text>
@@ -363,7 +363,7 @@ export function SocialFeedScreen() {
         ListHeaderComponent={renderSuggestionsBanner}
         ListEmptyComponent={renderEmptyState}
         ListFooterComponent={renderFooter}
-        contentContainerStyle={feedItems.length === 0 ? { flexGrow: 1 } : { paddingVertical: spacing.sm }}
+        contentContainerStyle={feedItems.length === 0 ? { flexGrow: 1, paddingBottom: 160 } : { paddingVertical: spacing.sm, paddingBottom: 160 }}
         onEndReached={loadMoreFeed}
         onEndReachedThreshold={0.3}
         refreshControl={

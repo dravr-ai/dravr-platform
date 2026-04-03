@@ -1,7 +1,7 @@
 // ABOUTME: Floating search bar component positioned at bottom of screen
-// ABOUTME: Keyboard-aware with glass effect per iOS design guidelines, animated on UI thread
+// ABOUTME: Keyboard-aware with glass effect per iOS design guidelines, animated with keyboard
 
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect } from 'react';
 import {
   View,
   TextInput,
@@ -9,14 +9,9 @@ import {
   ActivityIndicator,
   Keyboard,
   Platform,
+  Animated,
   type ViewStyle,
 } from 'react-native';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-} from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { colors, spacing } from '../../constants/theme';
 import { TAB_BAR_BOTTOM_OFFSET } from './ExpandableTabBar';
@@ -45,41 +40,34 @@ export function FloatingSearchBar({
   testID,
   autoFocus = false,
 }: FloatingSearchBarProps) {
-  const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const translateY = useSharedValue(0);
+  const bottomAnim = useRef(new Animated.Value(TAB_BAR_BOTTOM_OFFSET)).current;
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const showSubscription = Keyboard.addListener(showEvent, (e) => {
-      const height = e.endCoordinates.height;
-      setKeyboardHeight(height);
-      translateY.value = withSpring(-height + insets.bottom, {
-        damping: 20,
-        stiffness: 300,
-      });
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      Animated.timing(bottomAnim, {
+        toValue: e.endCoordinates.height,
+        duration: Platform.OS === 'ios' ? e.duration : 250,
+        useNativeDriver: false,
+      }).start();
     });
 
-    const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-      translateY.value = withSpring(0, {
-        damping: 20,
-        stiffness: 300,
-      });
+    const hideSub = Keyboard.addListener(hideEvent, (e) => {
+      Animated.timing(bottomAnim, {
+        toValue: TAB_BAR_BOTTOM_OFFSET,
+        duration: Platform.OS === 'ios' ? (e.duration ?? 250) : 250,
+        useNativeDriver: false,
+      }).start();
     });
 
     return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
+      showSub.remove();
+      hideSub.remove();
     };
-  }, [translateY, insets.bottom]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
+  }, [bottomAnim]);
 
   const handleClear = () => {
     onChangeText('');
@@ -97,14 +85,13 @@ export function FloatingSearchBar({
         containerStyle,
         {
           position: 'absolute',
-          bottom: TAB_BAR_BOTTOM_OFFSET,
+          bottom: bottomAnim,
           left: 0,
           right: 0,
-          paddingBottom: keyboardHeight > 0 ? spacing.sm : spacing.sm,
+          paddingBottom: spacing.sm,
           paddingTop: spacing.xs,
           paddingHorizontal: spacing.md,
         },
-        animatedStyle,
       ]}
       testID={testID ? `${testID}-container` : undefined}
     >
