@@ -141,3 +141,82 @@ fn test_overtraining_risk_detection() {
     let risk = TrainingLoadCalculator::check_overtraining_risk(&low_risk);
     assert_eq!(risk.risk_level, RiskLevel::Low);
 }
+
+// =============================================================================
+// Issue #1 regression: CTL/ATL/TSB = 0 when activities are reverse-chronological
+// =============================================================================
+
+#[test]
+fn test_training_load_reverse_chronological_order_produces_zero() {
+    let calculator = TrainingLoadCalculator::new();
+    let now = Utc::now();
+
+    // Newest first (like Strava returns) — EMA returns 0 because days_span < 0
+    let activities = vec![
+        create_test_activity(now, 3600, Some(210), None),
+        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
+    ];
+
+    let result = calculator
+        .calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0))
+        .unwrap();
+
+    assert!(
+        result.ctl.abs() < f64::EPSILON,
+        "CTL should be 0 when activities are newest-first (unsorted)"
+    );
+}
+
+#[test]
+fn test_training_load_sorted_chronological_produces_nonzero() {
+    let calculator = TrainingLoadCalculator::new();
+    let now = Utc::now();
+
+    // Oldest first (correct order for EMA)
+    let activities = vec![
+        create_test_activity(now - Duration::days(2), 3600, Some(200), None),
+        create_test_activity(now - Duration::days(1), 3600, Some(220), None),
+        create_test_activity(now, 3600, Some(210), None),
+    ];
+
+    let result = calculator
+        .calculate_training_load(&activities, Some(250.0), None, None, None, Some(70.0))
+        .unwrap();
+
+    assert!(
+        result.ctl > 0.0,
+        "CTL must be positive when sorted oldest-first"
+    );
+    assert!(
+        result.atl > 0.0,
+        "ATL must be positive when sorted oldest-first"
+    );
+}
+
+#[test]
+fn test_training_load_pace_fallback_no_physiological_params() {
+    let calculator = TrainingLoadCalculator::new();
+    let now = Utc::now();
+
+    // Activities with 10km distance but no power/HR — pace fallback should work
+    let activities = vec![
+        create_test_activity(now - Duration::days(5), 3600, None, None),
+        create_test_activity(now - Duration::days(3), 3600, None, None),
+        create_test_activity(now - Duration::days(1), 3600, None, None),
+        create_test_activity(now, 3600, None, None),
+    ];
+
+    let result = calculator
+        .calculate_training_load(&activities, None, None, None, None, None)
+        .unwrap();
+
+    assert!(
+        !result.tss_history.is_empty(),
+        "Pace fallback should produce TSS values"
+    );
+    assert!(
+        result.ctl > 0.0,
+        "CTL should be positive with pace-based estimation"
+    );
+}
