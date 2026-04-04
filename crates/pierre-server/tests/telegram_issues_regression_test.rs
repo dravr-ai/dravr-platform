@@ -7,6 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use std::env;
+
 use pierre_llm::prompts::{get_messaging_context_prompt, get_pierre_system_prompt};
 use pierre_mcp_server::intelligence::MetricType;
 use pierre_mcp_server::models::{ActivityBuilder, SportType};
@@ -184,7 +186,7 @@ fn test_messaging_prompt_handles_followups() {
 fn test_training_load_activity_limit_default() {
     // ServerConfig::from_env() reads TRAINING_LOAD_ACTIVITY_LIMIT
     // Default should be 200 when env var is not set
-    let default_limit: usize = std::env::var("TRAINING_LOAD_ACTIVITY_LIMIT")
+    let default_limit: usize = env::var("TRAINING_LOAD_ACTIVITY_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(200);
