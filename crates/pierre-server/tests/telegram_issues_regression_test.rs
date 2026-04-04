@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_llm::prompts::{get_messaging_context_prompt, get_pierre_system_prompt};
 use pierre_mcp_server::intelligence::MetricType;
 use pierre_mcp_server::models::{ActivityBuilder, SportType};
 
@@ -87,7 +88,7 @@ fn test_all_trend_metrics_supported() {
 
 #[test]
 fn test_system_prompt_does_not_mandate_connection_check() {
-    let prompt = pierre_llm::prompts::get_pierre_system_prompt();
+    let prompt = get_pierre_system_prompt();
 
     // The old prompt had: "Always check connection status first"
     // This MUST NOT be present — it causes the bot to spam connection status
@@ -111,7 +112,7 @@ fn test_system_prompt_does_not_mandate_connection_check() {
 
 #[test]
 fn test_system_prompt_forbids_deflecting_to_provider() {
-    let prompt = pierre_llm::prompts::get_pierre_system_prompt();
+    let prompt = get_pierre_system_prompt();
 
     assert!(
         prompt.contains("Never tell the user to check Strava"),
@@ -126,7 +127,7 @@ fn test_system_prompt_forbids_deflecting_to_provider() {
 
 #[test]
 fn test_system_prompt_forbids_claiming_tool_absent() {
-    let prompt = pierre_llm::prompts::get_pierre_system_prompt();
+    let prompt = get_pierre_system_prompt();
 
     assert!(
         prompt.contains("do not claim the tool doesn't exist"),
@@ -141,7 +142,7 @@ fn test_system_prompt_forbids_claiming_tool_absent() {
 
 #[test]
 fn test_messaging_prompt_forbids_technical_details() {
-    let prompt = pierre_llm::prompts::get_messaging_context_prompt();
+    let prompt = get_messaging_context_prompt();
 
     assert!(
         prompt.contains("NEVER mention tool names"),
@@ -166,7 +167,7 @@ fn test_messaging_prompt_forbids_technical_details() {
 
 #[test]
 fn test_messaging_prompt_handles_followups() {
-    let prompt = pierre_llm::prompts::get_messaging_context_prompt();
+    let prompt = get_messaging_context_prompt();
 
     assert!(
         prompt.contains("follow-up") || prompt.contains("confirmation"),
