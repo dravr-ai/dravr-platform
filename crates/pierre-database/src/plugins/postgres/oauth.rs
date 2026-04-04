@@ -1210,7 +1210,7 @@ impl PasswordResetRepository for PostgresDatabase {
             ",
         )
         .bind(id.to_string())
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(token_hash)
         .bind(expires_at)
         .bind(created_by)
@@ -1247,11 +1247,7 @@ impl PasswordResetRepository for PostgresDatabase {
                     "Password reset token is invalid, expired, or already used",
                 ))
             },
-            |row| {
-                let user_id_str: String = row.get("user_id");
-                Uuid::parse_str(&user_id_str)
-                    .map_err(|e| AppError::internal(format!("Invalid user_id in reset token: {e}")))
-            },
+            |row| Ok(row.get::<Uuid, _>("user_id")),
         )
     }
 
@@ -1273,7 +1269,7 @@ impl PasswordResetRepository for PostgresDatabase {
             ",
         )
         .bind(id.to_string())
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(token_hash)
         .bind(expires_at)
         .bind(created_by)
@@ -1297,7 +1293,7 @@ impl PasswordResetRepository for PostgresDatabase {
             ",
         )
         .bind(now)
-        .bind(user_id.to_string())
+        .bind(user_id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to invalidate reset tokens: {e}")))?;
@@ -1314,7 +1310,7 @@ impl PasswordResetRepository for PostgresDatabase {
               AND created_at >= $2
             ",
         )
-        .bind(user_id.to_string())
+        .bind(user_id)
         .bind(since)
         .fetch_one(&self.pool)
         .await
