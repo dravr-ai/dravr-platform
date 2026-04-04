@@ -298,27 +298,6 @@ bun run test:e2e
 - **State**: React Query for server state, React Context for app state
 - **Components**: Follow existing patterns in `src/components/`
 
-## Git Hooks - MANDATORY for ALL AI Agents
-
-**⚠️ MANDATORY - Run these at the START OF EVERY SESSION:**
-```bash
-git submodule update --init --recursive
-git config core.hooksPath .githooks
-```
-The first command initializes the shared build config (`.build/`). The second enables git hooks. Sessions get archived/revived, so these must run EVERY time you start working, not just once.
-
-**Shared Build Config (`.build/`):** The `.build/` directory is a git submodule containing shared lint rules, architectural validation, and configuration from `dravr-build-config`. Run `.build/validation/validate.sh` before pushing — it must exit 0.
-
-**NEVER use `--no-verify` when committing or pushing.** The hooks enforce:
-- SPDX license headers on all source files
-- Commit message format (max 2 lines, conventional commits)
-- No AI-generated commit signatures (🤖, "Generated with", etc.)
-- No claude_docs/ or unauthorized root markdown files
-- Frontend/SDK lint and type-check
-
-### Copilot Coding Agent
-The `.github/workflows/copilot-setup-steps.yml` file configures the agent's environment before it starts working. It sets `core.hooksPath` and installs dependencies so git hooks run correctly. If hooks fail, fix the underlying issue — do not bypass them.
-
 ## Pre-Push Validation Workflow
 
 The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues. Tests run separately from the push.
@@ -735,55 +714,6 @@ Mocks are permitted ONLY in test code for:
 - Ensure all examples in doc comments compile and run
 - Document thread safety guarantees
 - Include performance characteristics where relevant
-
-## Task Completion Protocol - MANDATORY
-
-### Before Claiming ANY Task Complete:
-
-1. **Run Tiered Validation (see "Required Pre-Commit Validation" above):**
-   - For normal commits: Use Tier 2 (targeted tests)
-   - For PRs/merges: Use Tier 3 (full suite via `./scripts/ci/lint-and-test.sh`)
-
-   **Quick reference for targeted validation:**
-   ```bash
-   cargo fmt
-   ./scripts/ci/architectural-validation.sh
-   cargo clippy -p <changed-crate>  # Add --all-targets if test files changed
-   cargo test --test <test_file> <test_pattern> -- --nocapture
-   ```
-
-2. **Manual Pattern Audit:**
-   - Search for each banned pattern listed above
-   - Justify or eliminate every occurrence
-   - Document any exceptions with detailed reasoning
-
-3. **Performance Verification:**
-   - Binary size within acceptable limits
-   - Memory usage profiling shows no leaks
-   - Clone usage minimized and justified
-   - Response times within specified limits
-   - Benchmarks maintain expected performance
-
-4. **Documentation Review:**
-   - All public APIs documented
-   - README updated if functionality changed
-   - Module docs reflect current architecture
-   - Examples compile and work correctly
-
-5. **Architecture Review:**
-   - Every Arc usage documented and justified
-   - Error handling follows Result patterns throughout
-   - No code paths that bypass real implementations
-
-### Failure Criteria
-If ANY of the above checks fail, the task is NOT complete regardless of test passing status.
-
-### When Full Test Suite is Required
-Run `cargo test` (all tests) ONLY when:
-- Creating a PR for review
-- Merging to main branch
-- Major refactoring touching multiple modules
-- CI has failed and you need to reproduce locally
 
 # Getting help
 
