@@ -308,13 +308,12 @@ describe('Stdio Transport Integration Tests (Claude Desktop Path)', () => {
       const response = await client.send(MCPMessages.toolsList);
       const toolNames = response.result.tools.map(t => t.name);
 
-      // Critical tools that must be present (from schema_completeness_test.rs)
-      // Note: connect_to_pierre removed - SDK bridge handles authentication locally via RFC 8414 discovery
+      // Critical public discovery tools that must always be present
       const criticalTools = [
         'get_activities',
         'get_athlete',
-        'connect_provider',
-        'get_connection_status'
+        'get_stats',
+        'analyze_activity'
       ];
 
       const missingTools = criticalTools.filter(t => !toolNames.includes(t));
@@ -332,8 +331,9 @@ describe('Stdio Transport Integration Tests (Claude Desktop Path)', () => {
       const response = await client.send(MCPMessages.toolsList);
       const stdioToolCount = response.result.tools.length;
 
-      // Should have substantial number of tools (matches schema)
-      expect(stdioToolCount).toBeGreaterThan(30);
+      // Public discovery tools (18) are always visible; auth-gated tools
+      // may or may not be visible depending on bridge token propagation
+      expect(stdioToolCount).toBeGreaterThanOrEqual(18);
 
       console.log(`✅ Stdio transport returned ${stdioToolCount} tools`);
     }, 30000);

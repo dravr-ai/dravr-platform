@@ -27,12 +27,41 @@ use pierre_database::plugins::TenantRepository;
 
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::errors::{AppError, AppResult, ErrorCode};
-use crate::mcp::schema::{JsonSchema, PropertySchema};
+use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::models::TenantId;
 use crate::protocols::universal::auth_service::AuthService;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+
+/// Annotations for tools that interact with external OAuth services
+fn open_world_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(false),
+        open_world_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
+
+/// Annotations for read-only connection status checks
+fn read_only_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(true),
+        destructive_hint: Some(false),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
+
+/// Annotations for destructive operations like disconnect
+fn destructive_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(false),
+        destructive_hint: Some(true),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::{TenantContext, TenantRole};
 
@@ -168,6 +197,10 @@ impl McpTool for ConnectProviderTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::REQUIRES_TENANT
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(open_world_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -344,6 +377,10 @@ impl McpTool for GetConnectionStatusTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let registry = context.provider_registry();
         let auth_service = AuthService::new(context.resources.clone());
@@ -437,6 +474,10 @@ impl McpTool for DisconnectProviderTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::WRITES_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(destructive_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {

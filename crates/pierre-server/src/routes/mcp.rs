@@ -24,7 +24,6 @@ use crate::{
     mcp::{
         multitenant::{McpRequest, MultiTenantMcpServer},
         resources::ServerResources,
-        schema::get_tools,
         tenant_isolation::validate_jwt_token_for_mcp,
     },
     middleware::redact_session_id,
@@ -79,14 +78,14 @@ impl McpRoutes {
 
     /// Handle MCP tools discovery
     ///
-    /// Returns all available MCP tools for client discovery.
+    /// Returns all available MCP tools for client discovery via `ToolRegistry`.
     /// This endpoint allows MCP clients to enumerate available tools
     /// before making tool call requests.
-    async fn handle_tools() -> Json<Value> {
+    async fn handle_tools(State(state): State<McpRoutesState>) -> Json<Value> {
         // Yield to scheduler for cooperative multitasking
         yield_now().await;
 
-        let tools = get_tools();
+        let tools = state.resources.tool_registry.all_schemas();
         Json(serde_json::json!({
             "tools": tools
         }))

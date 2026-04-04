@@ -20,7 +20,7 @@ use bitflags::bitflags;
 use serde_json::Value;
 
 use crate::errors::AppResult;
-use crate::mcp::schema::JsonSchema;
+use crate::mcp::schema::{JsonSchema, ToolAnnotations};
 
 use super::context::ToolExecutionContext;
 use super::result::ToolResult;
@@ -223,6 +223,17 @@ pub trait McpTool: Send + Sync {
     /// - Provider availability checks
     /// - Caching decisions
     fn capabilities(&self) -> ToolCapabilities;
+
+    /// Behavioral annotations for MCP tool discovery (MCP 2025-11-25)
+    ///
+    /// Returns hints about tool behavior such as read-only, destructive,
+    /// idempotent, or open-world characteristics. Used in `tools/list` responses
+    /// to help clients make better UX decisions.
+    ///
+    /// Default implementation returns `None` (no annotations).
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        None
+    }
 
     /// Execute the tool with given arguments and context
     ///

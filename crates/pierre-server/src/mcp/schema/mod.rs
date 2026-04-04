@@ -10,27 +10,10 @@
 //! capabilities, and tool schemas. This ensures protocol compliance and makes
 //! it easy to modify the schema without hardcoding JSON.
 
-mod coaches;
-mod fitness;
-mod intelligence;
-mod nutrition;
-mod recipes;
+// Schema sub-modules are retained for reference during migration but no longer
+// used by get_tools(). The ToolRegistry is the single source of truth for tool schemas.
 
-use crate::constants::{
-    get_server_config,
-    tools::{
-        ACTIVATE_COACH, ADMIN_ASSIGN_COACH, ADMIN_CREATE_SYSTEM_COACH, ADMIN_DELETE_SYSTEM_COACH,
-        ADMIN_GET_SYSTEM_COACH, ADMIN_LIST_COACH_ASSIGNMENTS, ADMIN_LIST_SYSTEM_COACHES,
-        ADMIN_UNASSIGN_COACH, ADMIN_UPDATE_SYSTEM_COACH, ANALYZE_ACTIVITY, ANALYZE_WEATHER_IMPACT,
-        CONNECT_PROVIDER, CREATE_COACH, DEACTIVATE_COACH, DELETE_COACH, DELETE_FITNESS_CONFIG,
-        DELETE_RECIPE, DISCONNECT_PROVIDER, GET_ACTIVE_COACH, GET_ACTIVITIES,
-        GET_ACTIVITY_INTELLIGENCE, GET_ATHLETE, GET_COACH, GET_CONNECTION_STATUS,
-        GET_FITNESS_CONFIG, GET_RECIPE, GET_RECIPE_CONSTRAINTS, GET_STATS, HIDE_COACH,
-        LIST_COACHES, LIST_FITNESS_CONFIGS, LIST_HIDDEN_COACHES, LIST_RECIPES, SAVE_RECIPE,
-        SEARCH_COACHES, SEARCH_RECIPES, SET_FITNESS_CONFIG, SHOW_COACH, TOGGLE_COACH_FAVORITE,
-        UPDATE_COACH,
-    },
-};
+use crate::constants::get_server_config;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -791,122 +774,16 @@ pub struct Root {
 
 // === SHARED HELPERS FOR DOMAIN SCHEMA FILES ===
 
-/// Annotations for read-only tools that fetch data without side effects
-fn read_only_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(true),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for tools that create or update data (idempotent writes)
-fn write_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(false),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for tools that perform destructive operations (delete, disconnect)
-fn destructive_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        destructive_hint: Some(true),
-        idempotent_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Annotations for tools that interact with external services (OAuth, providers)
-fn open_world_annotations() -> ToolAnnotations {
-    ToolAnnotations {
-        read_only_hint: Some(false),
-        open_world_hint: Some(true),
-        ..ToolAnnotations::default()
-    }
-}
-
-/// Creates the standard format property for output serialization
+/// Get all available tools via `ToolRegistry` (single source of truth)
 ///
-/// This helper ensures consistent format parameter documentation across all
-/// data-returning tools. Use this for tools that return substantial data payloads.
-fn format_property() -> PropertySchema {
-    PropertySchema {
-        property_type: "string".into(),
-        description: Some(
-            "Output serialization format: 'json' (default, universal) or 'toon' (Token-Oriented Object Notation - ~40% fewer tokens, optimized for LLM input). Use 'toon' for large datasets.".into(),
-        ),
-        ..Default::default()
-    }
-}
-
-/// Get all available tools (public interface for tests)
+/// Creates a fresh `ToolRegistry` with all built-in tools and returns their schemas.
+/// This is used by tests and standalone endpoints. Production code should use the
+/// shared `ToolRegistry` from `ServerResources` instead.
 #[must_use]
 pub fn get_tools() -> Vec<ToolSchema> {
-    let mut tools = Vec::new();
-    tools.extend(fitness::create_fitness_tools());
-    tools.extend(intelligence::create_intelligence_tools());
-    tools.extend(nutrition::create_nutrition_tools());
-    tools.extend(recipes::create_recipe_tools());
-    tools.extend(coaches::create_coaches_tools());
-    apply_tool_annotations(&mut tools);
-    tools
-}
+    use crate::tools::registry::ToolRegistry;
 
-/// Apply behavioral annotations to tools based on their operation semantics
-fn apply_tool_annotations(tools: &mut [ToolSchema]) {
-    for tool in tools.iter_mut() {
-        tool.annotations = match tool.name.as_str() {
-            // Read-only data retrieval and analytics tools
-            GET_ACTIVITIES
-            | GET_ATHLETE
-            | GET_STATS
-            | GET_ACTIVITY_INTELLIGENCE
-            | GET_CONNECTION_STATUS
-            | GET_ACTIVE_COACH
-            | GET_COACH
-            | GET_RECIPE
-            | GET_RECIPE_CONSTRAINTS
-            | GET_FITNESS_CONFIG
-            | LIST_COACHES
-            | LIST_RECIPES
-            | LIST_FITNESS_CONFIGS
-            | LIST_HIDDEN_COACHES
-            | SEARCH_COACHES
-            | SEARCH_RECIPES
-            | ANALYZE_ACTIVITY
-            | ANALYZE_WEATHER_IMPACT
-            | ADMIN_LIST_SYSTEM_COACHES
-            | ADMIN_GET_SYSTEM_COACH
-            | ADMIN_LIST_COACH_ASSIGNMENTS => Some(read_only_annotations()),
-            // Destructive operations (delete, disconnect)
-            DELETE_COACH
-            | DELETE_RECIPE
-            | DELETE_FITNESS_CONFIG
-            | DISCONNECT_PROVIDER
-            | ADMIN_DELETE_SYSTEM_COACH => Some(destructive_annotations()),
-            // External service interactions
-            CONNECT_PROVIDER => Some(open_world_annotations()),
-            // Write/update operations (user and admin)
-            CREATE_COACH
-            | UPDATE_COACH
-            | SAVE_RECIPE
-            | SET_FITNESS_CONFIG
-            | ACTIVATE_COACH
-            | DEACTIVATE_COACH
-            | HIDE_COACH
-            | SHOW_COACH
-            | TOGGLE_COACH_FAVORITE
-            | ADMIN_CREATE_SYSTEM_COACH
-            | ADMIN_UPDATE_SYSTEM_COACH
-            | ADMIN_ASSIGN_COACH
-            | ADMIN_UNASSIGN_COACH => Some(write_annotations()),
-            // All other tools default to no annotations
-            _ => None,
-        };
-    }
+    let mut registry = ToolRegistry::new();
+    registry.register_builtin_tools();
+    registry.all_schemas()
 }
