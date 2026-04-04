@@ -23,7 +23,8 @@ use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
-/// Simulated connection metadata (mirrors `ConnectionMetadata` size)
+/// Simulated connection metadata (mirrors `ConnectionMetadata` size).
+/// All fields are read via `black_box` during get operations.
 #[derive(Clone, Debug)]
 struct FakeMetadata {
     created_at: u64,
@@ -45,10 +46,14 @@ async fn rwlock_insert_get_remove(map: &Arc<RwLock<HashMap<String, FakeMetadata>
     // insert
     map.write().await.insert(key.clone(), meta);
 
-    // read
+    // read — access all fields to simulate realistic memory pressure
     {
         let guard = map.read().await;
-        let _ = black_box(guard.get(&key));
+        if let Some(m) = guard.get(&key) {
+            black_box(m.created_at);
+            black_box(m.last_activity);
+            black_box(m.kind);
+        }
     }
 
     // update last_activity (write lock again)
@@ -77,9 +82,11 @@ fn dashmap_insert_get_remove(map: &Arc<DashMap<String, FakeMetadata>>, key: &str
     // insert — no global lock
     map.insert(key.to_owned(), meta);
 
-    // read — shard-level lock only
-    {
-        let _ = black_box(map.get(key));
+    // read — shard-level lock only, access all fields
+    if let Some(entry) = map.get(key) {
+        black_box(entry.created_at);
+        black_box(entry.last_activity);
+        black_box(entry.kind);
     }
 
     // update — shard-level lock only
