@@ -1,3 +1,15 @@
+# Pierre Fitness Platform
+
+**Multi-tenant fitness intelligence API** exposing fitness data via MCP/A2A/REST protocols. Core capabilities:
+- OAuth provider integrations (Strava, Fitbit, Garmin, Whoop, Terra, etc.)
+- LLM-powered analytics (training load, fitness scoring, recovery, patterns)
+- Coach marketplace + admin tools, push notifications, WebSocket messaging
+- Multi-transport MCP server (stdio, HTTP/SSE, A2A) with auth-gated tool discovery
+
+See [README.md](README.md) for architecture details.
+
+---
+
 ## Package Manager: bun ONLY
 
 **CRITICAL: This project uses `bun` exclusively for project dependencies. NEVER use `npm`, `yarn`, or `pnpm` for project packages.**
