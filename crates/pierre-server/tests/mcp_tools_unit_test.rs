@@ -1027,10 +1027,15 @@ mod analytics_tests {
         use pierre_mcp_server::tools::implementations::analytics::create_analytics_tools;
 
         let tools = create_analytics_tools();
-        assert_eq!(tools.len(), 4, "Expected 4 analytics tools");
+        assert_eq!(tools.len(), 9, "Expected 9 analytics tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         let expected_names = [
+            "analyze_activity",
+            "get_activity_intelligence",
+            "calculate_metrics",
+            "analyze_performance_trends",
+            "compare_activities",
             "analyze_training_load",
             "detect_patterns",
             "calculate_fitness_score",
@@ -1405,7 +1410,7 @@ fn test_total_tool_count() {
         + admin.len()
         + mobility.len();
 
-    assert_eq!(total, 68, "Expected 68 tools across all categories");
+    assert_eq!(total, 73, "Expected 73 tools across all categories");
 }
 
 #[test]

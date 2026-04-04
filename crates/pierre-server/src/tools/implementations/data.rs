@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::errors::AppResult;
-use crate::mcp::schema::{JsonSchema, PropertySchema};
+use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::protocols::universal::executor::UniversalExecutor;
 use crate::protocols::universal::handlers::fitness_api::{
     handle_get_activities, handle_get_athlete, handle_get_stats,
@@ -29,6 +29,16 @@ use crate::protocols::universal::{UniversalRequest, UniversalResponse};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+
+/// Annotations for read-only data retrieval tools
+fn read_only_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(true),
+        destructive_hint: Some(false),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
 
 // ============================================================================
 // Helper functions for converting between request/response types
@@ -202,6 +212,10 @@ impl McpTool for GetActivitiesTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let executor = UniversalExecutor::new(context.resources.clone());
         let request = build_universal_request("get_activities", &args, context);
@@ -270,6 +284,10 @@ impl McpTool for GetAthleteTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let executor = UniversalExecutor::new(context.resources.clone());
         let request = build_universal_request("get_athlete", &args, context);
@@ -336,6 +354,10 @@ impl McpTool for GetStatsTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {

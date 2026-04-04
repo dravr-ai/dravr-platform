@@ -27,11 +27,41 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::errors::{AppError, AppResult};
-use crate::mcp::schema::{JsonSchema, PropertySchema};
+use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::models::TenantId;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+
+/// Annotations for idempotent write operations (create, update)
+fn write_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(false),
+        destructive_hint: Some(false),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
+
+/// Annotations for destructive operations (delete)
+fn destructive_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(false),
+        destructive_hint: Some(true),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
+
+/// Annotations for read-only coach retrieval operations
+fn read_only_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(true),
+        destructive_hint: Some(false),
+        idempotent_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
 use pierre_core::models::coaches::{
     Coach, CoachCategory, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
 };
@@ -183,6 +213,10 @@ impl McpTool for ListCoachesTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -341,6 +375,10 @@ impl McpTool for CreateCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let title = args
             .get("title")
@@ -450,6 +488,10 @@ impl McpTool for GetCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let coach_id = args
             .get("coach_id")
@@ -551,6 +593,10 @@ impl McpTool for UpdateCoachTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -659,6 +705,10 @@ impl McpTool for DeleteCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(destructive_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let coach_id = args
             .get("coach_id")
@@ -717,6 +767,10 @@ impl McpTool for ToggleCoachFavoriteTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -804,6 +858,10 @@ impl McpTool for SearchCoachesTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let query = args
             .get("query")
@@ -886,6 +944,10 @@ impl McpTool for ActivateCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let coach_id = args
             .get("coach_id")
@@ -937,6 +999,10 @@ impl McpTool for DeactivateCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
+    }
+
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let manager = get_coaches_manager(ctx);
         let tenant_id = get_tenant_id(ctx);
@@ -982,6 +1048,10 @@ impl McpTool for GetActiveCoachTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
     }
 
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -1045,6 +1115,10 @@ impl McpTool for HideCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let coach_id = args
             .get("coach_id")
@@ -1102,6 +1176,10 @@ impl McpTool for ShowCoachTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::WRITES_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(write_annotations())
+    }
+
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let coach_id = args
             .get("coach_id")
@@ -1148,6 +1226,10 @@ impl McpTool for ListHiddenCoachesTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::COACHES | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
     }
 
     async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {

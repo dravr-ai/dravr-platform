@@ -66,10 +66,10 @@ fn test_configuration_tool_schemas() {
 
     assert_eq!(
         catalog_tool.description,
-        "Get the complete configuration catalog with all available parameters and their metadata"
+        "Get the complete catalog of available configuration options"
     );
     assert_eq!(catalog_tool.input_schema.schema_type, "object");
-    assert_eq!(catalog_tool.input_schema.required, Some(vec![]));
+    assert_eq!(catalog_tool.input_schema.required, None);
 
     // Test update_user_configuration tool schema
     let update_tool = tools
@@ -79,7 +79,7 @@ fn test_configuration_tool_schemas() {
 
     assert!(update_tool
         .description
-        .contains("Update user's configuration"));
+        .contains("Update your training configuration"));
 
     if let Some(properties) = &update_tool.input_schema.properties {
         assert!(properties.contains_key("profile"));
@@ -148,9 +148,9 @@ fn test_configuration_tools_have_proper_parameter_types() {
             panic!("vo2_max property should exist");
         }
 
-        // resting_hr should be number type
+        // resting_hr should be integer type
         if let Some(resting_hr_prop) = properties.get("resting_hr") {
-            assert_eq!(resting_hr_prop.property_type, "number");
+            assert_eq!(resting_hr_prop.property_type, "integer");
         } else {
             panic!("resting_hr property should exist");
         }
@@ -225,6 +225,9 @@ async fn test_configuration_tools_count_in_total() {
     );
     // Note: OAuth notification tools removed (4) + connect_to_pierre removed (1) = 5 fewer non-config tools
     // Coaches feature added 21 tools: 9 admin + 12 user coach management tools
-    assert_eq!(fitness_tools, 63, "Expected exactly 63 fitness tools"); // Includes nutrition (5) + sleep/recovery (5) + recipes (7) + coaches (21) + weather (1) tools
-    assert_eq!(tools.len(), 69, "Expected total of 69 tools"); // 63 fitness + 6 configuration
+    assert_eq!(
+        fitness_tools, 67,
+        "Expected exactly 67 non-configuration tools"
+    );
+    assert_eq!(tools.len(), 73, "Expected total of 73 tools"); // 67 non-configuration + 6 configuration
 }

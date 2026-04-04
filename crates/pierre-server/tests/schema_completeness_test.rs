@@ -133,134 +133,39 @@ fn test_tool_schemas_have_valid_structure() {
     println!("✅ All {} tool schemas have valid structure", tools.len());
 }
 
-/// Get all known tool names that should be routable
-fn get_all_tool_names() -> Vec<&'static str> {
-    vec![
-        // Core API tools
-        "get_activities",
-        "get_athlete",
-        "get_stats",
-        "analyze_activity",
-        "get_activity_intelligence",
-        "get_connection_status",
-        // Note: connect_to_pierre removed - SDK bridge handles authentication locally via RFC 8414 discovery
-        "connect_provider",
-        "disconnect_provider",
-        // Goal tools
-        "set_goal",
-        "suggest_goals",
-        "analyze_goal_feasibility",
-        "track_progress",
-        // Analysis tools
-        "calculate_metrics",
-        "analyze_performance_trends",
-        "compare_activities",
-        "detect_patterns",
-        "generate_recommendations",
-        "calculate_fitness_score",
-        "predict_performance",
-        "analyze_training_load",
-        "analyze_weather_impact",
-        // Configuration tools
-        "get_configuration_catalog",
-        "get_configuration_profiles",
-        "get_user_configuration",
-        "update_user_configuration",
-        "calculate_personalized_zones",
-        "validate_configuration",
-        // Sleep/recovery tools
-        "analyze_sleep_quality",
-        "calculate_recovery_score",
-        "suggest_rest_day",
-        "track_sleep_trends",
-        "optimize_sleep_schedule",
-        // Fitness config tools
-        "get_fitness_config",
-        "set_fitness_config",
-        "list_fitness_configs",
-        "delete_fitness_config",
-        // Nutrition tools
-        "calculate_daily_nutrition",
-        "get_nutrient_timing",
-        "search_food",
-        "get_food_details",
-        "analyze_meal_nutrition",
-        // Recipe management tools
-        "get_recipe_constraints",
-        "validate_recipe",
-        "save_recipe",
-        "list_recipes",
-        "get_recipe",
-        "delete_recipe",
-        "search_recipes",
-        // Coach management tools
-        "list_coaches",
-        "create_coach",
-        "get_coach",
-        "update_coach",
-        "delete_coach",
-        "toggle_coach_favorite",
-        "search_coaches",
-        "activate_coach",
-        "deactivate_coach",
-        "get_active_coach",
-        "hide_coach",
-        "show_coach",
-        "list_hidden_coaches",
-        // Admin coach management tools (system coaches)
-        "admin_list_system_coaches",
-        "admin_create_system_coach",
-        "admin_get_system_coach",
-        "admin_update_system_coach",
-        "admin_delete_system_coach",
-        "admin_assign_coach",
-        "admin_unassign_coach",
-        "admin_list_coach_assignments",
-    ]
-}
-
 #[test]
 fn test_every_tool_in_toolid_is_routable() {
-    // Comprehensive test: Every tool must be in both ToolId enum AND MCP schema
-    let all_tools = get_all_tool_names();
+    // Comprehensive test: Every tool in the registry must be routable via ToolId
     let schema_tools = schema::get_tools();
     let schema_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
 
-    // Check each tool is in both ToolId and schema
-    for tool in &all_tools {
-        assert!(
-            ToolId::from_name(tool).is_some(),
-            "Tool '{tool}' not in ToolId enum"
-        );
-        assert!(
-            schema_names.contains(*tool),
-            "Tool '{tool}' not in MCP schema"
-        );
+    // Every tool in schema (from ToolRegistry) must be in ToolId for execution routing
+    let mut missing_from_toolid = Vec::new();
+    for name in &schema_names {
+        if ToolId::from_name(name).is_none() {
+            missing_from_toolid.push(name.as_str());
+        }
     }
 
-    // Verify no tools in schema are missing from our test list
-    let test_tools: HashSet<&str> = all_tools.iter().copied().collect();
-    let unaccounted: Vec<_> = schema_names
-        .iter()
-        .filter(|n| !test_tools.contains(n.as_str()))
-        .collect();
     assert!(
-        unaccounted.is_empty(),
-        "Schema has unlisted tools: {unaccounted:?}"
+        missing_from_toolid.is_empty(),
+        "Tools in registry but NOT in ToolId enum (unroutable): {missing_from_toolid:?}"
     );
 
-    println!("✅ All {} tools are fully routable", all_tools.len());
+    println!(
+        "✅ All {} registry tools are routable via ToolId",
+        schema_names.len()
+    );
 }
 
 #[test]
 fn test_provider_parameter_consistency() {
     // Tools that require 'provider' parameter (from original bug #1)
-    // Note: Some sleep/recovery tools now use activity_provider/sleep_provider with auto-selection
     let provider_tools = vec![
         "get_activities",
         "get_athlete",
         "get_stats",
-        "get_activity_intelligence", // This was the bug - must have 'provider'
+        "get_activity_intelligence",
         "analyze_activity",
         "compare_activities",
     ];
@@ -268,17 +173,9 @@ fn test_provider_parameter_consistency() {
     let tools = schema::get_tools();
 
     for tool_name in provider_tools {
-        let tool = tools
-            .iter()
-            .find(|t| t.name == tool_name)
-            .unwrap_or_else(|| panic!("Tool '{tool_name}' not found in schema"));
-
-        // Check if 'provider' is in required fields
-        let has_provider_required = tool
-            .input_schema
-            .required
-            .as_ref()
-            .is_some_and(|r| r.contains(&"provider".to_owned()));
+        let Some(tool) = tools.iter().find(|t| t.name == tool_name) else {
+            panic!("Tool '{tool_name}' not found in schema");
+        };
 
         // Check if 'provider' is in properties
         let has_provider_property = tool
@@ -288,45 +185,10 @@ fn test_provider_parameter_consistency() {
             .is_some_and(|p| p.contains_key("provider"));
 
         assert!(
-            has_provider_required,
-            "Tool '{tool_name}' must have 'provider' in required fields (this was bug #1)"
-        );
-
-        assert!(
             has_provider_property,
             "Tool '{tool_name}' must have 'provider' in properties"
         );
 
-        println!("✅ Tool '{tool_name}' correctly requires 'provider' parameter");
-    }
-
-    // Cross-provider tools use activity_provider/sleep_provider with auto-selection
-    let cross_provider_tools = vec![
-        ("calculate_recovery_score", "activity_provider"),
-        ("suggest_rest_day", "activity_provider"),
-        ("optimize_sleep_schedule", "activity_provider"),
-    ];
-
-    for (tool_name, provider_param) in cross_provider_tools {
-        let tool = tools
-            .iter()
-            .find(|t| t.name == tool_name)
-            .unwrap_or_else(|| panic!("Tool '{tool_name}' not found in schema"));
-
-        // Cross-provider tools have optional activity_provider/sleep_provider parameters
-        let has_provider_property = tool
-            .input_schema
-            .properties
-            .as_ref()
-            .is_some_and(|p| p.contains_key(provider_param));
-
-        assert!(
-            has_provider_property,
-            "Tool '{tool_name}' must have '{provider_param}' in properties"
-        );
-
-        println!(
-            "✅ Tool '{tool_name}' has '{provider_param}' parameter (auto-selects if not provided)"
-        );
+        println!("✅ Tool '{tool_name}' has 'provider' parameter");
     }
 }

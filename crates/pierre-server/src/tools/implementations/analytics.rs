@@ -7,6 +7,11 @@
 //! # Analytics Tools
 //!
 //! This module provides tools for fitness analytics:
+//! - `AnalyzeActivityTool` - Deep analysis of individual activities
+//! - `GetActivityIntelligenceTool` - AI-powered activity insights
+//! - `CalculateMetricsTool` - Calculate pace, speed, intensity, efficiency
+//! - `AnalyzePerformanceTrendsTool` - Track metric trends over time
+//! - `CompareActivitiesTool` - Compare activities against similar/PRs
 //! - `AnalyzeTrainingLoadTool` - Calculate CTL/ATL/TSB training metrics
 //! - `DetectPatternsTool` - Detect training patterns and overtraining signs
 //! - `CalculateFitnessScoreTool` - Calculate overall fitness score
@@ -14,6 +19,7 @@
 //!
 //! These tools use the intelligence module directly for efficient analysis.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use async_trait::async_trait;
@@ -22,16 +28,35 @@ use serde_json::{json, Value};
 use tracing::info;
 
 use crate::config::environment::default_provider;
+use crate::constants::limits::METERS_PER_KILOMETER;
 use crate::errors::AppResult;
+use crate::intelligence::physiological_constants::heart_rate::{
+    AGE_BASED_MAX_HR_CONSTANT, HIGH_INTENSITY_HR_THRESHOLD,
+};
+use crate::intelligence::physiological_constants::hr_estimation::ASSUMED_MAX_HR;
 use crate::intelligence::weather::WeatherService;
-use crate::intelligence::{PatternDetector, RiskLevel, TrainingLoadCalculator, TrainingStatus};
-use crate::mcp::schema::{JsonSchema, PropertySchema};
+use crate::intelligence::{
+    MetricType, PatternDetector, RiskLevel, SafeMetricExtractor, StatisticalAnalyzer,
+    TrainingLoadCalculator, TrainingStatus, TrendDataPoint, TrendDirection,
+};
+use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::models::Activity;
 use crate::protocols::universal::auth_service::AuthService;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+
+/// Annotations shared by all analytics tools: read-only, idempotent, open-world (external provider)
+fn analytics_annotations() -> ToolAnnotations {
+    ToolAnnotations {
+        read_only_hint: Some(true),
+        destructive_hint: Some(false),
+        idempotent_hint: Some(true),
+        open_world_hint: Some(true),
+        ..ToolAnnotations::default()
+    }
+}
 
 // ============================================================================
 // Helper functions for provider creation and activity fetching
@@ -267,6 +292,16 @@ impl McpTool for AnalyzeTrainingLoadTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery data into training load analysis.".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
@@ -276,6 +311,10 @@ impl McpTool for AnalyzeTrainingLoadTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -417,6 +456,10 @@ impl McpTool for DetectPatternsTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
         let provider_name = args
             .get("provider")
@@ -497,6 +540,16 @@ impl McpTool for CalculateFitnessScoreTool {
                 ..Default::default()
             },
         );
+        properties.insert(
+            "sleep_provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Optional sleep/recovery provider (e.g., 'whoop', 'garmin'). If specified, factors recovery quality into fitness score.".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
         JsonSchema {
             schema_type: "object".to_owned(),
             properties: Some(properties),
@@ -506,6 +559,10 @@ impl McpTool for CalculateFitnessScoreTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -616,6 +673,10 @@ impl McpTool for AnalyzeWeatherImpactTool {
 
     fn capabilities(&self) -> ToolCapabilities {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
@@ -731,6 +792,1050 @@ impl McpTool for AnalyzeWeatherImpactTool {
 }
 
 // ============================================================================
+// AnalyzeActivityTool - Deep analysis of individual activities
+// ============================================================================
+
+/// Tool for performing deep analysis of an individual activity.
+pub struct AnalyzeActivityTool;
+
+#[async_trait]
+impl McpTool for AnalyzeActivityTool {
+    fn name(&self) -> &'static str {
+        "analyze_activity"
+    }
+
+    fn description(&self) -> &'static str {
+        "Perform deep analysis of an individual activity including insights, metrics, and anomaly detection"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("Fitness provider name (e.g., 'strava', 'fitbit')".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("ID of the activity to analyze".to_owned()),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ANALYTICS
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "activity_id is required"
+            })));
+        };
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        let activity = match provider.get_activity(activity_id).await {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        let (insights, recommendations) = generate_activity_insights(&activity);
+
+        // Duration conversion: u64 -> f64 safe for realistic durations
+        #[allow(clippy::cast_precision_loss)]
+        let duration_minutes = activity.duration_seconds() as f64 / 60.0;
+
+        info!(
+            "Activity analysis for {}: {} insights generated",
+            activity_id,
+            insights.len()
+        );
+
+        Ok(ToolResult::ok(json!({
+            "activity_id": activity_id,
+            "activity_name": activity.name(),
+            "activity_type": format!("{:?}", activity.sport_type()),
+            "analysis": {
+                "insights": insights,
+                "recommendations": recommendations,
+                "performance_metrics": {
+                    "distance_km": activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
+                    "duration_minutes": duration_minutes,
+                    "elevation_meters": activity.elevation_gain(),
+                    "average_heart_rate": activity.average_heart_rate(),
+                    "max_heart_rate": activity.max_heart_rate(),
+                    "calories": activity.calories()
+                }
+            },
+            "provider": provider_name
+        })))
+    }
+}
+
+// ============================================================================
+// GetActivityIntelligenceTool - AI-powered activity insights
+// ============================================================================
+
+/// Tool for getting AI-powered intelligence insights for an activity.
+pub struct GetActivityIntelligenceTool;
+
+#[async_trait]
+impl McpTool for GetActivityIntelligenceTool {
+    fn name(&self) -> &'static str {
+        "get_activity_intelligence"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get AI-powered intelligence insights and recommendations for a specific activity"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Fitness provider name (e.g., 'strava'). Defaults to configured provider."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("ID of the activity to analyze".to_owned()),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ANALYTICS
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "activity_id is required"
+            })));
+        };
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        let activity = match provider.get_activity(activity_id).await {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        let (insights, recommendations) = generate_activity_insights(&activity);
+
+        let summary = format!(
+            "{:?} activity completed. {} insights generated.",
+            activity.sport_type(),
+            insights.len()
+        );
+
+        #[allow(clippy::cast_precision_loss)]
+        let duration_minutes = activity.duration_seconds() as f64 / 60.0;
+
+        info!("Activity intelligence for {}: {}", activity_id, summary);
+
+        Ok(ToolResult::ok(json!({
+            "activity_id": activity_id,
+            "activity_type": format!("{:?}", activity.sport_type()),
+            "intelligence": {
+                "summary": summary,
+                "insights": insights,
+                "recommendations": recommendations,
+                "performance_metrics": {
+                    "distance_km": activity.distance_meters().map(|d| d / METERS_PER_KILOMETER),
+                    "duration_minutes": duration_minutes,
+                    "elevation_meters": activity.elevation_gain(),
+                    "average_heart_rate": activity.average_heart_rate(),
+                    "max_heart_rate": activity.max_heart_rate(),
+                    "calories": activity.calories()
+                }
+            },
+            "provider": provider_name
+        })))
+    }
+}
+
+// ============================================================================
+// CalculateMetricsTool - Calculate pace, speed, intensity, efficiency
+// ============================================================================
+
+/// Conversion factor from m/s to km/h
+const MS_TO_KMH: f64 = 3.6;
+
+/// Tool for calculating custom fitness metrics from activity data.
+pub struct CalculateMetricsTool;
+
+#[async_trait]
+impl McpTool for CalculateMetricsTool {
+    fn name(&self) -> &'static str {
+        "calculate_metrics"
+    }
+
+    fn description(&self) -> &'static str {
+        "Calculate advanced fitness metrics for an activity (pace, speed, intensity score, efficiency)"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("Fitness provider name".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("ID of the activity to calculate metrics for".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "max_hr".to_owned(),
+            PropertySchema {
+                property_type: "number".to_owned(),
+                description: Some(
+                    "Maximum heart rate (optional, used for intensity calculation)".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "age".to_owned(),
+            PropertySchema {
+                property_type: "integer".to_owned(),
+                description: Some(
+                    "User age (optional, used to estimate max HR via Fox formula if max_hr not provided)"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ANALYTICS
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "activity_id is required"
+            })));
+        };
+
+        let max_hr_provided = args.get("max_hr").and_then(Value::as_f64);
+        let user_age = args
+            .get("age")
+            .and_then(Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok());
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        let activity = match provider.get_activity(activity_id).await {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        let distance = activity.distance_meters().unwrap_or(0.0);
+        let duration = activity.duration_seconds();
+        let elevation_gain = activity.elevation_gain().unwrap_or(0.0);
+        let heart_rate = activity.average_heart_rate();
+
+        // Determine max HR: explicit > age-based > default
+        let (max_hr, max_hr_source) = match (max_hr_provided, user_age) {
+            (Some(hr), _) => (hr, "provided"),
+            (None, Some(age)) => (
+                f64::from(AGE_BASED_MAX_HR_CONSTANT.saturating_sub(age)),
+                "age_based",
+            ),
+            (None, None) => (ASSUMED_MAX_HR, "default_assumed"),
+        };
+
+        // Safe duration conversion for division
+        #[allow(clippy::cast_precision_loss)]
+        let duration_f64 = duration as f64;
+
+        let pace = if distance > 0.0 && duration > 0 {
+            duration_f64 / (distance / METERS_PER_KILOMETER)
+        } else {
+            0.0
+        };
+
+        let speed = if duration > 0 {
+            (distance / duration_f64) * MS_TO_KMH
+        } else {
+            0.0
+        };
+
+        let intensity_score = if max_hr > 0.0 {
+            heart_rate.map_or(0.0, |hr| (f64::from(hr) / max_hr) * 100.0)
+        } else {
+            0.0
+        };
+
+        let efficiency_score = if distance > 0.0 && elevation_gain > 0.0 {
+            (distance / elevation_gain).min(100.0)
+        } else {
+            50.0
+        };
+
+        info!(
+            "Metrics calculated for activity {}: pace={:.2}, speed={:.2}",
+            activity_id, pace, speed
+        );
+
+        Ok(ToolResult::ok(json!({
+            "activity_id": activity_id,
+            "metrics": {
+                "pace_min_per_km": pace,
+                "speed_kmh": speed,
+                "intensity_score": intensity_score,
+                "efficiency_score": efficiency_score,
+                "max_hr_used": max_hr,
+                "max_hr_source": max_hr_source
+            },
+            "activity_summary": {
+                "distance_km": distance / METERS_PER_KILOMETER,
+                "duration_seconds": duration,
+                "elevation_meters": elevation_gain,
+                "average_heart_rate": heart_rate
+            },
+            "provider": provider_name
+        })))
+    }
+}
+
+// ============================================================================
+// AnalyzePerformanceTrendsTool - Track metric trends over time
+// ============================================================================
+
+/// Tool for analyzing performance trends over time with statistical analysis.
+pub struct AnalyzePerformanceTrendsTool;
+
+#[async_trait]
+impl McpTool for AnalyzePerformanceTrendsTool {
+    fn name(&self) -> &'static str {
+        "analyze_performance_trends"
+    }
+
+    fn description(&self) -> &'static str {
+        "Analyze performance trends over time with statistical analysis and insights for a specific metric"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("Fitness provider name".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "metric".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Metric to analyze: 'pace', 'speed', 'heart_rate', 'distance', 'duration', 'elevation', 'power'"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "timeframe".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Time period: 'week', 'month' (default), 'quarter', 'year'".to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["provider".to_owned(), "metric".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ANALYTICS
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let metric = args.get("metric").and_then(Value::as_str).unwrap_or("pace");
+
+        let timeframe = args
+            .get("timeframe")
+            .and_then(Value::as_str)
+            .unwrap_or("month");
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        // Fetch activities within the timeframe
+        let cutoff = match timeframe {
+            "week" => Utc::now() - Duration::days(7),
+            "quarter" => Utc::now() - Duration::days(90),
+            "year" => Utc::now() - Duration::days(365),
+            _ => Utc::now() - Duration::days(30),
+        };
+
+        let activities = match fetch_activities(provider.as_ref(), cutoff.timestamp(), 200).await {
+            Ok(acts) => acts,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": e,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        if activities.len() < 2 {
+            return Ok(ToolResult::ok(json!({
+                "metric": metric,
+                "timeframe": timeframe,
+                "trend": "needs_more_data",
+                "activities_analyzed": activities.len(),
+                "insights": [format!("Need at least 2 activities for trend analysis. Found {}.", activities.len())],
+                "provider": provider_name
+            })));
+        }
+
+        // Parse metric type
+        let metric_type = match metric.to_lowercase().as_str() {
+            "pace" => MetricType::Pace,
+            "speed" => MetricType::Speed,
+            "heart_rate" | "hr" => MetricType::HeartRate,
+            "distance" => MetricType::Distance,
+            "duration" => MetricType::Duration,
+            "elevation" => MetricType::Elevation,
+            "power" => MetricType::Power,
+            other => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Unknown metric type: {other}"),
+                    "supported_metrics": ["pace", "speed", "heart_rate", "distance", "duration", "elevation", "power"]
+                })));
+            }
+        };
+
+        // Extract metric values using SafeMetricExtractor
+        let data_points = match SafeMetricExtractor::extract_metric_values(&activities, metric_type)
+        {
+            Ok(pts) if pts.len() >= 2 => pts,
+            _ => {
+                return Ok(ToolResult::ok(json!({
+                    "metric": metric,
+                    "timeframe": timeframe,
+                    "trend": "insufficient_data",
+                    "activities_analyzed": activities.len(),
+                    "insights": [format!("Metric '{metric}' not available in enough activities")],
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        // Convert to TrendDataPoint and perform regression
+        let trend_data: Vec<TrendDataPoint> = data_points
+            .iter()
+            .map(|(date, value)| TrendDataPoint {
+                date: *date,
+                value: *value,
+                smoothed_value: None,
+            })
+            .collect();
+
+        let Ok(regression) = StatisticalAnalyzer::linear_regression(&trend_data) else {
+            return Ok(ToolResult::ok(json!({
+                "metric": metric,
+                "timeframe": timeframe,
+                "trend": "calculation_error",
+                "activities_analyzed": data_points.len(),
+                "insights": ["Unable to calculate trend statistics"],
+                "provider": provider_name
+            })));
+        };
+
+        let slope_threshold = 0.01;
+        let trend_direction = StatisticalAnalyzer::determine_trend_direction(
+            &regression,
+            metric_type.is_lower_better(),
+            slope_threshold,
+        );
+
+        let trend_label = match trend_direction {
+            TrendDirection::Improving => "improving",
+            TrendDirection::Stable => "stable",
+            TrendDirection::Declining => "declining",
+        };
+
+        // Percentage change from first to last data point
+        let percent_change = if data_points.len() >= 2 {
+            let first = data_points.first().map_or(0.0, |(_, v)| *v);
+            let last = data_points.last().map_or(0.0, |(_, v)| *v);
+            if first.abs() > f64::EPSILON {
+                Some(((last - first) / first) * 100.0)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        info!(
+            "Performance trend for {}: {} ({} data points)",
+            metric,
+            trend_label,
+            data_points.len()
+        );
+
+        Ok(ToolResult::ok(json!({
+            "metric": metric,
+            "timeframe": timeframe,
+            "trend": trend_label,
+            "activities_analyzed": data_points.len(),
+            "statistics": {
+                "slope": regression.slope,
+                "r_squared": regression.r_squared,
+                "correlation": regression.correlation,
+                "standard_error": regression.standard_error,
+                "p_value": regression.p_value,
+                "percent_change": percent_change,
+                "start_value": data_points.first().map(|(_, v)| v),
+                "end_value": data_points.last().map(|(_, v)| v)
+            },
+            "provider": provider_name
+        })))
+    }
+}
+
+// ============================================================================
+// CompareActivitiesTool - Compare activities against similar/PRs
+// ============================================================================
+
+/// Tool for comparing an activity against similar activities or personal records.
+pub struct CompareActivitiesTool;
+
+#[async_trait]
+impl McpTool for CompareActivitiesTool {
+    fn name(&self) -> &'static str {
+        "compare_activities"
+    }
+
+    fn description(&self) -> &'static str {
+        "Compare an activity against similar activities, personal bests, or a specific other activity"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "provider".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("Fitness provider name".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some("Primary activity to compare".to_owned()),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "comparison_type".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Type of comparison: 'similar_activities' (default), 'pr_comparison', 'specific_activity'"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        properties.insert(
+            "compare_activity_id".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Activity ID to compare against (required for 'specific_activity' type)"
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: Some(vec!["provider".to_owned(), "activity_id".to_owned()]),
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH
+            | ToolCapabilities::REQUIRES_PROVIDER
+            | ToolCapabilities::READS_DATA
+            | ToolCapabilities::ANALYTICS
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(analytics_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        let provider_name = args
+            .get("provider")
+            .and_then(Value::as_str)
+            .map_or_else(default_provider, String::from);
+
+        let Some(activity_id) = args.get("activity_id").and_then(Value::as_str) else {
+            return Ok(ToolResult::error(json!({
+                "error": "activity_id is required"
+            })));
+        };
+
+        let comparison_type = args
+            .get("comparison_type")
+            .and_then(Value::as_str)
+            .unwrap_or("similar_activities");
+
+        let compare_activity_id = args.get("compare_activity_id").and_then(Value::as_str);
+
+        let provider = match create_provider(context, &provider_name).await {
+            Ok(p) => p,
+            Err(result) => return Ok(result),
+        };
+
+        // Fetch target activity
+        let target = match provider.get_activity(activity_id).await {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(ToolResult::error(json!({
+                    "error": format!("Failed to fetch activity: {e}"),
+                    "activity_id": activity_id,
+                    "provider": provider_name
+                })));
+            }
+        };
+
+        // Fetch recent activities for comparison
+        let all_activities = provider
+            .get_activities(Some(50), None)
+            .await
+            .unwrap_or_default();
+
+        let comparison = match comparison_type {
+            "pr_comparison" => build_pr_comparison(&target, &all_activities),
+            "specific_activity" => compare_activity_id.map_or_else(
+                || build_similar_comparison(&target, &all_activities),
+                |cmp_id| build_specific_comparison(&target, &all_activities, cmp_id),
+            ),
+            _ => build_similar_comparison(&target, &all_activities),
+        };
+
+        info!(
+            "Activity comparison for {}: type={}",
+            activity_id, comparison_type
+        );
+
+        Ok(ToolResult::ok(comparison))
+    }
+}
+
+/// Generate insights and recommendations from activity data
+fn generate_activity_insights(activity: &Activity) -> (Vec<String>, Vec<&'static str>) {
+    let mut insights = Vec::new();
+    let mut recommendations = Vec::new();
+
+    if let Some(distance) = activity.distance_meters() {
+        let km = distance / METERS_PER_KILOMETER;
+        insights.push(format!("Activity covered {km:.2} km"));
+        if km > 20.0 {
+            recommendations.push("Great long-distance effort! Ensure proper recovery time");
+        }
+    }
+
+    if let Some(elevation) = activity.elevation_gain() {
+        insights.push(format!("Total elevation gain: {elevation:.0} meters"));
+        if elevation > 500.0 {
+            recommendations.push("Significant elevation - consider targeted hill training");
+        }
+    }
+
+    if let Some(avg_hr) = activity.average_heart_rate() {
+        insights.push(format!("Average heart rate: {avg_hr} bpm"));
+        if avg_hr > HIGH_INTENSITY_HR_THRESHOLD {
+            recommendations.push("High-intensity effort detected - monitor recovery");
+        }
+    }
+
+    if let Some(calories) = activity.calories() {
+        insights.push(format!("Calories burned: {calories}"));
+    }
+
+    (insights, recommendations)
+}
+
+/// Build comparison with similar activities (same sport, similar distance)
+fn build_similar_comparison(target: &Activity, all_activities: &[Activity]) -> Value {
+    let similar: Vec<&Activity> = all_activities
+        .iter()
+        .filter(|a| {
+            a.id() != target.id()
+                && a.sport_type() == target.sport_type()
+                && is_similar_distance(a.distance_meters(), target.distance_meters())
+        })
+        .take(5)
+        .collect();
+
+    if similar.is_empty() {
+        return json!({
+            "activity_id": target.id(),
+            "comparison_type": "similar_activities",
+            "comparison_count": 0,
+            "insights": ["No similar activities found for comparison"]
+        });
+    }
+
+    let mut comparisons = Vec::new();
+    let mut insights = Vec::new();
+
+    // Pace comparison
+    let target_pace = activity_pace(target);
+    let avg_pace = similar
+        .iter()
+        .filter_map(|a| activity_pace(a))
+        .collect::<Vec<_>>();
+
+    if let Some(tp) = target_pace {
+        if !avg_pace.is_empty() {
+            #[allow(clippy::cast_precision_loss)]
+            let avg_p = avg_pace.iter().sum::<f64>() / avg_pace.len() as f64;
+            if avg_p > 0.0 {
+                let diff_pct = ((tp - avg_p) / avg_p) * 100.0;
+                comparisons.push(json!({
+                    "metric": "pace",
+                    "current": tp,
+                    "average": avg_p,
+                    "difference_percent": diff_pct,
+                    "improved": diff_pct < 0.0
+                }));
+                if diff_pct < -5.0 {
+                    insights.push(format!(
+                        "Pace improved by {:.1}% vs similar activities",
+                        diff_pct.abs()
+                    ));
+                } else if diff_pct > 5.0 {
+                    insights.push(format!(
+                        "Pace was {diff_pct:.1}% slower than similar activities"
+                    ));
+                }
+            }
+        }
+    }
+
+    if insights.is_empty() {
+        insights.push(format!(
+            "Compared with {} similar activities",
+            similar.len()
+        ));
+    }
+
+    json!({
+        "activity_id": target.id(),
+        "comparison_type": "similar_activities",
+        "sport_type": format!("{:?}", target.sport_type()),
+        "comparison_count": similar.len(),
+        "comparisons": comparisons,
+        "insights": insights
+    })
+}
+
+/// Build comparison with personal records
+fn build_pr_comparison(target: &Activity, all_activities: &[Activity]) -> Value {
+    let same_sport: Vec<&Activity> = all_activities
+        .iter()
+        .filter(|a| a.sport_type() == target.sport_type())
+        .collect();
+
+    if same_sport.is_empty() {
+        return json!({
+            "activity_id": target.id(),
+            "comparison_type": "pr_comparison",
+            "insights": ["No other activities of this sport type found"]
+        });
+    }
+
+    let mut pr_comparisons = Vec::new();
+    let mut insights = Vec::new();
+
+    // Distance PR
+    if let Some(distance) = target.distance_meters() {
+        let max_distance = same_sport
+            .iter()
+            .filter_map(|a| a.distance_meters())
+            .max_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+        if let Some(max_d) = max_distance {
+            let is_pr = distance >= max_d;
+            pr_comparisons.push(json!({
+                "metric": "distance",
+                "current": distance,
+                "personal_record": max_d,
+                "is_record": is_pr,
+                "percent_of_pr": if max_d > 0.0 { (distance / max_d) * 100.0 } else { 0.0 }
+            }));
+            if is_pr && (distance - max_d).abs() > 100.0 {
+                insights.push("New distance PR!".to_owned());
+            }
+        }
+    }
+
+    // Pace PR
+    let target_pace = activity_pace(target);
+    let best_pace = same_sport
+        .iter()
+        .filter_map(|a| activity_pace(a))
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+
+    if let (Some(tp), Some(bp)) = (target_pace, best_pace) {
+        let is_pr = tp <= bp;
+        pr_comparisons.push(json!({
+            "metric": "pace",
+            "current": tp,
+            "personal_record": bp,
+            "is_record": is_pr
+        }));
+        if is_pr && (bp - tp).abs() > 0.1 {
+            insights.push("New pace PR!".to_owned());
+        }
+    }
+
+    if insights.is_empty() {
+        insights.push(format!(
+            "Compared with {} activities in this sport",
+            same_sport.len()
+        ));
+    }
+
+    json!({
+        "activity_id": target.id(),
+        "comparison_type": "pr_comparison",
+        "sport_type": format!("{:?}", target.sport_type()),
+        "pr_comparisons": pr_comparisons,
+        "insights": insights
+    })
+}
+
+/// Build comparison with a specific activity
+fn build_specific_comparison(
+    target: &Activity,
+    all_activities: &[Activity],
+    compare_id: &str,
+) -> Value {
+    let compare = all_activities.iter().find(|a| a.id() == compare_id);
+
+    let Some(cmp) = compare else {
+        return json!({
+            "activity_id": target.id(),
+            "comparison_type": "specific_activity",
+            "error": format!("Activity '{compare_id}' not found"),
+            "insights": [format!("Could not find activity '{compare_id}' for comparison")]
+        });
+    };
+
+    let mut comparisons = Vec::new();
+    let mut insights = Vec::new();
+
+    // Pace comparison
+    if let (Some(tp), Some(cp)) = (activity_pace(target), activity_pace(cmp)) {
+        if cp > 0.0 {
+            let diff = ((tp - cp) / cp) * 100.0;
+            comparisons.push(json!({
+                "metric": "pace",
+                "current": tp,
+                "comparison": cp,
+                "difference_percent": diff,
+                "improved": diff < 0.0
+            }));
+            if diff < -5.0 {
+                insights.push(format!("Pace improved by {:.1}%", diff.abs()));
+            } else if diff > 5.0 {
+                insights.push(format!("Pace was {diff:.1}% slower"));
+            }
+        }
+    }
+
+    // Heart rate comparison
+    if let (Some(th), Some(ch)) = (
+        target.average_heart_rate().map(f64::from),
+        cmp.average_heart_rate().map(f64::from),
+    ) {
+        if ch > 0.0 {
+            let diff = ((th - ch) / ch) * 100.0;
+            comparisons.push(json!({
+                "metric": "heart_rate",
+                "current": th,
+                "comparison": ch,
+                "difference_percent": diff,
+                "improved": diff < 0.0
+            }));
+        }
+    }
+
+    if insights.is_empty() {
+        insights.push("Metrics are similar to the comparison activity".to_owned());
+    }
+
+    json!({
+        "activity_id": target.id(),
+        "comparison_type": "specific_activity",
+        "comparison_activity_id": compare_id,
+        "comparison_activity_name": cmp.name(),
+        "sport_type": format!("{:?}", target.sport_type()),
+        "comparisons": comparisons,
+        "insights": insights
+    })
+}
+
+/// Calculate pace in min/km for an activity
+fn activity_pace(activity: &Activity) -> Option<f64> {
+    if let Some(distance) = activity.distance_meters() {
+        if distance > 0.0 && activity.duration_seconds() > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            let seconds_per_km =
+                (activity.duration_seconds() as f64 / distance) * METERS_PER_KILOMETER;
+            return Some(seconds_per_km / 60.0);
+        }
+    }
+    None
+}
+
+/// Check if two distances are similar (within 10%)
+fn is_similar_distance(dist1: Option<f64>, dist2: Option<f64>) -> bool {
+    match (dist1, dist2) {
+        (Some(d1), Some(d2)) if d2 > 0.0 => (d1 / d2 - 1.0).abs() < 0.1,
+        _ => false,
+    }
+}
+
+// ============================================================================
 // Module exports
 // ============================================================================
 
@@ -738,6 +1843,11 @@ impl McpTool for AnalyzeWeatherImpactTool {
 #[must_use]
 pub fn create_analytics_tools() -> Vec<Box<dyn McpTool>> {
     vec![
+        Box::new(AnalyzeActivityTool),
+        Box::new(GetActivityIntelligenceTool),
+        Box::new(CalculateMetricsTool),
+        Box::new(AnalyzePerformanceTrendsTool),
+        Box::new(CompareActivitiesTool),
         Box::new(AnalyzeTrainingLoadTool),
         Box::new(DetectPatternsTool),
         Box::new(CalculateFitnessScoreTool),

@@ -88,89 +88,46 @@ describe('All Tools Response Validation', () => {
 
     const toolNames = response.result.tools.map(t => t.name);
 
-    // Core data tools (must exist)
+    // Core data tools (in PUBLIC_DISCOVERY_TOOLS, always visible)
     const coreTools = [
       'get_activities',
       'get_athlete',
       'get_stats'
     ];
 
-    // Connection tools
-    // Note: connect_to_pierre removed - SDK bridge handles authentication locally via RFC 8414 discovery
-    const connectionTools = [
-      'connect_provider',
-      'get_connection_status',
-      'disconnect_provider'
-    ];
-
-    // Analytics tools (updated for pluggable architecture)
+    // Analytics tools (in PUBLIC_DISCOVERY_TOOLS)
     const analyticsTools = [
-      'analyze_training_load',
+      'analyze_activity',
+      'get_activity_intelligence',
+      'calculate_metrics',
+      'analyze_performance_trends',
+      'compare_activities',
+      'analyze_weather_impact',
       'detect_patterns',
-      'calculate_fitness_score'
+      'suggest_goals'
     ];
 
-    // Goal tools
-    const goalTools = [
-      'set_goal',
-      'track_progress',
-      'suggest_goals',
-      'analyze_goal_feasibility'
-    ];
-
-    // Configuration tools
+    // Configuration tools (in PUBLIC_DISCOVERY_TOOLS)
     const configTools = [
       'get_configuration_catalog',
       'get_configuration_profiles',
-      'get_user_configuration',
-      'update_user_configuration',
-      'calculate_personalized_zones',
       'validate_configuration',
-      'get_fitness_config',
-      'set_fitness_config',
-      'list_fitness_configs',
-      'delete_fitness_config'
     ];
 
-    // Sleep & Recovery tools
-    const sleepTools = [
-      'analyze_sleep_quality',
-      'calculate_recovery_score',
-      'suggest_rest_day',
-      'track_sleep_trends',
-      'optimize_sleep_schedule'
-    ];
-
-    // Nutrition tools
+    // Nutrition tools (in PUBLIC_DISCOVERY_TOOLS)
     const nutritionTools = [
       'calculate_daily_nutrition',
-      'get_nutrient_timing',
       'search_food',
       'get_food_details',
       'analyze_meal_nutrition'
     ];
 
-    // Recipe tools
-    const recipeTools = [
-      'get_recipe_constraints',
-      'validate_recipe',
-      'save_recipe',
-      'list_recipes',
-      'get_recipe',
-      'delete_recipe',
-      'search_recipes'
-    ];
-
-    // Verify all tool categories
+    // Verify public discovery tools are always visible
     const allExpectedTools = [
       ...coreTools,
-      ...connectionTools,
       ...analyticsTools,
-      ...goalTools,
       ...configTools,
-      ...sleepTools,
-      ...nutritionTools,
-      ...recipeTools
+      ...nutritionTools
     ];
 
     for (const tool of allExpectedTools) {
