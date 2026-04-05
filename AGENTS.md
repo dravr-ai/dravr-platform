@@ -312,6 +312,7 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
    This runs:
    - Tier 0: Code formatting check
    - Tier 1: Architectural validation
+   - Tier 1.5: Strict clippy (`-p pierre_mcp_server --all-targets --all-features -- -D warnings`, matches CI)
    - Tier 2: Schema validation
    - Tier 3: Targeted tests (smart selection based on changed files)
    - Tier 4-6: Frontend/SDK/Mobile tests (if those files changed)
@@ -335,7 +336,7 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
 
 ### Important Notes
 
-- **Clippy is NOT in `pre-push-validate.sh`** - Claude Code must follow CLAUDE.md and run clippy manually as part of the validation workflow
+- **Clippy IS run by `pre-push-validate.sh`** as Tier 1.5 — matches CI (`-p pierre_mcp_server --all-targets --all-features -- -D warnings`). Adds ~1-2 min but catches pedantic lints that per-crate clippy misses when modules span crates.
 - If validation expires or commit changes, re-run `./scripts/ci/pre-push-validate.sh`
 - To bypass (NOT RECOMMENDED): `git push --no-verify`
 
@@ -497,7 +498,9 @@ cargo clippy -p <changed-crate> --all-targets
 cargo test --test <test_file> <test_pattern> -- --nocapture
 ```
 
-**CRITICAL: Clippy scope must match change scope.** If you only changed `pierre-core`, run `cargo clippy -p pierre-core` — do NOT also run `cargo clippy -p pierre_mcp_server`. The main crate takes minutes to lint; leaf crates take seconds. Only lint what you changed. Use `--all-targets` when test files in that crate changed. Clippy is NOT run by pre-commit or pre-push hooks — it must be run manually.
+**CRITICAL: Clippy scope must match change scope during iteration.** If you only changed `pierre-core`, run `cargo clippy -p pierre-core` — do NOT also run `cargo clippy -p pierre_mcp_server`. The main crate takes minutes to lint; leaf crates take seconds. Only lint what you changed during development. Use `--all-targets` when test files in that crate changed.
+
+**The final gate is `./scripts/ci/pre-push-validate.sh`** which runs `cargo clippy -p pierre_mcp_server --all-targets --all-features -- -D warnings` (Tier 1.5) — this matches CI and catches pedantic lints that per-crate clippy misses.
 
 #### Tier 3: Full Validation (before PR/merge only)
 Run the full suite only when preparing a PR or merging:
