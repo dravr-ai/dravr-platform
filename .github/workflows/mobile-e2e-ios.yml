@@ -65,7 +65,7 @@ jobs:
           CARGO_INCREMENTAL: 0
 
       - name: Upload server binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pierre-server-macos
           path: |
@@ -703,7 +703,7 @@ jobs:
           find frontend-mobile -name "*.png" -newer /tmp/metro.log -exec cp {} /tmp/maestro-screenshots/ \; 2>/dev/null || true
 
       - name: Upload Maestro test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: maestro-test-results-ios

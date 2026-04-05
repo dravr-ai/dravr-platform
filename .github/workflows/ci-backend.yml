@@ -341,7 +341,7 @@ jobs:
           echo "Release binary executed successfully"
 
       - name: Upload release binary as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pierre-mcp-server-release-ubuntu
           path: target/release/pierre-mcp-server
