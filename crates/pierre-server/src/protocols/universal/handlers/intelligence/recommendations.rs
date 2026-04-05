@@ -13,9 +13,9 @@ use crate::intelligence::training_load::TrainingLoad;
 use crate::intelligence::{
     PatternDetector, PerformancePredictor, RiskLevel, TrainingLoadCalculator, TrainingStatus,
 };
+use crate::mcp::resources::ServerResources;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-use pierre_llm::prompts::{RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT};
 
 const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 const RECOMMENDATION_TYPE_PLACEHOLDER: &str = "{recommendation_type}";
@@ -49,6 +49,7 @@ use tracing::warn;
 /// Returns error if sampling request fails or response is invalid
 async fn generate_recommendations_via_sampling(
     sampling_peer: &Arc<SamplingPeer>,
+    resources: &ServerResources,
     activities: &[Activity],
     recommendation_type: &str,
 ) -> AppResult<serde_json::Value> {
@@ -93,7 +94,8 @@ async fn generate_recommendations_via_sampling(
     };
 
     // Create prompt for LLM from template
-    let prompt = RECOMMENDATION_ANALYSIS_PROMPT
+    let prompt = resources
+        .recommendation_analysis_prompt()
         .replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary)
         .replace(RECOMMENDATION_TYPE_PLACEHOLDER, recommendation_type);
 
@@ -109,7 +111,7 @@ async fn generate_recommendations_via_sampling(
         }),
         max_tokens: 1024,
         temperature: Some(0.7),
-        system_prompt: Some(RECOMMENDATION_SYSTEM_PROMPT.trim().to_owned()),
+        system_prompt: Some(resources.recommendation_system_prompt().trim().to_owned()),
         include_context: None,
         stop_sequences: None,
         metadata: None,
@@ -985,6 +987,7 @@ pub fn handle_generate_recommendations(
                             // Use MCP sampling (client's LLM) to generate personalized recommendations
                             match generate_recommendations_via_sampling(
                                 sampling_peer,
+                                &executor.resources,
                                 &activities,
                                 recommendation_type,
                             )

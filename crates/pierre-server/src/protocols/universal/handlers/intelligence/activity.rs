@@ -11,9 +11,9 @@ use crate::intelligence::physiological_constants::business_thresholds::{
     ACHIEVEMENT_DISTANCE_THRESHOLD_KM, ACHIEVEMENT_ELEVATION_THRESHOLD_M,
 };
 use crate::intelligence::physiological_constants::heart_rate::HIGH_INTENSITY_HR_THRESHOLD;
+use crate::mcp::resources::ServerResources;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{Content, CreateMessageRequest, ModelPreferences, PromptMessage};
-use pierre_llm::prompts::{ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT};
 
 const ACTIVITY_SUMMARY_PLACEHOLDER: &str = "{activity_summary}";
 use crate::models::Activity;
@@ -110,10 +110,11 @@ async fn create_intelligence_response(
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
+    resources: &ServerResources,
 ) -> UniversalResponse {
     // Try MCP sampling first if available (uses client's LLM)
     if let Some(peer) = sampling_peer {
-        match generate_activity_intelligence_via_sampling(peer, activity).await {
+        match generate_activity_intelligence_via_sampling(peer, resources, activity).await {
             Ok(llm_analysis) => {
                 info!("Generated activity intelligence using MCP sampling");
                 return UniversalResponse {
@@ -211,6 +212,7 @@ async fn fetch_and_analyze_activity(
     user_uuid: uuid::Uuid,
     tenant_id: Option<String>,
     sampling_peer: Option<&Arc<SamplingPeer>>,
+    resources: &ServerResources,
 ) -> UniversalResponse {
     match provider.get_activity(activity_id).await {
         Ok(activity) => {
@@ -220,6 +222,7 @@ async fn fetch_and_analyze_activity(
                 user_uuid,
                 tenant_id,
                 sampling_peer,
+                resources,
             )
             .await
         }
@@ -251,6 +254,7 @@ async fn fetch_and_analyze_activity(
                             user_uuid,
                             tenant_id,
                             None, // No sampling in fallback path
+                            resources,
                         )
                         .await;
 
@@ -312,6 +316,7 @@ async fn fetch_and_analyze_activity(
 /// Returns error if sampling request fails or response is invalid
 async fn generate_activity_intelligence_via_sampling(
     sampling_peer: &Arc<SamplingPeer>,
+    resources: &ServerResources,
     activity: &Activity,
 ) -> AppResult<serde_json::Value> {
     use {Content, CreateMessageRequest, ModelPreferences, PromptMessage};
@@ -343,7 +348,9 @@ async fn generate_activity_intelligence_via_sampling(
     );
 
     // Create prompt for LLM from template
-    let prompt = ACTIVITY_ANALYSIS_PROMPT.replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary);
+    let prompt = resources
+        .activity_analysis_prompt()
+        .replace(ACTIVITY_SUMMARY_PLACEHOLDER, &activity_summary);
 
     // Send sampling request to client's LLM
     let request = CreateMessageRequest {
@@ -357,7 +364,12 @@ async fn generate_activity_intelligence_via_sampling(
         }),
         max_tokens: 800,
         temperature: Some(0.7),
-        system_prompt: Some(ACTIVITY_ANALYSIS_SYSTEM_PROMPT.trim().to_owned()),
+        system_prompt: Some(
+            resources
+                .activity_analysis_system_prompt()
+                .trim()
+                .to_owned(),
+        ),
         include_context: None,
         stop_sequences: None,
         metadata: None,
@@ -465,6 +477,7 @@ pub fn handle_get_activity_intelligence(
                     user_uuid,
                     request.tenant_id,
                     executor.resources.sampling_peer.as_ref(),
+                    &executor.resources,
                 )
                 .await;
 

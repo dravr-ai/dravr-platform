@@ -197,10 +197,15 @@ client-all = ["client-web", "client-admin", "client-mobile", "client-mcp-tokens"
 oauth = []
 
 # ═══════════════════════════════════════════════════════════════
+# PROMPT HOT-RELOAD (contremaitre)
+# ═══════════════════════════════════════════════════════════════
+contremaitre = []  # GitHub-backed prompt registry with webhook hot-reload
+
+# ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync", "contremaitre"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon", "contremaitre"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]

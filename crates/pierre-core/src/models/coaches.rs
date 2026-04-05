@@ -328,6 +328,13 @@ pub struct Coach {
     /// Success definition extracted from ## Success Criteria section
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_criteria: Option<String>,
+    /// Origin of this coach: "contremaitre" (git-managed), "seed" (seeded from files), "custom" (user/admin created)
+    #[serde(default = "default_source")]
+    pub source: String,
+}
+
+fn default_source() -> String {
+    "custom".to_owned()
 }
 
 /// Token estimation constant: average characters per token for system prompts

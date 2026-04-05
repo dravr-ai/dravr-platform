@@ -17,10 +17,7 @@ use crate::protocols::universal::UniversalResponse;
 use crate::services::group_fitness::fetch_member_snapshots;
 use crate::{
     errors::AppError,
-    llm::{
-        get_insight_generation_prompt, get_pierre_system_prompt, ChatMessage, ChatProvider,
-        FunctionDeclaration, Tool,
-    },
+    llm::{ChatMessage, ChatProvider, FunctionDeclaration, Tool},
     mcp::resources::ServerResources,
     middleware::extract_auth_from_headers,
     protocols::universal::UniversalExecutor,
@@ -372,12 +369,16 @@ impl ChatRoutes {
 
     /// Get the system prompt text for a conversation
     ///
-    /// Uses conversation-specific prompt if set, otherwise returns the default Pierre system prompt.
-    fn get_system_prompt_text(conversation: &ConversationRecord) -> String {
+    /// Uses conversation-specific prompt if set, otherwise returns the default Pierre system prompt
+    /// from the contremaitre registry (hot-reloadable) or compiled-in fallback.
+    fn get_system_prompt_text(
+        conversation: &ConversationRecord,
+        resources: &ServerResources,
+    ) -> String {
         conversation
             .system_prompt
             .clone()
-            .unwrap_or_else(|| get_pierre_system_prompt().to_owned())
+            .unwrap_or_else(|| resources.pierre_system_prompt())
     }
 
     /// Build provider context string for inclusion in system prompt
@@ -431,7 +432,7 @@ impl ChatRoutes {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> String {
-        let base_prompt = Self::get_system_prompt_text(conversation);
+        let base_prompt = Self::get_system_prompt_text(conversation, resources);
         let provider_context = Self::build_provider_context(resources, user_id).await;
 
         let mut augmented = if provider_context.is_empty() {
@@ -1237,7 +1238,7 @@ impl ChatRoutes {
 
         let mut llm_messages = if is_insight_request {
             // For insight generation: use dedicated prompt and extract just the analysis
-            let insight_prompt = get_insight_generation_prompt();
+            let insight_prompt = resources.insight_generation_prompt();
 
             // Extract the analysis content (everything after the prefix and colon/newlines)
             let analysis_content = request

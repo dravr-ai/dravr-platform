@@ -81,6 +81,8 @@ export interface Coach {
   example_outputs?: string;
   /** Success definition extracted from ## Success Criteria section */
   success_criteria?: string;
+  /** Origin: "contremaitre" (git-managed), "seed" (seeded from files), "custom" (user/admin created) */
+  source?: string;
 }
 
 /** Response when forking a coach */

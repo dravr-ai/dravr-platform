@@ -36,10 +36,7 @@ use crate::{
             SharedInsightGenerator,
         },
     },
-    llm::{
-        get_insight_generation_prompt, get_insight_validation_prompt, ChatMessage, ChatRequest,
-        LlmProvider,
-    },
+    llm::{ChatMessage, ChatRequest, LlmProvider},
     mcp::resources::ServerResources,
     models::{
         Activity, AdaptedInsight, InsightReaction, InsightType, ReactionType, ShareVisibility,
@@ -455,8 +452,10 @@ impl SocialRoutes {
         let llm_provider = Self::get_llm_provider(resources).await?;
 
         // Run validation
+        let validation_prompt = resources.insight_validation_prompt();
         let result = validate_insight_with_policy(
             llm_provider.as_ref(),
+            &validation_prompt,
             content,
             insight_type,
             &user.tier,
@@ -876,7 +875,7 @@ impl SocialRoutes {
         let llm_provider = Self::get_llm_provider(&resources).await?;
 
         // Build the generation request using the insight generation prompt
-        let system_prompt = get_insight_generation_prompt();
+        let system_prompt = resources.insight_generation_prompt();
         let user_message = body.content.clone();
 
         let messages = vec![
@@ -911,7 +910,7 @@ impl SocialRoutes {
     ) -> Result<String, AppError> {
         let llm_provider = Self::get_llm_provider(resources).await?;
 
-        let system_prompt = get_insight_validation_prompt();
+        let system_prompt = resources.insight_validation_prompt();
         let messages = vec![
             ChatMessage::system(system_prompt),
             ChatMessage::user(content),

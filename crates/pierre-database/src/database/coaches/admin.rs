@@ -93,6 +93,7 @@ impl CoachesManager {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            source: "custom".to_owned(),
         })
     }
 

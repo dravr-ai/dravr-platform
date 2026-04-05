@@ -242,6 +242,10 @@ module "backend" {
       NOTIFY_DEDUP_WINDOW_SECS     = tostring(var.notify_dedup_window_secs)
       NOTIFY_EMAIL_FROM            = var.notify_email_from
       NOTIFY_EMAIL_TO              = var.notify_email_to
+
+      # Contremaitre prompt hot-reload from GitHub
+      CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
+      CONTREMAITRE_BRANCH = "main"
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
@@ -281,6 +285,10 @@ module "backend" {
     DISCORD_PUBLIC_KEY                 = module.secrets.secret_ids["discord_public_key"]
     DISCORD_APPLICATION_ID             = module.secrets.secret_ids["discord_application_id"]
     DISCORD_BOT_PERMISSIONS            = module.secrets.secret_ids["discord_bot_permissions"]
+
+    # Contremaitre prompt hot-reload credentials
+    CONTREMAITRE_GITHUB_PAT     = module.secrets.secret_ids["contremaitre_github_pat"]
+    CONTREMAITRE_WEBHOOK_SECRET = module.secrets.secret_ids["contremaitre_webhook_secret"]
   }
 
   health_check_path           = "/health"

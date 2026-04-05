@@ -11,11 +11,15 @@
 mod common;
 
 use common::TestLlmProvider;
+use pierre_llm::prompts::INSIGHT_VALIDATION_PROMPT;
 use pierre_mcp_server::intelligence::insight_validation::{
     contains_metrics, detect_metrics, quick_reject_check, validate_insight_with_policy,
     InsightMetricType, InsightSharingPolicy, ValidationVerdict,
 };
 use pierre_mcp_server::models::{InsightType, UserTier};
+
+// Compiled-in validation prompt for tests (no ServerResources needed)
+const TEST_VALIDATION_PROMPT: &str = INSIGHT_VALIDATION_PROMPT;
 
 // ============================================================================
 // Tier 1: Pure Unit Tests (No LLM)
@@ -275,6 +279,7 @@ async fn test_validate_insight_valid_verdict() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter,
@@ -301,6 +306,7 @@ async fn test_validate_insight_rejected_verdict() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::TrainingTip,
         &UserTier::Professional,
@@ -324,6 +330,7 @@ async fn test_validate_insight_improved_verdict_professional() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Professional,
@@ -353,6 +360,7 @@ async fn test_validate_insight_improved_verdict_starter_downgrades() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter, // Starter tier
@@ -377,6 +385,7 @@ async fn test_validate_with_policy_disabled() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter,
@@ -399,6 +408,7 @@ async fn test_validate_with_policy_general_only_with_metrics() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter,
@@ -428,6 +438,7 @@ async fn test_validate_with_policy_general_only_no_metrics() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::TrainingTip,
         &UserTier::Starter,
@@ -452,6 +463,7 @@ async fn test_validate_with_policy_sanitized_no_metrics() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter,
@@ -476,6 +488,7 @@ async fn test_validate_with_policy_data_rich_preserves() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Starter,
@@ -510,6 +523,7 @@ async fn test_validate_enterprise_tier_gets_improvements() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::Achievement,
         &UserTier::Enterprise, // Enterprise tier should get improvements
@@ -535,6 +549,7 @@ async fn test_quick_rejection_bypasses_llm() {
 
     let result = validate_insight_with_policy(
         &provider,
+        TEST_VALIDATION_PROMPT,
         content,
         InsightType::TrainingTip,
         &UserTier::Starter,

@@ -40,6 +40,8 @@ output "secret_ids" {
     discord_public_key                 = google_secret_manager_secret.discord_public_key.secret_id
     discord_application_id             = google_secret_manager_secret.discord_application_id.secret_id
     discord_bot_permissions            = google_secret_manager_secret.discord_bot_permissions.secret_id
+    contremaitre_github_pat            = google_secret_manager_secret.contremaitre_github_pat.secret_id
+    contremaitre_webhook_secret        = google_secret_manager_secret.contremaitre_webhook_secret.secret_id
   }
 }
 
@@ -70,5 +72,7 @@ output "secret_names" {
     discord_public_key                 = google_secret_manager_secret.discord_public_key.name
     discord_application_id             = google_secret_manager_secret.discord_application_id.name
     discord_bot_permissions            = google_secret_manager_secret.discord_bot_permissions.name
+    contremaitre_github_pat            = google_secret_manager_secret.contremaitre_github_pat.name
+    contremaitre_webhook_secret        = google_secret_manager_secret.contremaitre_webhook_secret.name
   }
 }

@@ -77,6 +77,10 @@ pub mod cache;
 /// Coach definition parsing from markdown files
 pub mod coaches;
 
+/// Prompt hot-reload system backed by a GitHub repository
+#[cfg(feature = "contremaitre")]
+pub mod contremaitre;
+
 /// Messaging command definition parsing from markdown files
 #[cfg(feature = "client-messaging")]
 pub mod commands;

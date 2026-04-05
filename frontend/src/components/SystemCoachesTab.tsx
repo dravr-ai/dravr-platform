@@ -268,12 +268,24 @@ export default function SystemCoachesTab() {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-white truncate">{coach.title}</h3>
-                    <span className={clsx(
-                      'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
-                      getCategoryColorClass(coach.category)
-                    )}>
-                      {coach.category}
-                    </span>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={clsx(
+                        'inline-block px-2 py-0.5 text-xs font-medium rounded-full border',
+                        getCategoryColorClass(coach.category)
+                      )}>
+                        {coach.category}
+                      </span>
+                      {coach.source && coach.source !== 'custom' && (
+                        <span className={clsx(
+                          'inline-block px-1.5 py-0.5 text-[10px] font-medium rounded',
+                          coach.source === 'contremaitre'
+                            ? 'bg-pierre-activity/10 text-pierre-activity'
+                            : 'bg-pierre-text-secondary/10 text-pierre-text-secondary'
+                        )}>
+                          {coach.source === 'contremaitre' ? 'git' : coach.source}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-1 text-zinc-500">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

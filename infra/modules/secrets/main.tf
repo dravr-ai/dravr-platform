@@ -400,3 +400,30 @@ resource "google_secret_manager_secret" "discord_bot_permissions" {
     auto {}
   }
 }
+
+# -----------------------------------------------------------------------------
+# Contremaitre Secrets (prompt hot-reload from GitHub)
+# Secret containers only — values are managed via gcloud CLI, not Terraform.
+# -----------------------------------------------------------------------------
+
+resource "google_secret_manager_secret" "contremaitre_github_pat" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-contremaitre-github-pat"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret" "contremaitre_webhook_secret" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-contremaitre-webhook-secret"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}

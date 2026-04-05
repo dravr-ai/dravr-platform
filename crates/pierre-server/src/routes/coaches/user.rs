@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use crate::{
     coaches::{parse_coach_content, to_markdown},
     errors::AppError,
-    llm::{get_coach_generation_prompt, ChatMessage, ChatRequest},
+    llm::{ChatMessage, ChatRequest},
     mcp::resources::ServerResources,
     services::{coach_import, coaches as coaches_service, recipes as recipes_service},
 };
@@ -504,7 +504,7 @@ pub(super) async fn handle_generate(
         .join("\n\n");
 
     // Build LLM request with generation prompt
-    let system_prompt = get_coach_generation_prompt();
+    let system_prompt = resources.coach_generation_prompt();
     let user_prompt = format!(
         "Analyze this fitness conversation and create a specialized coach profile.\n\n\
         Conversation (last {messages_analyzed} of {total_messages} messages):\n\n\

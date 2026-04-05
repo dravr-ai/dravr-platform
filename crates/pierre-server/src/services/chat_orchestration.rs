@@ -13,7 +13,6 @@ use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
 use crate::llm::TokenUsage;
-use crate::llm::{get_messaging_context_prompt, get_pierre_system_prompt};
 use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::protocols::universal::UniversalExecutor;
@@ -268,8 +267,8 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
     // Append the messaging context prompt to constrain response length and formatting.
     let base_prompt = conv
         .system_prompt
-        .as_deref()
-        .unwrap_or_else(|| get_pierre_system_prompt());
+        .clone()
+        .unwrap_or_else(|| resources.pierre_system_prompt());
 
     // Inject group coaching context before appending messaging constraints.
     // Resolve group from user membership when conversation has no group_id,
@@ -284,7 +283,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
 
         group_service
             .inject_group_context(
-                base_prompt,
+                &base_prompt,
                 "",
                 user_uuid,
                 tool_tenant_id,
@@ -292,12 +291,10 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
                 &snapshots,
             )
             .await
-            .unwrap_or_else(|_| base_prompt.to_owned())
+            .unwrap_or(base_prompt)
     };
-    #[cfg(not(feature = "tools-groups"))]
-    let base_prompt = base_prompt.to_owned();
 
-    let system_prompt = format!("{base_prompt}\n\n{}", get_messaging_context_prompt());
+    let system_prompt = format!("{base_prompt}\n\n{}", resources.messaging_context_prompt());
     let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 
     // Build MCP tools and get LLM provider

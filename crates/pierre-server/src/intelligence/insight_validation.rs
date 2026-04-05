@@ -50,7 +50,7 @@ use std::sync::LazyLock;
 use tracing::{debug, warn};
 
 use crate::errors::AppError;
-use crate::llm::{get_insight_validation_prompt, ChatMessage, ChatRequest, LlmProvider};
+use crate::llm::{ChatMessage, ChatRequest, LlmProvider};
 use crate::models::{InsightType, UserTier};
 
 // InsightSharingPolicy is defined in pierre-core and re-exported here
@@ -616,6 +616,7 @@ struct InternalValidationResult {
 /// Returns an error if the LLM call fails or response parsing fails.
 async fn validate_insight(
     provider: &dyn LlmProvider,
+    validation_prompt: &str,
     content: &str,
     insight_type: InsightType,
     user_tier: &UserTier,
@@ -626,7 +627,7 @@ async fn validate_insight(
     );
 
     // Build the validation prompt
-    let system_prompt = get_insight_validation_prompt();
+    let system_prompt = validation_prompt.to_owned();
     let user_message = format!(
         "Please evaluate this fitness content for social sharing:\n\n\
         Content Type: {}\n\
@@ -758,6 +759,7 @@ pub fn quick_reject_check(content: &str) -> Option<String> {
 /// Returns an error if the LLM validation call fails.
 pub async fn validate_insight_with_quick_check(
     provider: &dyn LlmProvider,
+    validation_prompt: &str,
     content: &str,
     insight_type: InsightType,
     user_tier: &UserTier,
@@ -765,6 +767,7 @@ pub async fn validate_insight_with_quick_check(
     // Use default DataRich policy for backwards compatibility
     validate_insight_with_policy(
         provider,
+        validation_prompt,
         content,
         insight_type,
         user_tier,
@@ -844,6 +847,7 @@ fn apply_policy_redaction(
 /// Returns an error if the LLM call fails or response parsing fails.
 pub async fn validate_insight_with_policy(
     provider: &dyn LlmProvider,
+    validation_prompt: &str,
     content: &str,
     insight_type: InsightType,
     user_tier: &UserTier,
@@ -888,8 +892,14 @@ pub async fn validate_insight_with_policy(
     let redaction_result = apply_policy_redaction(content, *policy, has_metrics);
 
     // Step 5: LLM quality validation
-    let llm_result =
-        validate_insight(provider, &redaction_result.content, insight_type, user_tier).await?;
+    let llm_result = validate_insight(
+        provider,
+        validation_prompt,
+        &redaction_result.content,
+        insight_type,
+        user_tier,
+    )
+    .await?;
 
     // Step 6: Build final result
     // Improved verdict uses the enhanced content; Valid/Rejected keep original

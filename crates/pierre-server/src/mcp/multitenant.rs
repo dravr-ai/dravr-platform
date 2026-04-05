@@ -25,6 +25,7 @@ use crate::constants::{
     get_server_config,
     protocol::JSONRPC_VERSION,
 };
+use crate::contremaitre;
 use crate::errors::{AppError, AppResult};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::schema::ProgressNotification;
@@ -1132,6 +1133,15 @@ impl MultiTenantMcpServer {
             use crate::routes::webhooks::WebhookRoutes;
             app.merge(WebhookRoutes::routes(Arc::clone(resources)))
         };
+
+        // Contremaitre prompt hot-reload: webhook + admin routes
+        #[cfg(feature = "contremaitre")]
+        let app = app
+            .merge(contremaitre::webhook::routes(Arc::clone(resources)))
+            .nest(
+                "/api",
+                contremaitre::admin::admin_routes(Arc::clone(resources)),
+            );
 
         #[cfg(feature = "client-chat")]
         let app = app

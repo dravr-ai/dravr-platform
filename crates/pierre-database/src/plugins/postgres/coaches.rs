@@ -100,6 +100,9 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
     let example_inputs: Option<String> = row.try_get("example_inputs").ok().flatten();
     let example_outputs: Option<String> = row.try_get("example_outputs").ok().flatten();
     let success_criteria: Option<String> = row.try_get("success_criteria").ok().flatten();
+    let source: String = row
+        .try_get("source")
+        .unwrap_or_else(|_| "custom".to_owned());
 
     let tags: Vec<String> = tags_json
         .as_deref()
@@ -145,6 +148,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         example_inputs,
         example_outputs,
         success_criteria,
+        source,
     })
 }
 
@@ -480,6 +484,7 @@ impl CoachesRepository for PostgresDatabase {
             example_inputs: request.example_inputs.clone(),
             example_outputs: request.example_outputs.clone(),
             success_criteria: request.success_criteria.clone(),
+            source: "custom".to_owned(),
         })
     }
 
@@ -842,6 +847,7 @@ impl CoachesRepository for PostgresDatabase {
             example_inputs: source.example_inputs,
             example_outputs: source.example_outputs,
             success_criteria: source.success_criteria,
+            source: "custom".to_owned(),
         })
     }
 
@@ -1206,6 +1212,7 @@ impl CoachesRepository for PostgresDatabase {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            source: "custom".to_owned(),
         })
     }
 
