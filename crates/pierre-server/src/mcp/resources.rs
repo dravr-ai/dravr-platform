@@ -22,6 +22,10 @@ use crate::cache::factory::Cache;
 use crate::commands;
 use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
+#[cfg(feature = "contremaitre")]
+use crate::contremaitre::sync::full_sync;
+#[cfg(feature = "contremaitre")]
+use crate::contremaitre::{ContremaitreConfig, PromptRegistry};
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
@@ -239,6 +243,30 @@ pub struct ServerResources {
     /// Messaging command handler registry
     #[cfg(feature = "client-messaging")]
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
+    /// Prompt registry for hot-reloadable system prompts and coach personas
+    #[cfg(feature = "contremaitre")]
+    pub prompt_registry: Arc<PromptRegistry>,
+    /// Contremaitre configuration for GitHub sync and webhook verification
+    #[cfg(feature = "contremaitre")]
+    pub contremaitre_config: Option<ContremaitreConfig>,
+}
+
+/// Initialize the prompt registry and sync from contremaitre if configured.
+#[cfg(feature = "contremaitre")]
+async fn init_prompt_registry() -> Arc<PromptRegistry> {
+    let registry = Arc::new(PromptRegistry::new());
+    if let Some(config) = ContremaitreConfig::from_env() {
+        let client = config.github_client();
+        match full_sync(&registry, &client).await {
+            Ok(result) => info!(%result, "Contremaitre sync complete"),
+            Err(e) => {
+                warn!(error = %e, "Contremaitre sync failed, using compiled-in prompts");
+            }
+        }
+    } else {
+        info!("Contremaitre not configured, using compiled-in prompts");
+    }
+    registry
 }
 
 impl ServerResources {
@@ -458,6 +486,10 @@ impl ServerResources {
             sync_orchestrator: Some(sync_orchestrator),
             #[cfg(feature = "health-sync")]
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
+            #[cfg(feature = "contremaitre")]
+            prompt_registry: init_prompt_registry().await,
+            #[cfg(feature = "contremaitre")]
+            contremaitre_config: ContremaitreConfig::from_env(),
         }
     }
 
@@ -818,6 +850,128 @@ impl ServerResources {
     #[must_use]
     pub fn messaging_registry(&self) -> &ChannelRegistry {
         &self.messaging_registry
+    }
+
+    // ── Prompt registry delegation ─────────────────────────────────────
+    // These methods provide access to system prompts from the contremaitre
+    // registry (hot-reloadable) when the feature is enabled, or fall back
+    // to compiled-in constants from `pierre-llm` when it is not.
+
+    /// Get the main Pierre fitness assistant system prompt.
+    #[must_use]
+    pub fn pierre_system_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.pierre_system_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::PIERRE_SYSTEM_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the coach generation prompt.
+    #[must_use]
+    pub fn coach_generation_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.coach_generation_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::COACH_GENERATION_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the insight validation prompt.
+    #[must_use]
+    pub fn insight_validation_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.insight_validation_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::INSIGHT_VALIDATION_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the insight generation prompt.
+    #[must_use]
+    pub fn insight_generation_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.insight_generation_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::INSIGHT_GENERATION_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the messaging context prompt.
+    #[must_use]
+    pub fn messaging_context_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.messaging_context_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::MESSAGING_CONTEXT_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the recommendation analysis prompt template.
+    #[must_use]
+    pub fn recommendation_analysis_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.recommendation_analysis_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::RECOMMENDATION_ANALYSIS_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the recommendation system prompt.
+    #[must_use]
+    pub fn recommendation_system_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.recommendation_system_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::RECOMMENDATION_SYSTEM_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the activity analysis prompt template.
+    #[must_use]
+    pub fn activity_analysis_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.activity_analysis_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::ACTIVITY_ANALYSIS_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the activity analysis system prompt.
+    #[must_use]
+    pub fn activity_analysis_system_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.activity_analysis_system_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::ACTIVITY_ANALYSIS_SYSTEM_PROMPT.to_owned()
+        }
     }
 }
 

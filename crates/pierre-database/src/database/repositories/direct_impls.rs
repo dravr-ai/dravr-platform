@@ -600,6 +600,7 @@ impl CoachesRepository for Database {
             example_inputs: request.example_inputs.clone(),
             example_outputs: request.example_outputs.clone(),
             success_criteria: request.success_criteria.clone(),
+            source: "custom".to_owned(),
         };
         let token_count = coach_for_tokens.compute_token_count();
 
@@ -672,6 +673,7 @@ impl CoachesRepository for Database {
             example_inputs: request.example_inputs.clone(),
             example_outputs: request.example_outputs.clone(),
             success_criteria: request.success_criteria.clone(),
+            source: "custom".to_owned(),
         })
     }
 
@@ -1066,6 +1068,7 @@ impl CoachesRepository for Database {
             example_inputs: source.example_inputs,
             example_outputs: source.example_outputs,
             success_criteria: source.success_criteria,
+            source: "custom".to_owned(),
         })
     }
 
@@ -1207,6 +1210,7 @@ impl CoachesRepository for Database {
             example_inputs: None,
             example_outputs: None,
             success_criteria: None,
+            source: "custom".to_owned(),
         })
     }
 

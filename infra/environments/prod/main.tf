@@ -161,6 +161,11 @@ module "backend" {
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
+    {
+      # Contremaitre prompt hot-reload from GitHub
+      CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
+      CONTREMAITRE_BRANCH = "main"
+    },
   )
 
   secret_env_vars = {
@@ -170,6 +175,10 @@ module "backend" {
     FITBIT_CLIENT_SECRET = module.secrets.secret_ids["fitbit_client_secret"]
     GARMIN_CLIENT_SECRET = module.secrets.secret_ids["garmin_client_secret"]
     OPENWEATHER_API_KEY  = module.secrets.secret_ids["openweather_api_key"]
+
+    # Contremaitre prompt hot-reload credentials
+    CONTREMAITRE_GITHUB_PAT     = module.secrets.secret_ids["contremaitre_github_pat"]
+    CONTREMAITRE_WEBHOOK_SECRET = module.secrets.secret_ids["contremaitre_webhook_secret"]
   }
 
   health_check_path           = "/health"

@@ -707,4 +707,75 @@ export const adminApi = {
     const response = await axios.post(`/api/admin/store/coaches/${coachId}/unpublish`);
     return response.data;
   },
+
+  // ==================== CONTREMAITRE (PROMPT HOT-RELOAD) ====================
+
+  async getContremaitreStatus(): Promise<{
+    configured: boolean;
+    repo: string | null;
+    branch: string | null;
+    system_prompt_count: number;
+    coach_prompt_count: number;
+    compiled_in_count: number;
+    contremaitre_count: number;
+  }> {
+    const response = await axios.get('/api/admin/contremaitre/status');
+    return response.data;
+  },
+
+  async listSystemPrompts(): Promise<{
+    total: number;
+    prompts: Array<{
+      key: string;
+      sha256: string;
+      source: 'compiled_in' | 'contremaitre';
+      loaded_at: string;
+      content_length: number;
+    }>;
+  }> {
+    const response = await axios.get('/api/admin/contremaitre/prompts');
+    return response.data;
+  },
+
+  async getSystemPrompt(key: string): Promise<{
+    key: string;
+    content: string;
+    sha256: string;
+    source: 'compiled_in' | 'contremaitre';
+    loaded_at: string;
+  }> {
+    const response = await axios.get(`/api/admin/contremaitre/prompts/${key}`);
+    return response.data;
+  },
+
+  async updateSystemPrompt(
+    key: string,
+    data: { content: string; commit_message?: string },
+  ): Promise<{
+    success: boolean;
+    sha256: string;
+    commit_sha: string | null;
+  }> {
+    const response = await axios.put(`/api/admin/contremaitre/prompts/${key}`, data);
+    return response.data;
+  },
+
+  async triggerContremaitreSync(): Promise<{
+    success: boolean;
+    synced: number;
+    skipped: number;
+    failed: number;
+  }> {
+    const response = await axios.post('/api/admin/contremaitre/sync');
+    return response.data;
+  },
+
+  async promoteCoachToContremaitre(coachId: string): Promise<{
+    success: boolean;
+    path: string;
+    commit_sha: string | null;
+  }> {
+    const response = await axios.post(`/api/admin/contremaitre/coaches/${coachId}/promote`);
+    return response.data;
+  },
 };
