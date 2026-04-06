@@ -1027,6 +1027,8 @@ async fn try_handle_slash_command(
     channel_type: ChannelType,
     session: &ResolvedSession,
     text: &str,
+    sender_id: &str,
+    conversation_id: Option<&str>,
 ) -> Option<OutgoingMessage> {
     use pierre_messaging::commands::CommandMatcher;
 
@@ -1063,6 +1065,10 @@ async fn try_handle_slash_command(
             resources: Arc::clone(resources),
         };
 
+        // Use conversation_id (group chat) when available, fall back to sender_id
+        // for DM platforms — same logic as the LLM dispatch path
+        let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
+
         // Execute command
         match handler.execute(&ctx).await {
             Ok(response) => {
@@ -1074,7 +1080,7 @@ async fn try_handle_slash_command(
                 );
                 Some(OutgoingMessage {
                     channel_type,
-                    recipient_id: session.user_id.clone(),
+                    recipient_id: reply_target,
                     content: MessageContent::Text {
                         body: response.text,
                     },
@@ -1090,7 +1096,7 @@ async fn try_handle_slash_command(
                 );
                 Some(OutgoingMessage {
                     channel_type,
-                    recipient_id: session.user_id.clone(),
+                    recipient_id: reply_target,
                     content: MessageContent::Text {
                         body: format!("Command failed: {e}"),
                     },
@@ -1185,8 +1191,16 @@ async fn persist_single_message(
     // Check for slash commands before storing or dispatching to LLM.
     // Commands are handled immediately and not stored in conversation history.
     if let Some(text) = content_body_text(&message.content) {
-        if let Some(response) =
-            try_handle_slash_command(resources, channel, channel_type, &session, &text).await
+        if let Some(response) = try_handle_slash_command(
+            resources,
+            channel,
+            channel_type,
+            &session,
+            &text,
+            &message.sender_id,
+            message.conversation_id.as_deref(),
+        )
+        .await
         {
             send_channel_response(db, tenant_id, channel, adapter, response).await;
             return Ok(PersistOutcome::HandledNotStored);
