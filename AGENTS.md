@@ -691,38 +691,6 @@ Mocks are permitted ONLY in test code for:
 - Prefer `&T` references when data lifetime allows
 - **Current count: ~107 Arc usages** - appropriate for multi-tenant async architecture
 
-## Documentation Standards
-
-### Code Documentation
-- All public APIs MUST have comprehensive doc comments
-- Use `/// ` for public API documentation
-- Use `//` for inline implementation comments
-- Document error conditions and panic scenarios
-- Include usage examples for complex APIs
-
-### Module Documentation
-- Each module MUST have a module-level doc comment explaining its purpose
-- Document the relationship between modules
-- Explain design decisions and trade-offs
-- Include architectural diagrams when helpful
-
-### README Requirements
-- Keep README.md current with actual functionality
-- Include setup instructions that work from a clean environment
-- Document all environment variables and configuration options
-- Provide troubleshooting section for common issues
-
-### API Documentation
-- Generate docs with `cargo doc --no-deps --open`
-- Ensure all examples in doc comments compile and run
-- Document thread safety guarantees
-- Include performance characteristics where relevant
-
-# Getting help
-
-- ALWAYS ask for clarification rather than making assumptions.
-- If you're having trouble with something, it's ok to stop and ask for help. Especially if it's something your human might be better at.
-
 # Testing
 
 - Tests MUST cover the functionality being implemented.
@@ -848,23 +816,6 @@ Skipped/ignored tests become forgotten tech debt. A red CI that gets ignored is 
   - Name collisions (two types with the same name from different modules)
   - Single-use items where the qualified path adds clarity
 - This is enforced by `clippy::absolute_paths = "deny"` in Cargo.toml
-- Example:
-  ```rust
-  // GOOD: Import at top of file
-  use crate::models::User;
-  use std::collections::HashMap;
-
-  fn example() {
-      let user = User::new();
-      let map = HashMap::new();
-  }
-
-  // BAD: Inline qualified paths
-  fn example() {
-      let user = crate::models::User::new();
-      let map = std::collections::HashMap::new();
-  }
-  ```
 
 ### Dependency Management
 - PREFER minimal dependencies
@@ -907,39 +858,62 @@ https://github.com/dravr-ai/dravr-build-config — never use a local `.githooks/
 
 ## Architectural Discipline
 
-### Single Source of Truth (SSOT)
-Before adding a new abstraction (registry, manager, factory, handler, schema module):
+### No Backward Compatibility, No Legacy
+Pre-1.0 project, zero external API consumers, no deprecation window.
+Every rename, move, or replacement is a single-commit cutover. If you
+want to keep "the old path around for now," STOP and ask — the answer
+is almost always "finish the migration in this branch."
+
+### Single Source of Truth
+Before adding a new abstraction:
 1. Grep for existing abstractions with similar purposes
-2. If one exists, USE IT or DOCUMENT WHY it's being replaced + DELETE the old in the same commit
+2. If one exists, USE IT or DELETE it in the same commit that replaces it
 3. Never leave two systems doing the same job "for compat"
 
-### No Orphan Migrations
-If you introduce a "v2" of something:
-- Migrate ALL callers in the same session, OR
-- Record remaining work in memory (`type: project`) with explicit list of what's left
-- NEVER leave "for compat" code without a tracked deletion date
-
 ### When Adding, Remove
-Every commit that adds a new abstraction must identify what it replaces and delete that. If nothing is replaced, the commit message must justify why the new abstraction is needed.
+Every commit that adds a new abstraction must identify what it replaces
+and delete that in the same commit.
+
+### Forbidden patterns (junk disguised as discipline)
+These freeze architectural debt by making it *testable* instead of *fixed*.
+Delete them when you find them; do not add them:
+
+- **`KNOWN_OFFENDERS` / `PENDING_*` / `EXEMPT_*` const arrays** in tests
+  enumerating files that violate an invariant. Fix offenders in the same
+  branch, or change the invariant — don't list exceptions.
+- **Adapter/wrapper types** bridging an old trait to a new trait
+  (`impl NewTrait for X { fn m() { call_old(...) } }`). Port the body
+  directly, delete the old function and its types.
+- **Parallel accessors** bypassing a canonical config struct
+  (standalone `base_url()` when `ServerConfig::base_url` exists).
+- **Invariant tests policing drift between two systems** ("legacy map X
+  must stay in sync with registry Y"). Delete X. Tests policing a
+  *single* canonical system's internal consistency are fine.
+- **Fallback dispatch paths** (step-3 fallbacks, `ToolId::from_name`
+  parallel to a registry, `if not found in new, try legacy`).
+- **Feature flags creating "old mode vs new mode"**.
+
+Test: am I making a pre-existing parallel system *acceptable*, or
+replacing it? If "acceptable," stop — that's junk.
 
 ### Complete Deletion, Not Deprecation
-Don't mark code `// DEPRECATED` or `// TODO remove later`. Delete it. If deletion is blocked, file an issue and link it from the code.
+Don't mark code `// DEPRECATED` or `// TODO remove later`. Delete it.
+If deletion is blocked, file an issue and link it from the code.
 
 ## Pushback Triggers — When to Stop and Ask
 
 STOP and ask the user before proceeding when you find:
 
 1. **Duplication** — two systems/modules doing similar things
-   → "Is this intentional? Should I consolidate before adding my feature?"
-2. **Stale state** — `TODO`, `FIXME`, `for compat`, `temporary`, `v2` comments in code you're touching
-   → "Is this still needed? Should I resolve it first?"
+2. **Stale state** — `TODO`, `FIXME`, `for compat`, `temporary`, `v2`
+   comments in code you're touching
 3. **Red CI** — workflows failing on main
-   → "Should I fix CI first before doing the task?"
-4. **Version drift** — two versions of the same dependency in Cargo.lock
-   → "Is this intentional or should it be consolidated?"
-5. **Request conflicts with architecture** — user asks you to add X but X exists differently
-   → Surface the existing thing, ask which to use
+4. **Version drift** — two versions of the same dep in Cargo.lock
+5. **Request conflicts with architecture** — user asks you to add X but
+   X exists differently → surface the existing thing
 6. **Half-finished migrations** — both old and new paths still live
-   → "Finish migration first, or add feature on top?"
+7. **Adapter/wrapper added without matching deletion** — `impl NewTrait
+   for X { fn m() { call_old(...) } }` — why does `call_old` still exist?
+8. **Invariant test with an exception list** — you're pinning debt.
 
 Default behavior is to complete the requested task. These triggers override that.
