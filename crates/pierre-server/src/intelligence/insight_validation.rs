@@ -34,8 +34,10 @@
 //! use pierre_mcp_server::models::{InsightType, UserTier};
 //!
 //! async fn example(provider: &dyn LlmProvider) {
+//!     let validation_prompt = "You are an expert at evaluating fitness content...";
 //!     let result = validate_insight_with_policy(
 //!         provider,
+//!         validation_prompt,
 //!         "Just completed a 10K in 45:32 - new PR!",
 //!         InsightType::Achievement,
 //!         &UserTier::Professional,
