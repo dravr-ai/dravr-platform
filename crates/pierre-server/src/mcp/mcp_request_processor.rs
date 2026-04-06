@@ -22,7 +22,7 @@ use crate::constants::protocol::{mcp_protocol_version, JSONRPC_VERSION};
 use crate::constants::tools::PUBLIC_DISCOVERY_TOOLS;
 use crate::errors::{AppError, AppResult};
 use crate::models::TenantId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::io::{AsyncWriteExt, Stdout};
@@ -316,12 +316,18 @@ impl McpRequestProcessor {
 
     /// Get tenant-filtered tool schemas for non-admin users
     ///
-    /// Combines two sources to build the tool list:
+    /// Combines three sources to build the tool list:
     /// 1. Enabled tools from `ToolSelectionService` (catalog-based, tenant-aware)
     /// 2. Uncatalogued tools from the registry (feature-flag tools like coaches/mobility)
+    /// 3. `PUBLIC_DISCOVERY_TOOLS` as a floor — an authenticated user must never see
+    ///    fewer tools than an anonymous caller, regardless of plan restrictions. Tools
+    ///    in the public set whose catalog `min_plan` exceeds the tenant's plan would
+    ///    otherwise disappear from `tools/list` entirely for lower-tier tenants. They
+    ///    will still be rejected at `tools/call` time via plan enforcement, but they
+    ///    remain discoverable.
     ///
-    /// Admin-only tools are excluded in both paths to prevent non-admin users
-    /// from seeing them even if they appear in the catalog.
+    /// Admin-only tools are excluded to prevent non-admin users from seeing them
+    /// even if they appear in the catalog.
     async fn tenant_filtered_tools(&self, tenant_id: TenantId) -> Vec<ToolSchema> {
         match self
             .resources
@@ -360,6 +366,22 @@ impl McpRequestProcessor {
                     .tool_registry
                     .uncatalogued_user_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
+
+                // Ensure the public-discovery floor is present even when plan
+                // restrictions disable some of those tools in the catalog.
+                let present: HashSet<&str> = schemas.iter().map(|s| s.name.as_str()).collect();
+                let missing_public: Vec<&str> = PUBLIC_DISCOVERY_TOOLS
+                    .iter()
+                    .copied()
+                    .filter(|name| !present.contains(name))
+                    .collect();
+                if !missing_public.is_empty() {
+                    let floor = self
+                        .resources
+                        .tool_registry
+                        .list_schemas_by_names(&missing_public);
+                    schemas.extend(floor);
+                }
 
                 schemas
             }
