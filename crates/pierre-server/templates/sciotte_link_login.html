@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Copyright (c) 2026 dravr.ai -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>Connect your account - Pierre</title>
+    <style>
+        :root {
+            --pierre-violet: #7C3AED;
+            --pierre-cyan: #06B6D4;
+            --pierre-activity: #10B981;
+            --pierre-nutrition: #F59E0B;
+            --pierre-nutrition-dark: #D97706;
+            --pierre-gray-50: #f9fafb;
+            --pierre-gray-200: #e5e7eb;
+            --pierre-gray-400: #9ca3af;
+            --pierre-gray-500: #6b7280;
+            --pierre-gray-700: #374151;
+            --pierre-gray-900: #1f2937;
+            --pierre-red-500: #ef4444;
+            --pierre-amber-500: #f59e0b;
+            --pierre-blue-500: #3b82f6;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--pierre-gray-50);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+            width: 100%;
+            max-width: 420px;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--pierre-violet), var(--pierre-cyan));
+        }
+        .brand {
+            text-align: center;
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: var(--pierre-gray-900);
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25rem;
+        }
+        .subtitle {
+            text-align: center;
+            font-size: 0.8125rem;
+            color: var(--pierre-gray-500);
+            margin-bottom: 1.5rem;
+        }
+        .channel-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            color: var(--pierre-gray-500);
+            background: var(--pierre-gray-50);
+            border: 1px solid var(--pierre-gray-200);
+            border-radius: 9999px;
+            padding: 0.125rem 0.625rem;
+            margin-top: 0.5rem;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: var(--pierre-gray-700);
+            margin-bottom: 1rem;
+        }
+        .form-group { margin-bottom: 1rem; }
+        label {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: var(--pierre-gray-700);
+            margin-bottom: 0.375rem;
+        }
+        input[type="email"], input[type="password"], input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--pierre-gray-200);
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        input:focus {
+            outline: none;
+            border-color: var(--pierre-violet);
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        button.primary {
+            width: 100%;
+            padding: 0.75rem;
+            background: linear-gradient(135deg, var(--pierre-nutrition), var(--pierre-nutrition-dark));
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        button.primary:hover:not(:disabled) { opacity: 0.9; }
+        button.primary:active:not(:disabled) { transform: scale(0.99); }
+        button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        button.secondary {
+            width: 100%;
+            padding: 0.75rem;
+            background: white;
+            color: var(--pierre-gray-700);
+            border: 1px solid var(--pierre-gray-200);
+            border-radius: 0.5rem;
+            font-size: 0.9375rem;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: left;
+            margin-bottom: 0.5rem;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        button.secondary:hover { border-color: var(--pierre-violet); background: var(--pierre-gray-50); }
+        .error-banner {
+            background: #fef2f2;
+            color: var(--pierre-red-500);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        .spinner {
+            width: 2.5rem;
+            height: 2.5rem;
+            border: 3px solid var(--pierre-gray-200);
+            border-top-color: var(--pierre-nutrition);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .center-text { text-align: center; padding: 1.5rem 0; color: var(--pierre-gray-700); }
+        .center-text p { margin-top: 0.5rem; font-size: 0.875rem; color: var(--pierre-gray-500); }
+        .number-match {
+            width: 6rem;
+            height: 6rem;
+            margin: 0 auto 1rem;
+            border-radius: 1rem;
+            background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(59,130,246,0.2));
+            border: 2px solid rgba(59,130,246,0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--pierre-blue-500);
+        }
+        .notice {
+            font-size: 0.75rem;
+            color: var(--pierre-gray-400);
+            text-align: center;
+            margin-top: 1rem;
+        }
+        .back-link {
+            color: var(--pierre-gray-500);
+            font-size: 0.8125rem;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin-bottom: 0.75rem;
+        }
+        .back-link:hover { color: var(--pierre-gray-700); text-decoration: underline; }
+        .success-icon, .error-icon {
+            width: 3.5rem;
+            height: 3.5rem;
+            margin: 0 auto 1rem;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+        .success-icon { background: rgba(16,185,129,0.1); color: var(--pierre-activity); }
+        .error-icon { background: rgba(239,68,68,0.1); color: var(--pierre-red-500); }
+        @media (max-width: 640px) {
+            body { padding: 0.75rem; }
+            .card { padding: 1.5rem; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+        }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="card" role="main">
+        <div class="brand">Pierre Fitness Intelligence</div>
+        <div class="subtitle">
+            Connect your {{TARGET_LABEL}} account
+            <br>
+            <span class="channel-badge">Linked from {{CHANNEL_LABEL}}</span>
+        </div>
+
+        <div id="error-banner" class="error-banner" hidden></div>
+
+        <!-- Phase: credentials -->
+        <section id="phase-credentials">
+            <h1>{{TARGET_LABEL}} Account</h1>
+            <form id="login-form" novalidate>
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" required autocomplete="email" autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="primary" id="submit-login">Log In</button>
+            </form>
+            <p class="notice">Credentials go directly to {{TARGET_LABEL}} — Pierre never stores your password.</p>
+        </section>
+
+        <!-- Phase: logging-in -->
+        <section id="phase-logging-in" hidden>
+            <div class="center-text">
+                <div class="spinner" role="status" aria-label="Logging in"></div>
+                <div id="logging-in-status">Connecting to {{TARGET_LABEL}}...</div>
+                <p>This may take up to 30 seconds.</p>
+            </div>
+        </section>
+
+        <!-- Phase: two-factor choice -->
+        <section id="phase-two-factor" hidden>
+            <a class="back-link" id="tf-back">&larr; Back</a>
+            <h1>2-Step Verification</h1>
+            <div id="two-factor-options"></div>
+        </section>
+
+        <!-- Phase: waiting-approval -->
+        <section id="phase-waiting-approval" hidden>
+            <div class="center-text">
+                <div class="spinner" role="status" aria-label="Waiting for approval"></div>
+                <div><strong>Check your phone</strong></div>
+                <p>Tap "Yes" on the notification</p>
+            </div>
+        </section>
+
+        <!-- Phase: number-match -->
+        <section id="phase-number-match" hidden>
+            <div class="center-text">
+                <div class="number-match" id="number-match-digit">--</div>
+                <div><strong>Tap this number on your phone</strong></div>
+                <p>Check the notification on your device</p>
+                <div class="spinner" style="width:1.5rem;height:1.5rem;margin-top:1rem;" role="status" aria-label="Waiting"></div>
+            </div>
+        </section>
+
+        <!-- Phase: OTP -->
+        <section id="phase-otp" hidden>
+            <h1>Verification Code</h1>
+            <form id="otp-form" novalidate>
+                <div class="form-group">
+                    <label for="otp-code">Enter the code sent to your device</label>
+                    <input type="text" id="otp-code" name="code" required autofocus inputmode="numeric" autocomplete="one-time-code">
+                </div>
+                <button type="submit" class="primary" id="submit-otp">Verify</button>
+            </form>
+        </section>
+
+        <!-- Phase: success -->
+        <section id="phase-success" hidden>
+            <div class="center-text">
+                <div class="success-icon">&#10003;</div>
+                <div><strong>Connected!</strong></div>
+                <p id="success-message">Your {{TARGET_LABEL}} data is now available. You can return to {{CHANNEL_LABEL}}.</p>
+            </div>
+        </section>
+
+        <!-- Phase: error -->
+        <section id="phase-error" hidden>
+            <div class="center-text">
+                <div class="error-icon">!</div>
+                <div><strong>Login failed</strong></div>
+                <p id="error-message"></p>
+                <button class="secondary" id="retry-btn" style="margin-top:1rem;max-width:12rem;margin-left:auto;margin-right:auto;text-align:center;">Try Again</button>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        (function () {
+            'use strict';
+
+            const CONFIG = {
+                token: "{{LINK_TOKEN}}",
+                target: "{{TARGET}}",
+                channel: "{{CHANNEL}}",
+                targetLabel: "{{TARGET_LABEL}}",
+                channelLabel: "{{CHANNEL_LABEL}}",
+                // 20-minute timeout (matches SCIOTTE_TIMEOUT_MS in frontend)
+                timeoutMs: 1200000,
+            };
+
+            const phases = ['credentials', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
+            function showPhase(name) {
+                phases.forEach((p) => {
+                    const el = document.getElementById('phase-' + p);
+                    if (el) el.hidden = (p !== name);
+                });
+            }
+            function showError(message) {
+                const banner = document.getElementById('error-banner');
+                banner.textContent = message;
+                banner.hidden = false;
+            }
+            function clearError() {
+                const banner = document.getElementById('error-banner');
+                banner.hidden = true;
+                banner.textContent = '';
+            }
+            function setLoggingInStatus(text) {
+                document.getElementById('logging-in-status').textContent = text;
+            }
+
+            async function callApi(path, body) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), CONFIG.timeoutMs);
+                try {
+                    const resp = await fetch(path, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + CONFIG.token,
+                        },
+                        body: JSON.stringify(body),
+                        signal: controller.signal,
+                    });
+                    const text = await resp.text();
+                    let data = null;
+                    try { data = text ? JSON.parse(text) : null; } catch (_) { /* non-JSON response */ }
+                    if (!resp.ok) {
+                        const msg = (data && (data.error || data.message)) || ('HTTP ' + resp.status);
+                        throw new Error(msg);
+                    }
+                    return data || {};
+                } finally {
+                    clearTimeout(timeoutId);
+                }
+            }
+
+            function handleLoginResponse(data) {
+                clearError();
+                switch (data.status) {
+                    case 'connected':
+                        showPhase('success');
+                        setTimeout(() => {
+                            const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target);
+                            window.location.assign('/providers/sciotte/success?' + qs);
+                        }, 1200);
+                        break;
+                    case 'two_factor_choice':
+                        renderTwoFactorOptions(data.options || []);
+                        showPhase('two-factor');
+                        break;
+                    case 'otp_required':
+                        document.getElementById('otp-code').value = '';
+                        showPhase('otp');
+                        break;
+                    case 'number_match':
+                        document.getElementById('number-match-digit').textContent = data.number || '--';
+                        showPhase('number-match');
+                        // Auto-poll once on arrival
+                        setTimeout(() => selectTwoFactor('poll'), 150);
+                        break;
+                    case 'failed':
+                    default: {
+                        const msg = data.error || 'Login failed';
+                        document.getElementById('error-message').textContent = msg;
+                        showPhase('error');
+                        break;
+                    }
+                }
+            }
+
+            function renderTwoFactorOptions(options) {
+                const container = document.getElementById('two-factor-options');
+                container.innerHTML = '';
+                options.forEach((opt) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'secondary';
+                    btn.textContent = opt.label;
+                    btn.addEventListener('click', () => selectTwoFactor(opt.id));
+                    container.appendChild(btn);
+                });
+            }
+
+            async function submitLogin(event) {
+                event.preventDefault();
+                const email = document.getElementById('email').value.trim();
+                const password = document.getElementById('password').value;
+                if (!email || !password) return;
+
+                clearError();
+                showPhase('logging-in');
+                setLoggingInStatus('Connecting to ' + CONFIG.targetLabel + '...');
+
+                try {
+                    const data = await callApi('/api/providers/sciotte/login', {
+                        email: email,
+                        password: password,
+                        method: 'email',
+                        target: CONFIG.target,
+                    });
+                    handleLoginResponse(data);
+                } catch (err) {
+                    document.getElementById('error-message').textContent = err.message || 'Login failed';
+                    showPhase('error');
+                }
+            }
+
+            async function selectTwoFactor(optionId) {
+                clearError();
+                if (optionId === 'app') {
+                    showPhase('waiting-approval');
+                } else if (optionId !== 'poll') {
+                    showPhase('logging-in');
+                    setLoggingInStatus('Loading...');
+                }
+                try {
+                    const data = await callApi('/api/providers/sciotte/select-2fa', {
+                        option_id: optionId,
+                    });
+                    handleLoginResponse(data);
+                } catch (err) {
+                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
+                    showPhase('error');
+                }
+            }
+
+            async function submitOtp(event) {
+                event.preventDefault();
+                const code = document.getElementById('otp-code').value.trim();
+                if (!code) return;
+                clearError();
+                showPhase('logging-in');
+                setLoggingInStatus('Verifying code...');
+                try {
+                    const data = await callApi('/api/providers/sciotte/submit-otp', { code: code });
+                    handleLoginResponse(data);
+                } catch (err) {
+                    document.getElementById('error-message').textContent = err.message || 'Verification failed';
+                    showPhase('error');
+                }
+            }
+
+            function retry() {
+                clearError();
+                showPhase('credentials');
+                document.getElementById('password').value = '';
+            }
+
+            document.getElementById('login-form').addEventListener('submit', submitLogin);
+            document.getElementById('otp-form').addEventListener('submit', submitOtp);
+            document.getElementById('retry-btn').addEventListener('click', retry);
+            document.getElementById('tf-back').addEventListener('click', retry);
+        })();
+    </script>
+</body>
+</html>

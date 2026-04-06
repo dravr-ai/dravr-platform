@@ -14,6 +14,8 @@ pub mod cors;
 pub mod csrf;
 /// Axum extractors for common authentication patterns
 pub mod extractors;
+/// Short-lived signed link-tokens for channel-initiated provider connection flows
+pub mod provider_link_token;
 /// Rate limiting middleware and utilities
 pub mod rate_limiting;
 /// PII redaction and sensitive data masking

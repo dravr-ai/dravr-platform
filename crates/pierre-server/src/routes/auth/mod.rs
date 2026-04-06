@@ -18,7 +18,13 @@
 mod login;
 mod oauth;
 #[cfg(feature = "provider-sciotte")]
+mod provider_link_webhook;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_hosted;
+#[cfg(feature = "provider-sciotte")]
+mod sciotte_hosted_templates;
 pub(crate) mod types;
 
 pub use crate::services::oauth_flow::OAuthService;
@@ -120,6 +126,25 @@ impl AuthRoutes {
             .route(
                 "/api/providers/sciotte/disconnect",
                 delete(sciotte::handle_sciotte_disconnect),
+            )
+            // Channel-initiated hosted Sciotte login: mint + serve pages.
+            // The POST endpoint is service-to-service (admin auth) and mints a
+            // short-lived link-token. The GET endpoints render the hosted UI.
+            .route(
+                "/api/channels/provider/sciotte/link-token",
+                post(sciotte_hosted::handle_mint_sciotte_link_token),
+            )
+            .route(
+                "/providers/sciotte/login",
+                get(sciotte_hosted::handle_sciotte_hosted_login_page),
+            )
+            .route(
+                "/providers/sciotte/success",
+                get(sciotte_hosted::handle_sciotte_hosted_success_page),
+            )
+            .route(
+                "/providers/sciotte/error",
+                get(sciotte_hosted::handle_sciotte_hosted_error_page),
             );
 
         router.with_state(resources)

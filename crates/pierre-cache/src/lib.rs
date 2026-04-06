@@ -221,6 +221,7 @@ impl CacheTtlConfig {
                 Duration::from_secs(self.activity_secs)
             }
             CacheResource::Stats { .. } => Duration::from_secs(self.stats_secs),
+            CacheResource::Custom(_) => Duration::ZERO,
         }
     }
 
@@ -392,6 +393,9 @@ pub enum CacheResource {
         /// Activity ID
         activity_id: u64,
     },
+    /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
+    /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
+    Custom(String),
 }
 
 impl CacheResource {
@@ -405,6 +409,7 @@ impl CacheResource {
                 Duration::from_secs(TTL_ACTIVITY_SECS)
             }
             Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
+            Self::Custom(_) => Duration::ZERO,
         }
     }
 }
@@ -435,6 +440,7 @@ impl fmt::Display for CacheResource {
             Self::DetailedActivity { activity_id } => {
                 write!(f, "detailed_activity:{activity_id}")
             }
+            Self::Custom(ref key) => write!(f, "custom:{key}"),
         }
     }
 }

@@ -31,12 +31,17 @@ use uuid::Uuid;
 
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
+use crate::middleware::provider_link_token::{
+    extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
+};
 
 // Pending OTP scraper — holds the Chrome browser between multi-step login calls.
 // Keyed by `user_id` to prevent cross-user interference.
-/// Pending login session: scraper + provider name (e.g., `sciotte` or `sciotte_garmin`)
+/// Pending login session: scraper + provider name + optional channel link context.
+/// The link context (if present) is carried through the multi-step flow so the
+/// post-back webhook can be fired on the final success step.
 #[cfg(feature = "provider-sciotte")]
-type PendingScraper = (CachedScraper<ChromeScraper>, String);
+type PendingScraper = (CachedScraper<ChromeScraper>, String, Option<LinkContext>);
 
 #[cfg(feature = "provider-sciotte")]
 static PENDING_OTP_SCRAPERS: LazyLock<Mutex<HashMap<Uuid, PendingScraper>>> =
@@ -227,34 +232,54 @@ fn spawn_activity_prefetch(
     });
 }
 
+/// Session context bundle for a Sciotte login step — groups user/tenant/provider
+/// identifiers and the optional channel link context. Used to keep the
+/// `login_result_to_response` signature readable.
+#[cfg(feature = "provider-sciotte")]
+struct LoginSessionContext<'a> {
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider_name: &'a str,
+    log_prefix: &'a str,
+    link_context: Option<LinkContext>,
+}
+
 /// Convert a `LoginResult` into an HTTP response, storing the scraper for follow-up calls if needed
 #[cfg(feature = "provider-sciotte")]
 async fn login_result_to_response(
     result: LoginResult,
     resources: &ServerResources,
-    user_id: Uuid,
-    tenant_id: Uuid,
     scraper: CachedScraper<ChromeScraper>,
-    log_prefix: &str,
-    provider_name: &str,
+    ctx: LoginSessionContext<'_>,
 ) -> Result<Response, AppError> {
+    let LoginSessionContext {
+        user_id,
+        tenant_id,
+        provider_name,
+        log_prefix,
+        link_context,
+    } = ctx;
+
     match result {
         LoginResult::Success(session) => {
             info!(user_id = %user_id, "{log_prefix} successful");
+            if let Some(link) = &link_context {
+                emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
+            }
             store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
         }
         LoginResult::OtpRequired => {
             PENDING_OTP_SCRAPERS
                 .lock()
                 .await
-                .insert(user_id, (scraper, provider_name.to_owned()));
+                .insert(user_id, (scraper, provider_name.to_owned(), link_context));
             Ok(Json(serde_json::json!({"status": "otp_required"})).into_response())
         }
         LoginResult::TwoFactorChoice(options) => {
             PENDING_OTP_SCRAPERS
                 .lock()
                 .await
-                .insert(user_id, (scraper, provider_name.to_owned()));
+                .insert(user_id, (scraper, provider_name.to_owned(), link_context));
             let options_json: Vec<serde_json::Value> = options
                 .iter()
                 .map(|o| serde_json::json!({"id": o.id, "label": o.label}))
@@ -268,7 +293,7 @@ async fn login_result_to_response(
             PENDING_OTP_SCRAPERS
                 .lock()
                 .await
-                .insert(user_id, (scraper, provider_name.to_owned()));
+                .insert(user_id, (scraper, provider_name.to_owned(), link_context));
             Ok(Json(serde_json::json!({
                 "status": "number_match",
                 "number": number,
@@ -281,11 +306,69 @@ async fn login_result_to_response(
     }
 }
 
-/// Extract authenticated `user_id` and `tenant_id` from request headers
+/// Emit a fire-and-forget webhook announcing the successful provider connection.
+/// The channel link context tells the downstream bot where to post the confirmation.
+#[cfg(feature = "provider-sciotte")]
+fn emit_provider_linked_webhook(
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider_name: &str,
+    ctx: &LinkContext,
+) {
+    use crate::routes::auth::provider_link_webhook::{spawn_emit, ProviderLinkedEvent};
+    let event = ProviderLinkedEvent::new(
+        user_id,
+        tenant_id,
+        provider_name.to_owned(),
+        ctx.target.clone(),
+        ctx.channel.clone(),
+        ctx.channel_thread.clone(),
+    );
+    spawn_emit(event);
+}
+
+/// Channel context carried by a provider link-token — used to emit the
+/// post-back webhook after a successful connection.
+#[derive(Debug, Clone)]
+pub(super) struct LinkContext {
+    /// Channel slug the token was minted for (e.g. "slack")
+    pub channel: String,
+    /// Optional channel thread/DM id so the bot can reply in the original thread
+    pub channel_thread: Option<String>,
+    /// Target platform ("strava" / "garmin") from the signed claims
+    pub target: String,
+}
+
+/// Extract authenticated `user_id` and `tenant_id` from request headers.
+///
+/// Accepts two authentication methods, tried in order:
+/// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
+///    minted by `POST /api/channels/provider/sciotte/link-token`. This is the path
+///    used by the hosted Sciotte login page embedded in chat channels.
+/// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
+///    `SciotteLoginModal` component.
+///
+/// When the link-token path is taken, the returned `LinkContext` carries the
+/// channel metadata needed to emit a post-back webhook on success.
 async fn authenticate(
     resources: &ServerResources,
     headers: &HeaderMap,
-) -> Result<(Uuid, Uuid), AppError> {
+) -> Result<(Uuid, Uuid, Option<LinkContext>), AppError> {
+    if let Some(claims) = try_verify_link_token_from_headers(resources, headers) {
+        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
+            AppError::auth_invalid("Provider link-token has invalid user_id in sub claim")
+        })?;
+        let tenant_id = Uuid::parse_str(&claims.tid).map_err(|_| {
+            AppError::auth_invalid("Provider link-token has invalid tenant_id in tid claim")
+        })?;
+        let link_context = LinkContext {
+            channel: claims.channel,
+            channel_thread: claims.channel_thread,
+            target: claims.tgt,
+        };
+        return Ok((user_id, tenant_id, Some(link_context)));
+    }
+
     let auth_result = resources
         .auth_middleware
         .authenticate_request_with_headers(headers)
@@ -293,7 +376,20 @@ async fn authenticate(
     let tenant_id = auth_result
         .active_tenant_id
         .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
-    Ok((auth_result.user_id, tenant_id))
+    Ok((auth_result.user_id, tenant_id, None))
+}
+
+/// If an `Authorization: Bearer ...` header contains a Sciotte-scoped link-token,
+/// verify it against the server's admin JWT secret and return the claims.
+/// Returns None when the header is absent, not a Bearer token, or fails verification
+/// as a link-token (so the caller falls through to normal auth).
+fn try_verify_link_token_from_headers(
+    resources: &ServerResources,
+    headers: &HeaderMap,
+) -> Option<ProviderLinkTokenClaims> {
+    let header_value = headers.get("authorization").and_then(|h| h.to_str().ok());
+    let token = extract_bearer_link_token(header_value)?;
+    verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
 }
 
 /// Take the pending scraper + provider name for a user, or return an error
@@ -313,7 +409,7 @@ pub(super) async fn handle_sciotte_login(
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
 
     if request.email.is_empty() || request.password.is_empty() {
         return Err(AppError::invalid_input("Email and password are required"));
@@ -336,11 +432,14 @@ pub(super) async fn handle_sciotte_login(
     login_result_to_response(
         result,
         &resources,
-        user_id,
-        tenant_id,
         cached,
-        "Sciotte credential login",
-        provider,
+        LoginSessionContext {
+            user_id,
+            tenant_id,
+            provider_name: provider,
+            log_prefix: "Sciotte credential login",
+            link_context,
+        },
     )
     .await
 }
@@ -352,8 +451,8 @@ pub(super) async fn handle_sciotte_select_2fa(
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
-    let (scraper, provider_name) = take_pending_scraper(user_id).await?;
+    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
+    let (scraper, provider_name, link_context) = take_pending_scraper(user_id).await?;
 
     info!(user_id = %user_id, option = %request.option_id, "Selecting 2FA method");
 
@@ -365,11 +464,14 @@ pub(super) async fn handle_sciotte_select_2fa(
     login_result_to_response(
         result,
         &resources,
-        user_id,
-        tenant_id,
         scraper,
-        "Sciotte 2FA login",
-        &provider_name,
+        LoginSessionContext {
+            user_id,
+            tenant_id,
+            provider_name: &provider_name,
+            log_prefix: "Sciotte 2FA login",
+            link_context,
+        },
     )
     .await
 }
@@ -381,13 +483,13 @@ pub(super) async fn handle_sciotte_submit_otp(
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
 
     if request.code.is_empty() {
         return Err(AppError::invalid_input("Verification code is required"));
     }
 
-    let (scraper, provider_name) = take_pending_scraper(user_id).await?;
+    let (scraper, provider_name, link_context) = take_pending_scraper(user_id).await?;
 
     info!(user_id = %user_id, "Submitting OTP code");
 
@@ -399,11 +501,14 @@ pub(super) async fn handle_sciotte_submit_otp(
     login_result_to_response(
         result,
         &resources,
-        user_id,
-        tenant_id,
         scraper,
-        "Sciotte OTP login",
-        &provider_name,
+        LoginSessionContext {
+            user_id,
+            tenant_id,
+            provider_name: &provider_name,
+            log_prefix: "Sciotte OTP login",
+            link_context,
+        },
     )
     .await
 }
@@ -414,7 +519,7 @@ pub(super) async fn handle_sciotte_connect(
     headers: HeaderMap,
     Json(request): Json<SciotteConnectRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
 
     if request.session_id.is_empty() {
         return Err(AppError::invalid_input("session_id is required"));
@@ -455,7 +560,7 @@ pub(super) async fn handle_sciotte_disconnect(
     State(resources): State<Arc<ServerResources>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, _) = authenticate(&resources, &headers).await?;
     let tenant = TenantId::from(tenant_id);
 
     resources
