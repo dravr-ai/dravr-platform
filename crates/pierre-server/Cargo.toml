@@ -264,6 +264,7 @@ uuid = { version = "1.22", features = ["v4", "v5", "serde"] }
 dashmap = "5.5"
 urlencoding = "2.1"
 sha2 = "0.10"
+hmac = "0.12"
 rand = "0.8"
 aes-gcm = "0.10"
 # Encryption and database support for multi-tenant

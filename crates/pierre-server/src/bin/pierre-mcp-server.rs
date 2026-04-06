@@ -175,6 +175,18 @@ fn validate_required_environment() -> Result<()> {
                 "Base64-encoded 32-byte master encryption key (generate: openssl rand -base64 32)",
         },
         EnvValidation {
+            name: "BASE_URL",
+            value: env::var("BASE_URL").ok(),
+            required: false,
+            description: "Public base URL of this server (e.g. https://app.pierre.ai). Used to construct hosted-login URLs for channel-initiated provider connections. Falls back to http://localhost:8081 for local development.",
+        },
+        EnvValidation {
+            name: "PROVIDER_LINK_WEBHOOK_URL",
+            value: env::var("PROVIDER_LINK_WEBHOOK_URL").ok(),
+            required: false,
+            description: "Optional outbound webhook URL for channel-initiated provider connections. When set, Pierre POSTs a `provider.linked` event to this URL on successful connection so the channel bot can post a confirmation.",
+        },
+        EnvValidation {
             name: "STRAVA_CLIENT_ID",
             value: env::var("STRAVA_CLIENT_ID").ok(),
             required: false,

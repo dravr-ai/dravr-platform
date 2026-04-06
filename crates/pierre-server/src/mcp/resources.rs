@@ -36,6 +36,10 @@ use crate::llm::LlmProvider;
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::{OAuthCompletedNotification, ProgressNotification};
 use crate::mcp::tool_selection::ToolSelectionService;
+#[cfg(feature = "provider-sciotte")]
+use crate::middleware::provider_link_token::{
+    MintRateLimiter, NonceStore, MINT_RATE_LIMIT_PER_WINDOW, MINT_RATE_LIMIT_WINDOW_SECS,
+};
 use crate::middleware::redaction::RedactionConfig;
 use crate::middleware::{CsrfMiddleware, McpAuthMiddleware};
 use crate::plugins::executor::PluginToolExecutor;
@@ -79,6 +83,7 @@ use pierre_notifications::NotificationService;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::AbortHandle;
 use tracing::{error, info, warn};
@@ -249,6 +254,12 @@ pub struct ServerResources {
     /// Contremaitre configuration for GitHub sync and webhook verification
     #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
+    /// Cache-backed one-time nonce store for link-token page loads
+    #[cfg(feature = "provider-sciotte")]
+    pub nonce_store: Arc<NonceStore>,
+    /// Cache-backed rate limiter for link-token minting
+    #[cfg(feature = "provider-sciotte")]
+    pub mint_rate_limiter: Arc<MintRateLimiter>,
 }
 
 /// Initialize the prompt registry and sync from contremaitre if configured.
@@ -434,6 +445,16 @@ impl ServerResources {
         // Create and populate tool registry with all built-in tools
         let tool_registry = Arc::new(Self::create_tool_registry());
 
+        // Cache-backed nonce store + rate limiter for channel-initiated provider links
+        #[cfg(feature = "provider-sciotte")]
+        let nonce_store = Arc::new(NonceStore::new(cache_arc.clone()));
+        #[cfg(feature = "provider-sciotte")]
+        let mint_rate_limiter = Arc::new(MintRateLimiter::new(
+            MINT_RATE_LIMIT_PER_WINDOW,
+            Duration::from_secs(MINT_RATE_LIMIT_WINDOW_SECS),
+            cache_arc.clone(),
+        ));
+
         Self {
             database: database_arc,
             repos,
@@ -490,6 +511,10 @@ impl ServerResources {
             prompt_registry: init_prompt_registry().await,
             #[cfg(feature = "contremaitre")]
             contremaitre_config: ContremaitreConfig::from_env(),
+            #[cfg(feature = "provider-sciotte")]
+            nonce_store,
+            #[cfg(feature = "provider-sciotte")]
+            mint_rate_limiter,
         }
     }
 
