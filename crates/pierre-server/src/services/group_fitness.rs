@@ -186,16 +186,6 @@ impl ActivityDeduplicator for TimeWindowDeduplicator {
     }
 }
 
-/// No-op deduplicator that keeps all activities unchanged.
-/// Useful for debugging or when providers are known to never overlap.
-pub(crate) struct NoOpDeduplicator;
-
-impl ActivityDeduplicator for NoOpDeduplicator {
-    fn deduplicate(&self, activities: Vec<Activity>) -> Vec<Activity> {
-        activities
-    }
-}
-
 // ══════════════════════════════════════════════════════════════
 // Activity Merge Strategy
 // ══════════════════════════════════════════════════════════════
