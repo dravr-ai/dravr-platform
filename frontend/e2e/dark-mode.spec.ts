@@ -213,9 +213,9 @@ test.describe('Dark Theme Visual Elements', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Verify key dashboard elements are visible
-    await expect(page.locator('nav')).toBeVisible();
+    await expect(page.locator('nav').first()).toBeVisible();
     await expect(page.locator('main')).toBeVisible();
-    await expect(page.locator('h1').first()).toBeVisible();
+    await expect(page.getByText('Users').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('sidebar navigation renders correctly with dark theme', async ({ page }) => {
@@ -228,7 +228,7 @@ test.describe('Dark Theme Visual Elements', () => {
     await expect(sidebar).toBeVisible();
 
     // Verify navigation buttons are visible
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).toBeVisible();
+    await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
   });
 
@@ -238,7 +238,7 @@ test.describe('Dark Theme Visual Elements', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Focus on a navigation button
-    const usersButton = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    const usersButton = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
     await usersButton.focus();
 
     // Button should have visible focus indicator

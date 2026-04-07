@@ -140,7 +140,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Check main navigation tabs are present (using span text within buttons)
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).toBeVisible();
+    await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
@@ -154,7 +154,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Admin should see Users tab
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).toBeVisible();
+    await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
   });
 
   test('hides Users tab for non-admin users', async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('main', { timeout: 10000 });
 
     // Non-admin should not see Users tab (they don't have a sidebar at all)
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).not.toBeVisible();
+    await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).not.toBeVisible();
   });
 
   test('navigates between tabs correctly', async ({ page }) => {
@@ -175,7 +175,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Start at Users - check tab is active (has gradient background)
-    const usersTab = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    const usersTab = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
     await expect(usersTab).toHaveClass(/bg-gradient/);
 
     // Navigate to Connections - check tab becomes active
@@ -198,7 +198,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Users tab should be active by default
-    const usersButton = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    const usersButton = page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') });
     await expect(usersButton).toHaveClass(/bg-gradient/);
 
     // Click Analytics and check it becomes active
