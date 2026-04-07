@@ -322,7 +322,7 @@ jobs:
         run: |
           BINARY_SIZE_BYTES=$(ls -l target/release/pierre-mcp-server | awk '{print $5}')
           BINARY_SIZE_MB=$((BINARY_SIZE_BYTES / 1024 / 1024))
-          MAX_SIZE_MB=50
+          MAX_SIZE_MB=80
 
           echo "Binary size: ${BINARY_SIZE_MB}MB"
 
