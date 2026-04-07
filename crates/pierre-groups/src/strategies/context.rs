@@ -71,19 +71,28 @@ impl GroupContextStrategy for IndividualFocusContext {
         let _ = writeln!(text, "{}'s current status:", member.display_name);
         let _ = writeln!(text, "{}", member.summary_text.trim());
 
-        // Add group baseline for comparison (anonymized)
-        let total_volume: f64 = all_members.len() as f64;
-        if total_volume > 1.0 {
+        if group.active_count > 1 {
             let _ = writeln!(text);
             let _ = writeln!(
                 text,
                 "Group has {} active members. Tailor advice to {}'s individual level.",
                 group.active_count, member.display_name
             );
-            let _ = writeln!(
-                text,
-                "Do not reference other members by name unless peer sharing is enabled."
-            );
+            if group.group.peer_data_sharing {
+                // Peer sharing is on — include visible peer summaries
+                for peer in all_members.iter().filter(|m| m.user_id != member.user_id) {
+                    let _ = writeln!(text, "- {}", peer.summary_text.trim());
+                }
+            } else {
+                let _ = writeln!(
+                    text,
+                    "IMPORTANT: Peer data sharing is DISABLED. You have NO data about \
+                     other group members. NEVER fabricate, estimate, or guess other \
+                     members' stats. If asked to compare members or plan joint activities \
+                     based on fitness data, explain that peer data sharing must be enabled \
+                     in the group settings first."
+                );
+            }
         }
 
         let _ = writeln!(text, "--- End Group Context ---");
