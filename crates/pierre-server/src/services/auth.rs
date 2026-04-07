@@ -6,7 +6,7 @@
 
 use chrono::Utc;
 use tokio::task;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     admin::{FirebaseAuth, FirebaseClaims},
@@ -170,7 +170,12 @@ impl AuthService {
             .map_err(|_| AppError::auth_invalid("Invalid email or password"))?;
 
         if !is_valid {
-            error!("Invalid password for login attempt");
+            warn!(
+                email = %request.email,
+                user_id = %user.id,
+                "Failed login: invalid password"
+            );
+            crate::ops_notifier().notify_login_failed(&request.email);
             return Err(auth_error(error_messages::INVALID_CREDENTIALS));
         }
 

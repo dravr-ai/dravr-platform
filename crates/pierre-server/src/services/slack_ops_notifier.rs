@@ -79,6 +79,8 @@ pub trait OpsNotifier: Send + Sync {
     fn notify_oauth_disconnected(&self, email: &str, provider: &str);
     /// User signed in
     fn notify_login(&self, email: &str);
+    /// Failed login attempt (wrong password)
+    fn notify_login_failed(&self, email: &str);
     /// User signed out
     fn notify_logout(&self, email: &str);
 }
@@ -98,6 +100,7 @@ impl OpsNotifier for NoopOpsNotifier {
     fn notify_oauth_connected(&self, _email: &str, _provider: &str) {}
     fn notify_oauth_disconnected(&self, _email: &str, _provider: &str) {}
     fn notify_login(&self, _email: &str) {}
+    fn notify_login_failed(&self, _email: &str) {}
     fn notify_logout(&self, _email: &str) {}
 }
 
@@ -370,6 +373,28 @@ impl OpsNotifier for SlackOpsNotifier {
             {
                 "type": "section",
                 "text": { "type": "mrkdwn", "text": format!(":unlock: *{email}* signed in") }
+            }
+        ]);
+
+        self.client.post_message(channel, &blocks);
+    }
+
+    fn notify_login_failed(&self, email: &str) {
+        let Some(channel) = &self.users_channel else {
+            return;
+        };
+
+        let timestamp = Utc::now().format("%H:%M:%S UTC").to_string();
+        let blocks = json!([
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": format!(
+                        ":warning: Failed login for *{email}* (invalid password) at {timestamp} — env: {}",
+                        self.environment
+                    )
+                }
             }
         ]);
 
