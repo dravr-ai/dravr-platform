@@ -13,6 +13,7 @@ use axum::{
 };
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
+use std::env;
 use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -74,7 +75,7 @@ pub struct LlmSettingsResponse {
     pub user_credentials: Vec<LlmCredentialSummary>,
     /// Tenant-level credentials (visible to admins)
     pub tenant_credentials: Vec<LlmCredentialSummary>,
-    /// System-level LLM provider configured via PIERRE_LLM_PROVIDER (admin-visible)
+    /// System-level LLM provider configured via `PIERRE_LLM_PROVIDER` (admin-visible)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_provider: Option<SystemProviderInfo>,
 }
@@ -82,7 +83,7 @@ pub struct LlmSettingsResponse {
 /// System-level LLM provider info (from env config, not user-configurable)
 #[derive(Debug, Serialize)]
 pub struct SystemProviderInfo {
-    /// Provider identifier (e.g. "copilot_headless")
+    /// Provider identifier (e.g. `copilot_headless`)
     pub name: String,
     /// Human-readable display name
     pub display_name: String,
@@ -244,7 +245,7 @@ impl LlmSettingsRoutes {
             .map(|p| p.name.clone());
 
         // Include system-level LLM provider info from env config
-        let system_provider = std::env::var(LlmProviderType::ENV_VAR).ok().map(|name| {
+        let system_provider = env::var(LlmProviderType::ENV_VAR).ok().map(|name| {
             let provider_type = LlmProviderType::from_str_or_default(&name);
             let display_name = match provider_type {
                 LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)",
@@ -258,7 +259,7 @@ impl LlmSettingsRoutes {
                 LlmProviderType::OpenAiApi => "OpenAI API",
                 _ => &name,
             };
-            let model = std::env::var("PIERRE_LLM_MODEL").ok();
+            let model = env::var("PIERRE_LLM_MODEL").ok();
             SystemProviderInfo {
                 name: provider_type.to_string(),
                 display_name: display_name.to_owned(),

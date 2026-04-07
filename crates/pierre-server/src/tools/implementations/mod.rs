@@ -76,6 +76,6 @@ pub mod mobility;
 #[cfg(feature = "tools-store")]
 pub mod store;
 
-/// Sync tools: refresh_provider_data, get_data_freshness
+/// Sync tools: `refresh_provider_data`, `get_data_freshness`
 #[cfg(feature = "tools-connection")]
 pub mod sync;

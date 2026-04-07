@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -16,6 +17,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use tokio::task::yield_now;
 use tracing::{info, warn};
+
+use pierre_core::models::{OAuthNotification, TenantId};
 
 use crate::mcp::resources::ServerResources;
 
@@ -103,7 +106,7 @@ impl WebhookRoutes {
         let verify_token = query.get("hub.verify_token").cloned().unwrap_or_default();
 
         // Validate the verify token against our configured secret
-        let expected_token = std::env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_default();
+        let expected_token = env::var("STRAVA_WEBHOOK_VERIFY_TOKEN").unwrap_or_default();
 
         if mode != "subscribe" || (!expected_token.is_empty() && verify_token != expected_token) {
             warn!(
@@ -210,7 +213,7 @@ impl WebhookRoutes {
                                         {
                                             if let Ok(tid) =
                                                 tok.tenant_id
-                                                    .parse::<pierre_core::models::TenantId>()
+                                                    .parse::<TenantId>()
                                             {
                                                 let _ = repos
                                                     .oauth_tokens
@@ -225,7 +228,7 @@ impl WebhookRoutes {
                                         }
                                     }
 
-                                    let notification = pierre_core::models::OAuthNotification {
+                                    let notification = OAuthNotification {
                                         id: uuid::Uuid::new_v4().to_string(),
                                         user_id: user.user_id.clone(),
                                         provider: "strava".to_owned(),
@@ -271,7 +274,7 @@ impl WebhookRoutes {
 struct StravaWebhookEvent {
     /// Type of object: "activity" or "athlete"
     object_type: String,
-    /// Strava resource ID (activity_id or athlete_id)
+    /// Strava resource ID (`activity_id` or `athlete_id`)
     object_id: u64,
     /// Event type: "create", "update", or "delete"
     aspect_type: String,

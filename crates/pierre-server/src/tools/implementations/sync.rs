@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use pierre_core::models::RefreshConfig;
+
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tracing::info;
@@ -10,7 +12,7 @@ use tracing::info;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::models::TenantId;
-use crate::services::provider_refresh::RefreshService;
+use crate::services::provider_refresh::{RefreshService, SyncMetrics};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
@@ -148,7 +150,7 @@ impl McpTool for RefreshProviderDataTool {
         let refresh_service = build_refresh_service(context);
 
         if provider == "all" {
-            let config = pierre_core::models::RefreshConfig {
+            let config = RefreshConfig {
                 on_chat_enabled: true,
                 // Use zero max age to force refresh for all providers
                 on_chat_max_age_secs: 0,
@@ -232,7 +234,7 @@ impl McpTool for GetDataFreshnessTool {
             .get_provider_freshness(context.user_id, tenant_id)
             .await;
 
-        let metrics = crate::services::provider_refresh::SyncMetrics::snapshot();
+        let metrics = SyncMetrics::snapshot();
 
         Ok(ToolResult::ok(json!({
             "providers": freshness,
@@ -246,6 +248,7 @@ impl McpTool for GetDataFreshnessTool {
 // ============================================================================
 
 /// Create sync/refresh tools for registration.
+#[must_use]
 pub fn create_sync_tools() -> Vec<Box<dyn McpTool>> {
     vec![
         Box::new(RefreshProviderDataTool),

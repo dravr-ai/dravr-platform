@@ -364,9 +364,8 @@ async fn inject_refresh_context(
         return base_prompt;
     }
 
-    let user_uuid = match parse_uuid(user_id) {
-        Ok(uuid) => uuid,
-        Err(_) => return base_prompt,
+    let Ok(user_uuid) = parse_uuid(user_id) else {
+        return base_prompt;
     };
 
     let refresh_service = super::provider_refresh::RefreshService::new(

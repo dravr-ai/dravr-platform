@@ -22,9 +22,12 @@ use crate::{
     mcp::{oauth_flow_manager::OAuthTemplateRenderer, resources::ServerResources},
     models::TenantId,
     providers::ProviderDescriptor,
-    services::oauth_flow::{
-        self as oauth_flow_service, categorize_oauth_error, extract_tenant_id, get_user_for_oauth,
-        parse_user_id, OAuthService,
+    services::{
+        oauth_flow::{
+            self as oauth_flow_service, categorize_oauth_error, extract_tenant_id,
+            get_user_for_oauth, parse_user_id, OAuthService,
+        },
+        provider_refresh::RefreshService,
     },
 };
 use pierre_auth::oauth2_client::{OAuthClientState, PkceParams};
@@ -663,7 +666,7 @@ pub(super) async fn handle_sync_provider(
         "REST-triggered provider sync"
     );
 
-    let refresh_service = crate::services::provider_refresh::RefreshService::new(
+    let refresh_service = RefreshService::new(
         resources.repos.clone(),
         #[cfg(feature = "health-sync")]
         resources.sync_orchestrator.clone(),
