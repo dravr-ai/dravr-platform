@@ -19,7 +19,6 @@ use pierre_database::plugins::{
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::task::spawn_blocking;
@@ -31,9 +30,6 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::middleware::extract_auth_from_headers;
 use pierre_auth::auth::AuthResult;
-
-/// Fallback base URL when `BASE_URL` env var is not set
-const FALLBACK_BASE_URL: &str = "http://localhost:8081";
 
 /// Length of the cryptographically random linking code
 const LINK_CODE_LENGTH: usize = 32;
@@ -98,7 +94,12 @@ pub fn generate_link_code() -> String {
 }
 
 /// Build the linking URL based on channel type and method
-fn build_linking_url(channel_type: ChannelType, code: &str, config: &serde_json::Value) -> String {
+fn build_linking_url(
+    channel_type: ChannelType,
+    code: &str,
+    config: &serde_json::Value,
+    base_url: &str,
+) -> String {
     match channel_type {
         ChannelType::Telegram => {
             let bot_username = config
@@ -118,8 +119,7 @@ fn build_linking_url(channel_type: ChannelType, code: &str, config: &serde_json:
         }
         // OAuth channels return the full callback URL so callers get a usable absolute URL
         ChannelType::Slack | ChannelType::Discord | ChannelType::Messenger => {
-            let base = env::var("BASE_URL").unwrap_or_else(|_| FALLBACK_BASE_URL.to_owned());
-            format!("{base}/api/messaging/link/callback/{channel_type}?state={code}")
+            format!("{base_url}/api/messaging/link/callback/{channel_type}?state={code}")
         }
     }
 }
@@ -166,7 +166,7 @@ pub async fn init_channel_link(
     };
     db.create_link_state(&params).await?;
 
-    let linking_url = build_linking_url(channel_type, &code, &config);
+    let linking_url = build_linking_url(channel_type, &code, &config, &resources.config.base_url);
     let expires_at_str = expires_at.to_rfc3339();
 
     info!(

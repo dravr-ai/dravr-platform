@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::{collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     extract::{Path, Query, State},
@@ -543,9 +543,10 @@ pub(super) async fn handle_mobile_oauth_init(
     })?;
 
     // Build redirect URI for state storage
-    let base_url = env::var("BASE_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", resources.config.http_port));
-    let oauth_redirect_uri = format!("{base_url}/api/oauth/callback/{provider}");
+    let oauth_redirect_uri = format!(
+        "{}/api/oauth/callback/{provider}",
+        resources.config.base_url
+    );
 
     // Store state server-side for CSRF protection with 10-minute TTL.
     // The pkce_code_verifier is stored alongside the state for PKCE token exchange.
