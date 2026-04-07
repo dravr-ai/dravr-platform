@@ -50,8 +50,8 @@ async fn setup_test_database() -> Result<Database> {
     Ok(database)
 }
 
-/// Create test user in a specific tenant
-async fn create_test_user(database: &Database, email: &str, tenant_id: TenantId) -> Result<Uuid> {
+/// Create test user (without tenant association — call update_tenant_id after tenant exists)
+async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
     let user_id = Uuid::new_v4();
     let user = User {
         id: user_id,
@@ -72,11 +72,40 @@ async fn create_test_user(database: &Database, email: &str, tenant_id: TenantId)
         firebase_uid: None,
         auth_provider: String::new(),
     };
-    let repos = database.repositories();
-    repos.users.create(&user).await?;
-    // Associate user with tenant via tenant_users junction table
-    repos.users.update_tenant_id(user_id, tenant_id).await?;
+    database.repositories().users.create(&user).await?;
     Ok(user_id)
+}
+
+/// Assign user to tenant (call after both user and tenant exist)
+async fn assign_to_tenant(database: &Database, user_id: Uuid, tenant_id: TenantId) -> Result<()> {
+    database
+        .repositories()
+        .users
+        .update_tenant_id(user_id, tenant_id)
+        .await?;
+    Ok(())
+}
+
+/// Create a tenant with a specific ID (Tenant::new() auto-generates the ID, so use this instead)
+fn make_tenant(
+    tenant_id: TenantId,
+    name: &str,
+    slug: &str,
+    domain: Option<&str>,
+    plan: &str,
+    owner_user_id: Uuid,
+) -> Tenant {
+    let now = Utc::now();
+    Tenant {
+        id: tenant_id,
+        name: name.to_owned(),
+        slug: slug.to_owned(),
+        domain: domain.map(str::to_owned),
+        plan: plan.to_owned(),
+        owner_user_id,
+        created_at: now,
+        updated_at: now,
+    }
 }
 
 /// Test 1: Tenant Credential Isolation
@@ -108,27 +137,30 @@ async fn test_tenant_credential_isolation() -> Result<()> {
     let db_tenant_id = TenantId::new();
 
     // Create tenant A (uses server-level credentials)
-    let env_tenant_owner =
-        create_test_user(&database, "owner_a@example.com", env_tenant_id).await?;
-    let env_tenant = Tenant::new(
-        "Tenant A".to_owned(),
-        env_tenant_id.to_string(),
-        Some("tenant-a.example.com".to_owned()),
-        "professional".to_owned(),
+    let env_tenant_owner = create_test_user(&database, "owner_a@example.com").await?;
+    let env_tenant = make_tenant(
+        env_tenant_id,
+        "Tenant A",
+        &env_tenant_id.to_string(),
+        Some("tenant-a.example.com"),
+        "professional",
         env_tenant_owner,
     );
     database.repositories().tenants.create(&env_tenant).await?;
+    assign_to_tenant(&database, env_tenant_owner, env_tenant_id).await?;
 
     // Create tenant B (will use tenant-specific credentials)
-    let db_tenant_owner = create_test_user(&database, "owner_b@example.com", db_tenant_id).await?;
-    let db_tenant = Tenant::new(
-        "Tenant B".to_owned(),
-        db_tenant_id.to_string(),
-        Some("tenant-b.example.com".to_owned()),
-        "professional".to_owned(),
+    let db_tenant_owner = create_test_user(&database, "owner_b@example.com").await?;
+    let db_tenant = make_tenant(
+        db_tenant_id,
+        "Tenant B",
+        &db_tenant_id.to_string(),
+        Some("tenant-b.example.com"),
+        "professional",
         db_tenant_owner,
     );
     database.repositories().tenants.create(&db_tenant).await?;
+    assign_to_tenant(&database, db_tenant_owner, db_tenant_id).await?;
 
     // Store different credentials for tenant B in memory (simulating database storage)
     oauth_manager.store_credentials(
@@ -225,14 +257,15 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
     let first_tenant_id = TenantId::new();
     let second_tenant_id = TenantId::new();
 
-    let first_owner = create_test_user(&database, "owner_a@example.com", first_tenant_id).await?;
-    let second_owner = create_test_user(&database, "owner_b@example.com", second_tenant_id).await?;
+    let first_owner = create_test_user(&database, "owner_a@example.com").await?;
+    let second_owner = create_test_user(&database, "owner_b@example.com").await?;
 
-    let first_tenant = Tenant::new(
-        "Tenant A".to_owned(),
-        first_tenant_id.to_string(),
-        Some("tenant-a.example.com".to_owned()),
-        "professional".to_owned(),
+    let first_tenant = make_tenant(
+        first_tenant_id,
+        "Tenant A",
+        &first_tenant_id.to_string(),
+        Some("tenant-a.example.com"),
+        "professional",
         first_owner,
     );
     database
@@ -240,12 +273,14 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
         .tenants
         .create(&first_tenant)
         .await?;
+    assign_to_tenant(&database, first_owner, first_tenant_id).await?;
 
-    let second_tenant = Tenant::new(
-        "Tenant B".to_owned(),
-        second_tenant_id.to_string(),
-        Some("tenant-b.example.com".to_owned()),
-        "professional".to_owned(),
+    let second_tenant = make_tenant(
+        second_tenant_id,
+        "Tenant B",
+        &second_tenant_id.to_string(),
+        Some("tenant-b.example.com"),
+        "professional",
         second_owner,
     );
     database
@@ -253,6 +288,7 @@ async fn test_rate_limit_tracking_per_tenant() -> Result<()> {
         .tenants
         .create(&second_tenant)
         .await?;
+    assign_to_tenant(&database, second_owner, second_tenant_id).await?;
 
     // Initial rate limit check - both should be zero
     let (first_usage_initial, first_limit) =
@@ -328,16 +364,18 @@ async fn create_tenant_with_token(
     access_token: &str,
 ) -> Result<(TenantId, Uuid)> {
     let tenant_id = TenantId::new();
-    let user_id = create_test_user(database, user_email, tenant_id).await?;
+    let user_id = create_test_user(database, user_email).await?;
 
-    let tenant = Tenant::new(
-        tenant_name.to_owned(),
-        tenant_id.to_string(),
-        Some(tenant_domain.to_owned()),
-        "professional".to_owned(),
+    let tenant = make_tenant(
+        tenant_id,
+        tenant_name,
+        &tenant_id.to_string(),
+        Some(tenant_domain),
+        "professional",
         user_id,
     );
     database.repositories().tenants.create(&tenant).await?;
+    assign_to_tenant(database, user_id, tenant_id).await?;
 
     let token = UserOAuthToken::new(
         user_id,
@@ -474,16 +512,18 @@ async fn test_oauth_callback_tenant_preservation() -> Result<()> {
 
     // Create tenant and user
     let tenant_id = TenantId::new();
-    let user_id = create_test_user(&database, "user@example.com", tenant_id).await?;
+    let user_id = create_test_user(&database, "user@example.com").await?;
 
-    let tenant = Tenant::new(
-        "Test Tenant".to_owned(),
-        tenant_id.to_string(),
-        Some("test.example.com".to_owned()),
-        "professional".to_owned(),
+    let tenant = make_tenant(
+        tenant_id,
+        "Test Tenant",
+        &tenant_id.to_string(),
+        Some("test.example.com"),
+        "professional",
         user_id,
     );
     database.repositories().tenants.create(&tenant).await?;
+    assign_to_tenant(&database, user_id, tenant_id).await?;
 
     // Simulate OAuth authorization state parameter
     // In real implementation, this would be generated by the OAuth flow
@@ -531,16 +571,18 @@ async fn test_token_refresh_uses_tenant_credentials() -> Result<()> {
 
     // Create tenant
     let tenant_id = TenantId::new();
-    let user_id = create_test_user(&database, "user@example.com", tenant_id).await?;
+    let user_id = create_test_user(&database, "user@example.com").await?;
 
-    let tenant = Tenant::new(
-        "Test Tenant".to_owned(),
-        tenant_id.to_string(),
-        Some("test.example.com".to_owned()),
-        "professional".to_owned(),
+    let tenant = make_tenant(
+        tenant_id,
+        "Test Tenant",
+        &tenant_id.to_string(),
+        Some("test.example.com"),
+        "professional",
         user_id,
     );
     database.repositories().tenants.create(&tenant).await?;
+    assign_to_tenant(&database, user_id, tenant_id).await?;
 
     // Store tenant-specific credentials
     oauth_manager.store_credentials(
@@ -600,13 +642,13 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
     let tenant_enterprise_id = TenantId::new();
 
     // Standard tenant owner (uses environment credentials)
-    let owner_standard =
-        create_test_user(&database, "standard@example.com", tenant_standard_id).await?;
-    let standard_tenant = Tenant::new(
-        "Standard Tenant".to_owned(),
-        tenant_standard_id.to_string(),
-        Some("standard.example.com".to_owned()),
-        "professional".to_owned(),
+    let owner_standard = create_test_user(&database, "standard@example.com").await?;
+    let standard_tenant = make_tenant(
+        tenant_standard_id,
+        "Standard Tenant",
+        &tenant_standard_id.to_string(),
+        Some("standard.example.com"),
+        "professional",
         owner_standard,
     );
     database
@@ -614,15 +656,16 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         .tenants
         .create(&standard_tenant)
         .await?;
+    assign_to_tenant(&database, owner_standard, tenant_standard_id).await?;
 
     // Enterprise tenant owner (uses custom credentials)
-    let owner_enterprise =
-        create_test_user(&database, "enterprise@example.com", tenant_enterprise_id).await?;
-    let enterprise_tenant = Tenant::new(
-        "Enterprise Tenant".to_owned(),
-        tenant_enterprise_id.to_string(),
-        Some("enterprise.example.com".to_owned()),
-        "enterprise".to_owned(),
+    let owner_enterprise = create_test_user(&database, "enterprise@example.com").await?;
+    let enterprise_tenant = make_tenant(
+        tenant_enterprise_id,
+        "Enterprise Tenant",
+        &tenant_enterprise_id.to_string(),
+        Some("enterprise.example.com"),
+        "enterprise",
         owner_enterprise,
     );
     database
@@ -630,6 +673,7 @@ async fn test_tenant_specific_rate_limits() -> Result<()> {
         .tenants
         .create(&enterprise_tenant)
         .await?;
+    assign_to_tenant(&database, owner_enterprise, tenant_enterprise_id).await?;
 
     // Standard tenant uses default rate limits (via environment)
     env::set_var("STRAVA_CLIENT_ID", "163846");
@@ -696,16 +740,18 @@ async fn test_concurrent_multitenant_oauth_operations() -> Result<()> {
 
         let task = tokio::spawn(async move {
             let tenant_id = TenantId::new();
-            let user_id = create_test_user(&db, &format!("user{i}@example.com"), tenant_id).await?;
+            let user_id = create_test_user(&db, &format!("user{i}@example.com")).await?;
 
-            let tenant = Tenant::new(
-                format!("Tenant {i}"),
-                tenant_id.to_string(),
-                Some(format!("tenant{i}.example.com")),
-                "professional".to_owned(),
+            let tenant = make_tenant(
+                tenant_id,
+                &format!("Tenant {i}"),
+                &tenant_id.to_string(),
+                Some(&format!("tenant{i}.example.com")),
+                "professional",
                 user_id,
             );
             db.repositories().tenants.create(&tenant).await?;
+            assign_to_tenant(&db, user_id, tenant_id).await?;
 
             // Store credentials
             manager.write().await.store_credentials(
