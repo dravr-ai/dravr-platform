@@ -24,7 +24,7 @@ use serial_test::serial;
 use std::{env, fs};
 use uuid::Uuid;
 
-/// Create a tenant record (must be called before update_tenant_id for FK constraint).
+/// Create a tenant record (must be called before `update_tenant_id` for FK constraint).
 async fn create_tenant_for_test(
     database: &Database,
     tenant_id: TenantId,
