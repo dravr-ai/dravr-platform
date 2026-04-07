@@ -256,8 +256,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-release-
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --locked
+      - name: Build release binary (fat LTO for distribution)
+        run: cargo build --profile release-lto --target ${{ matrix.target }} --locked
         env:
           # Minimal env for build (no secrets needed)
           CARGO_INCREMENTAL: 0
@@ -265,8 +265,8 @@ jobs:
       - name: Strip binary (Unix only)
         if: matrix.os != 'windows-latest'
         run: |
-          strip target/${{ matrix.target }}/release/pierre-mcp-server || true
-          strip target/${{ matrix.target }}/release/pierre-cli || true
+          strip target/${{ matrix.target }}/release-lto/pierre-mcp-server || true
+          strip target/${{ matrix.target }}/release-lto/pierre-cli || true
 
       - name: Create package directory structure (Unix)
         if: matrix.os != 'windows-latest'
@@ -276,8 +276,8 @@ jobs:
           mkdir -p "dist/${PACKAGE_NAME}/bin"
 
           # Copy binaries
-          cp target/${{ matrix.target }}/release/pierre-mcp-server "dist/${PACKAGE_NAME}/bin/"
-          cp target/${{ matrix.target }}/release/pierre-cli "dist/${PACKAGE_NAME}/bin/"
+          cp target/${{ matrix.target }}/release-lto/pierre-mcp-server "dist/${PACKAGE_NAME}/bin/"
+          cp target/${{ matrix.target }}/release-lto/pierre-cli "dist/${PACKAGE_NAME}/bin/"
 
           # Copy documentation
           cp README.md "dist/${PACKAGE_NAME}/"
@@ -316,8 +316,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\${PACKAGE_NAME}\bin"
 
           # Copy binaries
-          Copy-Item "target\${{ matrix.target }}\release\pierre-mcp-server.exe" "dist\${PACKAGE_NAME}\bin\"
-          Copy-Item "target\${{ matrix.target }}\release\pierre-cli.exe" "dist\${PACKAGE_NAME}\bin\"
+          Copy-Item "target\${{ matrix.target }}\release-lto\pierre-mcp-server.exe" "dist\${PACKAGE_NAME}\bin\"
+          Copy-Item "target\${{ matrix.target }}\release-lto\pierre-cli.exe" "dist\${PACKAGE_NAME}\bin\"
 
           # Copy documentation
           Copy-Item "README.md" "dist\${PACKAGE_NAME}\"
