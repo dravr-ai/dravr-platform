@@ -37,22 +37,31 @@ fi
 
 CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
 
-HAS_RUST_CHANGES=false
+HAS_RUST_SRC_CHANGES=false
+HAS_CARGO_CHANGES=false
 HAS_FRONTEND_CHANGES=false
 HAS_SDK_CHANGES=false
 HAS_MOBILE_CHANGES=false
 
 while IFS= read -r file; do
     case "$file" in
-        *.rs|Cargo.toml|Cargo.lock) HAS_RUST_CHANGES=true ;;
+        *.rs) HAS_RUST_SRC_CHANGES=true ;;
+        Cargo.toml|*/Cargo.toml|Cargo.lock) HAS_CARGO_CHANGES=true ;;
         frontend/*) HAS_FRONTEND_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
         frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
     esac
 done <<< "$CHANGED_FILES"
 
+# Any Rust ecosystem change triggers fmt + architectural validation
+HAS_RUST_CHANGES=false
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_CARGO_CHANGES" == "true" ]]; then
+    HAS_RUST_CHANGES=true
+fi
+
 echo "📋 Changed file types:"
-echo "   Rust: $HAS_RUST_CHANGES"
+echo "   Rust src: $HAS_RUST_SRC_CHANGES"
+echo "   Cargo config: $HAS_CARGO_CHANGES"
 echo "   Frontend: $HAS_FRONTEND_CHANGES"
 echo "   SDK: $HAS_SDK_CHANGES"
 echo "   Mobile: $HAS_MOBILE_CHANGES"
@@ -95,7 +104,7 @@ fi
 # ============================================================================
 # TIER 2: Schema Validation
 # ============================================================================
-if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     echo "📋 Tier 2: Schema Validation"
     echo "----------------------------"
     echo -n "Running schema consistency check... "
@@ -114,7 +123,7 @@ fi
 # ============================================================================
 # TIER 3: Targeted Tests (Smart Selection)
 # ============================================================================
-if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
+if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     echo "🧪 Tier 3: Targeted Tests"
     echo "-------------------------"
 
