@@ -130,40 +130,37 @@ fn compute_weekly_metrics(activities: &[Activity], now: DateTime<Utc>) -> (i32, 
     (weekly_activity_count, weekly_volume_km, days_since_last)
 }
 
-/// Get the first connected provider name for a user.
+/// Get all connected provider names for a user.
 ///
-/// Returns the provider name, or None if no provider is connected.
-async fn get_first_connected_provider(
+/// Returns provider names in connection order, or empty vec if none connected.
+async fn get_connected_providers(
     resources: &Arc<ServerResources>,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> Option<String> {
-    let conns = resources
+) -> Vec<String> {
+    resources
         .repos
         .provider_connections
         .get_for_user(user_id, Some(tenant_id))
         .await
-        .ok()?;
-
-    conns.first().map(|c| c.provider.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect()
 }
 
-/// Fetch activities from an authenticated provider.
+/// Fetch activities by trying each connected provider until one succeeds.
 ///
-/// Returns activities, or None if provider creation or fetch fails.
-async fn fetch_activities_from_provider(
+/// Iterates through all connected providers for the user and returns
+/// activities from the first provider that successfully authenticates
+/// and returns data.
+async fn fetch_activities_from_any_provider(
     auth_service: &AuthService,
-    provider_name: &str,
+    providers: &[String],
     user_id: Uuid,
     tenant_id: TenantId,
-) -> Option<Vec<Activity>> {
+) -> Option<(String, Vec<Activity>)> {
     let tenant_id_str = tenant_id.to_string();
-    let provider = auth_service
-        .create_authenticated_provider(provider_name, user_id, Some(&tenant_id_str))
-        .await
-        .ok()?;
-
-    // Fetch recent activities for training load calculation
     let now = Utc::now();
     let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
     let params = ActivityQueryParams {
@@ -173,7 +170,52 @@ async fn fetch_activities_from_provider(
         after: Some(lookback_start),
     };
 
-    provider.get_activities_with_params(&params).await.ok()
+    for provider_name in providers {
+        let provider = match auth_service
+            .create_authenticated_provider(provider_name, user_id, Some(&tenant_id_str))
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                debug!(
+                    user_id = %user_id,
+                    provider = %provider_name,
+                    error = ?e,
+                    "Snapshot: provider auth failed, trying next"
+                );
+                continue;
+            }
+        };
+
+        match provider.get_activities_with_params(&params).await {
+            Ok(activities) if !activities.is_empty() => {
+                debug!(
+                    user_id = %user_id,
+                    provider = %provider_name,
+                    count = activities.len(),
+                    "Snapshot: fetched activities"
+                );
+                return Some((provider_name.clone(), activities));
+            }
+            Ok(_) => {
+                debug!(
+                    user_id = %user_id,
+                    provider = %provider_name,
+                    "Snapshot: provider returned 0 activities, trying next"
+                );
+            }
+            Err(e) => {
+                debug!(
+                    user_id = %user_id,
+                    provider = %provider_name,
+                    error = %e,
+                    "Snapshot: activity fetch failed, trying next"
+                );
+            }
+        }
+    }
+
+    None
 }
 
 /// Fetch a single member's fitness snapshot.
@@ -191,21 +233,22 @@ async fn fetch_single_member_snapshot(
     // Get display name from user profile
     let display_name = fetch_user_display_name(resources, user_id).await;
 
-    // Get first connected provider name
-    let Some(provider_name) = get_first_connected_provider(resources, user_id, tenant_id).await
-    else {
+    // Get all connected providers and try each until one returns activities
+    let providers = get_connected_providers(resources, user_id, tenant_id).await;
+    if providers.is_empty() {
+        debug!(user_id = %user_id, name = %display_name, "Snapshot: no connected providers");
         return empty_snapshot(user_id, display_name, now);
-    };
+    }
 
-    // Fetch activities from the provider
     let auth_service = AuthService::new(Arc::clone(resources));
-    let Some(activities) =
-        fetch_activities_from_provider(&auth_service, &provider_name, user_id, tenant_id).await
+    let Some((provider_name, activities)) =
+        fetch_activities_from_any_provider(&auth_service, &providers, user_id, tenant_id).await
     else {
         warn!(
             user_id = %user_id,
-            provider = %provider_name,
-            "Failed to fetch activities for snapshot"
+            name = %display_name,
+            providers = ?providers,
+            "Snapshot: all providers failed or returned no activities"
         );
         return empty_snapshot(user_id, display_name, now);
     };
@@ -213,6 +256,14 @@ async fn fetch_single_member_snapshot(
     if activities.is_empty() {
         return empty_snapshot(user_id, display_name, now);
     }
+
+    debug!(
+        user_id = %user_id,
+        name = %display_name,
+        provider = %provider_name,
+        activity_count = activities.len(),
+        "Snapshot: computing metrics"
+    );
 
     // Compute training load (CTL, ATL, TSB)
     let (ctl, atl, tsb) = compute_training_metrics(&activities);
