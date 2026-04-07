@@ -227,7 +227,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
                       <div className="w-full border-t border-white/10" />
                     </div>
                     <div className="relative flex justify-center text-sm">
-                      <span className="px-2 bg-pierre-slate text-zinc-500">or continue with</span>
+                      <span className="px-2 bg-pierre-slate text-zinc-400">or continue with</span>
                     </div>
                   </div>
 
