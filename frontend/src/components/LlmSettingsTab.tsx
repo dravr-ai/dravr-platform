@@ -10,6 +10,7 @@ import { userApi } from '../services/api';
 import { Card, Button, Input, Badge, ConfirmDialog } from './ui';
 import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useAuth } from '../hooks/useAuth';
 
 const PROVIDER_INFO: Record<string, { description: string; docsUrl: string }> = {
   gemini: {
@@ -27,6 +28,7 @@ const PROVIDER_INFO: Record<string, { description: string; docsUrl: string }> = 
 };
 
 export default function LlmSettingsTab() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
@@ -153,6 +155,48 @@ export default function LlmSettingsTab() {
 
   const providers = settings?.providers || [];
   const currentProvider = settings?.current_provider;
+  const systemProvider = (settings as { system_provider?: { name: string; display_name: string; model?: string } })?.system_provider;
+
+  // Admin users see the system provider as read-only
+  if (user?.is_admin && systemProvider) {
+    return (
+      <Card variant="dark">
+        <h2 className="text-lg font-semibold text-white mb-4">System AI Provider</h2>
+        <p className="text-sm text-white/60 mb-6">
+          The platform uses a system-level AI provider configured by the server environment.
+        </p>
+        <div className="p-4 bg-pierre-activity-light/20 border border-pierre-activity/30 rounded-lg">
+          <div className="flex items-center gap-2 mb-2">
+            <svg
+              className="w-5 h-5 text-pierre-activity"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span className="text-sm font-medium text-pierre-activity">
+              Active Provider: {systemProvider.display_name}
+            </span>
+            <Badge variant="warning">System</Badge>
+          </div>
+          {systemProvider.model && (
+            <p className="text-sm text-white/60 ml-7">
+              Model: <code className="text-white/80">{systemProvider.model}</code>
+            </p>
+          )}
+          <p className="text-sm text-white/60 ml-7 mt-1">
+            Provider: <code className="text-white/80">{systemProvider.name}</code>
+          </p>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <>

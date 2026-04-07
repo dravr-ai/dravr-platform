@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::config::LlmProviderType;
 use crate::errors::AppError;
 use crate::llm::chat_provider_from_credentials;
 use crate::mcp::resources::ServerResources;
@@ -73,6 +74,20 @@ pub struct LlmSettingsResponse {
     pub user_credentials: Vec<LlmCredentialSummary>,
     /// Tenant-level credentials (visible to admins)
     pub tenant_credentials: Vec<LlmCredentialSummary>,
+    /// System-level LLM provider configured via PIERRE_LLM_PROVIDER (admin-visible)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_provider: Option<SystemProviderInfo>,
+}
+
+/// System-level LLM provider info (from env config, not user-configurable)
+#[derive(Debug, Serialize)]
+pub struct SystemProviderInfo {
+    /// Provider identifier (e.g. "copilot_headless")
+    pub name: String,
+    /// Human-readable display name
+    pub display_name: String,
+    /// Model being used
+    pub model: Option<String>,
 }
 
 /// Status of a provider
@@ -228,11 +243,35 @@ impl LlmSettingsRoutes {
             .find(|p| p.has_credentials)
             .map(|p| p.name.clone());
 
+        // Include system-level LLM provider info from env config
+        let system_provider = std::env::var(LlmProviderType::ENV_VAR).ok().map(|name| {
+            let provider_type = LlmProviderType::from_str_or_default(&name);
+            let display_name = match provider_type {
+                LlmProviderType::CopilotHeadless => "Copilot Headless (Embacle)",
+                LlmProviderType::ClaudeCode => "Claude Code",
+                LlmProviderType::Copilot => "GitHub Copilot",
+                LlmProviderType::CursorAgent => "Cursor Agent",
+                LlmProviderType::Gemini => "Google Gemini",
+                LlmProviderType::GeminiCli => "Gemini CLI",
+                LlmProviderType::Groq => "Groq",
+                LlmProviderType::Local => "Local LLM",
+                LlmProviderType::OpenAiApi => "OpenAI API",
+                _ => &name,
+            };
+            let model = std::env::var("PIERRE_LLM_MODEL").ok();
+            SystemProviderInfo {
+                name: provider_type.to_string(),
+                display_name: display_name.to_owned(),
+                model,
+            }
+        });
+
         Ok(Json(LlmSettingsResponse {
             current_provider,
             providers,
             user_credentials,
             tenant_credentials,
+            system_provider,
         }))
     }
 

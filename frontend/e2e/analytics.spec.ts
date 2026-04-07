@@ -204,8 +204,8 @@ test.describe('Analytics Tab', () => {
     await loginToDashboard(page);
     await navigateToTab(page, 'Analytics');
 
-    // Should show loading spinner
-    await expect(page.locator('.pierre-spinner')).toBeVisible({ timeout: 5000 });
+    // Should show loading spinner (use .first() since multiple spinners may render)
+    await expect(page.locator('.pierre-spinner').first()).toBeVisible({ timeout: 5000 });
   });
 
   test('handles API error gracefully', async ({ page }) => {
