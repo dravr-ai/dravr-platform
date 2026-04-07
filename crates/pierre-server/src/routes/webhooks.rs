@@ -211,10 +211,7 @@ impl WebhookRoutes {
                                         if let Some(tok) =
                                             tokens.iter().find(|t| t.provider == "strava")
                                         {
-                                            if let Ok(tid) =
-                                                tok.tenant_id
-                                                    .parse::<TenantId>()
-                                            {
+                                            if let Ok(tid) = tok.tenant_id.parse::<TenantId>() {
                                                 let _ = repos
                                                     .oauth_tokens
                                                     .update_provider_last_sync(
