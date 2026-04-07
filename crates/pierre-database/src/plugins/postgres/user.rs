@@ -24,8 +24,8 @@ impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
-            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             ",
         )
         .bind(user.id)
@@ -44,6 +44,8 @@ impl UserRepository for PostgresDatabase {
         .bind(user.last_active)
         .bind(&user.firebase_uid)
         .bind(&user.auth_provider)
+        .bind(user.analytics_consent)
+        .bind(user.analytics_consent_at)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -56,7 +58,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
                    u.is_active, u.is_admin, u.role, u.user_status, u.approved_by, u.approved_at,
-                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider
+                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
+                   u.analytics_consent, u.analytics_consent_at
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -104,6 +107,8 @@ impl UserRepository for PostgresDatabase {
                     auth_provider: row
                         .try_get("auth_provider")
                         .unwrap_or_else(|_| "email".to_owned()),
+                    analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                    analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 }))
             },
         )
@@ -114,7 +119,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
             FROM users
             WHERE id = $1
             ",
@@ -160,6 +165,8 @@ impl UserRepository for PostgresDatabase {
                     auth_provider: row
                         .try_get("auth_provider")
                         .unwrap_or_else(|_| "email".to_owned()),
+                    analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                    analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 }))
             },
         )
@@ -170,7 +177,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
             FROM users
             WHERE email = $1
             ",
@@ -216,6 +223,8 @@ impl UserRepository for PostgresDatabase {
                     auth_provider: row
                         .try_get("auth_provider")
                         .unwrap_or_else(|_| "email".to_owned()),
+                    analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                    analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 }))
             },
         )
@@ -232,7 +241,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
             FROM users
             WHERE is_admin = true
             ORDER BY created_at ASC
@@ -279,6 +288,8 @@ impl UserRepository for PostgresDatabase {
                     auth_provider: row
                         .try_get("auth_provider")
                         .unwrap_or_else(|_| "email".to_owned()),
+                    analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                    analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 }))
             },
         )
@@ -289,7 +300,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
             FROM users
             WHERE firebase_uid = $1
             ",
@@ -335,6 +346,8 @@ impl UserRepository for PostgresDatabase {
                     auth_provider: row
                         .try_get("auth_provider")
                         .unwrap_or_else(|_| "email".to_owned()),
+                    analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                    analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 }))
             },
         )
@@ -391,7 +404,8 @@ impl UserRepository for PostgresDatabase {
                        u.is_active, u.is_admin, u.role,
                        COALESCE(u.user_status, 'active') as user_status,
                        u.approved_by, u.approved_at, u.created_at, u.last_active,
-                       u.firebase_uid, u.auth_provider
+                       u.firebase_uid, u.auth_provider,
+                       u.analytics_consent, u.analytics_consent_at
                 FROM users u
                 INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
                 WHERE COALESCE(u.user_status, 'active') = $1
@@ -407,7 +421,8 @@ impl UserRepository for PostgresDatabase {
                 r"
                 SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                        role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
-                       created_at, last_active, firebase_uid, auth_provider
+                       created_at, last_active, firebase_uid, auth_provider,
+                       analytics_consent, analytics_consent_at
                 FROM users
                 WHERE COALESCE(user_status, 'active') = $1
                 ORDER BY created_at DESC
@@ -461,6 +476,8 @@ impl UserRepository for PostgresDatabase {
                 auth_provider: row
                     .try_get("auth_provider")
                     .unwrap_or_else(|_| "email".to_owned()),
+                analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
             });
         }
 
@@ -475,7 +492,8 @@ impl UserRepository for PostgresDatabase {
         const QUERY_WITH_CURSOR: &str = r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider
+                   created_at, last_active, firebase_uid, auth_provider,
+                   analytics_consent, analytics_consent_at
             FROM users
             WHERE COALESCE(user_status, 'active') = $1
               AND (created_at < $2 OR (created_at = $2 AND id::text < $3))
@@ -703,6 +721,28 @@ impl UserRepository for PostgresDatabase {
 
         if result.rows_affected() == 0 {
             return Err(AppError::not_found(format!("User {user_id} not found")));
+        }
+
+        Ok(())
+    }
+
+    async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET
+                analytics_consent = $1,
+                analytics_consent_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            ",
+        )
+        .bind(enabled)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update analytics consent: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
         }
 
         Ok(())

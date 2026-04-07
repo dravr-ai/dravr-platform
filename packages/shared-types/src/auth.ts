@@ -37,6 +37,10 @@ export interface User {
   approved_by?: string;
   /** Approval timestamp */
   approved_at?: string;
+  /** Whether the user consented to anonymized analytics tracking */
+  analytics_consent?: boolean;
+  /** When the user last updated their analytics consent preference */
+  analytics_consent_at?: string;
 }
 
 /** Extended user for admin views (deprecated: use User directly) */

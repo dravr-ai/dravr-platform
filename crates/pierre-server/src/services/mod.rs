@@ -55,6 +55,9 @@ pub mod discord_gateway;
 /// Slack operations notifier for deploy and user lifecycle events
 pub mod slack_ops_notifier;
 
+/// Product analytics (PostHog) for messaging funnel, tool usage, and command tracking
+pub mod analytics;
+
 /// Messaging ingress: OTP flow, channel linking, session resolution, slash command dispatch
 #[cfg(feature = "client-messaging")]
 pub mod messaging_ingress;
