@@ -113,14 +113,7 @@ test.describe('Activity Tab - Summary Stats', () => {
   });
 });
 
-test.describe('Activity Tab - LLM Calls List', () => {
-  test('displays Recent LLM Calls section', async ({ page }) => {
-    await setupActivityMocks(page);
-    await loginAndNavigateToActivity(page);
-
-    await expect(page.getByText('Recent LLM Calls')).toBeVisible();
-  });
-
+test.describe('Activity Tab - Unified Activity Table', () => {
   test('displays LLM call entries with provider/model', async ({ page }) => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
@@ -141,17 +134,8 @@ test.describe('Activity Tab - LLM Calls List', () => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
 
-    // Token counts are formatted (e.g. "1.5K tokens")
-    await expect(page.getByText('1.5K tokens')).toBeVisible();
-  });
-});
-
-test.describe('Activity Tab - Conversations List', () => {
-  test('displays Recent Conversations section', async ({ page }) => {
-    await setupActivityMocks(page);
-    await loginAndNavigateToActivity(page);
-
-    await expect(page.getByText('Recent Conversations')).toBeVisible();
+    // Token counts are formatted (e.g. "1.5K")
+    await expect(page.getByText('1.5K').first()).toBeVisible();
   });
 
   test('displays conversation titles', async ({ page }) => {
@@ -162,12 +146,28 @@ test.describe('Activity Tab - Conversations List', () => {
     await expect(page.getByText('Recovery Analysis')).toBeVisible();
   });
 
-  test('displays user emails', async ({ page }) => {
+  test('displays user emails in conversation entries', async ({ page }) => {
     await setupActivityMocks(page);
     await loginAndNavigateToActivity(page);
 
-    await expect(page.getByText('alice@acme.com')).toBeVisible();
-    await expect(page.getByText('bob@acme.com')).toBeVisible();
+    await expect(page.getByText('alice@acme.com').first()).toBeVisible();
+    await expect(page.getByText('bob@acme.com').first()).toBeVisible();
+  });
+
+  test('displays type filter chips', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
+
+    await expect(page.getByRole('button', { name: /^All/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /LLM Calls/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Conversations/ })).toBeVisible();
+  });
+
+  test('displays search input', async ({ page }) => {
+    await setupActivityMocks(page);
+    await loginAndNavigateToActivity(page);
+
+    await expect(page.getByPlaceholder('Search by provider, user, model...')).toBeVisible();
   });
 });
 
