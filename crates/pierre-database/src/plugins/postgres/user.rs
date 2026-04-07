@@ -629,6 +629,20 @@ impl UserRepository for PostgresDatabase {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));
         }
 
+        // Upsert into tenant_users junction table (queries INNER JOIN on it)
+        sqlx::query(
+            r"
+            INSERT INTO tenant_users (tenant_id, user_id, role)
+            VALUES ($1, $2, 'member')
+            ON CONFLICT (tenant_id, user_id) DO NOTHING
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert tenant_users entry: {e}")))?;
+
         Ok(())
     }
 

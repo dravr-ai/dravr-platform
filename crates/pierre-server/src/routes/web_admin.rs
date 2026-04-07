@@ -271,15 +271,16 @@ impl WebAdminRoutes {
             "Web admin listing pending users"
         );
 
-        // Admin user listing shows all users (no tenant filter).
-        // Pre-1.0 single-deployment: tenant_users table may not be populated
-        // for all users, so tenant-scoped queries would hide valid users.
+        // Scope listing to admin's tenant (super-admins see all tenants)
+        let admin_tenant_id =
+            admin_ops::get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id)
+                .await?;
 
         // Fetch users with Pending status
         let users = resources
             .repos
             .users
-            .get_by_status("pending", None)
+            .get_by_status("pending", admin_tenant_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to fetch pending users: {e}")))?;
 
@@ -323,16 +324,19 @@ impl WebAdminRoutes {
             "Web admin listing all users"
         );
 
-        // Admin user listing shows all users (no tenant filter).
-        // Pre-1.0 single-deployment: tenant_users table may not be populated
-        // for all users, so tenant-scoped queries would hide valid users.
+        // Scope listing to admin's tenant (super-admins see all tenants)
+        let admin_tenant_id =
+            admin_ops::get_admin_tenant_scope(&resources, auth.user_id, auth.active_tenant_id)
+                .await?;
+
+        // Fetch users by status and combine (no get_all_users method exists)
         let mut all_users = Vec::new();
 
         for status in ["active", "pending", "suspended"] {
             let users = resources
                 .repos
                 .users
-                .get_by_status(status, None)
+                .get_by_status(status, admin_tenant_id)
                 .await
                 .map_err(|e| AppError::internal(format!("Failed to fetch {status} users: {e}")))?;
             all_users.extend(users);
