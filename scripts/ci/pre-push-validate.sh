@@ -93,24 +93,6 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/archit
 fi
 
 # ============================================================================
-# TIER 1.5: Strict Clippy (matches CI)
-# ============================================================================
-if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
-    echo "🔒 Tier 1.5: Strict Clippy"
-    echo "--------------------------"
-    echo "Running: cargo clippy -p pierre_mcp_server --all-targets --all-features -- -D warnings"
-    echo ""
-
-    if ! cargo clippy -p pierre_mcp_server --all-targets --all-features -- -D warnings; then
-        echo ""
-        echo "❌ Strict clippy failed. Fix the errors above before pushing."
-        exit 1
-    fi
-    echo "✅ Strict clippy passed"
-    echo ""
-fi
-
-# ============================================================================
 # TIER 2: Schema Validation
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
