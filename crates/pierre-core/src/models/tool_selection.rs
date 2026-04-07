@@ -29,6 +29,12 @@ pub enum ToolCategory {
     Configuration,
     /// OAuth provider connections
     Connections,
+    /// AI coach management (list, create, activate, hide)
+    Coaches,
+    /// Admin-only tools (system coach management, assignments)
+    Admin,
+    /// Stretching exercises and yoga poses
+    Mobility,
 }
 
 impl ToolCategory {
@@ -44,6 +50,9 @@ impl ToolCategory {
             "sleep" => Some(Self::Sleep),
             "configuration" => Some(Self::Configuration),
             "connections" => Some(Self::Connections),
+            "coaches" => Some(Self::Coaches),
+            "admin" => Some(Self::Admin),
+            "mobility" => Some(Self::Mobility),
             _ => None,
         }
     }
@@ -60,6 +69,9 @@ impl ToolCategory {
             Self::Sleep => "sleep",
             Self::Configuration => "configuration",
             Self::Connections => "connections",
+            Self::Coaches => "coaches",
+            Self::Admin => "admin",
+            Self::Mobility => "mobility",
         }
     }
 }
