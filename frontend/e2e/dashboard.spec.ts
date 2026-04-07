@@ -140,7 +140,7 @@ test.describe('Dashboard Navigation', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Check main navigation tabs are present (using span text within buttons)
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Overview")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
@@ -174,15 +174,15 @@ test.describe('Dashboard Navigation', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Start at Overview - check tab is active (has gradient background)
-    const overviewTab = page.locator('button').filter({ has: page.locator('span:has-text("Overview")') });
-    await expect(overviewTab).toHaveClass(/bg-gradient/);
+    // Start at Users - check tab is active (has gradient background)
+    const usersTab = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    await expect(usersTab).toHaveClass(/bg-gradient/);
 
     // Navigate to Connections - check tab becomes active
     await navigateToTab(page, 'API Keys');
     const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') });
     await expect(connectionsTab).toHaveClass(/bg-gradient/);
-    await expect(overviewTab).not.toHaveClass(/bg-gradient/);
+    await expect(usersTab).not.toHaveClass(/bg-gradient/);
 
     // Navigate to Analytics - check tab becomes active
     await navigateToTab(page, 'Analytics');
@@ -197,15 +197,15 @@ test.describe('Dashboard Navigation', () => {
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Overview tab should be active by default
-    const overviewButton = page.locator('button').filter({ has: page.locator('span:has-text("Overview")') });
-    await expect(overviewButton).toHaveClass(/bg-gradient/);
+    // Users tab should be active by default
+    const usersButton = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    await expect(usersButton).toHaveClass(/bg-gradient/);
 
     // Click Analytics and check it becomes active
     await navigateToTab(page, 'Analytics');
     const analyticsButton = page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') });
     await expect(analyticsButton).toHaveClass(/bg-gradient/);
-    await expect(overviewButton).not.toHaveClass(/bg-gradient/);
+    await expect(usersButton).not.toHaveClass(/bg-gradient/);
   });
 });
 
@@ -262,8 +262,8 @@ test.describe('Dashboard Sidebar', () => {
     await collapseButton.click();
 
     // Hover over a nav button to trigger tooltip
-    const overviewButton = page.locator('button[title="Overview"]');
-    await overviewButton.hover();
+    const usersButton = page.locator('button[title="Users"]');
+    await usersButton.hover();
 
     // Wait for tooltip
     await page.waitForTimeout(300);
@@ -364,17 +364,14 @@ test.describe('Dashboard Content Loading', () => {
     });
   });
 
-  test('displays overview stats after loading', async ({ page }) => {
+  test('displays Users tab after loading', async ({ page }) => {
     await setupFullDashboardMocks(page, { isAdmin: true });
     await loginAndGoToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Wait for overview content to load - check the header shows Overview
-    await expect(page.locator('h1').first()).toContainText('Overview');
-
-    // Verify stats section is visible (the actual numbers depend on API response)
-    await expect(page.getByText(/Total|Requests|Keys/i).first()).toBeVisible({ timeout: 10000 });
+    // Wait for Users content to load - check the header shows Users
+    await expect(page.locator('h1').first()).toContainText('Users');
   });
 
   test('loads Activity tab content correctly', async ({ page }) => {
@@ -436,7 +433,7 @@ test.describe('Dashboard Header', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Header should show current tab name
-    await expect(page.locator('header h1')).toContainText('Overview');
+    await expect(page.locator('header h1')).toContainText('Users');
 
     // Navigate and check header updates
     await navigateToTab(page, 'Analytics');
@@ -497,8 +494,8 @@ test.describe('Dashboard Error Handling', () => {
 
     await loginAndGoToDashboard(page);
 
-    // Dashboard should still render navigation (admin users see Overview)
+    // Dashboard should still render navigation (admin users see Users)
     await page.waitForSelector('nav', { timeout: 10000 });
-    await expect(page.getByRole('list').getByRole('button', { name: 'Overview' })).toBeVisible();
+    await expect(page.getByRole('list').getByRole('button', { name: 'Users' })).toBeVisible();
   });
 });
