@@ -137,6 +137,9 @@ async fn test_parity_tools_by_category() {
         ToolCategory::Analysis,
         ToolCategory::Nutrition,
         ToolCategory::Configuration,
+        ToolCategory::Coaches,
+        ToolCategory::Admin,
+        ToolCategory::Mobility,
     ] {
         let sqlite_tools = sqlite_repos
             .tool_selection
