@@ -1,0 +1,110 @@
+# ABOUTME: Builds iOS via EAS and submits to TestFlight on every mobile code change to main.
+# ABOUTME: Also supports manual dispatch with profile selection for production releases.
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+name: "Deploy: TestFlight"
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend-mobile/**'
+      - 'packages/api-client/**'
+      - 'packages/shared-types/**'
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+
+concurrency:
+  group: mobile-testflight-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Pre-flight Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
+
+  build-and-submit:
+    name: Build & Submit to TestFlight
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: frontend-mobile
+
+    env:
+      EAS_PROFILE: ${{ inputs.profile || 'preview' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Inject Firebase API key into eas.json
+        run: |
+          jq '(.build[].env) += {"EXPO_PUBLIC_FIREBASE_API_KEY": "${{ vars.EXPO_PUBLIC_FIREBASE_API_KEY }}"}' eas.json > eas.tmp && mv eas.tmp eas.json
+
+      - name: Build iOS
+        run: |
+          eas build \
+            --platform ios \
+            --profile ${{ env.EAS_PROFILE }} \
+            --non-interactive
+
+      - name: Submit to TestFlight
+        run: |
+          eas submit \
+            --platform ios \
+            --profile ${{ env.EAS_PROFILE }} \
+            --non-interactive \
+            --latest
