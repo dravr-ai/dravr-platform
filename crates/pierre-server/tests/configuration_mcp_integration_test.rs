@@ -226,8 +226,8 @@ async fn test_configuration_tools_count_in_total() {
     // Note: OAuth notification tools removed (4) + connect_to_pierre removed (1) = 5 fewer non-config tools
     // Coaches feature added 21 tools: 9 admin + 12 user coach management tools
     assert_eq!(
-        fitness_tools, 67,
-        "Expected exactly 67 non-configuration tools"
+        fitness_tools, 69,
+        "Expected exactly 69 non-configuration tools"
     );
-    assert_eq!(tools.len(), 73, "Expected total of 73 tools"); // 67 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 75, "Expected total of 75 tools"); // 69 non-configuration + 6 configuration
 }
