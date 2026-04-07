@@ -494,7 +494,14 @@ impl Database {
         status: &str,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<User>> {
-        let rows = if let Some(tid) = tenant_id {
+        // Pending users have no tenant_users entry (assigned on approval),
+        // so skip the tenant join for pending status to avoid excluding them.
+        let rows = if status == "pending" || tenant_id.is_none() {
+            sqlx::query("SELECT * FROM users WHERE user_status = ?1 ORDER BY created_at DESC")
+                .bind(status)
+                .fetch_all(&self.pool)
+                .await
+        } else {
             sqlx::query(
                 r"SELECT u.* FROM users u
                   INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = ?2
@@ -502,14 +509,9 @@ impl Database {
                   ORDER BY u.created_at DESC",
             )
             .bind(status)
-            .bind(tid.to_string())
+            .bind(tenant_id.expect("checked above").to_string())
             .fetch_all(&self.pool)
             .await
-        } else {
-            sqlx::query("SELECT * FROM users WHERE user_status = ?1 ORDER BY created_at DESC")
-                .bind(status)
-                .fetch_all(&self.pool)
-                .await
         }
         .map_err(|e| AppError::database(format!("Failed to get users by status: {e}")))?;
 

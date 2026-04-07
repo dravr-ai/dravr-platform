@@ -83,8 +83,8 @@ pub struct UsageAnalytics {
 /// Single data point in usage time series
 #[derive(Debug, Serialize)]
 pub struct UsageDataPoint {
-    /// Timestamp for this data point
-    pub timestamp: DateTime<Utc>,
+    /// Date for this data point (YYYY-MM-DD)
+    pub date: String,
     /// Number of requests in this period
     pub request_count: u64,
     /// Number of errors in this period
@@ -338,7 +338,7 @@ impl DashboardRoutes {
             }
 
             time_series.push(UsageDataPoint {
-                timestamp: day_start,
+                date: day_start.format("%Y-%m-%d").to_string(),
                 request_count: total_requests,
                 error_count: total_errors,
                 average_response_time: if response_count > 0 {

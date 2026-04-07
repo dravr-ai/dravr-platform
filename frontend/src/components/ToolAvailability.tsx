@@ -273,7 +273,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
 
   if (error) {
     return (
-      <Card className="border-red-200">
+      <Card variant="dark" className="border-red-500/30">
         <div className="text-center py-8">
           <svg
             className="w-12 h-12 text-red-400 mx-auto mb-4"
@@ -288,8 +288,8 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
           </svg>
-          <p className="text-red-600">Failed to load tool availability.</p>
-          <p className="text-sm text-pierre-gray-500 mt-2">Please check your permissions and try again.</p>
+          <p className="text-red-400">Failed to load tool availability.</p>
+          <p className="text-sm text-zinc-400 mt-2">Please check your permissions and try again.</p>
         </div>
       </Card>
     );
@@ -299,10 +299,10 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
     <div className="space-y-6">
       {/* Global Disabled Banner */}
       {globalDisabled?.data && globalDisabled.data.count > 0 && (
-        <Card className="bg-red-50 border-red-200">
+        <Card variant="dark" className="!bg-red-900/20 border-red-500/30">
           <div className="flex items-start gap-3">
             <svg
-              className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0"
+              className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -315,9 +315,9 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               />
             </svg>
             <div>
-              <h3 className="font-medium text-red-800">Globally Disabled Tools</h3>
-              <p className="text-sm text-red-600 mt-1">
-                {globalDisabled.data.count} tool(s) are disabled via <code className="bg-red-100 px-1 rounded">PIERRE_DISABLED_TOOLS</code> environment variable.
+              <h3 className="font-medium text-red-300">Globally Disabled Tools</h3>
+              <p className="text-sm text-red-400 mt-1">
+                {globalDisabled.data.count} tool(s) are disabled via <code className="bg-red-900/50 px-1 rounded">PIERRE_DISABLED_TOOLS</code> environment variable.
                 These cannot be enabled through the admin UI.
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -335,25 +335,25 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
       {/* Summary Stats */}
       {summaryData?.data && (
         <div className="grid grid-cols-5 gap-4">
-          <Card className="text-center py-4">
-            <div className="text-2xl font-bold text-pierre-gray-900">{summaryData.data.total_tools}</div>
-            <div className="text-sm text-pierre-gray-500">Total Tools</div>
+          <Card variant="dark" className="text-center py-4">
+            <div className="text-2xl font-bold text-white">{summaryData.data.total_tools}</div>
+            <div className="text-sm text-zinc-400">Total Tools</div>
           </Card>
-          <Card className="text-center py-4">
-            <div className="text-2xl font-bold text-green-600">{summaryData.data.enabled_tools}</div>
-            <div className="text-sm text-pierre-gray-500">Enabled</div>
+          <Card variant="dark" className="text-center py-4">
+            <div className="text-2xl font-bold text-green-400">{summaryData.data.enabled_tools}</div>
+            <div className="text-sm text-zinc-400">Enabled</div>
           </Card>
-          <Card className="text-center py-4">
-            <div className="text-2xl font-bold text-red-600">{summaryData.data.disabled_tools}</div>
-            <div className="text-sm text-pierre-gray-500">Disabled</div>
+          <Card variant="dark" className="text-center py-4">
+            <div className="text-2xl font-bold text-red-400">{summaryData.data.disabled_tools}</div>
+            <div className="text-sm text-zinc-400">Disabled</div>
           </Card>
-          <Card className="text-center py-4">
+          <Card variant="dark" className="text-center py-4">
             <div className="text-2xl font-bold text-pierre-violet">{summaryData.data.overridden_tools}</div>
-            <div className="text-sm text-pierre-gray-500">Overrides</div>
+            <div className="text-sm text-zinc-400">Overrides</div>
           </Card>
-          <Card className="text-center py-4">
-            <div className="text-2xl font-bold text-orange-600">{summaryData.data.globally_disabled_count}</div>
-            <div className="text-sm text-pierre-gray-500">Global Blocks</div>
+          <Card variant="dark" className="text-center py-4">
+            <div className="text-2xl font-bold text-orange-400">{summaryData.data.globally_disabled_count}</div>
+            <div className="text-sm text-zinc-400">Global Blocks</div>
           </Card>
         </div>
       )}
@@ -367,7 +367,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               selectedCategory === null
                 ? 'bg-pierre-violet text-white'
-                : 'bg-pierre-gray-100 text-pierre-gray-600 hover:bg-pierre-gray-200'
+                : 'bg-white/10 text-zinc-300 hover:bg-white/20'
             }`}
           >
             All
@@ -379,7 +379,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                 selectedCategory === category
                   ? 'bg-pierre-violet text-white'
-                  : 'bg-pierre-gray-100 text-pierre-gray-600 hover:bg-pierre-gray-200'
+                  : 'bg-white/10 text-zinc-300 hover:bg-white/20'
               }`}
             >
               {category}
@@ -402,7 +402,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
               <button
                 aria-label="Clear search"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-pierre-gray-400 hover:text-pierre-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -414,7 +414,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           {/* Bulk actions */}
           {selectedTools.size > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-sm text-pierre-gray-500">{selectedTools.size} selected</span>
+              <span className="text-sm text-zinc-400">{selectedTools.size} selected</span>
               <Button variant="outline" size="sm" onClick={() => handleBulkAction('enable')}>
                 Enable Selected
               </Button>
@@ -427,24 +427,24 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
       </div>
 
       {/* Tools Table */}
-      <Card>
+      <Card variant="dark">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-pierre-gray-200">
+              <tr className="border-b border-white/10">
                 <th className="text-left py-3 px-3 w-10">
                   <input
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-pierre-gray-300 text-pierre-violet focus:ring-pierre-violet"
+                    className="rounded border-zinc-600 text-pierre-violet focus:ring-pierre-violet"
                   />
                 </th>
-                <th className="text-left py-3 px-3 font-medium text-pierre-gray-600">Tool</th>
-                <th className="text-left py-3 px-3 font-medium text-pierre-gray-600">Category</th>
-                <th className="text-left py-3 px-3 font-medium text-pierre-gray-600">Status</th>
-                <th className="text-left py-3 px-3 font-medium text-pierre-gray-600">Source</th>
-                <th className="text-left py-3 px-3 font-medium text-pierre-gray-600">Actions</th>
+                <th className="text-left py-3 px-3 font-medium text-zinc-400">Tool</th>
+                <th className="text-left py-3 px-3 font-medium text-zinc-400">Category</th>
+                <th className="text-left py-3 px-3 font-medium text-zinc-400">Status</th>
+                <th className="text-left py-3 px-3 font-medium text-zinc-400">Source</th>
+                <th className="text-left py-3 px-3 font-medium text-zinc-400">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -453,7 +453,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                 return (
                   <tr
                     key={tool.tool_name}
-                    className={`border-b border-pierre-gray-100 hover:bg-pierre-gray-50 ${
+                    className={`border-b border-white/5 hover:bg-white/5 ${
                       globallyDisabled ? 'opacity-60' : ''
                     }`}
                   >
@@ -463,15 +463,15 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
                         disabled={globallyDisabled}
-                        className="rounded border-pierre-gray-300 text-pierre-violet focus:ring-pierre-violet disabled:opacity-50"
+                        className="rounded border-zinc-600 text-pierre-violet focus:ring-pierre-violet disabled:opacity-50"
                       />
                     </td>
                     <td className="py-3 px-3">
-                      <div className="font-medium text-pierre-gray-900">{tool.display_name}</div>
-                      <div className="text-xs text-pierre-gray-500 mt-0.5">
+                      <div className="font-medium text-white">{tool.display_name}</div>
+                      <div className="text-xs text-zinc-400 mt-0.5">
                         <code>{tool.tool_name}</code>
                       </div>
-                      <div className="text-xs text-pierre-gray-400 mt-1 max-w-md truncate" title={tool.description}>
+                      <div className="text-xs text-zinc-500 mt-1 max-w-md truncate" title={tool.description}>
                         {tool.description}
                       </div>
                     </td>
@@ -511,7 +511,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                           onClick={() => handleToggleTool(tool)}
                           disabled={globallyDisabled}
                           className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-offset-2 ${
-                            tool.is_enabled ? 'bg-green-500' : 'bg-pierre-gray-300'
+                            tool.is_enabled ? 'bg-green-500' : 'bg-zinc-600'
                           } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                           role="switch"
                           aria-checked={tool.is_enabled}
@@ -528,7 +528,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         {tool.source.toLowerCase() === 'tenantoverride' && (
                           <button
                             onClick={() => removeOverrideMutation.mutate(tool.tool_name)}
-                            className="p-1 text-pierre-gray-400 hover:text-pierre-gray-600 transition-colors"
+                            className="p-1 text-zinc-400 hover:text-zinc-200 transition-colors"
                             title="Remove override (revert to default)"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -550,7 +550,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           </table>
 
           {filteredTools.length === 0 && (
-            <div className="text-center py-8 text-pierre-gray-500">No tools found matching your criteria.</div>
+            <div className="text-center py-8 text-zinc-400">No tools found matching your criteria.</div>
           )}
         </div>
       </Card>
@@ -558,7 +558,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
       {/* Disable Confirmation Modal */}
       <Modal isOpen={showDisableModal} onClose={() => setShowDisableModal(false)} title="Confirm Disable Tool(s)">
         <div className="space-y-4">
-          <p className="text-pierre-gray-600">
+          <p className="text-zinc-300">
             {bulkAction
               ? `You are about to disable ${selectedTools.size} tool(s). Users will no longer be able to use these tools.`
               : `You are about to disable "${pendingAction?.toolName}". Users will no longer be able to use this tool.`}
@@ -571,12 +571,12 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             placeholder="e.g., Security concern, Maintenance, Feature deprecation..."
           />
 
-          <div className="p-3 bg-orange-50 text-orange-700 rounded-lg text-sm">
+          <div className="p-3 bg-orange-900/20 text-orange-300 rounded-lg text-sm">
             <strong>Note:</strong> This override can be removed later to restore the tool to its default state.
           </div>
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+            <div className="p-3 bg-red-900/20 text-red-400 rounded-lg text-sm">
               Failed to update tool settings. Please try again.
             </div>
           )}
@@ -607,7 +607,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
       {/* Enable Confirmation Modal */}
       <Modal isOpen={showEnableModal} onClose={() => setShowEnableModal(false)} title="Confirm Enable Tool(s)">
         <div className="space-y-4">
-          <p className="text-pierre-gray-600">
+          <p className="text-zinc-300">
             {bulkAction
               ? `You are about to enable ${selectedTools.size} tool(s). Users will be able to use these tools.`
               : `You are about to enable "${pendingAction?.toolName}". Users will be able to use this tool.`}
@@ -621,7 +621,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           />
 
           {setOverrideMutation.isError && (
-            <div className="p-3 bg-red-50 text-red-600 rounded-lg text-sm">
+            <div className="p-3 bg-red-900/20 text-red-400 rounded-lg text-sm">
               Failed to update tool settings. Please try again.
             </div>
           )}

@@ -84,6 +84,73 @@ const PRICING_TABLE: &[(&str, &str, ModelPricing)] = &[
             output_per_million: 0.08,
         },
     ),
+    // Copilot headless (embacle) — proxies to Anthropic Claude models
+    (
+        "copilot_headless",
+        "claude-opus-4",
+        ModelPricing {
+            input_per_million: 15.0,
+            output_per_million: 75.0,
+        },
+    ),
+    (
+        "copilot_headless",
+        "claude-sonnet-4",
+        ModelPricing {
+            input_per_million: 3.0,
+            output_per_million: 15.0,
+        },
+    ),
+    (
+        "copilot_headless",
+        "claude-haiku-4",
+        ModelPricing {
+            input_per_million: 0.80,
+            output_per_million: 4.0,
+        },
+    ),
+    // Claude Code CLI — same models as copilot_headless
+    (
+        "claude_code",
+        "claude-opus-4",
+        ModelPricing {
+            input_per_million: 15.0,
+            output_per_million: 75.0,
+        },
+    ),
+    (
+        "claude_code",
+        "claude-sonnet-4",
+        ModelPricing {
+            input_per_million: 3.0,
+            output_per_million: 15.0,
+        },
+    ),
+    (
+        "claude_code",
+        "claude-haiku-4",
+        ModelPricing {
+            input_per_million: 0.80,
+            output_per_million: 4.0,
+        },
+    ),
+    // OpenAI API models
+    (
+        "openai_api",
+        "gpt-4o",
+        ModelPricing {
+            input_per_million: 2.50,
+            output_per_million: 10.0,
+        },
+    ),
+    (
+        "openai_api",
+        "gpt-4o-mini",
+        ModelPricing {
+            input_per_million: 0.15,
+            output_per_million: 0.60,
+        },
+    ),
 ];
 
 /// Look up pricing for a (provider, model) pair using prefix matching
