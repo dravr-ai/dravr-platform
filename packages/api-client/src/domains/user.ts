@@ -116,6 +116,19 @@ export function createUserApi(axios: AxiosInstance) {
       return response.data;
     },
 
+    // ==================== ANALYTICS CONSENT ====================
+
+    /**
+     * Update analytics consent preference.
+     */
+    async updateAnalyticsConsent(enabled: boolean): Promise<{ message: string; enabled: boolean }> {
+      const response = await axios.put<{ message: string; enabled: boolean }>(
+        ENDPOINTS.USER.ANALYTICS_CONSENT,
+        { enabled }
+      );
+      return response.data;
+    },
+
     // ==================== MCP TOKENS ====================
 
     /**

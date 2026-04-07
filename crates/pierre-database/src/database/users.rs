@@ -73,8 +73,9 @@ impl Database {
                 INSERT INTO users (
                     id, email, display_name, password_hash, tier,
                     is_active, user_status, is_admin, approved_by, approved_at,
-                    created_at, last_active, firebase_uid, auth_provider
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    created_at, last_active, firebase_uid, auth_provider,
+                    analytics_consent, analytics_consent_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 ",
             )
             .bind(user.id.to_string())
@@ -91,6 +92,8 @@ impl Database {
             .bind(user.last_active)
             .bind(&user.firebase_uid)
             .bind(&user.auth_provider)
+            .bind(user.analytics_consent)
+            .bind(user.analytics_consent_at)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -122,7 +125,8 @@ impl Database {
         let query = r"
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
                    u.is_active, u.user_status, u.is_admin, u.approved_by, u.approved_at,
-                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider
+                   u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
+                   u.analytics_consent, u.analytics_consent_at
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -181,7 +185,8 @@ impl Database {
             r"
             SELECT id, email, display_name, password_hash, tier,
                    is_active, user_status, is_admin, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider
+                   created_at, last_active, firebase_uid, auth_provider,
+                   analytics_consent, analytics_consent_at
             FROM users WHERE {field} = $1
             "
         );
@@ -224,6 +229,10 @@ impl Database {
             .try_get("auth_provider")
             .ok()
             .unwrap_or_else(|| "email".to_owned());
+        // Analytics consent - default to opted-out if columns are missing (migration may not have run)
+        let analytics_consent: bool = row.try_get("analytics_consent").unwrap_or(false);
+        let analytics_consent_at: Option<chrono::DateTime<chrono::Utc>> =
+            row.try_get("analytics_consent_at").ok().flatten();
 
         // Derive role from explicit role column if present, otherwise from is_admin.
         // If is_admin is true but role says 'user' (e.g. seeder omitted role column
@@ -274,6 +283,8 @@ impl Database {
             last_active,
             firebase_uid,
             auth_provider,
+            analytics_consent,
+            analytics_consent_at,
         })
     }
 
@@ -559,7 +570,8 @@ impl Database {
             let query = r"
                 SELECT id, email, display_name, password_hash, tier, tenant_id,
                        is_active, user_status, is_admin, approved_by, approved_at,
-                       created_at, last_active, firebase_uid, auth_provider
+                       created_at, last_active, firebase_uid, auth_provider,
+                       analytics_consent, analytics_consent_at
                 FROM users
                 WHERE user_status = ?1
                   AND (created_at < ?2 OR (created_at = ?2 AND id < ?3))
@@ -572,7 +584,8 @@ impl Database {
             let query = r"
                 SELECT id, email, display_name, password_hash, tier, tenant_id,
                        is_active, user_status, is_admin, approved_by, approved_at,
-                       created_at, last_active, firebase_uid, auth_provider
+                       created_at, last_active, firebase_uid, auth_provider,
+                       analytics_consent, analytics_consent_at
                 FROM users
                 WHERE user_status = ?1
                 ORDER BY created_at DESC, id DESC
@@ -929,6 +942,37 @@ impl Database {
             .ok_or_else(|| AppError::not_found("User after display name update"))
     }
 
+    /// Update user's analytics consent preference
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user is not found or database update fails
+    pub async fn update_analytics_consent_impl(
+        &self,
+        user_id: Uuid,
+        enabled: bool,
+    ) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET
+                analytics_consent = ?1,
+                analytics_consent_at = CURRENT_TIMESTAMP
+            WHERE id = ?2
+            ",
+        )
+        .bind(enabled)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update analytics consent: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        Ok(())
+    }
+
     /// Update user's password hash
     ///
     /// # Errors
@@ -1022,6 +1066,9 @@ impl UserRepository for Database {
     }
     async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool> {
         Self::user_has_synthetic_activities_impl(self, user_id).await
+    }
+    async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
+        Self::update_analytics_consent_impl(self, user_id, enabled).await
     }
 }
 

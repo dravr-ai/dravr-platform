@@ -123,6 +123,9 @@ where
         auth_provider: row
             .try_get("auth_provider")
             .unwrap_or_else(|_| "email".to_owned()),
+        // Analytics consent - default to opted-out if columns are missing (migration may not have run)
+        analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+        analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
     })
 }
 

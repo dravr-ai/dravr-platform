@@ -31,6 +31,7 @@ use uuid::Uuid;
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::routes::messaging::linking::generate_link_code;
+use crate::services::analytics::{analytics, hash_id};
 use crate::services::chat_orchestration;
 use crate::services::usage_counter::UsageCounterService;
 
@@ -183,12 +184,18 @@ async fn consume_and_link(
     match execute_link_code(db, tenant_id, channel, sender_id, code).await {
         Ok(user_id) => {
             info!(channel = %channel, user_id = %user_id, channel_user_id = %sender_id, "Channel linked via deep link");
+            let hashed_tenant = hash_id(&tenant_id.to_string());
+            let hashed_user = hash_id(&user_id);
+            let hashed_channel_id = hash_id(&format!("{channel}:{sender_id}"));
+            analytics().alias(&hashed_channel_id, &hashed_user);
+            analytics().track_linking_completed(channel, &hashed_tenant, &hashed_user, "deep_link");
             "Your account has been linked successfully! You can now chat with Pierre \
              through this channel.\n\nType \"logout\" anytime to disconnect."
                 .to_owned()
         }
         Err(msg) => {
             warn!(error = %msg, "Channel linking failed");
+            analytics().track_linking_failed(channel, &hash_id(&tenant_id.to_string()), &msg);
             msg
         }
     }
@@ -310,6 +317,13 @@ async fn resolve_linked_session(
         "Created messaging session for linked user"
     );
 
+    analytics().track_session_started(
+        channel_type,
+        &hash_id(&tenant_id.to_string()),
+        &hash_id(&user_id),
+        true,
+    );
+
     Ok(Some(ResolvedSession {
         session_id,
         conversation: conversation_id,
@@ -414,6 +428,13 @@ async fn handle_logout(
         channel = %channel,
         sender_id = %sender_id,
         "User logged out from messaging channel"
+    );
+
+    analytics().track_session_dropped(
+        channel,
+        &hash_id(&tenant_id.to_string()),
+        &hash_id(sender_id),
+        "logout",
     );
 
     otp_reply(
@@ -882,6 +903,12 @@ async fn handle_otp_verification_step(
         "Account linked via in-chat OTP verification"
     );
 
+    let hashed_tenant = hash_id(&params.tenant_id.to_string());
+    let hashed_user = hash_id(&user.id.to_string());
+    let hashed_channel_id = hash_id(&format!("{}:{}", params.channel, params.sender_id));
+    analytics().alias(&hashed_channel_id, &hashed_user);
+    analytics().track_linking_completed(params.channel, &hashed_tenant, &hashed_user, "otp");
+
     otp_reply(
         params.channel_type,
         params.sender_id,
@@ -1069,6 +1096,9 @@ async fn try_handle_slash_command(
         // for DM platforms — same logic as the LLM dispatch path
         let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
 
+        let hashed_tenant = hash_id(&user_tenant.to_string());
+        let hashed_user = hash_id(&session.user_id);
+
         // Execute command
         match handler.execute(&ctx).await {
             Ok(response) => {
@@ -1077,6 +1107,13 @@ async fn try_handle_slash_command(
                     user_id = %session.user_id,
                     channel = %channel,
                     "Slash command executed"
+                );
+                analytics().track_command_executed(
+                    channel,
+                    &hashed_tenant,
+                    &hashed_user,
+                    &parsed.name,
+                    true,
                 );
                 Some(OutgoingMessage {
                     channel_type,
@@ -1089,6 +1126,13 @@ async fn try_handle_slash_command(
                 })
             }
             Err(e) => {
+                analytics().track_command_executed(
+                    channel,
+                    &hashed_tenant,
+                    &hashed_user,
+                    &parsed.name,
+                    false,
+                );
                 warn!(
                     command = %parsed.name,
                     error = %e,
@@ -1129,9 +1173,13 @@ async fn persist_single_message(
 ) -> Result<PersistOutcome, ()> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
 
+    let hashed_tenant = hash_id(&tenant_id.to_string());
+    let hashed_sender = hash_id(&format!("{channel}:{}", message.sender_id));
+
     // Check for linking commands (`Telegram` /start, `WhatsApp` LINK)
     if let LinkingAction::LinkCode(code) = detect_linking_code(channel_type, &message.content) {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
+        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "link_code");
         let mut response =
             handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
         apply_conversation_recipient(&mut response, message.conversation_id.as_deref());
@@ -1150,6 +1198,7 @@ async fn persist_single_message(
     )
     .await
     {
+        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "otp_flow");
         let mut otp_response = otp_response;
         apply_conversation_recipient(&mut otp_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
@@ -1158,6 +1207,7 @@ async fn persist_single_message(
 
     // Check for logout command: unlink channel and destroy session
     if is_logout_command(&message.content) {
+        analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "logout");
         let logout_response = handle_logout(
             resources,
             tenant_id,
@@ -1212,6 +1262,15 @@ async fn persist_single_message(
         return Err(());
     }
 
+    let hashed_user = hash_id(&session.user_id);
+    analytics().track_message_received(
+        channel,
+        &hashed_tenant,
+        &hashed_user,
+        content_type_label(&message.content),
+    );
+    analytics().track_intent(channel, &hashed_tenant, &hashed_user, "normal_chat");
+
     // Resolve the user's own tenant for tool execution (OAuth, activities, etc.).
     // The webhook tenant is the bot's tenant (channel config), but the user may
     // belong to a different tenant. Tool execution must use the user's tenant so
@@ -1257,6 +1316,13 @@ async fn send_unlinked_user_prompt(
     adapter: &Arc<dyn MessagingChannel>,
     message: &IncomingMessage,
 ) {
+    let prompt_type = if resources.email_service.is_some() {
+        "otp"
+    } else {
+        "link_url"
+    };
+    analytics().track_unlinked_prompted(channel, &hash_id(&tenant_id.to_string()), prompt_type);
+
     let mut prompt = if resources.email_service.is_some() {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
         start_otp_flow(
@@ -1411,6 +1477,8 @@ async fn resolve_user_tenant(
 /// Runs as a background task after the webhook has returned HTTP 200.
 pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let start = Instant::now();
+    let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
+    let hashed_user = hash_id(&dispatch.session.user_id);
 
     let dispatch_result = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
         &dispatch.resources,
@@ -1429,6 +1497,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
                 conversation_id = %dispatch.session.conversation,
                 "LLM dispatch failed for messaging"
             );
+            analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
             return;
         }
     };
@@ -1436,6 +1505,15 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
     #[allow(clippy::cast_possible_truncation)]
     let execution_time_ms = start.elapsed().as_millis() as u64;
+
+    analytics().track_bot_response(
+        &dispatch.channel,
+        &hashed_tenant,
+        &hashed_user,
+        "llm",
+        execution_time_ms,
+        &dispatch_result.model,
+    );
 
     // Record LLM usage for cost tracking and quota enforcement
     record_messaging_llm_usage(&dispatch, &dispatch_result, execution_time_ms).await;

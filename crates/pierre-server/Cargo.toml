@@ -81,6 +81,7 @@ postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/pos
 testing = []
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]
 toon = ["dep:toon-format"]
+analytics-posthog = ["dep:posthog-rs"]
 
 # Provider feature flags - forwarded to pierre-providers crate
 provider-strava = ["pierre-providers/provider-strava"]
@@ -204,12 +205,12 @@ contremaitre = []  # GitHub-backed prompt registry with webhook hot-reload
 # ═══════════════════════════════════════════════════════════════
 # SERVER PROFILES
 # ═══════════════════════════════════════════════════════════════
-server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync", "contremaitre"]
-server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon", "contremaitre"]
+server-full = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "all-providers", "tools-all", "toon", "health-sync", "contremaitre", "analytics-posthog"]
+server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "production-providers", "tools-all", "toon", "contremaitre", "analytics-posthog"]
 server-mcp-stdio = ["protocol-mcp", "transport-stdio", "oauth", "all-providers", "tools-all"]
 server-mcp-bridge = ["protocol-mcp", "protocol-a2a", "transport-web", "oauth", "all-providers", "tools-all"]
 server-mobile-backend = ["protocol-rest", "protocol-mcp", "client-mobile", "client-settings", "client-store", "oauth", "all-providers", "tools-all"]
-server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all"]
+server-saas-full = ["protocol-rest", "protocol-mcp", "transport-web", "client-web", "client-admin", "client-messaging", "oauth", "all-providers", "tools-all", "analytics-posthog"]
 
 # OpenAPI documentation (SwaggerUI) - excluded from production by default
 # Enable with: cargo build --features openapi
@@ -311,6 +312,8 @@ utoipa-axum = { version = "0.2", optional = true }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 cron = "0.15.0"
+# Product analytics — optional PostHog integration for messaging funnel tracking
+posthog-rs = { version = "0.5", optional = true }
 
 [dev-dependencies]
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.14.10" }
