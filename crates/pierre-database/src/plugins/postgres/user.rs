@@ -384,21 +384,7 @@ impl UserRepository for PostgresDatabase {
 
         // Pending users have no tenant_users entry (assigned on approval),
         // so skip the tenant join for pending status to avoid excluding them.
-        let rows = if status_enum == "pending" || tenant_id.is_none() {
-            sqlx::query(
-                r"
-                SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
-                       role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
-                       created_at, last_active, firebase_uid, auth_provider
-                FROM users
-                WHERE COALESCE(user_status, 'active') = $1
-                ORDER BY created_at DESC
-                ",
-            )
-            .bind(status_enum)
-            .fetch_all(&self.pool)
-            .await
-        } else {
+        let rows = if let (Some(tid), false) = (&tenant_id, status_enum == "pending") {
             sqlx::query(
                 r"
                 SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
@@ -413,7 +399,21 @@ impl UserRepository for PostgresDatabase {
                 ",
             )
             .bind(status_enum)
-            .bind(tenant_id.expect("checked above").0)
+            .bind(tid.0)
+            .fetch_all(&self.pool)
+            .await
+        } else {
+            sqlx::query(
+                r"
+                SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
+                       role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
+                       created_at, last_active, firebase_uid, auth_provider
+                FROM users
+                WHERE COALESCE(user_status, 'active') = $1
+                ORDER BY created_at DESC
+                ",
+            )
+            .bind(status_enum)
             .fetch_all(&self.pool)
             .await
         }

@@ -1,8 +1,9 @@
 // ABOUTME: Provider data refresh service orchestrating on-demand and on-chat sync triggers
 // ABOUTME: Checks data freshness per provider, delegates to enforme SyncOrchestrator, sends SSE notifications
 
+use std::fmt::Write as _;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use pierre_core::models::{
@@ -11,6 +12,11 @@ use pierre_core::models::{
 use pierre_database::RepositoryRegistry;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
+
+#[cfg(feature = "health-sync")]
+use dravr_enforme::models::connection::ConnectedUser;
+#[cfg(feature = "health-sync")]
+use tokio::task::AbortHandle;
 
 use crate::sse::SseManager;
 
@@ -112,18 +118,15 @@ impl RefreshService {
                 continue;
             }
 
-            let age = pf
-                .last_sync_at
-                .map(|ts| {
-                    let delta = Utc::now().signed_duration_since(ts);
-                    if delta.num_seconds() < 0 {
-                        Duration::ZERO
-                    } else {
-                        #[allow(clippy::cast_sign_loss)]
-                        Duration::from_secs(delta.num_seconds() as u64)
-                    }
-                })
-                .unwrap_or(Duration::from_secs(u64::MAX));
+            let age = pf.last_sync_at.map_or(Duration::from_secs(u64::MAX), |ts| {
+                let delta = Utc::now().signed_duration_since(ts);
+                if delta.num_seconds() < 0 {
+                    Duration::ZERO
+                } else {
+                    #[allow(clippy::cast_sign_loss)]
+                    Duration::from_secs(delta.num_seconds() as u64)
+                }
+            });
 
             if config.should_refresh_on_chat(age) {
                 self.spawn_provider_sync(user_id, tenant_id, pf.provider.clone());
@@ -195,14 +198,11 @@ impl RefreshService {
             "Provider data freshness — some data may not reflect the user's most recent activities:\n",
         );
         for pf in &stale_providers {
-            let age_str = pf
-                .last_sync_at
-                .map(|ts| format_age(Utc::now().signed_duration_since(ts)))
-                .unwrap_or_else(|| "never synced".to_owned());
-            hint.push_str(&format!(
-                "- {}: {} ({})\n",
-                pf.provider, pf.freshness, age_str
-            ));
+            let age_str = pf.last_sync_at.map_or_else(
+                || "never synced".to_owned(),
+                |ts| format_age(Utc::now().signed_duration_since(ts)),
+            );
+            let _ = writeln!(hint, "- {}: {} ({})", pf.provider, pf.freshness, age_str);
         }
 
         Some(hint)
@@ -400,10 +400,11 @@ pub fn start_scheduled_sync(
     orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
     repos: Arc<RepositoryRegistry>,
     sse_manager: Arc<SseManager>,
-) -> tokio::task::AbortHandle {
+) -> AbortHandle {
     use dravr_enforme::orchestrator::scheduler::with_jitter;
+    use tokio::time::sleep;
 
-    let poll_interval = std::time::Duration::from_secs(orchestrator.config().poll_interval_secs);
+    let poll_interval = Duration::from_secs(orchestrator.config().poll_interval_secs);
 
     let handle = tokio::spawn(async move {
         info!(
@@ -413,7 +414,7 @@ pub fn start_scheduled_sync(
 
         loop {
             let sleep_duration = with_jitter(poll_interval);
-            tokio::time::sleep(sleep_duration).await;
+            sleep(sleep_duration).await;
 
             run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager).await;
         }
@@ -445,7 +446,7 @@ async fn run_scheduled_sync_cycle(
                     error = %e,
                     "Failed to list connected users for scheduled sync"
                 );
-                SYNC_FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                SYNC_FAILURES.fetch_add(1, Ordering::Relaxed);
                 continue;
             }
         };
@@ -454,76 +455,92 @@ async fn run_scheduled_sync_cycle(
             if !user.is_active {
                 continue;
             }
+            sync_single_user(orchestrator, repos, sse_manager, user, provider_name).await;
+        }
+    }
+}
 
-            let start = std::time::Instant::now();
-            match orchestrator.sync_user(&user.user_id, provider_name).await {
-                Ok(result) => {
-                    let elapsed = start.elapsed();
-                    SYNC_SUCCESSES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    record_sync_latency(elapsed);
+/// Sync a single user for a given provider, recording metrics and sending notifications.
+#[cfg(feature = "health-sync")]
+async fn sync_single_user(
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    repos: &Arc<RepositoryRegistry>,
+    sse_manager: &Arc<SseManager>,
+    user: &ConnectedUser,
+    provider_name: &str,
+) {
+    let start = Instant::now();
+    match orchestrator.sync_user(&user.user_id, provider_name).await {
+        Ok(result) => {
+            let elapsed = start.elapsed();
+            SYNC_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+            record_sync_latency(elapsed);
 
-                    info!(
-                        user_id = user.user_id,
-                        provider = provider_name,
-                        records_created = result.records_created,
-                        elapsed_ms = elapsed.as_millis() as u64,
-                        "Scheduled sync completed"
-                    );
+            info!(
+                user_id = user.user_id,
+                provider = provider_name,
+                records_created = result.records_created,
+                elapsed_ms = elapsed.as_millis() as u64,
+                "Scheduled sync completed"
+            );
 
-                    // Update last_sync timestamp on oauth tokens
-                    if let Ok(user_uuid) = user.user_id.parse::<Uuid>() {
-                        // Resolve tenant_id from the token
-                        if let Ok(tokens) = repos.oauth_tokens.get_tokens(user_uuid, None).await {
-                            if let Some(token) = tokens.iter().find(|t| t.provider == provider_name)
-                            {
-                                if let Ok(tid) =
-                                    token.tenant_id.parse::<pierre_core::models::TenantId>()
-                                {
-                                    let _ = repos
-                                        .oauth_tokens
-                                        .update_provider_last_sync(
-                                            user_uuid,
-                                            tid,
-                                            provider_name,
-                                            Utc::now(),
-                                        )
-                                        .await;
-                                }
-                            }
-                        }
-
-                        // SSE notify (best-effort, user may not have active stream)
-                        if result.records_created > 0 {
-                            let notification = OAuthNotification {
-                                id: Uuid::new_v4().to_string(),
-                                user_id: user.user_id.clone(),
-                                provider: provider_name.to_owned(),
-                                success: true,
-                                message: format!(
-                                    "Synced {} new records from {}",
-                                    result.records_created, provider_name
-                                ),
-                                expires_at: None,
-                                created_at: Utc::now(),
-                                read_at: None,
-                            };
-                            let _ = sse_manager
-                                .send_notification(user_uuid, &notification)
-                                .await;
-                        }
-                    }
-                }
-                Err(e) => {
-                    SYNC_FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    warn!(
-                        user_id = user.user_id,
-                        provider = provider_name,
-                        error = %e,
-                        "Scheduled sync failed"
-                    );
-                }
+            if let Ok(user_uuid) = user.user_id.parse::<Uuid>() {
+                update_last_sync_timestamp(repos, user_uuid, provider_name).await;
+                send_sync_notification(sse_manager, user_uuid, &user.user_id, provider_name, result.records_created).await;
             }
         }
+        Err(e) => {
+            SYNC_FAILURES.fetch_add(1, Ordering::Relaxed);
+            warn!(
+                user_id = user.user_id,
+                provider = provider_name,
+                error = %e,
+                "Scheduled sync failed"
+            );
+        }
+    }
+}
+
+/// Update the `last_sync` timestamp on the OAuth token for the given user and provider.
+#[cfg(feature = "health-sync")]
+async fn update_last_sync_timestamp(
+    repos: &Arc<RepositoryRegistry>,
+    user_uuid: Uuid,
+    provider_name: &str,
+) {
+    if let Ok(tokens) = repos.oauth_tokens.get_tokens(user_uuid, None).await {
+        if let Some(token) = tokens.iter().find(|t| t.provider == provider_name) {
+            if let Ok(tid) = token.tenant_id.parse::<TenantId>() {
+                let _ = repos
+                    .oauth_tokens
+                    .update_provider_last_sync(user_uuid, tid, provider_name, Utc::now())
+                    .await;
+            }
+        }
+    }
+}
+
+/// Send an SSE notification after a successful sync with new records.
+#[cfg(feature = "health-sync")]
+async fn send_sync_notification(
+    sse_manager: &Arc<SseManager>,
+    user_uuid: Uuid,
+    user_id_str: &str,
+    provider_name: &str,
+    records_created: u32,
+) {
+    if records_created > 0 {
+        let notification = OAuthNotification {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id_str.to_owned(),
+            provider: provider_name.to_owned(),
+            success: true,
+            message: format!("Synced {records_created} new records from {provider_name}"),
+            expires_at: None,
+            created_at: Utc::now(),
+            read_at: None,
+        };
+        let _ = sse_manager.send_notification(user_uuid, &notification).await;
     }
 }
 
@@ -531,7 +548,7 @@ async fn run_scheduled_sync_cycle(
 // Observability: sync metrics
 // ============================================================================
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Total successful sync operations since process start.
 static SYNC_SUCCESSES: AtomicU64 = AtomicU64::new(0);
@@ -546,18 +563,18 @@ static SYNC_LATENCY_SUM_MS: AtomicU64 = AtomicU64::new(0);
 static SYNC_LATENCY_MAX_MS: AtomicU64 = AtomicU64::new(0);
 
 /// Record a sync latency observation.
-fn record_sync_latency(elapsed: std::time::Duration) {
+fn record_sync_latency(elapsed: Duration) {
     let ms = elapsed.as_millis() as u64;
-    SYNC_LATENCY_SUM_MS.fetch_add(ms, std::sync::atomic::Ordering::Relaxed);
+    SYNC_LATENCY_SUM_MS.fetch_add(ms, Ordering::Relaxed);
 
     // Update max using CAS loop
-    let mut current = SYNC_LATENCY_MAX_MS.load(std::sync::atomic::Ordering::Relaxed);
+    let mut current = SYNC_LATENCY_MAX_MS.load(Ordering::Relaxed);
     while ms > current {
         match SYNC_LATENCY_MAX_MS.compare_exchange_weak(
             current,
             ms,
-            std::sync::atomic::Ordering::Relaxed,
-            std::sync::atomic::Ordering::Relaxed,
+            Ordering::Relaxed,
+            Ordering::Relaxed,
         ) {
             Ok(_) => break,
             Err(actual) => current = actual,
@@ -582,10 +599,10 @@ impl SyncMetrics {
     /// Capture current metric values.
     #[must_use]
     pub fn snapshot() -> Self {
-        let successes = SYNC_SUCCESSES.load(std::sync::atomic::Ordering::Relaxed);
-        let failures = SYNC_FAILURES.load(std::sync::atomic::Ordering::Relaxed);
-        let latency_sum = SYNC_LATENCY_SUM_MS.load(std::sync::atomic::Ordering::Relaxed);
-        let max_latency = SYNC_LATENCY_MAX_MS.load(std::sync::atomic::Ordering::Relaxed);
+        let successes = SYNC_SUCCESSES.load(Ordering::Relaxed);
+        let failures = SYNC_FAILURES.load(Ordering::Relaxed);
+        let latency_sum = SYNC_LATENCY_SUM_MS.load(Ordering::Relaxed);
+        let max_latency = SYNC_LATENCY_MAX_MS.load(Ordering::Relaxed);
 
         let total = successes + failures;
         let avg_latency_ms = if total > 0 { latency_sum / total } else { 0 };

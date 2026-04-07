@@ -730,7 +730,7 @@ impl ToolRegistry {
         );
     }
 
-    /// Register sync/refresh tools (refresh_provider_data, get_data_freshness)
+    /// Register sync/refresh tools (`refresh_provider_data`, `get_data_freshness`)
     #[cfg(feature = "tools-connection")]
     fn register_sync_tools(&mut self) {
         use super::implementations::sync::create_sync_tools;
