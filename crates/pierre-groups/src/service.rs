@@ -140,9 +140,22 @@ impl GroupService {
             .await
             .unwrap_or(0) as usize;
 
-        // Build summary cards from snapshots
+        // Build summary cards from snapshots.
+        // When peer_data_sharing is OFF and the requester is not an admin,
+        // restrict to only the requesting user's snapshot. Passing other
+        // members' data to the LLM — even with a "don't mention it"
+        // instruction — leads to hallucinated comparisons.
         let summarizer = self.tier.summarization_strategy();
-        let cards: Vec<MemberSummaryCard> = member_snapshots
+        let peer_sharing_allowed = is_admin || group.peer_data_sharing;
+        let visible_snapshots: Vec<&MemberFitnessSnapshot> = if peer_sharing_allowed {
+            member_snapshots.iter().collect()
+        } else {
+            member_snapshots
+                .iter()
+                .filter(|s| s.user_id == user_id)
+                .collect()
+        };
+        let cards: Vec<MemberSummaryCard> = visible_snapshots
             .iter()
             .map(|s| summarizer.summarize_member(s))
             .collect();

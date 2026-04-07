@@ -1443,6 +1443,17 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // Increment usage counters (message count, token count, tool call count)
     increment_messaging_usage_counters(&dispatch, &dispatch_result).await;
 
+    // Guard: skip sending empty responses. The LLM occasionally returns empty
+    // content (e.g., when the input is too technical or the context is exhausted).
+    // Telegram rejects empty message text with HTTP 400.
+    if dispatch_result.content.trim().is_empty() {
+        warn!(
+            conversation_id = %dispatch.session.conversation,
+            "LLM returned empty response, skipping outbound send"
+        );
+        return;
+    }
+
     // Use conversation_id (channel/chat/thread) as the reply target when available;
     // fall back to sender_id for DM-only platforms (e.g., WhatsApp)
     let reply_target = dispatch
