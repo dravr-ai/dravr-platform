@@ -312,7 +312,6 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
    This runs:
    - Tier 0: Code formatting check
    - Tier 1: Architectural validation
-   - Tier 1.5: Strict clippy (`-p pierre_mcp_server --all-targets --all-features -- -D warnings`, matches CI)
    - Tier 2: Schema validation
    - Tier 3: Targeted tests (smart selection based on changed files)
    - Tier 4-6: Frontend/SDK/Mobile tests (if those files changed)
@@ -336,7 +335,6 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
 
 ### Important Notes
 
-- **Clippy IS run by `pre-push-validate.sh`** as Tier 1.5 — matches CI (`-p pierre_mcp_server --all-targets --all-features -- -D warnings`). Adds ~1-2 min but catches pedantic lints that per-crate clippy misses when modules span crates.
 - If validation expires or commit changes, re-run `./scripts/ci/pre-push-validate.sh`
 - To bypass (NOT RECOMMENDED): `git push --no-verify`
 
@@ -350,7 +348,10 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
 
 1. Run `./scripts/ci/pre-push-validate.sh` to create the validation marker
 2. Check CI status to avoid queueing redundant workflows (see "CI Monitoring" below)
-3. After push: monitor CI for failures (see "CI Monitoring" below)
+
+### After Pushing
+
+**CRITICAL: Monitor CI until green.** After every push of Rust code, watch the "CI: Backend (Rust)" workflow using `gh run watch`. If clippy or any check fails, fix immediately and push again. Do not move on to the next task until CI is green.
 
 ### CI Monitoring
 
@@ -384,7 +385,7 @@ The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` 
 - Commit without AI assistant-related commit messages. Do not reference AI assistance in git commits.
 - Do not add AI-generated commit text in commit messages
 - Always create a branch when adding new features. Bug fixes go directly to main branch.
-- always run validation after making changes: cargo fmt, then ./scripts/ci/architectural-validation.sh, then clippy strict mode, then TARGETED tests (see "Tiered Validation Approach")
+- always run validation after making changes: cargo fmt, then ./scripts/ci/architectural-validation.sh, then TARGETED tests (see "Tiered Validation Approach")
 - avoid #[cfg(test)] in the src code. Only in tests
 
 ## Security Engineering Rules
@@ -445,8 +446,6 @@ Everything else, including all read-only operations and analysis tools, can be r
 
 ### IMPORTANT: Test Suite Timing Context
 - Full test suite: ~13 minutes (3,462 tests across 238 test binaries, 234 test files)
-- Full clippy with tests: ~2 minutes
-- Clippy without tests: ~2.5 minutes
 - **DO NOT run `cargo test` without targeting** - use targeted tests during development
 
 ### Tiered Validation Approach
@@ -475,43 +474,11 @@ cargo fmt
 # 2. Architectural validation
 ./scripts/ci/architectural-validation.sh
 
-# 3. Clippy — ONLY the crate(s) you actually changed
-# Cargo.toml defines all lint levels - no CLI flags needed
-#
-# IMPORTANT: Run clippy ONLY on crates with actual changes.
-# Do NOT run clippy on pierre_mcp_server if you only changed pierre-core.
-# Each crate is independent — linting an unchanged crate wastes minutes.
-#
-# Pick ONE (or more if you changed multiple crates):
-cargo clippy -p pierre-core              # models, errors, config, redaction
-cargo clippy -p pierre-intelligence      # metrics, algorithms
-cargo clippy -p pierre-providers         # Strava, Garmin, etc.
-cargo clippy -p pierre-llm              # LLM providers (Gemini, Groq, Ollama)
-cargo clippy -p pierre-cache            # cache layer (memory, Redis)
-cargo clippy -p pierre-a2a             # A2A protocol types
-cargo clippy -p pierre_mcp_server        # main crate (routes, handlers, etc.)
-#
-# Add --all-targets ONLY if test files in that crate changed:
-cargo clippy -p <changed-crate> --all-targets
-
-# 4. Run TARGETED tests for changed modules (ALWAYS use --test)
+# 3. Run TARGETED tests for changed modules (ALWAYS use --test)
 cargo test --test <test_file> <test_pattern> -- --nocapture
 ```
 
-**CRITICAL: Clippy scope must match change scope during iteration.** If you only changed `pierre-core`, run `cargo clippy -p pierre-core` — do NOT also run `cargo clippy -p pierre_mcp_server`. The main crate takes minutes to lint; leaf crates take seconds. Only lint what you changed during development. Use `--all-targets` when test files in that crate changed.
-
-**The final gate is `./scripts/ci/pre-push-validate.sh`** which runs `cargo clippy -p pierre_mcp_server --all-targets --all-features -- -D warnings` (Tier 1.5) — this matches CI and catches pedantic lints that per-crate clippy misses.
-
-#### Tier 3: Full Validation (before PR/merge only)
-Run the full suite only when preparing a PR or merging:
-```bash
-./scripts/ci/lint-and-test.sh
-# OR manually:
-cargo fmt
-./scripts/ci/architectural-validation.sh
-cargo clippy --workspace --all-targets
-cargo test
-```
+**Clippy is NOT run locally.** CI runs strict clippy on every push. After pushing, monitor CI (see "After Pushing" below) and fix any clippy failures before moving on.
 
 ### Test Targeting Patterns
 
