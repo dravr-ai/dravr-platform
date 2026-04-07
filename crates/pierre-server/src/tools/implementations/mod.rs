@@ -75,3 +75,7 @@ pub mod mobility;
 // Store tools: browse_store, search_store, install_coach, uninstall_coach
 #[cfg(feature = "tools-store")]
 pub mod store;
+
+/// Sync tools: refresh_provider_data, get_data_freshness
+#[cfg(feature = "tools-connection")]
+pub mod sync;

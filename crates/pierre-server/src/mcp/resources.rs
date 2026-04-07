@@ -303,9 +303,6 @@ impl ServerResources {
         let database_arc = Arc::new(database);
         let repos = Arc::new(database_arc.repositories());
 
-        #[cfg(feature = "health-sync")]
-        let (sync_orchestrator, sync_scheduler_abort_handle) = Self::init_health_sync(&repos);
-
         let auth_manager_arc = Arc::new(auth_manager);
 
         // Create tenant OAuth client and provider registry once
@@ -352,6 +349,11 @@ impl ServerResources {
         // Create SSE manager with configured buffer size
         #[cfg(feature = "transport-sse")]
         let sse_manager = Arc::new(SseManager::new(config.sse.max_buffer_size));
+
+        // Initialize health data sync with Pierre-aware scheduler (needs sse_manager)
+        #[cfg(feature = "health-sync")]
+        let (sync_orchestrator, sync_scheduler_abort_handle) =
+            Self::init_health_sync(&repos, &sse_manager);
 
         // Create auth middleware after jwks_manager is initialized
         let auth_middleware = Arc::new(McpAuthMiddleware::new(
@@ -530,20 +532,29 @@ impl ServerResources {
         Arc::new(service)
     }
 
-    /// Initialize the health data sync orchestrator and start its background scheduler.
+    /// Initialize the health data sync orchestrator and start the Pierre-aware scheduler.
+    ///
+    /// Uses Pierre's `start_scheduled_sync` instead of enforme's built-in scheduler
+    /// to add post-sync behaviors: `last_sync` updates and SSE notifications.
     ///
     /// Returns the orchestrator and the abort handle for the scheduler task.
     #[cfg(feature = "health-sync")]
     fn init_health_sync(
         repos: &Arc<RepositoryRegistry>,
+        sse_manager: &Arc<SseManager>,
     ) -> (Arc<dravr_enforme::SyncOrchestrator>, AbortHandle) {
         use crate::services::health_sync::PierreSyncStorage;
+        use crate::services::provider_refresh::start_scheduled_sync;
 
         let adapter = PierreSyncStorage::new(Arc::clone(repos));
         let orchestrator = adapter.into_orchestrator();
-        let join_handle = Arc::clone(&orchestrator).start_scheduler();
-        info!("Health data sync scheduler started");
-        (orchestrator, join_handle.abort_handle())
+        let abort_handle = start_scheduled_sync(
+            Arc::clone(&orchestrator),
+            Arc::clone(repos),
+            Arc::clone(sse_manager),
+        );
+        info!("Health data sync scheduler started (Pierre-aware)");
+        (orchestrator, abort_handle)
     }
 
     /// Create and initialize the tool registry with all built-in tools

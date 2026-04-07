@@ -633,6 +633,56 @@ pub(super) async fn handle_disconnect_provider_rest(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+/// Trigger a data sync for a specific provider.
+///
+/// POST /api/providers/{provider}/sync
+///
+/// Starts a background sync and returns immediately with status.
+/// Optionally blocks if `?wait=true` query parameter is provided.
+pub(super) async fn handle_sync_provider(
+    State(resources): State<Arc<ServerResources>>,
+    Path(provider): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let auth_result = resources
+        .auth_middleware
+        .authenticate_request_with_headers(&headers)
+        .await?;
+
+    let user_id = auth_result.user_id;
+    let tenant_id = auth_result
+        .active_tenant_id
+        .ok_or_else(|| AppError::auth_invalid("Tenant context required for sync"))?;
+    let wait = params.get("wait").is_some_and(|v| v == "true");
+
+    info!(
+        user_id = %user_id,
+        provider = %provider,
+        wait = %wait,
+        "REST-triggered provider sync"
+    );
+
+    let refresh_service = crate::services::provider_refresh::RefreshService::new(
+        resources.repos.clone(),
+        #[cfg(feature = "health-sync")]
+        resources.sync_orchestrator.clone(),
+        resources.sse_manager.clone(),
+    );
+
+    let result = refresh_service
+        .refresh_provider(user_id, TenantId::from(tenant_id), &provider, wait)
+        .await;
+
+    Ok(Json(json!({
+        "provider": result.provider,
+        "success": result.success,
+        "message": result.message,
+        "records_synced": result.records_synced,
+    }))
+    .into_response())
+}
+
 /// Spawn background health data backfill after a successful OAuth connection.
 ///
 /// Triggers a 30-day backfill via the sync orchestrator so the user gets

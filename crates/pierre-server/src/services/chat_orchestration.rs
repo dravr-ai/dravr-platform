@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_core::models::RefreshConfig;
 use pierre_core::uuid_utils::parse_uuid;
 use std::sync::Arc;
 
@@ -294,6 +295,9 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
             .unwrap_or(base_prompt)
     };
 
+    // Trigger non-blocking provider refresh for stale data and inject freshness hint.
+    let base_prompt = inject_refresh_context(resources, user_id, tool_tenant_id, base_prompt).await;
+
     let system_prompt = format!("{base_prompt}\n\n{}", resources.messaging_context_prompt());
     let mut llm_messages = build_llm_messages(Some(&system_prompt), &history);
 
@@ -345,6 +349,45 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         model: conv.model,
         provider_name,
     })
+}
+
+/// Check provider data freshness, trigger background refresh for stale providers,
+/// and append a freshness hint to the system prompt so the coach is aware.
+async fn inject_refresh_context(
+    resources: &Arc<ServerResources>,
+    user_id: &str,
+    tenant_id: TenantId,
+    base_prompt: String,
+) -> String {
+    let config = RefreshConfig::default();
+    if !config.on_chat_enabled {
+        return base_prompt;
+    }
+
+    let user_uuid = match parse_uuid(user_id) {
+        Ok(uuid) => uuid,
+        Err(_) => return base_prompt,
+    };
+
+    let refresh_service = super::provider_refresh::RefreshService::new(
+        resources.repos.clone(),
+        #[cfg(feature = "health-sync")]
+        resources.sync_orchestrator.clone(),
+        resources.sse_manager.clone(),
+    );
+
+    let status = refresh_service
+        .check_and_refresh(user_uuid, tenant_id, &config)
+        .await;
+
+    if !config.inject_coach_hint {
+        return base_prompt;
+    }
+
+    match super::provider_refresh::RefreshService::build_coach_hint(&status.details) {
+        Some(hint) => format!("{base_prompt}\n\n{hint}"),
+        None => base_prompt,
+    }
 }
 
 /// Build LLM messages from conversation history and optional system prompt

@@ -102,6 +102,11 @@ impl AuthRoutes {
             .route(
                 "/api/oauth/providers/{provider}/disconnect",
                 delete(oauth::handle_disconnect_provider_rest),
+            )
+            // Trigger provider data sync (requires auth)
+            .route(
+                "/api/providers/{provider}/sync",
+                post(oauth::handle_sync_provider),
             );
 
         // Sciotte provider routes (credential login + session management)
