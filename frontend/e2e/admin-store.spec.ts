@@ -251,14 +251,23 @@ test.describe('Admin Store Stats Dashboard', () => {
 
     await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
 
-    // Each stat card has a label (text-sm) and value (text-2xl) — scope assertions to the card
-    const publishedCard = page.locator('button, div').filter({ hasText: 'Published Coaches' });
+    // Locate each stat card via its label, go up to the card container, check value
+    const publishedCard = page
+      .locator('.text-sm.text-zinc-400')
+      .filter({ hasText: 'Published Coaches' })
+      .locator('xpath=..');
     await expect(publishedCard.locator('.text-2xl')).toHaveText('12', { timeout: 10000 });
 
-    const installsCard = page.locator('button, div').filter({ hasText: 'Total Installs' });
+    const installsCard = page
+      .locator('.text-sm.text-zinc-400')
+      .filter({ hasText: 'Total Installs' })
+      .locator('xpath=..');
     await expect(installsCard.locator('.text-2xl')).toHaveText('150');
 
-    const rejectionCard = page.locator('button, div').filter({ hasText: 'Rejection Rate' });
+    const rejectionCard = page
+      .locator('.text-sm.text-zinc-400')
+      .filter({ hasText: 'Rejection Rate' })
+      .locator('xpath=..');
     await expect(rejectionCard.locator('.text-2xl')).toHaveText('20.0%');
   });
 });
