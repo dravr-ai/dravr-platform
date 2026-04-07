@@ -11,14 +11,16 @@
 //! system to give the AI coach data-driven group advice.
 
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
-use tracing::debug;
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::intelligence::TrainingLoadCalculator;
@@ -31,6 +33,277 @@ const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
 /// Maximum activities to fetch per user for snapshot computation
 const MAX_ACTIVITIES_PER_USER: usize = 200;
+
+/// Default time window (minutes) for considering two activities as duplicates
+const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
+
+/// Default distance tolerance (percentage) for duplicate detection
+const DEFAULT_DEDUP_DISTANCE_TOLERANCE_PCT: f64 = 10.0;
+
+// ══════════════════════════════════════════════════════════════
+// Activity Deduplication
+// ══════════════════════════════════════════════════════════════
+
+/// Pluggable strategy for deduplicating activities from multiple providers.
+///
+/// When a user connects multiple providers (e.g., Strava + Garmin), the same
+/// workout may appear from both sources. Implementations decide how to detect
+/// and resolve these overlaps.
+pub(crate) trait ActivityDeduplicator: Send + Sync {
+    /// Remove duplicate activities, keeping the best version of each.
+    fn deduplicate(&self, activities: Vec<Activity>) -> Vec<Activity>;
+}
+
+/// Deduplicates activities using time proximity, sport type, and distance similarity.
+///
+/// Configuration loaded from environment:
+/// - `ACTIVITY_DEDUP_TIME_WINDOW_MINUTES` — max minutes between start times (default: 15)
+/// - `ACTIVITY_DEDUP_DISTANCE_TOLERANCE_PCT` — max distance difference percentage (default: 10)
+pub(crate) struct TimeWindowDeduplicator {
+    time_window_minutes: i64,
+    distance_tolerance_pct: f64,
+}
+
+impl TimeWindowDeduplicator {
+    /// Create from environment variables with defaults.
+    pub(crate) fn from_env() -> Self {
+        let time_window_minutes = env::var("ACTIVITY_DEDUP_TIME_WINDOW_MINUTES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_DEDUP_TIME_WINDOW_MINUTES);
+
+        let distance_tolerance_pct = env::var("ACTIVITY_DEDUP_DISTANCE_TOLERANCE_PCT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_DEDUP_DISTANCE_TOLERANCE_PCT);
+
+        Self {
+            time_window_minutes,
+            distance_tolerance_pct,
+        }
+    }
+
+    /// Check if two activities from different providers are likely the same workout.
+    fn is_likely_duplicate(&self, a: &Activity, b: &Activity) -> bool {
+        // Same provider can't produce cross-provider duplicates
+        if a.provider() == b.provider() {
+            return false;
+        }
+
+        // Time proximity check
+        let time_diff = (a.start_date() - b.start_date()).num_minutes().abs();
+        if time_diff > self.time_window_minutes {
+            return false;
+        }
+
+        // Sport type must match
+        if a.sport_type() != b.sport_type() {
+            return false;
+        }
+
+        // Distance proximity (when both have distance data)
+        match (a.distance_meters(), b.distance_meters()) {
+            (Some(da), Some(db)) => {
+                let max = da.max(db);
+                max > 0.0 && (da - db).abs() / max * 100.0 < self.distance_tolerance_pct
+            }
+            // Both missing distance — trust the time+sport match
+            _ => true,
+        }
+    }
+
+    /// Pick the better version of two duplicate activities.
+    /// Prefers the one with more data (distance present, longer duration).
+    fn pick_best(a: &Activity, b: &Activity) -> usize {
+        let a_has_distance = a.distance_meters().is_some_and(|d| d > 0.0);
+        let b_has_distance = b.distance_meters().is_some_and(|d| d > 0.0);
+
+        if a_has_distance && !b_has_distance {
+            return 0;
+        }
+        if b_has_distance && !a_has_distance {
+            return 1;
+        }
+
+        // Both have or both lack distance — prefer longer duration
+        usize::from(a.duration_seconds() < b.duration_seconds())
+    }
+}
+
+impl ActivityDeduplicator for TimeWindowDeduplicator {
+    fn deduplicate(&self, mut activities: Vec<Activity>) -> Vec<Activity> {
+        if activities.len() < 2 {
+            return activities;
+        }
+
+        // Sort by start time for efficient comparison
+        activities.sort_by_key(Activity::start_date);
+
+        let mut keep = vec![true; activities.len()];
+        for i in 0..activities.len() {
+            if !keep[i] {
+                continue;
+            }
+            for j in (i + 1)..activities.len() {
+                if !keep[j] {
+                    continue;
+                }
+                // Early exit: if time gap exceeds window, no further matches possible
+                let time_diff = (activities[j].start_date() - activities[i].start_date())
+                    .num_minutes()
+                    .abs();
+                if time_diff > self.time_window_minutes {
+                    break;
+                }
+                if self.is_likely_duplicate(&activities[i], &activities[j]) {
+                    let loser = if Self::pick_best(&activities[i], &activities[j]) == 0 {
+                        j
+                    } else {
+                        i
+                    };
+                    keep[loser] = false;
+                }
+            }
+        }
+
+        let total = activities.len();
+        let result: Vec<Activity> = activities
+            .into_iter()
+            .zip(keep.iter())
+            .filter(|(_, &k)| k)
+            .map(|(a, _)| a)
+            .collect();
+
+        let removed = total - result.len();
+        if removed > 0 {
+            debug!(
+                removed,
+                total, "Deduplication removed cross-provider duplicates"
+            );
+        }
+
+        result
+    }
+}
+
+/// No-op deduplicator that keeps all activities unchanged.
+/// Useful for debugging or when providers are known to never overlap.
+pub(crate) struct NoOpDeduplicator;
+
+impl ActivityDeduplicator for NoOpDeduplicator {
+    fn deduplicate(&self, activities: Vec<Activity>) -> Vec<Activity> {
+        activities
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Activity Merge Strategy
+// ══════════════════════════════════════════════════════════════
+
+/// Pluggable strategy for fetching and merging activities across providers.
+///
+/// Implementations control whether to use one provider, all providers,
+/// or a subset, and how to combine the results.
+#[async_trait]
+pub(crate) trait ActivityMergeStrategy: Send + Sync {
+    /// Fetch and merge activities from multiple providers for a single user.
+    async fn fetch_and_merge(
+        &self,
+        auth_service: &AuthService,
+        providers: &[String],
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Vec<Activity>;
+}
+
+/// Fetches from ALL connected providers in parallel, merges, and deduplicates.
+///
+/// This is the default strategy: every provider's activities contribute to the
+/// training load calculation, giving a complete picture of the athlete's workload.
+pub(crate) struct AllProvidersMerge {
+    deduplicator: Box<dyn ActivityDeduplicator>,
+}
+
+impl AllProvidersMerge {
+    /// Create with the default time-window deduplicator (env-configured).
+    pub(crate) fn from_env() -> Self {
+        Self {
+            deduplicator: Box::new(TimeWindowDeduplicator::from_env()),
+        }
+    }
+}
+
+#[async_trait]
+impl ActivityMergeStrategy for AllProvidersMerge {
+    async fn fetch_and_merge(
+        &self,
+        auth_service: &AuthService,
+        providers: &[String],
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Vec<Activity> {
+        let tenant_id_str = tenant_id.to_string();
+        let now = Utc::now();
+        let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
+        let params = ActivityQueryParams {
+            limit: Some(MAX_ACTIVITIES_PER_USER),
+            offset: None,
+            before: None,
+            after: Some(lookback_start),
+        };
+
+        // Fetch from all providers in parallel
+        let futures: Vec<_> = providers
+            .iter()
+            .map(|provider_name| {
+                let tid = tenant_id_str.clone();
+                let p = params.clone();
+                let pname = provider_name.clone();
+                async move {
+                    let result =
+                        try_fetch_from_provider(auth_service, &pname, user_id, &tid, &p).await;
+                    (pname, result)
+                }
+            })
+            .collect();
+
+        let results = join_all(futures).await;
+
+        // Merge all successful results
+        let mut all_activities = Vec::new();
+        let mut provider_count = 0u32;
+        for (provider_name, maybe_activities) in results {
+            if let Some(activities) = maybe_activities {
+                info!(
+                    user_id = %user_id,
+                    provider = %provider_name,
+                    count = activities.len(),
+                    "Snapshot: fetched from provider"
+                );
+                all_activities.extend(activities);
+                provider_count += 1;
+            }
+        }
+
+        if all_activities.is_empty() {
+            return Vec::new();
+        }
+
+        // Deduplicate cross-provider overlaps
+        let before_dedup = all_activities.len();
+        let merged = self.deduplicator.deduplicate(all_activities);
+
+        info!(
+            user_id = %user_id,
+            providers_used = provider_count,
+            before_dedup,
+            after_dedup = merged.len(),
+            "Snapshot: merged activities from all providers"
+        );
+
+        merged
+    }
+}
 
 /// Fetch fitness snapshots for a batch of group members in parallel.
 ///
@@ -180,44 +453,6 @@ async fn try_fetch_from_provider(
     Some(activities)
 }
 
-/// Fetch activities by trying each connected provider until one succeeds.
-///
-/// Iterates through all connected providers for the user and returns
-/// activities from the first provider that successfully authenticates
-/// and returns data.
-async fn fetch_activities_from_any_provider(
-    auth_service: &AuthService,
-    providers: &[String],
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> Option<(String, Vec<Activity>)> {
-    let tenant_id_str = tenant_id.to_string();
-    let now = Utc::now();
-    let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
-    let params = ActivityQueryParams {
-        limit: Some(MAX_ACTIVITIES_PER_USER),
-        offset: None,
-        before: None,
-        after: Some(lookback_start),
-    };
-
-    for provider_name in providers {
-        if let Some(activities) = try_fetch_from_provider(
-            auth_service,
-            provider_name,
-            user_id,
-            &tenant_id_str,
-            &params,
-        )
-        .await
-        {
-            return Some((provider_name.clone(), activities));
-        }
-    }
-
-    None
-}
-
 /// Fetch a single member's fitness snapshot.
 ///
 /// Attempts to find a connected provider for the user and compute training
@@ -239,8 +474,10 @@ async fn fetch_single_member_snapshot(
     build_snapshot_from_activities(user_id, display_name, &activities, now)
 }
 
-/// Resolve a member's connected providers and fetch activities from the first
-/// that returns data. Returns an empty vec if no provider succeeds.
+/// Resolve a member's connected providers and fetch activities using the merge strategy.
+///
+/// Fetches from ALL providers, merges, and deduplicates to produce a complete
+/// activity list for training load computation.
 async fn fetch_member_activities(
     resources: &Arc<ServerResources>,
     user_id: Uuid,
@@ -253,10 +490,10 @@ async fn fetch_member_activities(
     }
 
     let auth_service = AuthService::new(Arc::clone(resources));
-    fetch_activities_from_any_provider(&auth_service, &providers, user_id, tenant_id)
+    let strategy = AllProvidersMerge::from_env();
+    strategy
+        .fetch_and_merge(&auth_service, &providers, user_id, tenant_id)
         .await
-        .map(|(_provider, activities)| activities)
-        .unwrap_or_default()
 }
 
 /// Compute all fitness metrics from activities and assemble the snapshot.
