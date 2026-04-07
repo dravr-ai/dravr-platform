@@ -46,41 +46,29 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
       // Verify we're on the dashboard (not login page)
       await expect(page.locator('input[name="email"]')).not.toBeVisible();
 
-      // Admin should see Overview tab content
-      await expect(page.getByText(/Overview|Dashboard/i).first()).toBeVisible({ timeout: 10000 });
+      // Admin should see Users tab content (default landing)
+      await expect(page.getByText(/Users/i).first()).toBeVisible({ timeout: 10000 });
 
       await takeVisualScreenshot(page, 'admin-login', 'dashboard-visible');
     });
   });
 
   // ========================================
-  // Overview Tab
+  // Users Tab (default admin landing)
   // ========================================
-  test.describe('Overview Tab', () => {
+  test.describe('Users Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
-    test('overview - displays stats cards', async ({ page }) => {
-      await navigateToTab(page, 'Overview');
+    test('users - displays user management', async ({ page }) => {
+      // Users is the default tab, no navigation needed
       await waitForNetworkIdle(page);
 
-      // Look for stat cards (various formats)
-      const statsArea = page.locator('main');
-      await expect(statsArea).toBeVisible();
-
-      await takeVisualScreenshot(page, 'admin-overview', 'stats-cards');
-    });
-
-    test('overview - displays usage charts', async ({ page }) => {
-      await navigateToTab(page, 'Overview');
-      await waitForNetworkIdle(page);
-
-      // Charts should be present in the overview
       const mainContent = page.locator('main');
       await expect(mainContent).toBeVisible();
 
-      await takeVisualScreenshot(page, 'admin-overview', 'charts');
+      await takeVisualScreenshot(page, 'admin-users', 'user-management');
     });
   });
 

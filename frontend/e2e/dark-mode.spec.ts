@@ -228,7 +228,7 @@ test.describe('Dark Theme Visual Elements', () => {
     await expect(sidebar).toBeVisible();
 
     // Verify navigation buttons are visible
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Overview")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Users")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
   });
 
@@ -238,11 +238,11 @@ test.describe('Dark Theme Visual Elements', () => {
     await page.waitForSelector('nav', { timeout: 10000 });
 
     // Focus on a navigation button
-    const overviewButton = page.locator('button').filter({ has: page.locator('span:has-text("Overview")') });
-    await overviewButton.focus();
+    const usersButton = page.locator('button').filter({ has: page.locator('span:has-text("Users")') });
+    await usersButton.focus();
 
     // Button should have visible focus indicator
-    await expect(overviewButton).toBeFocused();
+    await expect(usersButton).toBeFocused();
 
     // Tab through other elements
     await page.keyboard.press('Tab');
@@ -257,7 +257,7 @@ test.describe('Dark Theme Visual Elements', () => {
     await loginAndGoToDashboard(page);
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Look for card-like elements in the Overview tab
+    // Look for card-like elements in the Users tab
     const cards = page.locator('[class*="card"], [class*="Card"], [class*="rounded"][class*="shadow"], [class*="bg-"]');
     const cardCount = await cards.count();
 
