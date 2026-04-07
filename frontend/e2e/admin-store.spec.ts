@@ -251,10 +251,15 @@ test.describe('Admin Store Stats Dashboard', () => {
 
     await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
 
-    // Should display correct values
-    await expect(page.getByText('12')).toBeVisible({ timeout: 10000 }); // published_count
-    await expect(page.getByText('150')).toBeVisible(); // total_installs
-    await expect(page.getByText('20.0%')).toBeVisible(); // rejection_rate
+    // Each stat card has a label (text-sm) and value (text-2xl) — scope assertions to the card
+    const publishedCard = page.locator('button, div').filter({ hasText: 'Published Coaches' });
+    await expect(publishedCard.locator('.text-2xl')).toHaveText('12', { timeout: 10000 });
+
+    const installsCard = page.locator('button, div').filter({ hasText: 'Total Installs' });
+    await expect(installsCard.locator('.text-2xl')).toHaveText('150');
+
+    const rejectionCard = page.locator('button, div').filter({ hasText: 'Rejection Rate' });
+    await expect(rejectionCard.locator('.text-2xl')).toHaveText('20.0%');
   });
 });
 
