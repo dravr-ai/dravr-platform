@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { useAuth } from '../hooks/useAuth';
@@ -152,10 +152,20 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
   },
 ];
 
+const ADMIN_HIDDEN_TABS: Set<SettingsTab> = new Set(['connections', 'about', 'messaging']);
+
 export default function UserSettings() {
   const { user, logout, isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile');
+
+  // Admin users don't need Data Providers, About, or Messaging tabs
+  const visibleTabs = useMemo(() => {
+    if (user?.is_admin) {
+      return SETTINGS_TABS.filter(tab => !ADMIN_HIDDEN_TABS.has(tab.id));
+    }
+    return SETTINGS_TABS;
+  }, [user?.is_admin]);
 
   // Profile state
   const [displayName, setDisplayName] = useState(user?.display_name || '');
@@ -479,7 +489,7 @@ export default function UserSettings() {
       {/* Horizontal Tab Navigation */}
       <div className="border-b border-white/10">
         <nav className="flex gap-1 -mb-px overflow-x-auto" aria-label="Settings tabs">
-          {SETTINGS_TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
@@ -1294,7 +1304,8 @@ Authorization: Bearer <your-token-here>`}
                     Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
                   </p>
 
-                  {/* Resource counts */}
+                  {/* Resource counts (user-facing only, not shown for admin) */}
+                  {!user?.is_admin && (
                   <div className="border-t border-white/10 pt-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div className="p-3 bg-white/5 rounded-lg">
@@ -1311,6 +1322,7 @@ Authorization: Bearer <your-token-here>`}
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
             </Card>

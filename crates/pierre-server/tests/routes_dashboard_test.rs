@@ -842,9 +842,16 @@ async fn test_get_usage_analytics_success() -> Result<()> {
 
     // Verify each day has data
     for data_point in &analytics.time_series {
-        assert!(data_point.timestamp <= Utc::now());
-        // Verify data point structure (removing redundant >= 0 checks for unsigned types)
-        assert!(data_point.timestamp.timestamp() > 0);
+        // Date is YYYY-MM-DD format string
+        assert_eq!(
+            data_point.date.len(),
+            10,
+            "Date should be YYYY-MM-DD format"
+        );
+        assert!(
+            data_point.date.starts_with("20"),
+            "Date should start with year"
+        );
         assert!(data_point.average_response_time >= 0.0);
     }
 
@@ -881,9 +888,9 @@ async fn test_get_usage_analytics_different_timeframes() -> Result<()> {
 
         assert_eq!(analytics.time_series.len(), days as usize);
 
-        // Verify timestamps are in correct order (oldest first)
+        // Verify dates are in correct order (oldest first, string comparison works for YYYY-MM-DD)
         for i in 1..analytics.time_series.len() {
-            assert!(analytics.time_series[i].timestamp >= analytics.time_series[i - 1].timestamp);
+            assert!(analytics.time_series[i].date >= analytics.time_series[i - 1].date);
         }
     }
 

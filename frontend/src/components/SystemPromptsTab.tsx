@@ -114,7 +114,7 @@ export default function SystemPromptsTab() {
   return (
     <div className="space-y-6">
       {/* Status bar */}
-      <Card className="p-4">
+      <Card variant="dark" className="p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold text-pierre-text">System Prompts</h3>
@@ -165,7 +165,7 @@ export default function SystemPromptsTab() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Prompt list */}
-        <Card className="p-0 lg:col-span-1">
+        <Card variant="dark" className="p-0 lg:col-span-1">
           <div className="p-4 border-b border-pierre-border">
             <h4 className="text-sm font-medium text-pierre-text-secondary">
               {prompts.length} Prompt{prompts.length !== 1 ? 's' : ''}
@@ -211,7 +211,7 @@ export default function SystemPromptsTab() {
         </Card>
 
         {/* Prompt detail / editor */}
-        <Card className="p-0 lg:col-span-2">
+        <Card variant="dark" className="p-0 lg:col-span-2">
           {!selectedPrompt ? (
             <div className="flex items-center justify-center h-64 text-pierre-text-secondary">
               Select a prompt to view or edit
