@@ -18,7 +18,7 @@ use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::intelligence::TrainingLoadCalculator;
@@ -149,6 +149,37 @@ async fn get_connected_providers(
         .collect()
 }
 
+/// Try authenticating with one provider and fetching its activities.
+///
+/// Returns `Some(activities)` on success, `None` if auth or fetch fails.
+async fn try_fetch_from_provider(
+    auth_service: &AuthService,
+    provider_name: &str,
+    user_id: Uuid,
+    tenant_id_str: &str,
+    params: &ActivityQueryParams,
+) -> Option<Vec<Activity>> {
+    let provider = auth_service
+        .create_authenticated_provider(provider_name, user_id, Some(tenant_id_str))
+        .await
+        .map_err(|e| {
+            debug!(user_id = %user_id, provider = %provider_name, error = ?e, "Snapshot: auth failed");
+        })
+        .ok()?;
+
+    let activities = provider
+        .get_activities_with_params(params)
+        .await
+        .map_err(|e| {
+            debug!(user_id = %user_id, provider = %provider_name, error = %e, "Snapshot: fetch failed");
+        })
+        .ok()
+        .filter(|a| !a.is_empty())?;
+
+    debug!(user_id = %user_id, provider = %provider_name, count = activities.len(), "Snapshot: fetched");
+    Some(activities)
+}
+
 /// Fetch activities by trying each connected provider until one succeeds.
 ///
 /// Iterates through all connected providers for the user and returns
@@ -171,47 +202,16 @@ async fn fetch_activities_from_any_provider(
     };
 
     for provider_name in providers {
-        let provider = match auth_service
-            .create_authenticated_provider(provider_name, user_id, Some(&tenant_id_str))
-            .await
+        if let Some(activities) = try_fetch_from_provider(
+            auth_service,
+            provider_name,
+            user_id,
+            &tenant_id_str,
+            &params,
+        )
+        .await
         {
-            Ok(p) => p,
-            Err(e) => {
-                debug!(
-                    user_id = %user_id,
-                    provider = %provider_name,
-                    error = ?e,
-                    "Snapshot: provider auth failed, trying next"
-                );
-                continue;
-            }
-        };
-
-        match provider.get_activities_with_params(&params).await {
-            Ok(activities) if !activities.is_empty() => {
-                debug!(
-                    user_id = %user_id,
-                    provider = %provider_name,
-                    count = activities.len(),
-                    "Snapshot: fetched activities"
-                );
-                return Some((provider_name.clone(), activities));
-            }
-            Ok(_) => {
-                debug!(
-                    user_id = %user_id,
-                    provider = %provider_name,
-                    "Snapshot: provider returned 0 activities, trying next"
-                );
-            }
-            Err(e) => {
-                debug!(
-                    user_id = %user_id,
-                    provider = %provider_name,
-                    error = %e,
-                    "Snapshot: activity fetch failed, trying next"
-                );
-            }
+            return Some((provider_name.clone(), activities));
         }
     }
 
@@ -229,53 +229,47 @@ async fn fetch_single_member_snapshot(
     tenant_id: TenantId,
 ) -> MemberFitnessSnapshot {
     let now = Utc::now();
-
-    // Get display name from user profile
     let display_name = fetch_user_display_name(resources, user_id).await;
 
-    // Get all connected providers and try each until one returns activities
-    let providers = get_connected_providers(resources, user_id, tenant_id).await;
-    if providers.is_empty() {
-        debug!(user_id = %user_id, name = %display_name, "Snapshot: no connected providers");
-        return empty_snapshot(user_id, display_name, now);
-    }
-
-    let auth_service = AuthService::new(Arc::clone(resources));
-    let Some((provider_name, activities)) =
-        fetch_activities_from_any_provider(&auth_service, &providers, user_id, tenant_id).await
-    else {
-        warn!(
-            user_id = %user_id,
-            name = %display_name,
-            providers = ?providers,
-            "Snapshot: all providers failed or returned no activities"
-        );
-        return empty_snapshot(user_id, display_name, now);
-    };
-
+    let activities = fetch_member_activities(resources, user_id, tenant_id).await;
     if activities.is_empty() {
         return empty_snapshot(user_id, display_name, now);
     }
 
-    debug!(
-        user_id = %user_id,
-        name = %display_name,
-        provider = %provider_name,
-        activity_count = activities.len(),
-        "Snapshot: computing metrics"
-    );
+    build_snapshot_from_activities(user_id, display_name, &activities, now)
+}
 
-    // Compute training load (CTL, ATL, TSB)
-    let (ctl, atl, tsb) = compute_training_metrics(&activities);
+/// Resolve a member's connected providers and fetch activities from the first
+/// that returns data. Returns an empty vec if no provider succeeds.
+async fn fetch_member_activities(
+    resources: &Arc<ServerResources>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Vec<Activity> {
+    let providers = get_connected_providers(resources, user_id, tenant_id).await;
+    if providers.is_empty() {
+        debug!(user_id = %user_id, "Snapshot: no connected providers");
+        return Vec::new();
+    }
 
-    // Compute weekly volume and activity count (last 7 days)
+    let auth_service = AuthService::new(Arc::clone(resources));
+    fetch_activities_from_any_provider(&auth_service, &providers, user_id, tenant_id)
+        .await
+        .map(|(_provider, activities)| activities)
+        .unwrap_or_default()
+}
+
+/// Compute all fitness metrics from activities and assemble the snapshot.
+fn build_snapshot_from_activities(
+    user_id: Uuid,
+    display_name: String,
+    activities: &[Activity],
+    now: DateTime<Utc>,
+) -> MemberFitnessSnapshot {
+    let (ctl, atl, tsb) = compute_training_metrics(activities);
     let (weekly_activity_count, weekly_volume_km, days_since_last) =
-        compute_weekly_metrics(&activities, now);
-
-    // Determine primary sport from most common activity type
-    let primary_sport = determine_primary_sport(&activities);
-
-    // Assess overtraining risk from TSB and ATL/CTL ratio
+        compute_weekly_metrics(activities, now);
+    let primary_sport = determine_primary_sport(activities);
     let overtraining_risk = assess_overtraining_risk(ctl, atl, tsb);
 
     MemberFitnessSnapshot {
