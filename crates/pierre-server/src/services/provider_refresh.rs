@@ -486,7 +486,14 @@ async fn sync_single_user(
 
             if let Ok(user_uuid) = user.user_id.parse::<Uuid>() {
                 update_last_sync_timestamp(repos, user_uuid, provider_name).await;
-                send_sync_notification(sse_manager, user_uuid, &user.user_id, provider_name, result.records_created).await;
+                send_sync_notification(
+                    sse_manager,
+                    user_uuid,
+                    &user.user_id,
+                    provider_name,
+                    result.records_created,
+                )
+                .await;
             }
         }
         Err(e) => {
@@ -540,7 +547,9 @@ async fn send_sync_notification(
             created_at: Utc::now(),
             read_at: None,
         };
-        let _ = sse_manager.send_notification(user_uuid, &notification).await;
+        let _ = sse_manager
+            .send_notification(user_uuid, &notification)
+            .await;
     }
 }
 
