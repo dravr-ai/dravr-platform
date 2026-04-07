@@ -1,7 +1,7 @@
 # ABOUTME: GitHub Actions workflow for validating examples compile and pass tests
 # ABOUTME: Runs on push/PR to examples/, nightly, and manual trigger
 
-name: Examples Validation
+name: "CI: Examples Validation"
 
 on:
   push:

@@ -5,7 +5,7 @@
 # Runs Criterion benchmarks on any branch with bench/src changes
 # Detects performance regressions and stores baseline results
 
-name: Performance Benchmarks
+name: "CI: Benchmarks"
 
 on:
   push:

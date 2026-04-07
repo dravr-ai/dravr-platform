@@ -1,7 +1,7 @@
 # ABOUTME: GitHub Actions workflow for validating the Pierre documentation book
 # ABOUTME: Runs mdbook build to catch broken links, bad markdown, and missing pages
 
-name: Documentation
+name: "Publish: API Docs (mdBook)"
 
 on:
   push:

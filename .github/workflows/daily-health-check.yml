@@ -1,6 +1,6 @@
 # ABOUTME: Daily CI health check verifying architectural invariants and SSOT compliance
 # ABOUTME: Runs orphan duplication detection and branch protection audit on schedule
-name: Daily Health Check
+name: "Monitor: Daily Health Check"
 
 on:
   schedule:

@@ -1,7 +1,7 @@
 # ABOUTME: CI workflow for API contract validation between backend and frontends
 # ABOUTME: Detects type drift between OpenAPI spec and committed TypeScript types
 
-name: API Contracts
+name: "CI: API Contract Validation"
 
 on:
   push:

@@ -1,7 +1,7 @@
 # ABOUTME: Manual emergency re-deploy of Docker images to GCP Cloud Run
 # ABOUTME: Publish Images handles automatic deploys; this is for manual redeploys only
 
-name: Deploy to GCP
+name: "Deploy: Redeploy (manual)"
 
 on:
   workflow_dispatch:

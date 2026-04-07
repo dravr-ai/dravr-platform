@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
-name: Mobile E2E (Android)
+name: "CI: Mobile E2E (Android)"
 
 on:
   push:

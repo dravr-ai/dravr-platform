@@ -1,4 +1,4 @@
-name: SDK Tests
+name: "CI: TypeScript SDK"
 
 on:
   push:

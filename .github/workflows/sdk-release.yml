@@ -1,7 +1,7 @@
 # ABOUTME: Publishes the TypeScript SDK to npm when a GitHub release is published.
 # ABOUTME: Supports both stable releases and pre-releases (beta/alpha/rc).
 
-name: SDK Release
+name: "Release: TypeScript SDK (npm)"
 
 on:
   release:

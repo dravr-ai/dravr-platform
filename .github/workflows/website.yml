@@ -1,7 +1,7 @@
 # ABOUTME: GitHub Actions workflow for deploying the Pierre website to GitHub Pages
 # ABOUTME: Builds Astro landing page and deploys to GitHub Pages
 
-name: Deploy Website
+name: "Publish: Marketing Website"
 
 on:
   push:

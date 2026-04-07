@@ -1,7 +1,7 @@
 # ABOUTME: Automates Terraform plan/apply for infra/environments/dev and infra/environments/prod
 # ABOUTME: Plans post as PR comments; applies run on main push (dev auto, prod gated by environment approval)
 
-name: Terraform
+name: "Infra: Terraform"
 
 # Activate automated runs by uncommenting the pull_request and push triggers below
 # after completing the one-time manual setup steps documented in the PR comment.

@@ -1,7 +1,7 @@
 # ABOUTME: GitHub Actions workflow for static deadlock detection using lockbud.
 # ABOUTME: Analyzes Rust code for potential deadlocks, double-locks, and lock ordering issues.
 
-name: Deadlock Detection
+name: "CI: Deadlock Detection"
 
 on:
   push:

@@ -1,7 +1,7 @@
 # ABOUTME: GitHub Actions workflow for deploying the Pierre mobile app via EAS Build.
 # ABOUTME: Supports manual dispatch with platform, profile, and submit options.
 
-name: Mobile Deploy
+name: "Deploy: Mobile (EAS Build)"
 
 on:
   workflow_dispatch:

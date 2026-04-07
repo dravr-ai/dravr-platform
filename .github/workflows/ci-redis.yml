@@ -1,6 +1,6 @@
 # ABOUTME: Redis cache integration test workflow with smart path triggers.
 # ABOUTME: Only runs when cache code changes, saving CI minutes on unrelated pushes.
-name: Redis Tests
+name: "CI: Backend (Redis)"
 
 on:
   push:
