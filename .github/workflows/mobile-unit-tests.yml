@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
-name: Mobile Unit Tests
+name: "CI: Mobile Unit"
 
 on:
   workflow_dispatch:

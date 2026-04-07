@@ -1,6 +1,6 @@
 # ABOUTME: PostgreSQL integration test workflow with smart path triggers.
 # ABOUTME: Only runs when database code or migrations change, saving CI minutes.
-name: PostgreSQL Tests
+name: "CI: Backend (PostgreSQL)"
 
 on:
   push:

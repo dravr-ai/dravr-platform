@@ -1,7 +1,7 @@
 # ABOUTME: CI workflow that scans MCP server config and Claude skills for security issues
 # ABOUTME: Uses Snyk Agent Scan (formerly mcp-scan) via uvx to detect prompt injection and tool poisoning
 
-name: MCP Security Scan
+name: "Security: MCP Tool Scan"
 
 on:
   push:

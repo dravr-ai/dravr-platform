@@ -1,4 +1,4 @@
-name: MCP Compliance
+name: "CI: MCP Protocol Compliance"
 
 on:
   push:

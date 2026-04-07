@@ -1,13 +1,13 @@
 # ABOUTME: Builds and publishes Docker images to the central Artifact Registry, then deploys to Cloud Run
 # ABOUTME: Triggered only after Backend CI passes on main (prevents broken deploys); v*.*.* tags trigger directly
 
-name: Publish Images
+name: "Deploy: Build & Ship (dev)"
 
 on:
   workflow_dispatch:
   # Only publish after CI tests pass on main — prevents deploying broken code
   workflow_run:
-    workflows: ["Backend CI"]
+    workflows: ["CI: Backend (Rust)"]
     types: [completed]
     branches: [main]
   # Docker/infra changes and version tags trigger directly

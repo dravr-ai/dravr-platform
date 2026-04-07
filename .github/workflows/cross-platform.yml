@@ -1,4 +1,4 @@
-name: Cross-Platform Tests
+name: "CI: Cross-Platform Build"
 
 on:
   schedule:

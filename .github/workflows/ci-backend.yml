@@ -1,6 +1,6 @@
 # ABOUTME: Main backend CI pipeline with code quality, clippy, doc tests, and sharded integration tests.
 # ABOUTME: Backend tests are split across 4 parallel runners for ~4x faster execution.
-name: Backend CI
+name: "CI: Backend (Rust)"
 
 on:
   workflow_dispatch:
