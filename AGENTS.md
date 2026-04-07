@@ -641,7 +641,7 @@ Mocks are permitted ONLY in test code for:
 ## Performance Standards
 
 ### Binary Size Constraints
-- Target: <50MB for pierre_mcp_server
+- Target: <80MB for pierre_mcp_server
 - Review large dependencies that significantly impact binary size
 - Consider feature flags to minimize unused code inclusion
 - Document any legitimate exceptions with business justification

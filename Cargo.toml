@@ -17,7 +17,7 @@ split-debuginfo = "unpacked"
 
 [profile.release]
 lto = "thin"
-codegen-units = 1
+codegen-units = 16
 panic = "abort"
 strip = true
 
@@ -130,4 +130,5 @@ absolute_paths = "deny"
 # Disallow anyhow::Context methods - use structured ProviderError types instead
 # Configuration in clippy.toml specifies which methods are banned
 disallowed_methods = "deny"
+
 

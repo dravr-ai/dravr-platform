@@ -1047,6 +1047,43 @@ if [ "$OVERSIZED_ROUTES" -gt 0 ]; then
 fi
 
 # ============================================================================
+# BUILD PROFILE GUARDRAILS
+# ============================================================================
+# Prevent regressions that silently multiply release build times.
+
+echo ""
+echo -e "${BLUE}==== Build Profile Guardrails ====${NC}"
+
+# Check codegen-units is not 1 in [profile.release] (forces single-threaded LLVM codegen)
+RELEASE_CU=$(grep -A5 '^\[profile\.release\]' "$PROJECT_ROOT/Cargo.toml" | grep 'codegen-units' | head -1 | grep -o '[0-9]*')
+if [ -n "$RELEASE_CU" ] && [ "$RELEASE_CU" -eq 1 ]; then
+    echo -e "${RED}❌ FORBIDDEN: [profile.release] has codegen-units = 1${NC}"
+    echo -e "${RED}This forces single-threaded LLVM codegen and multiplies build time by 4-8x.${NC}"
+    echo -e "${RED}Use codegen-units = 16 (default). Reserve codegen-units = 1 for [profile.release-lto] only.${NC}"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ Release profile codegen-units OK (${RELEASE_CU:-default})${NC}"
+fi
+
+# Check for heavy duplicate crates that indicate transitive dependency divergence
+HEAVY_DUPES=""
+for CRATE in chromiumoxide sqlx axum tokio hyper; do
+    DISTINCT_VERSIONS=$(cargo tree --duplicates 2>/dev/null | grep "^${CRATE} v" | sed 's/ (.*//' | sort -u | wc -l | tr -d ' ')
+    if [ "$DISTINCT_VERSIONS" -gt 1 ]; then
+        VERSION_LIST=$(cargo tree --duplicates 2>/dev/null | grep "^${CRATE} v" | sed 's/ (.*//' | sort -u | tr '\n' ', ' | sed 's/,$//')
+        HEAVY_DUPES="${HEAVY_DUPES}\n  - ${VERSION_LIST}"
+    fi
+done
+
+if [ -n "$HEAVY_DUPES" ]; then
+    echo -e "${RED}❌ FORBIDDEN: Heavy crates compiled in multiple versions:${HEAVY_DUPES}${NC}"
+    echo -e "${RED}Run 'cargo tree --duplicates' to trace the source and deduplicate.${NC}"
+    VALIDATION_FAILED=true
+else
+    echo -e "${GREEN}  ✅ No heavy crate duplication detected${NC}"
+fi
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 
