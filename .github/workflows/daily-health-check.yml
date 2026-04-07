@@ -1,0 +1,62 @@
+# ABOUTME: Daily CI health check verifying architectural invariants and SSOT compliance
+# ABOUTME: Runs orphan duplication detection and branch protection audit on schedule
+name: Daily Health Check
+
+on:
+  schedule:
+    # Every day at 06:00 UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-health-check
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  architectural-health:
+    name: Architectural Health
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Run orphan duplication detection
+        run: ./scripts/ci/detect-orphan-duplicates.sh
+
+      - name: Verify SSOT document exists
+        run: |
+          if [ ! -f docs/architecture/SINGLE_SOURCE_OF_TRUTH.md ]; then
+            echo "ERROR: docs/architecture/SINGLE_SOURCE_OF_TRUTH.md is missing"
+            exit 1
+          fi
+          echo "SSOT document present"
+
+      - name: Check for forbidden parallel patterns
+        run: |
+          echo "Scanning for forbidden patterns..."
+
+          # KNOWN_OFFENDERS / PENDING_ / EXEMPT_ exception lists in tests
+          OFFENDERS=$(grep -rn 'KNOWN_OFFENDERS\|PENDING_\|EXEMPT_' \
+            crates/ --include='*.rs' 2>/dev/null \
+            | grep -v 'target/' || true)
+
+          if [ -n "$OFFENDERS" ]; then
+            echo "WARNING: Found exception-list patterns (fix offenders, don't list them):"
+            echo "$OFFENDERS"
+          fi
+
+          # Fallback dispatch patterns
+          FALLBACKS=$(grep -rn 'if not found in new\|try legacy\|fallback to old' \
+            crates/ --include='*.rs' 2>/dev/null \
+            | grep -v 'target/' || true)
+
+          if [ -n "$FALLBACKS" ]; then
+            echo "WARNING: Found fallback dispatch patterns:"
+            echo "$FALLBACKS"
+          fi
+
+          echo "Pattern scan complete"

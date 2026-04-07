@@ -44,7 +44,6 @@ use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
 use pierre_database::plugins::factory::Database;
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
-use std::env;
 use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -83,7 +82,7 @@ struct OAuthProviderParams<'a> {
     client_secret: &'a str,
     configured_redirect_uri: Option<&'a String>,
     scopes: &'a [String],
-    http_port: u16,
+    base_url: &'a str,
 }
 
 /// MCP server supporting user authentication and isolated data access
@@ -269,7 +268,7 @@ impl MultiTenantMcpServer {
                     client_secret: secret,
                     configured_redirect_uri: config.oauth.strava.redirect_uri.as_ref(),
                     scopes: &Self::get_strava_scopes(),
-                    http_port: config.http_port,
+                    base_url: &config.base_url,
                 },
             )
             .await;
@@ -289,7 +288,7 @@ impl MultiTenantMcpServer {
                     client_secret: secret,
                     configured_redirect_uri: config.oauth.fitbit.redirect_uri.as_ref(),
                     scopes: &Self::get_fitbit_scopes(),
-                    http_port: config.http_port,
+                    base_url: &config.base_url,
                 },
             )
             .await;
@@ -308,12 +307,7 @@ impl MultiTenantMcpServer {
         );
 
         let redirect_uri = params.configured_redirect_uri.map_or_else(
-            || {
-                // Use BASE_URL if set for tunnel/external access
-                let base_url = env::var("BASE_URL")
-                    .unwrap_or_else(|_| format!("http://localhost:{}", params.http_port));
-                format!("{base_url}/api/oauth/callback/{}", params.provider)
-            },
+            || format!("{}/api/oauth/callback/{}", params.base_url, params.provider),
             String::clone,
         );
 

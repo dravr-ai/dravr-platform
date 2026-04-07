@@ -22,7 +22,6 @@
 //! service-to-service — it requires admin credentials and is called by the
 //! channel bot (e.g. dravr-canot) to hand out hosted-login URLs.
 
-use std::env;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
@@ -42,9 +41,6 @@ use crate::middleware::provider_link_token::{
 };
 use crate::routes::auth::sciotte_hosted_templates;
 use crate::utils::uuid::parse_uuid_with_message;
-
-/// Fallback base URL when `BASE_URL` env var is not set
-const FALLBACK_BASE_URL: &str = "http://localhost:8081";
 
 /// Default target platform when the caller does not specify one
 const DEFAULT_TARGET: &str = "strava";
@@ -151,9 +147,9 @@ pub(super) async fn handle_mint_sciotte_link_token(
         &resources.admin_jwt_secret,
     )?;
 
-    let base_url = env::var("BASE_URL").unwrap_or_else(|_| FALLBACK_BASE_URL.to_owned());
     let url = format!(
-        "{base_url}/providers/sciotte/login?token={}",
+        "{}/providers/sciotte/login?token={}",
+        resources.config.base_url,
         urlencoding::encode(&token)
     );
 
