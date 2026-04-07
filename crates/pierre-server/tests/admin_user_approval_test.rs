@@ -10,18 +10,40 @@
 mod common;
 
 use anyhow::Result;
+use chrono::Utc;
 use pierre_auth::key_management::KeyManager;
 use pierre_database::plugins::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{
     admin::models::CreateAdminTokenRequest,
-    models::{TenantId, User, UserStatus, UserTier},
+    models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
 };
 use serial_test::serial;
 use std::{env, fs};
 use uuid::Uuid;
+
+/// Create a tenant record (must be called before update_tenant_id for FK constraint).
+async fn create_tenant_for_test(
+    database: &Database,
+    tenant_id: TenantId,
+    owner_id: Uuid,
+) -> Result<()> {
+    let now = Utc::now();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: format!("Test Tenant {tenant_id}"),
+        slug: tenant_id.to_string(),
+        domain: None,
+        plan: "professional".to_owned(),
+        owner_user_id: owner_id,
+        created_at: now,
+        updated_at: now,
+    };
+    database.repositories().tenants.create(&tenant).await?;
+    Ok(())
+}
 
 const TEST_JWT_SECRET: &str = "test_jwt_secret_for_admin_user_approval_tests";
 
@@ -355,6 +377,7 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
 
     // Set up admin user with a specific tenant_id
     let admin_tenant_id = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, admin_tenant_id, admin_user_id).await?;
     database
         .repositories()
         .users
@@ -427,6 +450,7 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
 
     // Set up admin user with a specific tenant_id
     let shared_tenant_id = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, shared_tenant_id, admin_user_id).await?;
     database
         .repositories()
         .users
