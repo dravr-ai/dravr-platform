@@ -632,8 +632,8 @@ impl UserRepository for PostgresDatabase {
         // Upsert into tenant_users junction table (queries INNER JOIN on it)
         sqlx::query(
             r"
-            INSERT INTO tenant_users (tenant_id, user_id, role)
-            VALUES ($1, $2, 'member')
+            INSERT INTO tenant_users (tenant_id, user_id, role, invited_at, joined_at)
+            VALUES ($1, $2, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id) DO NOTHING
             ",
         )
