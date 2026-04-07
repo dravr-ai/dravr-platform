@@ -187,6 +187,12 @@ pub enum ToolId {
     /// Suggest a yoga sequence for recovery
     SuggestYogaSequence,
 
+    // Provider sync/refresh tools
+    /// Trigger a data refresh from a connected fitness provider
+    RefreshProviderData,
+    /// Check data freshness for all connected providers
+    GetDataFreshness,
+
     // Admin coach management tools (system coaches - admin only)
     /// List system coaches in tenant (admin only)
     AdminListSystemCoaches,
@@ -287,6 +293,9 @@ impl ToolId {
             LIST_YOGA_POSES => Some(Self::ListYogaPoses),
             GET_YOGA_POSE => Some(Self::GetYogaPose),
             SUGGEST_YOGA_SEQUENCE => Some(Self::SuggestYogaSequence),
+            // Provider sync/refresh tools
+            "refresh_provider_data" => Some(Self::RefreshProviderData),
+            "get_data_freshness" => Some(Self::GetDataFreshness),
             // Admin coach management tools (system coaches)
             ADMIN_LIST_SYSTEM_COACHES => Some(Self::AdminListSystemCoaches),
             ADMIN_CREATE_SYSTEM_COACH => Some(Self::AdminCreateSystemCoach),
@@ -378,6 +387,9 @@ impl ToolId {
             Self::ListYogaPoses => LIST_YOGA_POSES,
             Self::GetYogaPose => GET_YOGA_POSE,
             Self::SuggestYogaSequence => SUGGEST_YOGA_SEQUENCE,
+            // Provider sync/refresh tools
+            Self::RefreshProviderData => "refresh_provider_data",
+            Self::GetDataFreshness => "get_data_freshness",
             // Admin coach management tools
             Self::AdminListSystemCoaches => ADMIN_LIST_SYSTEM_COACHES,
             Self::AdminCreateSystemCoach => ADMIN_CREATE_SYSTEM_COACH,
@@ -467,6 +479,8 @@ impl ToolId {
             Self::ListYogaPoses => "List yoga poses with optional filters",
             Self::GetYogaPose => "Get a specific yoga pose by ID",
             Self::SuggestYogaSequence => "Suggest a yoga sequence for recovery",
+            Self::RefreshProviderData => "Trigger a data refresh from a connected fitness provider",
+            Self::GetDataFreshness => "Check data freshness for all connected providers",
             Self::AdminListSystemCoaches => "List all system coaches (admin only)",
             Self::AdminCreateSystemCoach => "Create a system coach (admin only)",
             Self::AdminGetSystemCoach => "Get a specific system coach (admin only)",

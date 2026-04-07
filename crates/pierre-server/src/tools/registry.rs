@@ -362,6 +362,10 @@ impl ToolRegistry {
         #[cfg(feature = "tools-connection")]
         self.register_connection_tools();
 
+        // Sync/refresh tools (uses tools-connection gate since they manage provider data)
+        #[cfg(feature = "tools-connection")]
+        self.register_sync_tools();
+
         // Data tools
         #[cfg(feature = "tools-data")]
         self.register_data_tools();
@@ -722,6 +726,26 @@ impl ToolRegistry {
 
         info!(
             "Registered store tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register sync/refresh tools (refresh_provider_data, get_data_freshness)
+    #[cfg(feature = "tools-connection")]
+    fn register_sync_tools(&mut self) {
+        use super::implementations::sync::create_sync_tools;
+
+        debug!(
+            "Registering sync tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_sync_tools() {
+            self.register_with_category(Arc::from(tool), "connection");
+        }
+
+        info!(
+            "Registered sync tools (registry now has {} tools)",
             self.tools.len()
         );
     }

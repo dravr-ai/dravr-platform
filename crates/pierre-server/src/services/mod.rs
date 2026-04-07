@@ -77,3 +77,6 @@ pub mod admin_ops;
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
+
+/// Provider data refresh service: freshness checks, on-chat triggers, manual sync
+pub mod provider_refresh;

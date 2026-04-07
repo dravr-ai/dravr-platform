@@ -43,6 +43,9 @@ mod user;
 /// Data source and device tracking (from dravr-equilibre)
 pub mod data_source;
 
+/// Provider data freshness and refresh configuration
+pub mod refresh;
+
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{
@@ -59,6 +62,9 @@ pub use health::{HealthMetrics, RecoveryMetrics};
 
 // Data source domain (from dravr-equilibre)
 pub use data_source::{DataSource, DevicePriority, DeviceType, ProviderPriority};
+
+// Provider data refresh domain
+pub use refresh::{DataFreshness, ProviderFreshness, RefreshConfig, RefreshStatus};
 
 // Stored health models for persistence (from dravr-equilibre)
 pub use dravr_equilibre::{
