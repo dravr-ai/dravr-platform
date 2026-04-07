@@ -720,6 +720,19 @@ impl Database {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));
         }
 
+        // Upsert into tenant_users junction table (queries INNER JOIN on it)
+        sqlx::query(
+            r"
+            INSERT OR IGNORE INTO tenant_users (tenant_id, user_id, role)
+            VALUES (?1, ?2, 'member')
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert tenant_users entry: {e}")))?;
+
         Ok(())
     }
     // Public wrapper methods (delegate to _impl versions)
