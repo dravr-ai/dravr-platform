@@ -8,7 +8,9 @@ on:
     paths:
       - 'crates/pierre-database/**'
       - 'crates/pierre-server/src/database/**'
-      - 'crates/pierre-server/tests/database_*_test.rs'
+      - 'crates/pierre-server/tests/**'
+      - 'crates/pierre-server/src/routes/**'
+      - 'crates/pierre-core/src/models/**'
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -19,7 +21,9 @@ on:
     paths:
       - 'crates/pierre-database/**'
       - 'crates/pierre-server/src/database/**'
-      - 'crates/pierre-server/tests/database_*_test.rs'
+      - 'crates/pierre-server/tests/**'
+      - 'crates/pierre-server/src/routes/**'
+      - 'crates/pierre-core/src/models/**'
       - 'migrations/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
