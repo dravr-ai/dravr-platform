@@ -17,7 +17,7 @@ static ANALYTICS: OnceLock<Box<dyn AnalyticsTracker>> = OnceLock::new();
 
 /// SHA-256 hash a value for anonymized analytics identifiers
 ///
-/// PostHog never sees real user UUIDs, tenant IDs, or channel user IDs.
+/// `PostHog` never sees real user UUIDs, tenant IDs, or channel user IDs.
 /// Only the hash (hex-encoded) is transmitted.
 pub fn hash_id(value: &str) -> String {
     let mut hasher = Sha256::new();
@@ -28,7 +28,7 @@ pub fn hash_id(value: &str) -> String {
 /// Initialize the global analytics tracker from environment variables
 ///
 /// When `POSTHOG_ENABLED` is `true` (default) and `POSTHOG_API_KEY` is set,
-/// a live PostHog tracker is created. Otherwise a noop tracker is installed
+/// a live `PostHog` tracker is created. Otherwise a noop tracker is installed
 /// so callers never need null checks.
 pub fn init_analytics() {
     let enabled = env::var("POSTHOG_ENABLED")
@@ -39,7 +39,7 @@ pub fn init_analytics() {
         match create_posthog_tracker() {
             Some(tracker) => tracker,
             None => {
-                warn!("Analytics enabled but POSTHOG_API_KEY not set — using noop tracker");
+                warn!("Analytics enabled but POSTHOG_API_KEY not set \u2014 using noop tracker");
                 Box::new(NoopAnalyticsTracker)
             }
         }
@@ -56,7 +56,7 @@ static NOOP_FALLBACK: NoopAnalyticsTracker = NoopAnalyticsTracker;
 
 /// Get a reference to the global analytics tracker
 ///
-/// Always returns a valid tracker — either the live PostHog client or a noop.
+/// Always returns a valid tracker \u2014 either the live `PostHog` client or a noop.
 /// If called before `init_analytics()`, returns a noop silently.
 pub fn analytics() -> &'static dyn AnalyticsTracker {
     ANALYTICS
@@ -70,11 +70,11 @@ pub fn analytics() -> &'static dyn AnalyticsTracker {
 
 /// Product analytics tracker for messaging funnel events, tool usage, and commands
 ///
-/// Implementations are either a live PostHog client or a noop.
-/// All methods are fire-and-forget — errors are logged internally, never propagated.
+/// Implementations are either a live `PostHog` client or a noop.
+/// All methods are fire-and-forget \u2014 errors are logged internally, never propagated.
 /// All user/tenant identifiers are pre-hashed by callers via `hash_id()`.
 pub trait AnalyticsTracker: Send + Sync {
-    // ── Messaging Funnel ──
+    // \u2500\u2500 Messaging Funnel \u2500\u2500
 
     /// New messaging session created (user linked, first message on new channel)
     fn track_session_started(&self, channel: &str, tenant_id: &str, user_id: &str, is_new: bool);
@@ -120,7 +120,7 @@ pub trait AnalyticsTracker: Send + Sync {
     /// Session ended (logout, timeout, unlinked)
     fn track_session_dropped(&self, channel: &str, tenant_id: &str, user_id: &str, reason: &str);
 
-    // ── Tool & Command Usage ──
+    // \u2500\u2500 Tool & Command Usage \u2500\u2500
 
     /// MCP tool executed during LLM dispatch (auto-captured per tool name)
     fn track_tool_executed(
@@ -143,7 +143,7 @@ pub trait AnalyticsTracker: Send + Sync {
         success: bool,
     );
 
-    // ── Identity ──
+    // \u2500\u2500 Identity \u2500\u2500
 
     /// Merge pre-link channel identity with post-link Pierre user ID
     fn alias(&self, channel_identity: &str, pierre_user_id: &str);
@@ -151,7 +151,7 @@ pub trait AnalyticsTracker: Send + Sync {
     /// Set user properties (platform, tenant, new/returning)
     fn identify(&self, user_id: &str, properties: Value);
 
-    // ── Consent ──
+    // \u2500\u2500 Consent \u2500\u2500
 
     /// Update the consent cache for a user (called on consent change and session start)
     fn set_consent(&self, user_id: &str, enabled: bool);
@@ -161,7 +161,7 @@ pub trait AnalyticsTracker: Send + Sync {
 // Noop implementation
 // =============================================================================
 
-/// No-op tracker used when PostHog is disabled or unconfigured
+/// No-op tracker used when `PostHog` is disabled or unconfigured
 struct NoopAnalyticsTracker;
 
 impl AnalyticsTracker for NoopAnalyticsTracker {
@@ -186,7 +186,7 @@ impl AnalyticsTracker for NoopAnalyticsTracker {
 // PostHog implementation
 // =============================================================================
 
-/// Attempt to create a PostHog tracker from environment variables.
+/// Attempt to create a `PostHog` tracker from environment variables.
 ///
 /// Returns `None` if `POSTHOG_API_KEY` is not set.
 /// The `posthog-rs` client is initialized lazily on first capture (async init).
@@ -208,7 +208,7 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
     }))
 }
 
-/// Stub when the `analytics-posthog` feature is disabled
+/// Stub when the `analytics-posthog` feature is disabled.
 #[cfg(not(feature = "analytics-posthog"))]
 fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
     None
@@ -218,8 +218,8 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
 struct PostHogTracker {
     api_key: String,
     host: String,
-    /// Per-user consent cache: hashed_user_id → consented
-    /// Missing entry = no consent known → skip events
+    /// Per-user consent cache: hashed_user_id \u2192 consented
+    /// Missing entry = no consent known \u2192 skip events
     consent_cache: DashMap<String, bool>,
 }
 
