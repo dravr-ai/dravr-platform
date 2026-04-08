@@ -4,7 +4,7 @@
 // ABOUTME: Reusable Input component with Pierre design system styling
 // ABOUTME: Supports error states, help text, icons, and consistent focus rings
 
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useId } from 'react';
 
 export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> {
   label?: string;
@@ -18,7 +18,8 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, helpText, leftIcon, rightIcon, size = 'md', variant = 'light', className = '', id, ...props }, ref) => {
-    const inputId = id || `input-${Math.random().toString(36).substring(7)}`;
+    const reactId = useId();
+    const inputId = id || reactId;
 
     const sizeClasses = {
       sm: 'px-3 py-2 text-sm',

@@ -316,7 +316,7 @@ export default function UserManagement() {
                       Approve
                     </Button>
                   )}
-                  {user.user_status === 'active' && (
+                  {user.user_status === 'active' && !user.is_admin && (
                     <Button
                       onClick={() => handleUserAction(user, 'suspend')}
                       size="sm"
