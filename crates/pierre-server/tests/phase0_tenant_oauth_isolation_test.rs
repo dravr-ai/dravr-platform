@@ -50,7 +50,7 @@ async fn setup_test_database() -> Result<Database> {
     Ok(database)
 }
 
-/// Create test user (without tenant association — call update_tenant_id after tenant exists)
+/// Create test user (without tenant association — call `update_tenant_id` after tenant exists)
 async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
     let user_id = Uuid::new_v4();
     let user = User {
@@ -86,7 +86,7 @@ async fn assign_to_tenant(database: &Database, user_id: Uuid, tenant_id: TenantI
     Ok(())
 }
 
-/// Create a tenant with a specific ID (Tenant::new() auto-generates the ID, so use this instead)
+/// Create a tenant with a specific ID (`Tenant::new()` auto-generates the ID, so use this instead)
 fn make_tenant(
     tenant_id: TenantId,
     name: &str,
