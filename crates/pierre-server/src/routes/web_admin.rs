@@ -529,7 +529,6 @@ impl WebAdminRoutes {
         let result = admin_ops::suspend_user(
             &resources,
             auth.user_id,
-            auth.active_tenant_id,
             user_uuid,
             request.reason.as_deref(),
         )
