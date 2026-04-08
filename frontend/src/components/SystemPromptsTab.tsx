@@ -146,7 +146,7 @@ export default function SystemPromptsTab() {
             )}
           </div>
           <Button
-            variant="secondary"
+            variant="outline"
             size="sm"
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending || !status?.configured}

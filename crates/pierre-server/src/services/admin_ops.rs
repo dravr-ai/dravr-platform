@@ -366,7 +366,7 @@ pub(crate) async fn approve_user(
 pub(crate) async fn suspend_user(
     resources: &Arc<ServerResources>,
     admin_user_id: Uuid,
-    active_tenant_id: Option<Uuid>,
+    _active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<SuspendUserResult, AppError> {
