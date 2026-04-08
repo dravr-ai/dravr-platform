@@ -231,48 +231,20 @@ impl CoachingGroupRepository for Database {
     ) -> AppResult<Option<CoachingGroup>> {
         let now = Utc::now().to_rfc3339();
 
-        // Build dynamic UPDATE with only provided fields
-        let mut sets = vec!["updated_at = $1".to_owned()];
-        let mut param_idx = 3u32; // $1=now, $2=group_id, $3+=dynamic
-
-        if request.name.is_some() {
-            sets.push(format!("name = ${param_idx}"));
-            param_idx += 1;
-        }
-        if request.description.is_some() {
-            sets.push(format!("description = ${param_idx}"));
-            param_idx += 1;
-        }
-        if request.max_members.is_some() {
-            sets.push(format!("max_members = ${param_idx}"));
-            param_idx += 1;
-        }
-        if request.peer_data_sharing.is_some() {
-            sets.push(format!("peer_data_sharing = ${param_idx}"));
-            param_idx += 1;
-        }
-        if request.is_active.is_some() {
-            sets.push(format!("is_active = ${param_idx}"));
-        }
-
-        let sql = format!(
-            "UPDATE coaching_groups SET {} WHERE id = $2 AND tenant_id = ${0}",
-            sets.join(", "),
-        );
-
-        // For simplicity with dynamic params, use a simpler approach
         let result = sqlx::query(
             r"UPDATE coaching_groups SET
               name = COALESCE($1, name),
               description = COALESCE($2, description),
-              max_members = COALESCE($3, max_members),
-              peer_data_sharing = COALESCE($4, peer_data_sharing),
-              is_active = COALESCE($5, is_active),
-              updated_at = $6
-              WHERE id = $7 AND tenant_id = $8",
+              coach_id = COALESCE($3, coach_id),
+              max_members = COALESCE($4, max_members),
+              peer_data_sharing = COALESCE($5, peer_data_sharing),
+              is_active = COALESCE($6, is_active),
+              updated_at = $7
+              WHERE id = $8 AND tenant_id = $9",
         )
         .bind(&request.name)
         .bind(&request.description)
+        .bind(&request.coach_id)
         .bind(request.max_members)
         .bind(request.peer_data_sharing.map(i32::from))
         .bind(request.is_active.map(i32::from))
@@ -282,9 +254,6 @@ impl CoachingGroupRepository for Database {
         .execute(self.pool())
         .await
         .map_err(|e| AppError::database(format!("Failed to update group: {e}")))?;
-
-        // Drop the unused dynamic SQL variable
-        drop(sql);
 
         if result.rows_affected() == 0 {
             return Ok(None);

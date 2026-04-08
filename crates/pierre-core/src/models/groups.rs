@@ -177,6 +177,8 @@ pub struct UpdateGroupRequest {
     pub name: Option<String>,
     /// Updated description
     pub description: Option<String>,
+    /// Updated coach persona ID
+    pub coach_id: Option<String>,
     /// Updated max members
     pub max_members: Option<i32>,
     /// Toggle peer data sharing

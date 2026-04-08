@@ -7,7 +7,7 @@
 use chrono::{Duration, Utc};
 use hex;
 use pierre_core::models::messaging::{
-    ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
+    CardAction, ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
 use pierre_core::models::usage::InsertLlmUsage;
@@ -1078,12 +1078,29 @@ async fn try_handle_slash_command(
                     channel = %channel,
                     "Slash command executed"
                 );
+                let content = if response.is_card() {
+                    MessageContent::Card {
+                        title: response.card_title.unwrap_or_default(),
+                        body: response.text,
+                        actions: response
+                            .actions
+                            .into_iter()
+                            .map(|a| CardAction {
+                                label: a.label,
+                                action_type: a.action_type,
+                                value: a.value,
+                            })
+                            .collect(),
+                    }
+                } else {
+                    MessageContent::Text {
+                        body: response.text,
+                    }
+                };
                 Some(OutgoingMessage {
                     channel_type,
                     recipient_id: reply_target,
-                    content: MessageContent::Text {
-                        body: response.text,
-                    },
+                    content,
                     correlation_id: Uuid::new_v4(),
                     reply_to: None,
                 })

@@ -47,6 +47,7 @@ use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
 use crate::services::commands::{
     account::LogoutHandler,
+    coach::{CoachAssignHandler, CoachListHandler, CoachSelectHandler},
     group::{
         GroupInviteHandler, GroupLeaveHandler, GroupListHandler, GroupMembersHandler,
         GroupStatusHandler,
@@ -441,6 +442,9 @@ impl ServerResources {
             handler_reg.register("group-members", Arc::new(GroupMembersHandler));
             handler_reg.register("group-invite", Arc::new(GroupInviteHandler));
             handler_reg.register("group-leave", Arc::new(GroupLeaveHandler));
+            handler_reg.register("coach", Arc::new(CoachListHandler));
+            handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
+            handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));
             (Some(registry), Some(Arc::new(handler_reg)))
         };
 
