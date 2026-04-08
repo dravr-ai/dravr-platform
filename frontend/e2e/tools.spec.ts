@@ -124,7 +124,7 @@ test.describe('Engagement Tab - User Engagement Tiers', () => {
 
     await expect(page.getByText('Daily Active')).toBeVisible();
     // 2 users active within last 24h
-    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Daily Active' }).getByText('2')).toBeVisible();
+    await expect(page.locator('.stat-card-dark').filter({ hasText: 'Daily Active' }).getByText('2').first()).toBeVisible();
   });
 
   test('displays Weekly Active stat card', async ({ page }) => {

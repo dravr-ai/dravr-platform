@@ -123,14 +123,17 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-activity">{dailyActive}</div>
           <div className="text-sm text-zinc-400">Daily Active</div>
+          <div className="text-[10px] text-zinc-600">Last 24h</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-cyan">{weeklyActive}</div>
           <div className="text-sm text-zinc-400">Weekly Active</div>
+          <div className="text-[10px] text-zinc-600">Last 7d</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-violet-light">{monthlyActive}</div>
           <div className="text-sm text-zinc-400">Monthly Active</div>
+          <div className="text-[10px] text-zinc-600">Last 30d</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-zinc-500">{dormant}</div>

@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { useGroupPermissions } from '../hooks/useGroups';
-import { Card } from './ui';
+import { Card, ConfirmDialog } from './ui';
 import type { SocialInsightsConfig } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -115,10 +115,10 @@ export default function AdminSettings() {
     updateSocialInsightsMutation.mutate(updatedConfig);
   };
 
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   const handleResetSocialInsights = () => {
-    if (window.confirm('Are you sure you want to reset social insights configuration to defaults?')) {
-      resetSocialInsightsMutation.mutate();
-    }
+    setShowResetConfirm(true);
   };
 
   return (
@@ -458,6 +458,19 @@ export default function AdminSettings() {
         ) : null}
       </Card>
 
+      <ConfirmDialog
+        isOpen={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={() => {
+          resetSocialInsightsMutation.mutate();
+          setShowResetConfirm(false);
+        }}
+        title="Reset Social Insights"
+        message="Are you sure you want to reset social insights configuration to defaults? This will restore all thresholds and limits to their original values."
+        confirmLabel="Reset to Defaults"
+        variant="danger"
+        isLoading={resetSocialInsightsMutation.isPending}
+      />
     </div>
   );
 }
