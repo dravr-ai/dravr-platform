@@ -208,25 +208,25 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
           </div>
         ) : stats ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card variant="stat">
+            <div className="stat-card-dark">
               <p className="text-xs font-medium text-zinc-400 mb-1">Active Members</p>
               <p className="text-2xl font-bold text-white">{stats.active_members}</p>
               <p className="text-xs text-zinc-500 mt-1">of {stats.total_members} total</p>
-            </Card>
-            <Card variant="stat">
+            </div>
+            <div className="stat-card-dark">
               <p className="text-xs font-medium text-zinc-400 mb-1">Avg Weekly Volume</p>
               <p className="text-2xl font-bold text-white">
                 {stats.avg_weekly_volume_km.toFixed(1)}
                 <span className="text-sm text-zinc-400 ml-1">km</span>
               </p>
-            </Card>
-            <Card variant="stat">
+            </div>
+            <div className="stat-card-dark">
               <p className="text-xs font-medium text-zinc-400 mb-1">Avg CTL</p>
               <p className="text-2xl font-bold text-white">
                 {stats.avg_ctl !== null ? stats.avg_ctl.toFixed(1) : '--'}
               </p>
-            </Card>
-            <Card variant="stat">
+            </div>
+            <div className="stat-card-dark">
               <p className="text-xs font-medium text-zinc-400 mb-1">Flagged</p>
               <p className="text-2xl font-bold text-white">{stats.flagged_members}</p>
               <p className="text-xs mt-1">
@@ -234,7 +234,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                   {TREND_DISPLAY[stats.weekly_trend].label}
                 </span>
               </p>
-            </Card>
+            </div>
           </div>
         ) : (
           <Card variant="dark" className="!p-8 text-center">

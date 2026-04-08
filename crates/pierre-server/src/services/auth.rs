@@ -230,6 +230,7 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                created_at: user.created_at.to_rfc3339(),
             },
         })
     }
@@ -584,6 +585,7 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                created_at: user.created_at.to_rfc3339(),
             },
         })
     }
@@ -663,6 +665,7 @@ impl AuthService {
                 role: user.role.as_str().to_owned(),
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
+                created_at: user.created_at.to_rfc3339(),
             },
         })
     }

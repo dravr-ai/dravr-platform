@@ -353,6 +353,7 @@ pub(super) async fn handle_session(
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
             tenant_id: tenant_id_for_response,
+            created_at: user.created_at.to_rfc3339(),
         },
         access_token: jwt_token,
         csrf_token,
@@ -408,6 +409,7 @@ pub(super) async fn handle_update_profile(
             role: updated_user.role.to_string(),
             user_status: updated_user.user_status.to_string(),
             tenant_id: None,
+            created_at: updated_user.created_at.to_rfc3339(),
         },
     };
 

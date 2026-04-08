@@ -310,21 +310,20 @@ pub(crate) async fn approve_user(
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<ApproveUserResult, AppError> {
-    // Tenant-scoped lookup: admin can only approve users in their own tenant
-    let admin_tenant = get_admin_tenant_scope(resources, admin_user_id, active_tenant_id).await?;
-    let user = if let Some(tid) = admin_tenant {
-        resources.repos.users.get(target_user_id, tid).await
-    } else {
-        resources.repos.users.get_global(target_user_id).await
-    }
-    .map_err(|e| {
-        error!(error = %e, "Failed to fetch user from database");
-        AppError::internal(format!("Failed to fetch user: {e}"))
-    })?
-    .ok_or_else(|| {
-        warn!("User not found: {}", target_user_id);
-        AppError::not_found("User not found")
-    })?;
+    // Admin operations use global lookup (users may not have tenant_users entries)
+    let user = resources
+        .repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch user from database");
+            AppError::internal(format!("Failed to fetch user: {e}"))
+        })?
+        .ok_or_else(|| {
+            warn!("User not found: {}", target_user_id);
+            AppError::not_found("User not found")
+        })?;
 
     if user.user_status == UserStatus::Active {
         return Err(AppError::invalid_input("User is already approved"));
@@ -371,21 +370,20 @@ pub(crate) async fn suspend_user(
     target_user_id: Uuid,
     reason: Option<&str>,
 ) -> Result<SuspendUserResult, AppError> {
-    // Tenant-scoped lookup: admin can only suspend users in their own tenant
-    let admin_tenant = get_admin_tenant_scope(resources, admin_user_id, active_tenant_id).await?;
-    let user = if let Some(tid) = admin_tenant {
-        resources.repos.users.get(target_user_id, tid).await
-    } else {
-        resources.repos.users.get_global(target_user_id).await
-    }
-    .map_err(|e| {
-        error!(error = %e, "Failed to fetch user from database");
-        AppError::internal(format!("Failed to fetch user: {e}"))
-    })?
-    .ok_or_else(|| {
-        warn!("User not found: {}", target_user_id);
-        AppError::not_found("User not found")
-    })?;
+    // Admin operations use global lookup (users may not have tenant_users entries)
+    let user = resources
+        .repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| {
+            error!(error = %e, "Failed to fetch user from database");
+            AppError::internal(format!("Failed to fetch user: {e}"))
+        })?
+        .ok_or_else(|| {
+            warn!("User not found: {}", target_user_id);
+            AppError::not_found("User not found")
+        })?;
 
     if user.user_status == UserStatus::Suspended {
         return Err(AppError::invalid_input("User is already suspended"));
