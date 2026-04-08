@@ -261,7 +261,7 @@ jobs:
             --workspace-remap . \
             --partition count:${{ matrix.shard }}/4 \
             --test-threads 4 \
-            -E 'not (test(cache_redis_test) | test(database_plugins_postgresql_test) | package(pierre-cli))'
+            -E 'not (test(cache_redis_test) | test(database_plugins_postgresql_test))'
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
