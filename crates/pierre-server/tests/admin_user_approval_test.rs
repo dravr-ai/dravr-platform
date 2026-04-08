@@ -593,4 +593,236 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
     Ok(())
 }
 
+/// Verify that update_tenant_id creates tenant_users junction entries
+/// so that tenant-scoped queries can find the user via INNER JOIN.
+#[tokio::test]
+#[serial]
+async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
+    let (database, _, admin_user_id) = setup_test_database().await?;
+    let repos = database.repositories();
+
+    let tenant_id = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
+
+    // Create a user without a tenant
+    let user = User {
+        id: Uuid::new_v4(),
+        email: "tenant_junction_test@test.com".to_owned(),
+        display_name: Some("Junction Test".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        fitbit_token: None,
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: Some(admin_user_id),
+        approved_at: Some(chrono::Utc::now()),
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+    };
+    let user_id = user.id;
+    repos.users.create(&user).await?;
+
+    // Before tenant assignment: tenant-scoped query should NOT find the user
+    let scoped_before = repos.users.get_by_status("active", Some(tenant_id)).await?;
+    assert!(
+        !scoped_before.iter().any(|u| u.id == user_id),
+        "User should not appear in tenant-scoped query before assignment"
+    );
+
+    // Assign tenant — this should create a tenant_users entry
+    repos.users.update_tenant_id(user_id, tenant_id).await?;
+
+    // After tenant assignment: tenant-scoped query MUST find the user
+    let scoped_after = repos.users.get_by_status("active", Some(tenant_id)).await?;
+    assert!(
+        scoped_after.iter().any(|u| u.id == user_id),
+        "User must appear in tenant-scoped query after update_tenant_id"
+    );
+
+    env::remove_var("PIERRE_MASTER_ENCRYPTION_KEY");
+    Ok(())
+}
+
+/// Verify that get_by_status with None returns all users regardless of tenant
+#[tokio::test]
+#[serial]
+async fn test_get_by_status_none_returns_all_users() -> Result<()> {
+    let (database, _, admin_user_id) = setup_test_database().await?;
+    let repos = database.repositories();
+
+    let tenant_a = TenantId::from(Uuid::new_v4());
+    let tenant_b = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, tenant_a, admin_user_id).await?;
+    create_tenant_for_test(&database, tenant_b, admin_user_id).await?;
+
+    // Create users in different tenants
+    for (i, tid) in [(0, tenant_a), (1, tenant_b)] {
+        let user = User {
+            id: Uuid::new_v4(),
+            email: format!("cross_tenant_{i}@test.com"),
+            display_name: Some(format!("Cross Tenant User {i}")),
+            password_hash: "hash".to_owned(),
+            tier: UserTier::Starter,
+            strava_token: None,
+            fitbit_token: None,
+            is_active: true,
+            user_status: UserStatus::Active,
+            is_admin: false,
+            role: UserRole::User,
+            approved_by: Some(admin_user_id),
+            approved_at: Some(chrono::Utc::now()),
+            created_at: chrono::Utc::now(),
+            last_active: chrono::Utc::now(),
+            firebase_uid: None,
+            auth_provider: String::new(),
+        };
+        repos.users.create(&user).await?;
+        repos.users.update_tenant_id(user.id, tid).await?;
+    }
+
+    // Tenant-scoped: each tenant should see 1 user (plus admin if in that tenant)
+    let a_users = repos.users.get_by_status("active", Some(tenant_a)).await?;
+    let b_users = repos.users.get_by_status("active", Some(tenant_b)).await?;
+    assert!(
+        a_users.iter().any(|u| u.email == "cross_tenant_0@test.com"),
+        "Tenant A should see its user"
+    );
+    assert!(
+        !a_users.iter().any(|u| u.email == "cross_tenant_1@test.com"),
+        "Tenant A should NOT see Tenant B's user"
+    );
+    assert!(
+        b_users.iter().any(|u| u.email == "cross_tenant_1@test.com"),
+        "Tenant B should see its user"
+    );
+
+    // None (admin view): should see all active users from both tenants
+    let all_users = repos.users.get_by_status("active", None).await?;
+    assert!(
+        all_users
+            .iter()
+            .any(|u| u.email == "cross_tenant_0@test.com"),
+        "Admin view should see Tenant A user"
+    );
+    assert!(
+        all_users
+            .iter()
+            .any(|u| u.email == "cross_tenant_1@test.com"),
+        "Admin view should see Tenant B user"
+    );
+
+    env::remove_var("PIERRE_MASTER_ENCRYPTION_KEY");
+    Ok(())
+}
+
+/// Verify that pending users without tenant_users entries are visible
+/// when querying with any tenant_id (pending skip the join)
+#[tokio::test]
+#[serial]
+async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
+    let (database, _, admin_user_id) = setup_test_database().await?;
+    let repos = database.repositories();
+
+    let tenant_id = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
+
+    // Create a pending user (no tenant assignment — this is the registration state)
+    let pending = User {
+        id: Uuid::new_v4(),
+        email: "pending_no_tenant@test.com".to_owned(),
+        display_name: Some("Pending No Tenant".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        fitbit_token: None,
+        is_active: true,
+        user_status: UserStatus::Pending,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: None,
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+    };
+    repos.users.create(&pending).await?;
+
+    // Pending with tenant_id=Some should still find the user
+    // (pending status skips the tenant_users join)
+    let pending_scoped = repos
+        .users
+        .get_by_status("pending", Some(tenant_id))
+        .await?;
+    assert!(
+        pending_scoped
+            .iter()
+            .any(|u| u.email == "pending_no_tenant@test.com"),
+        "Pending users must be visible even with tenant scope"
+    );
+
+    // Pending with None should also find the user
+    let pending_all = repos.users.get_by_status("pending", None).await?;
+    assert!(
+        pending_all
+            .iter()
+            .any(|u| u.email == "pending_no_tenant@test.com"),
+        "Pending users must be visible without tenant scope"
+    );
+
+    env::remove_var("PIERRE_MASTER_ENCRYPTION_KEY");
+    Ok(())
+}
+
+/// Verify that update_tenant_id is idempotent (calling twice doesn't fail)
+#[tokio::test]
+#[serial]
+async fn test_update_tenant_id_idempotent() -> Result<()> {
+    let (database, _, admin_user_id) = setup_test_database().await?;
+    let repos = database.repositories();
+
+    let tenant_id = TenantId::from(Uuid::new_v4());
+    create_tenant_for_test(&database, tenant_id, admin_user_id).await?;
+
+    let user = User {
+        id: Uuid::new_v4(),
+        email: "idempotent_test@test.com".to_owned(),
+        display_name: Some("Idempotent".to_owned()),
+        password_hash: "hash".to_owned(),
+        tier: UserTier::Starter,
+        strava_token: None,
+        fitbit_token: None,
+        is_active: true,
+        user_status: UserStatus::Active,
+        is_admin: false,
+        role: UserRole::User,
+        approved_by: None,
+        approved_at: None,
+        created_at: chrono::Utc::now(),
+        last_active: chrono::Utc::now(),
+        firebase_uid: None,
+        auth_provider: String::new(),
+    };
+    repos.users.create(&user).await?;
+
+    // Call update_tenant_id twice — second call should not fail
+    repos.users.update_tenant_id(user.id, tenant_id).await?;
+    repos.users.update_tenant_id(user.id, tenant_id).await?;
+
+    // User should still be visible
+    let scoped = repos.users.get_by_status("active", Some(tenant_id)).await?;
+    assert!(
+        scoped.iter().any(|u| u.id == user.id),
+        "User should be visible after double update_tenant_id"
+    );
+
+    env::remove_var("PIERRE_MASTER_ENCRYPTION_KEY");
+    Ok(())
+}
+
 // Note: Database cleanup is handled by the Database implementation itself
