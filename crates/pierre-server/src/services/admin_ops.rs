@@ -416,6 +416,166 @@ pub(crate) async fn suspend_user(
 }
 
 // =========================================================================
+// Admin privilege management (super-admin only)
+// =========================================================================
+
+/// Outcome of an admin privilege change (promote or demote)
+pub(crate) struct AdminPrivilegeChangeResult {
+    /// Updated user ID
+    pub(crate) user_id: String,
+    /// Updated user email
+    pub(crate) email: String,
+    /// New admin status
+    pub(crate) is_admin: bool,
+    /// User role after the change (user, admin, `super_admin`)
+    pub(crate) role: String,
+}
+
+/// Admin user summary for the admins listing
+#[derive(Serialize)]
+pub(crate) struct AdminUserSummary {
+    /// User ID
+    pub(crate) id: String,
+    /// User email
+    pub(crate) email: String,
+    /// Display name (optional)
+    pub(crate) display_name: Option<String>,
+    /// User role (admin or `super_admin`)
+    pub(crate) role: String,
+    /// User status (active, pending, suspended)
+    pub(crate) user_status: String,
+    /// Account creation timestamp (RFC3339)
+    pub(crate) created_at: String,
+}
+
+/// Promote a user to admin: set `is_admin = true` and role to Admin (preserving `SuperAdmin`).
+///
+/// Only super-admins can perform this operation to prevent privilege escalation.
+/// Returns an error if the caller is not super-admin, the target user is not found,
+/// or the target is already an admin.
+pub(crate) async fn promote_user_to_admin(
+    resources: &Arc<ServerResources>,
+    admin_user_id: Uuid,
+    target_user_id: Uuid,
+) -> Result<AdminPrivilegeChangeResult, AppError> {
+    require_super_admin(admin_user_id, resources).await?;
+
+    // SECURITY: Global lookup — super-admins promote across tenants
+    let user = resources
+        .repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch target user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+
+    if user.is_admin {
+        return Err(AppError::invalid_input("User is already an admin"));
+    }
+
+    let updated = resources
+        .repos
+        .users
+        .set_admin_status(target_user_id, true)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to promote user: {e}")))?;
+
+    info!(
+        admin_user_id = %admin_user_id,
+        target_user_id = %target_user_id,
+        target_email = %updated.email,
+        "User promoted to admin"
+    );
+
+    Ok(AdminPrivilegeChangeResult {
+        user_id: updated.id.to_string(),
+        email: updated.email,
+        is_admin: updated.is_admin,
+        role: updated.role.as_str().to_owned(),
+    })
+}
+
+/// Demote an admin user: set `is_admin = false` and role to User.
+///
+/// Only super-admins can perform this operation. Demoting super-admins is rejected
+/// at the repository layer to prevent accidental privilege loss. Self-demotion is rejected
+/// to avoid locking the caller out of admin actions.
+pub(crate) async fn demote_user_from_admin(
+    resources: &Arc<ServerResources>,
+    admin_user_id: Uuid,
+    target_user_id: Uuid,
+) -> Result<AdminPrivilegeChangeResult, AppError> {
+    require_super_admin(admin_user_id, resources).await?;
+
+    if admin_user_id == target_user_id {
+        return Err(AppError::invalid_input("Cannot demote yourself"));
+    }
+
+    let user = resources
+        .repos
+        .users
+        .get_global(target_user_id)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to fetch target user: {e}")))?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+
+    if !user.is_admin {
+        return Err(AppError::invalid_input("User is not an admin"));
+    }
+
+    let updated = resources
+        .repos
+        .users
+        .set_admin_status(target_user_id, false)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to demote user: {e}")))?;
+
+    info!(
+        admin_user_id = %admin_user_id,
+        target_user_id = %target_user_id,
+        target_email = %updated.email,
+        "User demoted from admin"
+    );
+
+    Ok(AdminPrivilegeChangeResult {
+        user_id: updated.id.to_string(),
+        email: updated.email,
+        is_admin: updated.is_admin,
+        role: updated.role.as_str().to_owned(),
+    })
+}
+
+/// List all admin users across all tenants.
+///
+/// Only super-admins can view the full admin roster. Returns admins (and super-admins)
+/// ordered by email ascending.
+pub(crate) async fn list_all_admins(
+    resources: &Arc<ServerResources>,
+    admin_user_id: Uuid,
+) -> Result<Vec<AdminUserSummary>, AppError> {
+    require_super_admin(admin_user_id, resources).await?;
+
+    let admins = resources
+        .repos
+        .users
+        .list_admins()
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to list admins: {e}")))?;
+
+    Ok(admins
+        .into_iter()
+        .map(|u| AdminUserSummary {
+            id: u.id.to_string(),
+            email: u.email,
+            display_name: u.display_name,
+            role: u.role.as_str().to_owned(),
+            user_status: u.user_status.to_string(),
+            created_at: u.created_at.to_rfc3339(),
+        })
+        .collect())
+}
+
+// =========================================================================
 // Password reset
 // =========================================================================
 

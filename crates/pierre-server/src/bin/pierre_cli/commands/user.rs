@@ -257,3 +257,75 @@ async fn initialize_admin_jwt_secret(repos: &RepositoryRegistry) -> Result<()> {
     info!("Admin JWT signing key initialized successfully");
     Ok(())
 }
+
+/// Promote an existing user to admin
+///
+/// Operates directly on the database — no HTTP layer involved. The `set_admin_status`
+/// repo method handles the privilege transition. To promote to super-admin, use
+/// `pierre-cli user create --email X --password Y --force --super-admin` instead.
+pub async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = repos
+        .users
+        .get_by_email(&email)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+
+    if user.is_admin {
+        warn!("User {} is already an admin", email);
+        println!("User {email} is already an admin (no change)");
+        return Ok(());
+    }
+
+    let updated = repos.users.set_admin_status(user.id, true).await?;
+    println!(
+        "User {} promoted to admin (id={}, role={})",
+        updated.email,
+        updated.id,
+        updated.role.as_str()
+    );
+    Ok(())
+}
+
+/// Demote an admin user back to a regular user
+///
+/// Super-admins cannot be demoted via this command to prevent accidental privilege loss;
+/// super-admin demotion requires direct DB intervention.
+pub async fn demote(repos: &RepositoryRegistry, email: String) -> Result<()> {
+    let user = repos
+        .users
+        .get_by_email(&email)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("User with email {email} not found")))?;
+
+    if !user.is_admin {
+        warn!("User {} is not an admin", email);
+        println!("User {email} is not an admin (no change)");
+        return Ok(());
+    }
+
+    let updated = repos.users.set_admin_status(user.id, false).await?;
+    println!(
+        "User {} demoted from admin (id={}, role={})",
+        updated.email,
+        updated.id,
+        updated.role.as_str()
+    );
+    Ok(())
+}
+
+/// List all admin users, printing email and role
+pub async fn list_admins(repos: &RepositoryRegistry) -> Result<()> {
+    let admins = repos.users.list_admins().await?;
+
+    if admins.is_empty() {
+        println!("No admin users found");
+        return Ok(());
+    }
+
+    println!("Admin users ({} total):", admins.len());
+    println!("{:<12}  {:<30}  ID", "ROLE", "EMAIL");
+    for u in admins {
+        println!("{:<12}  {:<30}  {}", u.role.as_str(), u.email, u.id);
+    }
+    Ok(())
+}

@@ -12,6 +12,18 @@
 //! # Create super admin user
 //! pierre-cli user create --email admin@example.com --password yourpassword --super-admin
 //!
+//! # Promote an existing user to admin
+//! pierre-cli user promote --email user@example.com
+//!
+//! # Promote an existing user to super admin (use `user create --force`)
+//! pierre-cli user create --email user@example.com --password X --force --super-admin
+//!
+//! # Demote an admin user back to regular user
+//! pierre-cli user demote --email user@example.com
+//!
+//! # List all admin users
+//! pierre-cli user list-admins
+//!
 //! # Generate a new admin token
 //! pierre-cli token generate --service pierre_admin_service
 //!
@@ -108,6 +120,23 @@ enum UserCommand {
         #[arg(long)]
         super_admin: bool,
     },
+
+    /// Promote an existing user to admin
+    Promote {
+        /// Email of the user to promote
+        #[arg(long)]
+        email: String,
+    },
+
+    /// Demote an admin user back to a regular user
+    Demote {
+        /// Email of the user to demote
+        #[arg(long)]
+        email: String,
+    },
+
+    /// List all admin users
+    ListAdmins,
 }
 
 #[non_exhaustive]
@@ -229,6 +258,15 @@ async fn main() -> Result<()> {
                 super_admin,
             } => {
                 commands::user::create(&repos, email, password, name, force, super_admin).await?;
+            }
+            UserCommand::Promote { email } => {
+                commands::user::promote(&repos, email).await?;
+            }
+            UserCommand::Demote { email } => {
+                commands::user::demote(&repos, email).await?;
+            }
+            UserCommand::ListAdmins => {
+                commands::user::list_admins(&repos).await?;
             }
         },
         Command::Token { action } => match action {

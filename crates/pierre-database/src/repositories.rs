@@ -146,6 +146,12 @@ pub trait UserRepository: Send + Sync {
         new_status: UserStatus,
         approved_by: Option<Uuid>,
     ) -> AppResult<User>;
+    /// Set admin status on a user, updating both `is_admin` flag and role column.
+    /// When granting admin, users keep `SuperAdmin` role if they already have it; otherwise set to `Admin`.
+    /// When revoking admin, role is reset to `User`. Super-admins cannot be demoted via this method.
+    async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<User>;
+    /// List all users with `is_admin = true`, ordered by email
+    async fn list_admins(&self) -> AppResult<Vec<User>>;
     /// Update user's `tenant_id` to link them to a tenant (`tenant_id` should be UUID string)
     async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()>;
     /// Update user's password hash
