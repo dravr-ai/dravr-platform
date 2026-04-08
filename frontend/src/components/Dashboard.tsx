@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Main dashboard orchestrator that renders navigation and panel components
-// ABOUTME: Delegates data fetching to focused panel components in dashboard/ directory
+// ABOUTME: Main dashboard orchestrator with admin sidebar and user mode navigation
+// ABOUTME: Admin lands on Users tab; delegates data fetching to focused panel components
 
 import { useState, lazy, Suspense, useEffect, useMemo } from 'react';
 import { useAuth } from '../hooks/useAuth';
