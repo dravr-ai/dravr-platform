@@ -689,7 +689,11 @@ impl CoachesRepository for Database {
                    created_at, updated_at, is_system, visibility, prerequisites,
                    forked_from, max_tool_iterations, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            FROM coaches WHERE id = $1 AND user_id = $2 AND tenant_id = $3",
+            FROM coaches WHERE id = $1 AND (
+                (user_id = $2 AND tenant_id = $3)
+                OR is_system = 1
+                OR id IN (SELECT coach_id FROM coach_assignments WHERE user_id = $2)
+            )",
         )
         .bind(coach_id).bind(user_id.to_string()).bind(tenant_id)
         .fetch_optional(self.pool()).await
