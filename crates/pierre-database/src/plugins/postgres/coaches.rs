@@ -502,7 +502,11 @@ impl CoachesRepository for PostgresDatabase {
                    forked_from, max_tool_iterations, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3
+            WHERE id = $1 AND (
+                (user_id = $2 AND tenant_id = $3)
+                OR is_system = TRUE
+                OR id IN (SELECT coach_id FROM coach_assignments WHERE user_id = $2)
+            )
             ",
         )
         .bind(coach_id)

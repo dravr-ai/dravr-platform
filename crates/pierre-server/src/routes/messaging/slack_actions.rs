@@ -1,18 +1,19 @@
-// ABOUTME: Slack interactive actions handler for ops notifications (approve/reject users)
-// ABOUTME: Verifies HMAC-SHA256 signature via dravr-tronc, resolves Slack user to Pierre admin
+// ABOUTME: Slack interactive actions handler for ops notifications and messaging command postbacks
+// ABOUTME: Verifies HMAC-SHA256 signature via dravr-tronc, routes ops actions and command callbacks
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use std::env;
 use std::str;
+use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
 use axum::Json;
 use dravr_tronc::notifications::{SlackClient, SlackConfig};
 use pierre_core::http_client::api_client;
+use pierre_core::models::TenantId;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -25,16 +26,22 @@ use crate::services::tenant_admin as tenant_admin_service;
 /// Slack API endpoint for looking up user info by ID
 const SLACK_USERS_INFO_URL: &str = "https://slack.com/api/users.info";
 
-/// Handle Slack interactive action payloads (button clicks from ops notifications)
+/// Handle Slack interactive action payloads (button clicks)
+///
+/// Routes two kinds of actions:
+/// - **Command postbacks**: `action_id` starts with `/` (e.g. `/coach select UUID`).
+///   These come from messaging card buttons and are routed through the command system.
+/// - **Ops actions**: `approve_user:` / `reject_user:` prefixed actions from admin
+///   notifications. Requires Pierre admin role.
 ///
 /// Security chain:
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
-/// 3. Slack user -> Pierre admin mapping (only admins can approve/reject)
+/// 3. Slack user -> Pierre user mapping
 pub async fn handle_slack_action(
-    resources: &ServerResources,
+    resources: &Arc<ServerResources>,
     body: &Bytes,
-) -> AppResult<impl IntoResponse> {
+) -> AppResult<(StatusCode, Json<Value>)> {
     // Parse the Slack interactive payload (form-encoded with `payload` key)
     let payload = parse_interactive_payload(body)?;
 
@@ -46,6 +53,16 @@ pub async fn handle_slack_action(
         slack_user = %action.slack_user_id,
         "Processing Slack interactive action"
     );
+
+    // Normalize action_id: Slack may URL-encode spaces as `+`
+    let normalized_action_id = action.action_id.replace('+', " ");
+
+    // Route command postbacks (action_id starts with `/`) through the command system
+    if normalized_action_id.starts_with('/') {
+        return handle_command_postback(resources, &action, &normalized_action_id).await;
+    }
+
+    // --- Ops actions below (approve/reject users) ---
 
     // Resolve the Slack user's email via Slack API
     let bot_token = env::var("SLACK_BOT_TOKEN")
@@ -145,6 +162,102 @@ pub fn verify_slack_signature(
     client
         .verify_signature(timestamp, signature, body)
         .map_err(|e| AppError::auth_invalid(format!("Slack signature verification failed: {e}")))
+}
+
+// =============================================================================
+// Command postback routing
+// =============================================================================
+
+/// Handle a messaging command postback from a Slack interactive action.
+///
+/// Resolves the Slack user to a Pierre user, executes the command, and
+/// sends the response back to the Slack channel via the Bot Token.
+async fn handle_command_postback(
+    resources: &Arc<ServerResources>,
+    action: &SlackAction,
+    command_text: &str,
+) -> AppResult<(StatusCode, Json<Value>)> {
+    use pierre_messaging::commands::CommandMatcher;
+
+    use crate::services::commands::PlatformCommandContext;
+
+    // Resolve Slack user to Pierre user via email lookup
+    let bot_token = env::var("SLACK_BOT_TOKEN")
+        .map_err(|_| AppError::internal("SLACK_BOT_TOKEN not configured"))?;
+    let slack_email = resolve_slack_user_email(&bot_token, &action.slack_user_id).await?;
+
+    let user = resources
+        .repos
+        .users
+        .get_by_email(&slack_email)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to look up user: {e}")))?
+        .ok_or_else(|| {
+            warn!(
+                slack_user = %action.slack_user_id,
+                email = %slack_email,
+                "Slack user is not a Pierre user (command postback)"
+            );
+            AppError::auth_invalid("You are not registered as a Pierre user")
+        })?;
+
+    // Resolve user's tenant
+    let user_tenant = {
+        let tenants = resources.repos.tenants.list_for_user(user.id).await?;
+        if let Some(t) = tenants.first() {
+            t.id
+        } else {
+            TenantId::from_uuid(user.id)
+        }
+    };
+
+    // Match command against registry
+    let cmd_registry = resources
+        .command_registry
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Command registry not initialized"))?;
+    let handler_registry = resources
+        .command_handler_registry
+        .as_ref()
+        .ok_or_else(|| AppError::internal("Command handler registry not initialized"))?;
+
+    let matcher = CommandMatcher::from_registry(cmd_registry);
+    let parsed = matcher
+        .try_match(command_text, cmd_registry)
+        .ok_or_else(|| AppError::invalid_input(format!("Unknown command: {command_text}")))?;
+
+    let handler = handler_registry.get(&parsed.name).ok_or_else(|| {
+        AppError::invalid_input(format!("No handler for command: {}", parsed.name))
+    })?;
+
+    let ctx = PlatformCommandContext {
+        user_id: user.id,
+        tenant_id: user_tenant,
+        channel_type: "slack".to_owned(),
+        args: parsed.args,
+        raw_text: parsed.raw_text,
+        resources: Arc::clone(resources),
+    };
+
+    let response = handler.execute(&ctx).await?;
+
+    info!(
+        command = %parsed.name,
+        user_id = %user.id,
+        slack_user = %action.slack_user_id,
+        "Slack command postback executed"
+    );
+
+    // Send response to Slack channel
+    let slack_client = build_slack_client(&bot_token);
+    let response_text = &response.text;
+    let blocks = json!([{
+        "type": "section",
+        "text": { "type": "mrkdwn", "text": response_text }
+    }]);
+    slack_client.update_message(&action.channel_id, &action.message_ts, &blocks);
+
+    Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
 }
 
 // =============================================================================
