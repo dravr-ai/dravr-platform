@@ -6,6 +6,8 @@
 
 /// Account management commands (logout, profile)
 pub mod account;
+/// Coach selection commands (list, select)
+pub mod coach;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
 /// Help command listing available commands

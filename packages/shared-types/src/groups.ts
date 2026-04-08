@@ -85,6 +85,7 @@ export interface CreateGroupRequest {
 export interface UpdateGroupRequest {
   name?: string;
   description?: string;
+  coach_id?: string;
   max_members?: number;
   peer_data_sharing?: boolean;
   is_active?: boolean;

@@ -225,14 +225,16 @@ impl CoachingGroupRepository for PostgresDatabase {
             r"UPDATE coaching_groups SET
               name = COALESCE($1, name),
               description = COALESCE($2, description),
-              max_members = COALESCE($3, max_members),
-              peer_data_sharing = COALESCE($4, peer_data_sharing),
-              is_active = COALESCE($5, is_active),
-              updated_at = $6
-              WHERE id = $7 AND tenant_id = $8",
+              coach_id = COALESCE($3, coach_id),
+              max_members = COALESCE($4, max_members),
+              peer_data_sharing = COALESCE($5, peer_data_sharing),
+              is_active = COALESCE($6, is_active),
+              updated_at = $7
+              WHERE id = $8 AND tenant_id = $9",
         )
         .bind(&request.name)
         .bind(&request.description)
+        .bind(&request.coach_id)
         .bind(request.max_members)
         .bind(request.peer_data_sharing)
         .bind(request.is_active)
