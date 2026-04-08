@@ -73,6 +73,8 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     database.repositories().users.create(&user).await?;
     Ok(user_id)

@@ -184,6 +184,8 @@ impl IntegrationTestServer {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         let repos = self.resources.database.repositories();
@@ -246,6 +248,8 @@ impl IntegrationTestServer {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         let repos = self.resources.database.repositories();

@@ -98,6 +98,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         approved_at: Some(chrono::Utc::now()),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     let beta_admin = User {
@@ -118,6 +120,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         approved_at: Some(chrono::Utc::now()),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     database.repositories().users.create(&acme_admin).await?;
@@ -455,6 +459,8 @@ async fn setup_multitenant_scenario(
         approved_at: Some(chrono::Utc::now()),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     database.repositories().users.create(&user).await?;

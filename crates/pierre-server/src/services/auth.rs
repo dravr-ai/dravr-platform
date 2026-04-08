@@ -491,6 +491,8 @@ impl AuthService {
             approved_at,
             firebase_uid: Some(claims.sub.clone()),
             auth_provider: claims.provider.clone(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         self.data.repos().users.create(&new_user).await?;

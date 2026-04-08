@@ -201,6 +201,8 @@ impl TestServer {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         self.database.repositories().users.create(&user).await?;

@@ -576,6 +576,8 @@ async fn test_get_activities_with_expired_token() {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -663,6 +665,8 @@ async fn test_connection_status_with_oauth_manager() {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -739,6 +743,8 @@ async fn test_analyze_activity_token_refresh() {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -835,6 +841,8 @@ async fn test_concurrent_token_operations() {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -915,6 +923,8 @@ async fn test_oauth_provider_init_failure() {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

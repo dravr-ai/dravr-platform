@@ -30,6 +30,8 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 
@@ -54,6 +56,8 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 
@@ -78,6 +82,8 @@ pub fn create_test_pending_user(email: &str, display_name: Option<String>) -> Us
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 
@@ -117,5 +123,7 @@ pub fn create_test_user_with_fields(
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }

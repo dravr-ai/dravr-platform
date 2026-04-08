@@ -705,6 +705,8 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     db.repositories()

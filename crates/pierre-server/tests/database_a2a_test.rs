@@ -47,6 +47,8 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     UserRepository::create(db, &user)
         .await

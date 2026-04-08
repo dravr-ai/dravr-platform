@@ -8,7 +8,6 @@ use std::env;
 use std::sync::OnceLock;
 
 use dashmap::DashMap;
-use pierre_core::models::TenantId;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tracing::{info, warn};

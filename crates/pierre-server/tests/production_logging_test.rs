@@ -248,6 +248,8 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // Test instrumented database operation (has #[tracing::instrument])
