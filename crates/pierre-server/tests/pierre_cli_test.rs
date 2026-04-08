@@ -10,12 +10,12 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use std::process::Command;
+use std::{env, process::Command};
 
-/// Get the path to the pierre-cli binary
+/// Get the path to the `pierre-cli` binary
 fn cli_binary() -> String {
     // Use runtime env var for nextest archive compatibility (env! bakes absolute path at compile time)
-    std::env::var("CARGO_BIN_EXE_pierre-cli")
+    env::var("CARGO_BIN_EXE_pierre-cli")
         .unwrap_or_else(|_| env!("CARGO_BIN_EXE_pierre-cli").to_owned())
 }
 
