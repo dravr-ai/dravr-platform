@@ -593,7 +593,7 @@ async fn test_delete_nonexistent_user_fails() -> Result<()> {
     Ok(())
 }
 
-/// Verify that update_tenant_id creates tenant_users junction entries
+/// Verify that `update_tenant_id` creates `tenant_users` junction entries
 /// so that tenant-scoped queries can find the user via INNER JOIN.
 #[tokio::test]
 #[serial]
@@ -648,7 +648,7 @@ async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
     Ok(())
 }
 
-/// Verify that get_by_status with None returns all users regardless of tenant
+/// Verify that `get_by_status` with None returns all users regardless of tenant
 #[tokio::test]
 #[serial]
 async fn test_get_by_status_none_returns_all_users() -> Result<()> {
@@ -720,8 +720,8 @@ async fn test_get_by_status_none_returns_all_users() -> Result<()> {
     Ok(())
 }
 
-/// Verify that pending users without tenant_users entries are visible
-/// when querying with any tenant_id (pending skip the join)
+/// Verify that pending users without `tenant_users` entries are visible
+/// when querying with any `tenant_id` (pending skip the join)
 #[tokio::test]
 #[serial]
 async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
@@ -779,7 +779,7 @@ async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
     Ok(())
 }
 
-/// Verify that update_tenant_id is idempotent (calling twice doesn't fail)
+/// Verify that `update_tenant_id` is idempotent (calling twice doesn't fail)
 #[tokio::test]
 #[serial]
 async fn test_update_tenant_id_idempotent() -> Result<()> {
