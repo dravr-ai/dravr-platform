@@ -4,7 +4,7 @@
 // ABOUTME: Reusable Modal component with Pierre design system styling
 // ABOUTME: Features smooth animations, gradient accent bar, and accessible focus management
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface ModalProps {
@@ -31,6 +31,11 @@ export const Modal: React.FC<ModalProps> = ({
   footer,
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  // Stable refs so the escape/close handlers don't trigger effect re-runs
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const closeOnEscapeRef = useRef(closeOnEscape);
+  closeOnEscapeRef.current = closeOnEscape;
 
   const sizeClasses = {
     sm: 'max-w-sm',
@@ -41,37 +46,33 @@ export const Modal: React.FC<ModalProps> = ({
     '3xl': 'max-w-3xl',
   };
 
-  const handleEscape = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && closeOnEscape) {
-        onClose();
-      }
-    },
-    [onClose, closeOnEscape]
-  );
-
   const handleOverlayClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (closeOnOverlayClick && event.target === event.currentTarget) {
       onClose();
     }
   };
 
+  // Escape key handler + focus on open (stable deps to avoid stealing focus)
   useEffect(() => {
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
+    if (!isOpen) return;
 
-      // Focus the modal when it opens
-      setTimeout(() => {
-        modalRef.current?.focus();
-      }, 0);
-    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && closeOnEscapeRef.current) {
+        onCloseRef.current();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    document.body.style.overflow = 'hidden';
+
+    // Focus the modal container only on initial open
+    modalRef.current?.focus();
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.body.style.overflow = 'unset';
     };
-  }, [isOpen, handleEscape]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

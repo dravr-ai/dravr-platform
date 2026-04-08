@@ -1246,6 +1246,8 @@ Authorization: Bearer <your-token-here>`}
             </Card>
 
             {/* Usage Quota Card */}
+            {/* Usage quotas are user-facing only, not shown for admin */}
+            {!user?.is_admin && (
             <Card variant="dark">
               <div className="flex items-start gap-4 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
@@ -1326,6 +1328,7 @@ Authorization: Bearer <your-token-here>`}
                 </div>
               )}
             </Card>
+            )}
 
             <Card variant="dark">
               <h2 className="text-lg font-semibold text-white mb-4">Security</h2>
@@ -1333,7 +1336,7 @@ Authorization: Bearer <your-token-here>`}
                 <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
                   <h3 className="font-medium text-white mb-2">Password</h3>
                   <p className="text-sm text-zinc-400 mb-3">Change your password to keep your account secure.</p>
-                  <Button variant="secondary" size="sm" onClick={() => setShowChangePassword(true)}>
+                  <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
                     Change Password
                   </Button>
                 </div>

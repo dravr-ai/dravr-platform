@@ -46,7 +46,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [showDisableModal, setShowDisableModal] = useState(false);
   const [showEnableModal, setShowEnableModal] = useState(false);
@@ -130,9 +130,9 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
     if (!tenantToolsData?.data) return [];
     let tools = tenantToolsData.data;
 
-    // Filter by category
-    if (selectedCategory) {
-      tools = tools.filter((tool) => tool.category === selectedCategory);
+    // Filter by selected categories (multi-select)
+    if (selectedCategories.size > 0) {
+      tools = tools.filter((tool) => selectedCategories.has(tool.category));
     }
 
     // Filter by search query
@@ -147,7 +147,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
     }
 
     return tools;
-  }, [tenantToolsData, selectedCategory, searchQuery]);
+  }, [tenantToolsData, selectedCategories, searchQuery]);
 
   // Check if a tool is globally disabled
   const isGloballyDisabled = useCallback(
@@ -358,72 +358,75 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
         </div>
       )}
 
-      {/* Filters and Search */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          {/* Category filter chips */}
+      {/* Search */}
+      <div className="relative">
+        <Input
+          type="search"
+          placeholder="Search tools by name, description..."
+          aria-label="Search tools"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && (
           <button
-            onClick={() => setSelectedCategory(null)}
+            aria-label="Clear search"
+            onClick={() => setSearchQuery('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* Category filter chips + Bulk actions */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Category multi-select chips */}
+        <button
+          onClick={() => setSelectedCategories(new Set())}
+          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            selectedCategories.size === 0
+              ? 'bg-pierre-violet text-white'
+              : 'bg-white/10 text-zinc-300 hover:bg-white/20'
+          }`}
+        >
+          All
+        </button>
+        {categories.map((category) => (
+          <button
+            key={category}
+            onClick={() => {
+              const next = new Set(selectedCategories);
+              if (next.has(category)) {
+                next.delete(category);
+              } else {
+                next.add(category);
+              }
+              setSelectedCategories(next);
+            }}
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              selectedCategory === null
+              selectedCategories.has(category)
                 ? 'bg-pierre-violet text-white'
                 : 'bg-white/10 text-zinc-300 hover:bg-white/20'
             }`}
           >
-            All
+            {category}
           </button>
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setSelectedCategory(category)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                selectedCategory === category
-                  ? 'bg-pierre-violet text-white'
-                  : 'bg-white/10 text-zinc-300 hover:bg-white/20'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
+        ))}
 
-        <div className="flex items-center gap-3">
-          {/* Search */}
-          <div className="relative">
-            <Input
-              type="search"
-              placeholder="Search tools..."
-              aria-label="Search tools"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-64"
-            />
-            {searchQuery && (
-              <button
-                aria-label="Clear search"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
+        {/* Bulk actions */}
+        {selectedTools.size > 0 && (
+          <div className="flex items-center gap-2 ml-auto">
+            <span className="text-sm text-zinc-400">{selectedTools.size} selected</span>
+            <Button variant="outline" size="sm" onClick={() => handleBulkAction('enable')}>
+              Enable Selected
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => handleBulkAction('disable')}>
+              Disable Selected
+            </Button>
           </div>
-
-          {/* Bulk actions */}
-          {selectedTools.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-zinc-400">{selectedTools.size} selected</span>
-              <Button variant="outline" size="sm" onClick={() => handleBulkAction('enable')}>
-                Enable Selected
-              </Button>
-              <Button variant="danger" size="sm" onClick={() => handleBulkAction('disable')}>
-                Disable Selected
-              </Button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Tools Table */}
@@ -437,7 +440,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                     type="checkbox"
                     checked={allSelected}
                     onChange={(e) => handleSelectAll(e.target.checked)}
-                    className="rounded border-zinc-600 text-pierre-violet focus:ring-pierre-violet"
+                    className="rounded border-zinc-600 bg-zinc-800 text-pierre-violet focus:ring-pierre-violet accent-violet-600"
                   />
                 </th>
                 <th className="text-left py-3 px-3 font-medium text-zinc-400">Tool</th>
@@ -463,7 +466,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
                         checked={selectedTools.has(tool.tool_name)}
                         onChange={(e) => handleSelectTool(tool.tool_name, e.target.checked)}
                         disabled={globallyDisabled}
-                        className="rounded border-zinc-600 text-pierre-violet focus:ring-pierre-violet disabled:opacity-50"
+                        className="rounded border-zinc-600 bg-zinc-800 text-pierre-violet focus:ring-pierre-violet accent-violet-600 disabled:opacity-50"
                       />
                     </td>
                     <td className="py-3 px-3">
@@ -565,6 +568,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           </p>
 
           <Input
+            variant="dark"
             label="Reason for disabling (optional)"
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}
@@ -614,6 +618,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           </p>
 
           <Input
+            variant="dark"
             label="Reason for enabling (optional)"
             value={overrideReason}
             onChange={(e) => setOverrideReason(e.target.value)}

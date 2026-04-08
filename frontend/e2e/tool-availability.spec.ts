@@ -338,7 +338,7 @@ test.describe("Tool Availability - Search and Filter", () => {
     });
 
     // Type in search box - use "activ" to match both "activities" and "activity"
-    const searchInput = page.getByPlaceholder("Search tools...");
+    const searchInput = page.getByPlaceholder("Search tools by name, description...");
     await searchInput.fill("activ");
     await page.waitForTimeout(300);
 
@@ -353,7 +353,7 @@ test.describe("Tool Availability - Search and Filter", () => {
     await setupToolAvailabilityMocks(page);
     await navigateToToolAvailability(page);
 
-    const searchInput = page.getByPlaceholder("Search tools...");
+    const searchInput = page.getByPlaceholder("Search tools by name, description...");
     await searchInput.fill("OAuth");
 
     // Should show matching tool
@@ -382,7 +382,7 @@ test.describe("Tool Availability - Search and Filter", () => {
     await setupToolAvailabilityMocks(page);
     await navigateToToolAvailability(page);
 
-    const searchInput = page.getByPlaceholder("Search tools...");
+    const searchInput = page.getByPlaceholder("Search tools by name, description...");
     await searchInput.fill("activity");
 
     // Clear search
@@ -400,7 +400,7 @@ test.describe("Tool Availability - Search and Filter", () => {
     await setupToolAvailabilityMocks(page);
     await navigateToToolAvailability(page);
 
-    const searchInput = page.getByPlaceholder("Search tools...");
+    const searchInput = page.getByPlaceholder("Search tools by name, description...");
     await searchInput.fill("nonexistent xyz 12345");
 
     // Should show no results message
