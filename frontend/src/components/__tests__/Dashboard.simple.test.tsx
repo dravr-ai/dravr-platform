@@ -16,6 +16,18 @@ vi.mock('../dashboard/index', () => ({
   useStoreStatsPendingCount: () => 0,
 }));
 
+// Mock notification hooks used by Dashboard and NotificationBell
+vi.mock('../../hooks/useNotifications', () => ({
+  useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
+  useNotificationFeed: () => ({ notifications: [], total: 0, unreadCount: 0, isLoading: false, isRefetching: false, isError: false, error: null, refetch: vi.fn(), invalidate: vi.fn() }),
+  useNotificationActions: () => ({ markAsRead: vi.fn(), markAllAsRead: vi.fn(), deleteNotification: vi.fn(), isMarkingRead: false, isMarkingAllRead: false, isDeleting: false }),
+}));
+
+// Mock NotificationBell to avoid deep dependency chain (lucide-react, shared-constants)
+vi.mock('../notifications/NotificationBell', () => ({
+  NotificationBell: () => <div data-testid="notification-bell">Bell</div>,
+}));
+
 // Mock all dependencies to avoid complex setup
 vi.mock('../UsageAnalytics', () => ({
   default: () => <div data-testid="usage-analytics">Analytics Component</div>
@@ -122,8 +134,8 @@ describe('Dashboard Component', () => {
       renderDashboard();
     });
 
-    // Check for page title in header
-    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
+    // Admin default tab is "users", so the header shows "Users"
+    expect(screen.getByRole('heading', { level: 1, name: 'Users' })).toBeInTheDocument();
     // Check for sign out button (icon button with title attribute)
     expect(screen.getByTitle('Sign out')).toBeInTheDocument();
   });
@@ -133,13 +145,15 @@ describe('Dashboard Component', () => {
       renderDashboard();
     });
 
-    // Use getAllByText since nav items appear in sidebar and may appear in header
-    expect(screen.getAllByText('Overview').length).toBeGreaterThan(0);
+    // Admin sidebar tabs: Users, Coaches, Coach Store, Groups,
+    // Tool Management, Prompts, Activity, Engagement, Notifications,
+    // API Keys, Analytics (Overview was removed)
+    expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
     expect(screen.getAllByText('API Keys').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Coaches').length).toBeGreaterThan(0);
   });
 
   it('should show user information', async () => {
