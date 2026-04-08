@@ -65,6 +65,20 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
+/// Threshold in seconds below which a recent sync invalidates cached data.
+/// If the last sync happened less than this many seconds ago, the cache entry
+/// is considered potentially stale from another instance's write.
+const CROSS_INSTANCE_INVALIDATION_THRESHOLD_SECS: i64 = 60;
+
+/// Checks whether cached data may be stale based on sync cursor timestamps.
+/// Used for cross-instance cache invalidation when running multiple replicas.
+#[async_trait]
+pub trait SyncCursorChecker: Send + Sync {
+    /// Returns the last sync timestamp for the given user and provider.
+    /// Returns `None` if no sync has occurred.
+    async fn last_sync_at(&self, user_id: Uuid, provider: &str) -> Option<DateTime<Utc>>;
+}
+
 use crate::cache::memory::InMemoryCache;
 use crate::cache::{CacheConfig, CacheKey, CacheProvider, CacheResource, CacheTtlConfig};
 use crate::errors::AppResult;
@@ -108,6 +122,10 @@ pub struct CachingFitnessProvider<C: CacheProvider> {
     user_id: Uuid,
     /// TTL configuration for different resource types
     ttl_config: CacheTtlConfig,
+    /// Optional sync cursor checker for cross-instance cache invalidation.
+    /// When present, cache hits are validated against the latest sync cursor
+    /// to detect stale entries from other instances.
+    sync_cursor_checker: Option<Arc<dyn SyncCursorChecker>>,
 }
 
 impl<C: CacheProvider> CachingFitnessProvider<C> {
@@ -131,6 +149,7 @@ impl<C: CacheProvider> CachingFitnessProvider<C> {
             tenant_id,
             user_id,
             ttl_config: CacheTtlConfig::default(),
+            sync_cursor_checker: None,
         }
     }
 
@@ -148,6 +167,7 @@ impl<C: CacheProvider> CachingFitnessProvider<C> {
             tenant_id,
             user_id,
             ttl_config,
+            sync_cursor_checker: None,
         }
     }
 
@@ -166,7 +186,19 @@ impl<C: CacheProvider> CachingFitnessProvider<C> {
             tenant_id,
             user_id,
             ttl_config: CacheTtlConfig::default(),
+            sync_cursor_checker: None,
         }
+    }
+
+    /// Set the sync cursor checker for cross-instance cache invalidation.
+    ///
+    /// When set, cache hits are validated against the latest sync cursor timestamp.
+    /// If a sync occurred within the last 60 seconds, the cache entry is considered
+    /// stale (likely written by another instance before the sync) and is invalidated.
+    #[must_use]
+    pub fn with_sync_cursor_checker(mut self, checker: Arc<dyn SyncCursorChecker>) -> Self {
+        self.sync_cursor_checker = Some(checker);
+        self
     }
 
     /// Get the tenant ID
@@ -203,42 +235,63 @@ impl<C: CacheProvider> CachingFitnessProvider<C> {
         )
     }
 
-    /// Try to get a value from cache, returning None on miss or error
+    /// Try to get a value from cache, returning None on miss or error.
+    ///
+    /// When a `sync_cursor_checker` is configured, validates the cache hit against
+    /// the latest sync cursor. If a sync happened within the last 60 seconds, the
+    /// cache entry is considered stale (another instance likely wrote fresher data).
     async fn try_get_cached<T>(&self, key: &CacheKey) -> Option<T>
     where
         T: for<'de> Deserialize<'de> + Send + Sync,
     {
-        match self.cache.get::<T>(key).await {
-            Ok(Some(cached)) => {
-                debug!(
-                    target: "pierre::cache",
-                    cache_hit = true,
-                    key = %key,
-                    provider = self.inner.name(),
-                    "Cache hit"
-                );
-                Some(cached)
-            }
+        let cached = match self.cache.get::<T>(key).await {
+            Ok(Some(value)) => value,
             Ok(None) => {
-                debug!(
-                    target: "pierre::cache",
-                    cache_hit = false,
-                    key = %key,
-                    provider = self.inner.name(),
-                    "Cache miss"
-                );
-                None
+                debug!(target: "pierre::cache", cache_hit = false, key = %key, "Cache miss");
+                return None;
             }
             Err(e) => {
-                warn!(
-                    target: "pierre::cache",
-                    error = %e,
-                    key = %key,
-                    "Cache read error, falling back to provider"
-                );
-                None
+                warn!(target: "pierre::cache", error = %e, key = %key, "Cache read error, falling back to provider");
+                return None;
             }
+        };
+
+        if self.is_cache_stale_from_sync(key).await {
+            return None;
         }
+
+        debug!(target: "pierre::cache", cache_hit = true, key = %key, provider = self.inner.name(), "Cache hit");
+        Some(cached)
+    }
+
+    /// Check whether a cache entry is stale based on a recent sync from another instance.
+    ///
+    /// Returns `true` if the sync cursor checker reports a sync within
+    /// the cross-instance invalidation threshold, meaning the cached data
+    /// is likely outdated by fresher data written by another replica.
+    async fn is_cache_stale_from_sync(&self, key: &CacheKey) -> bool {
+        let Some(ref checker) = self.sync_cursor_checker else {
+            return false;
+        };
+
+        let Some(last_sync) = checker.last_sync_at(self.user_id, self.inner.name()).await else {
+            return false;
+        };
+
+        let sync_age = Utc::now().signed_duration_since(last_sync);
+        if sync_age.num_seconds() >= 0
+            && sync_age.num_seconds() < CROSS_INSTANCE_INVALIDATION_THRESHOLD_SECS
+        {
+            debug!(
+                target: "pierre::cache",
+                key = %key,
+                last_sync = %last_sync,
+                "Cache invalidated: recent sync detected (cross-instance)"
+            );
+            return true;
+        }
+
+        false
     }
 
     /// Store a value in cache (best effort, logs on failure)

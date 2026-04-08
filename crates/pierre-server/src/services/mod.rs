@@ -80,3 +80,6 @@ pub mod health_sync;
 
 /// Provider data refresh service: freshness checks, on-chat triggers, manual sync
 pub mod provider_refresh;
+
+/// App-wide rate limiter for external fitness provider APIs
+pub mod provider_rate_limiter;

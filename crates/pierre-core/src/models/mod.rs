@@ -64,7 +64,10 @@ pub use health::{HealthMetrics, RecoveryMetrics};
 pub use data_source::{DataSource, DevicePriority, DeviceType, ProviderPriority};
 
 // Provider data refresh domain
-pub use refresh::{DataFreshness, ProviderFreshness, RefreshConfig, RefreshStatus};
+pub use refresh::{
+    DataFreshness, ProviderFreshness, RefreshConfig, RefreshStatus, ScheduledRefreshConfig,
+    SmartScheduleWeights,
+};
 
 // Stored health models for persistence (from dravr-equilibre)
 pub use dravr_equilibre::{

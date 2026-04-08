@@ -1,5 +1,8 @@
 // ABOUTME: Data freshness model and refresh configuration for provider data sync
 // ABOUTME: Pure value types for evaluating staleness — strategies decide when to trigger refresh
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::fmt;
 use std::time::Duration;
@@ -129,6 +132,76 @@ pub struct RefreshConfig {
     pub providers: Vec<String>,
 }
 
+/// Configuration for the scheduled background sync.
+///
+/// Controls the polling interval, maximum acceptable data age, and concurrency
+/// limits for the background sync loop that keeps provider data up to date.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduledRefreshConfig {
+    /// Whether scheduled background sync is enabled.
+    pub enabled: bool,
+    /// Base polling interval between sync cycles (seconds).
+    pub poll_interval_secs: u64,
+    /// Maximum data age before a provider is considered stale (seconds).
+    pub max_data_age_secs: u64,
+    /// Maximum number of concurrent sync operations across all users.
+    pub max_concurrent_syncs: usize,
+}
+
+/// Default poll interval: 1 hour.
+const DEFAULT_POLL_INTERVAL_SECS: u64 = 3_600;
+/// Default max data age: 24 hours.
+const DEFAULT_MAX_DATA_AGE_SECS: u64 = 86_400;
+/// Default max concurrent syncs.
+const DEFAULT_MAX_CONCURRENT_SYNCS: usize = 10;
+
+impl Default for ScheduledRefreshConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            poll_interval_secs: DEFAULT_POLL_INTERVAL_SECS,
+            max_data_age_secs: DEFAULT_MAX_DATA_AGE_SECS,
+            max_concurrent_syncs: DEFAULT_MAX_CONCURRENT_SYNCS,
+        }
+    }
+}
+
+/// Weights for adjusting scheduled sync frequency based on user activity patterns.
+///
+/// Users who train daily benefit from more frequent syncs, while casual or
+/// inactive users can be polled less often to conserve provider API quota.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartScheduleWeights {
+    /// How many activities in the last 7 days indicates a "daily trainer".
+    pub daily_trainer_threshold: u32,
+    /// Poll interval for daily trainers (more frequent).
+    pub daily_trainer_interval_secs: u64,
+    /// Poll interval for casual/weekend users (less frequent).
+    pub casual_interval_secs: u64,
+    /// Default poll interval when activity count is unknown.
+    pub default_interval_secs: u64,
+}
+
+/// Daily trainer threshold: 5 activities in 7 days.
+const DEFAULT_DAILY_TRAINER_THRESHOLD: u32 = 5;
+/// Daily trainer poll interval: 1 hour.
+const DEFAULT_DAILY_TRAINER_INTERVAL_SECS: u64 = 3_600;
+/// Casual user poll interval: 4 hours.
+const DEFAULT_CASUAL_INTERVAL_SECS: u64 = 14_400;
+/// Default poll interval: 2 hours.
+const DEFAULT_SMART_INTERVAL_SECS: u64 = 7_200;
+
+impl Default for SmartScheduleWeights {
+    fn default() -> Self {
+        Self {
+            daily_trainer_threshold: DEFAULT_DAILY_TRAINER_THRESHOLD,
+            daily_trainer_interval_secs: DEFAULT_DAILY_TRAINER_INTERVAL_SECS,
+            casual_interval_secs: DEFAULT_CASUAL_INTERVAL_SECS,
+            default_interval_secs: DEFAULT_SMART_INTERVAL_SECS,
+        }
+    }
+}
+
 /// Default on-chat max age: 4 hours.
 const DEFAULT_ON_CHAT_MAX_AGE_SECS: u64 = 14_400;
 
@@ -248,5 +321,23 @@ mod tests {
             ..Default::default()
         };
         assert!(!disabled.should_refresh_on_chat(Duration::from_secs(999_999)));
+    }
+
+    #[test]
+    fn scheduled_refresh_config_defaults() {
+        let cfg = ScheduledRefreshConfig::default();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.poll_interval_secs, 3_600);
+        assert_eq!(cfg.max_data_age_secs, 86_400);
+        assert_eq!(cfg.max_concurrent_syncs, 10);
+    }
+
+    #[test]
+    fn smart_schedule_weights_defaults() {
+        let w = SmartScheduleWeights::default();
+        assert_eq!(w.daily_trainer_threshold, 5);
+        assert_eq!(w.daily_trainer_interval_secs, 3_600);
+        assert_eq!(w.casual_interval_secs, 14_400);
+        assert_eq!(w.default_interval_secs, 7_200);
     }
 }
