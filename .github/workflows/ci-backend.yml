@@ -1,5 +1,5 @@
-# ABOUTME: Main backend CI pipeline with code quality, clippy, doc tests, and sharded integration tests.
-# ABOUTME: Backend tests are split across 4 parallel runners for ~4x faster execution.
+# ABOUTME: Main backend CI pipeline — compile once, test many.
+# ABOUTME: 3-phase architecture: fast-gate (15s) → compile+lint (7min) → tests reuse cached artifacts.
 name: "CI: Backend (Rust)"
 
 on:
@@ -44,8 +44,10 @@ env:
   CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
-  # Detect whether source code changed enough to warrant a release binary build.
-  # On schedule (weekly), always outputs true to ensure full validation.
+  # ============================================================================
+  # PHASE 0: Instant gate — no compilation, catches fmt/architecture/secrets in ~15s
+  # ============================================================================
+
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
@@ -80,10 +82,8 @@ jobs:
             echo "release-worthy=${{ steps.filter.outputs.release-worthy }}" >> $GITHUB_OUTPUT
           fi
 
-  # Fast code quality gate — no Rust compilation, runs in ~15 seconds
-  # Gates all other jobs to avoid wasting CI minutes on code that fails basic checks
-  code-quality:
-    name: Code Quality & Security Patterns
+  fast-gate:
+    name: Fast Gate (fmt + architecture + secrets)
     runs-on: ubuntu-latest
 
     steps:
@@ -92,6 +92,14 @@ jobs:
 
       - name: Configure git for private deps
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Install Rust (rustfmt only, no compilation needed)
+        uses: dtolnay/rust-toolchain@1.94.0
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
@@ -102,11 +110,14 @@ jobs:
       - name: Secret Pattern Validation
         run: ./scripts/ci/validate-no-secrets.sh
 
-  # Clippy linting with zero tolerance (includes cognitive complexity)
-  clippy:
-    name: Clippy Linting
+  # ============================================================================
+  # PHASE 1: Single compilation — clippy compiles everything, then cache artifacts
+  # ============================================================================
+
+  compile-and-lint:
+    name: Compile & Lint (all targets)
     runs-on: ubuntu-latest
-    needs: code-quality
+    needs: fast-gate
 
     steps:
       - name: Checkout code
@@ -118,20 +129,42 @@ jobs:
       - name: Setup Rust environment
         uses: ./.github/actions/rust-setup
         with:
-          components: rustfmt, clippy
+          components: clippy
           free-disk-space: 'true'
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
 
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
         run: cargo clippy --all-targets --all-features -- -D warnings
+        env:
+          CARGO_INCREMENTAL: '0'
 
-  # Security audit via cargo-deny — fast, no Rust compilation needed
+      - name: Link test binaries (near-free — clippy already compiled everything)
+        run: cargo test --no-run --all-targets 2>&1 | tail -10
+        env:
+          CARGO_INCREMENTAL: '0'
+          DATABASE_URL: "sqlite::memory:"
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+
+      - name: Save compiled artifacts to cache
+        uses: actions/cache/save@v4
+        with:
+          key: compiled-debug-${{ github.sha }}
+          path: |
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/debug/.cargo-lock
+
+  # ============================================================================
+  # PHASE 1 (parallel): Security audit + doc tests — no artifact dependency
+  # ============================================================================
+
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    needs: code-quality
+    needs: fast-gate
 
     steps:
       - name: Checkout code
@@ -146,11 +179,10 @@ jobs:
       - name: Security Audit (via deny.toml)
         run: cargo deny check
 
-  # Doc test validation — compiles doctests and checks for ignored tests
   doc-tests:
     name: Doc Tests
     runs-on: ubuntu-latest
-    needs: code-quality
+    needs: fast-gate
 
     steps:
       - name: Checkout code
@@ -184,11 +216,14 @@ jobs:
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
 
-  # Backend integration tests (SQLite) — sharded across 4 parallel runners
+  # ============================================================================
+  # PHASE 2: Tests reuse compiled artifacts from Phase 1 — minimal recompilation
+  # ============================================================================
+
   backend-tests:
     name: Backend Tests (SQLite ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    needs: code-quality
+    needs: compile-and-lint
     strategy:
       fail-fast: false
       matrix:
@@ -205,6 +240,18 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           free-disk-space: 'true'
+          cache-save: 'false'
+
+      - name: Restore compiled artifacts from compile-and-lint
+        uses: actions/cache/restore@v4
+        with:
+          key: compiled-debug-${{ github.sha }}
+          fail-on-cache-miss: true
+          path: |
+            target/debug/deps/
+            target/debug/build/
+            target/debug/.fingerprint/
+            target/debug/.cargo-lock
 
       - name: Setup Node.js (for SDK E2E tests runtime)
         uses: actions/setup-node@v4
@@ -276,13 +323,12 @@ jobs:
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
           USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
 
-  # Release binary validation (runs on push/PR and weekly schedule)
+  # Release binary validation — different profile, can't reuse debug artifacts
+  # Depends on compile-and-lint to avoid wasting CI minutes on doomed code
   release-binary:
     name: Release Binary Validation
     runs-on: ubuntu-latest
-    needs: [clippy, detect-changes]
-    # Skip when only test files or scripts changed (no binary impact).
-    # Always run on main and schedule.
+    needs: [compile-and-lint, detect-changes]
     if: >-
       github.ref == 'refs/heads/main' ||
       needs.detect-changes.outputs.release-worthy == 'true'
@@ -300,8 +346,6 @@ jobs:
           shared-key: release
           free-disk-space: 'true'
 
-      # SDK build removed - release binary validation focuses on Rust binary only
-      # Full test suite with SDK is covered by backend-tests job
       - name: Build release binary
         run: cargo build --release --verbose
         env:
@@ -333,8 +377,6 @@ jobs:
             exit 1
           fi
 
-      # Full test suite removed - SQLite backend-tests job provides comprehensive coverage
-      # Release binary validation focuses on build success and binary size
       - name: Basic smoke test of release binary
         run: |
           timeout 5 target/release/pierre-mcp-server --version || true
