@@ -16,6 +16,9 @@ inputs:
   keep-docker:
     description: Keep Docker images when freeing disk space (needed for service containers)
     default: 'false'
+  cache-save:
+    description: Override rust-cache save behavior (auto uses main-branch-only default, false disables saving)
+    default: 'auto'
 
 runs:
   using: composite
@@ -57,4 +60,4 @@ runs:
         workspaces: ". -> target"
         cache-on-failure: true
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ inputs.cache-save == 'auto' && github.ref == 'refs/heads/main' || inputs.cache-save == 'true' }}
