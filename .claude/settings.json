@@ -1,11 +1,26 @@
 {
+  "enabledPlugins": {
+    "obsidian@obsidian-skills": true
+  },
   "hooks": {
-    "SessionStart": [
+    "PostToolUse": [
       {
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",
-            "command": "git config core.hooksPath .githooks"
+            "command": "if echo \"$TOOL_INPUT\" | grep -q 'frontend/src/components'; then echo '💡 Frontend component modified - consider running /design-review'; fi"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git config core.hooksPath .build/hooks"
           },
           {
             "type": "command",
@@ -29,20 +44,9 @@
           }
         ]
       }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "if echo \"$TOOL_INPUT\" | grep -q 'frontend/src/components'; then echo '💡 Frontend component modified - consider running /design-review'; fi"
-          }
-        ]
-      }
     ]
   },
-  "enabledPlugins": {
-    "obsidian@obsidian-skills": true
+  "permissions": {
+    "deny": []
   }
 }

@@ -550,12 +550,16 @@ impl ServerResources {
         use crate::services::health_sync::PierreSyncStorage;
         use crate::services::provider_refresh::start_scheduled_sync;
 
+        use crate::services::provider_rate_limiter::ProviderRateLimiter;
+
         let adapter = PierreSyncStorage::new(Arc::clone(repos));
         let orchestrator = adapter.into_orchestrator();
+        let rate_limiter = Arc::new(ProviderRateLimiter::new());
         let abort_handle = start_scheduled_sync(
             Arc::clone(&orchestrator),
             Arc::clone(repos),
             Arc::clone(sse_manager),
+            Some(rate_limiter),
         );
         info!("Health data sync scheduler started (Pierre-aware)");
         (orchestrator, abort_handle)

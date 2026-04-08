@@ -1,5 +1,8 @@
 // ABOUTME: Provider data refresh service orchestrating on-demand and on-chat sync triggers
 // ABOUTME: Checks data freshness per provider, delegates to enforme SyncOrchestrator, sends SSE notifications
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -7,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use pierre_core::models::{
-    DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus, TenantId,
+    DataFreshness, OAuthNotification, ProviderFreshness, RefreshConfig, RefreshStatus,
+    SmartScheduleWeights, TenantId,
 };
 use pierre_database::RepositoryRegistry;
 use tracing::{info, instrument, warn};
@@ -18,6 +22,8 @@ use dravr_enforme::models::connection::ConnectedUser;
 #[cfg(feature = "health-sync")]
 use tokio::task::AbortHandle;
 
+use crate::providers::caching_provider::SyncCursorChecker;
+use crate::services::provider_rate_limiter::{ProviderRateLimiter, RateLimitStatus};
 use crate::sse::SseManager;
 
 /// Central service for provider data refresh decisions and execution.
@@ -25,6 +31,7 @@ use crate::sse::SseManager;
 /// Evaluates data freshness for a user's connected providers and triggers
 /// background syncs via enforme's `SyncOrchestrator` when data is stale.
 /// SSE notifications inform the client when sync completes.
+/// Push notifications are sent when the notification service is available.
 pub struct RefreshService {
     /// Repository access for OAuth tokens and sync cursors.
     repos: Arc<RepositoryRegistry>,
@@ -33,6 +40,11 @@ pub struct RefreshService {
     sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,
     /// SSE manager for real-time notifications to clients.
     sse_manager: Arc<SseManager>,
+    /// Optional notification service for push notifications on sync completion.
+    #[cfg(feature = "client-notifications")]
+    notification_service: Option<Arc<pierre_notifications::NotificationService>>,
+    /// Per-provider rate limiter shared across all tenants.
+    rate_limiter: Option<Arc<ProviderRateLimiter>>,
 }
 
 impl RefreshService {
@@ -50,7 +62,28 @@ impl RefreshService {
             #[cfg(feature = "health-sync")]
             sync_orchestrator,
             sse_manager,
+            #[cfg(feature = "client-notifications")]
+            notification_service: None,
+            rate_limiter: None,
         }
+    }
+
+    /// Set the notification service for push notifications on sync completion.
+    #[cfg(feature = "client-notifications")]
+    #[must_use]
+    pub fn with_notification_service(
+        mut self,
+        service: Option<Arc<pierre_notifications::NotificationService>>,
+    ) -> Self {
+        self.notification_service = service;
+        self
+    }
+
+    /// Set the per-provider rate limiter for API quota enforcement.
+    #[must_use]
+    pub fn with_rate_limiter(mut self, limiter: Arc<ProviderRateLimiter>) -> Self {
+        self.rate_limiter = Some(limiter);
+        self
     }
 
     /// Get freshness status for all connected providers of a user.
@@ -217,9 +250,26 @@ impl RefreshService {
                 return;
             };
 
+            // Check per-provider rate limit before spawning the sync task.
+            if let Some(ref limiter) = self.rate_limiter {
+                match limiter.check_rate_limit(&provider) {
+                    RateLimitStatus::Allowed => limiter.record_call(&provider),
+                    RateLimitStatus::Exceeded { retry_after } => {
+                        warn!(
+                            provider = %provider,
+                            retry_after_secs = retry_after.as_secs(),
+                            "Provider rate limit exceeded, skipping on-demand sync"
+                        );
+                        return;
+                    }
+                }
+            }
+
             let repos = self.repos.clone();
             let sse = self.sse_manager.clone();
             let user_id_str = user_id.to_string();
+            #[cfg(feature = "client-notifications")]
+            let notif_service = self.notification_service.clone();
 
             tokio::spawn(async move {
                 let result = orchestrator.sync_user(&user_id_str, &provider).await;
@@ -260,6 +310,19 @@ impl RefreshService {
                             tracing::debug!(
                                 "SSE notification not delivered (no active stream): {e}"
                             );
+                        }
+
+                        // Send push notification for successful syncs with records
+                        #[cfg(feature = "client-notifications")]
+                        if sync_result.records_created > 0 {
+                            dispatch_sync_push_notification(
+                                notif_service.as_deref(),
+                                user_id,
+                                tenant_id,
+                                &provider,
+                                sync_result.records_created,
+                            )
+                            .await;
                         }
                     }
                     Err(e) => {
@@ -382,6 +445,69 @@ fn format_age(duration: chrono::Duration) -> String {
 }
 
 // ============================================================================
+// Cross-instance cache invalidation via sync cursor
+// ============================================================================
+
+/// Implements `SyncCursorChecker` by querying the `RepositoryRegistry`.
+///
+/// Looks up the latest sync timestamp for a user/provider pair so that
+/// `CachingFitnessProvider` can invalidate cache entries when another
+/// instance has recently synced fresher data.
+pub struct RepositorySyncCursorChecker {
+    /// Shared repository registry for database access.
+    repos: Arc<RepositoryRegistry>,
+    /// Tenant ID for the query (cache is already tenant-scoped via cache key).
+    tenant_id: TenantId,
+}
+
+impl RepositorySyncCursorChecker {
+    /// Create a new sync cursor checker for the given tenant.
+    #[must_use]
+    pub fn new(repos: Arc<RepositoryRegistry>, tenant_id: TenantId) -> Self {
+        Self { repos, tenant_id }
+    }
+}
+
+#[async_trait::async_trait]
+impl SyncCursorChecker for RepositorySyncCursorChecker {
+    async fn last_sync_at(
+        &self,
+        user_id: Uuid,
+        provider: &str,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.repos
+            .oauth_tokens
+            .get_provider_last_sync(user_id, self.tenant_id, provider)
+            .await
+            .ok()
+            .flatten()
+    }
+}
+
+// ============================================================================
+// Smart scheduling: per-user refresh interval based on activity patterns
+// ============================================================================
+
+/// Compute the poll interval for a user based on their recent activity count.
+///
+/// Daily trainers (high activity) get more frequent polls to ensure their data
+/// stays current. Casual users (zero recent activities) get less frequent
+/// polls to conserve provider API quota. Users in between get the default.
+#[must_use]
+pub fn compute_smart_interval(
+    recent_activity_count: u32,
+    weights: &SmartScheduleWeights,
+) -> Duration {
+    if recent_activity_count >= weights.daily_trainer_threshold {
+        Duration::from_secs(weights.daily_trainer_interval_secs)
+    } else if recent_activity_count == 0 {
+        Duration::from_secs(weights.casual_interval_secs)
+    } else {
+        Duration::from_secs(weights.default_interval_secs)
+    }
+}
+
+// ============================================================================
 // Scheduled sync with post-sync notifications
 // ============================================================================
 
@@ -393,6 +519,7 @@ fn format_age(duration: chrono::Duration) -> String {
 /// - Updates `user_oauth_tokens.last_sync` after successful syncs
 /// - Sends SSE notifications to connected clients
 /// - Tracks sync metrics (success/failure counts, latency)
+/// - Checks per-provider rate limits before each sync
 ///
 /// Returns an `AbortHandle` to cancel the background task on shutdown.
 #[cfg(feature = "health-sync")]
@@ -400,6 +527,7 @@ pub fn start_scheduled_sync(
     orchestrator: Arc<dravr_enforme::SyncOrchestrator>,
     repos: Arc<RepositoryRegistry>,
     sse_manager: Arc<SseManager>,
+    rate_limiter: Option<Arc<ProviderRateLimiter>>,
 ) -> AbortHandle {
     use dravr_enforme::orchestrator::scheduler::with_jitter;
     use tokio::time::sleep;
@@ -416,7 +544,8 @@ pub fn start_scheduled_sync(
             let sleep_duration = with_jitter(poll_interval);
             sleep(sleep_duration).await;
 
-            run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager).await;
+            run_scheduled_sync_cycle(&orchestrator, &repos, &sse_manager, rate_limiter.as_ref())
+                .await;
         }
     });
 
@@ -431,8 +560,13 @@ async fn run_scheduled_sync_cycle(
     orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
     repos: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<SseManager>,
+    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
 ) {
     for provider_name in orchestrator.provider_names() {
+        if is_provider_rate_limited(rate_limiter, provider_name) {
+            continue;
+        }
+
         let users = match orchestrator
             .deps()
             .connections
@@ -451,11 +585,73 @@ async fn run_scheduled_sync_cycle(
             }
         };
 
-        for user in &users {
-            if !user.is_active {
-                continue;
+        sync_provider_users(
+            orchestrator,
+            repos,
+            sse_manager,
+            rate_limiter,
+            &users,
+            provider_name,
+        )
+        .await;
+    }
+}
+
+/// Sync all active users for a single provider, checking rate limits per user.
+#[cfg(feature = "health-sync")]
+async fn sync_provider_users(
+    orchestrator: &Arc<dravr_enforme::SyncOrchestrator>,
+    repos: &Arc<RepositoryRegistry>,
+    sse_manager: &Arc<SseManager>,
+    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
+    users: &[ConnectedUser],
+    provider_name: &str,
+) {
+    for user in users {
+        if !user.is_active {
+            continue;
+        }
+
+        // Check rate limit before each individual user sync
+        if let Some(limiter) = rate_limiter {
+            match limiter.check_rate_limit(provider_name) {
+                RateLimitStatus::Allowed => limiter.record_call(provider_name),
+                RateLimitStatus::Exceeded { retry_after } => {
+                    warn!(
+                        provider = provider_name,
+                        user_id = user.user_id,
+                        retry_after_secs = retry_after.as_secs(),
+                        "Provider rate limit hit during user iteration, stopping provider cycle"
+                    );
+                    break;
+                }
             }
-            sync_single_user(orchestrator, repos, sse_manager, user, provider_name).await;
+        }
+
+        sync_single_user(orchestrator, repos, sse_manager, user, provider_name).await;
+    }
+}
+
+/// Check whether a provider is rate-limited for the current window.
+///
+/// Returns `true` if the rate limit is exceeded and the provider should be skipped.
+#[cfg(feature = "health-sync")]
+fn is_provider_rate_limited(
+    rate_limiter: Option<&Arc<ProviderRateLimiter>>,
+    provider_name: &str,
+) -> bool {
+    let Some(limiter) = rate_limiter else {
+        return false;
+    };
+    match limiter.check_rate_limit(provider_name) {
+        RateLimitStatus::Allowed => false,
+        RateLimitStatus::Exceeded { retry_after } => {
+            warn!(
+                provider = provider_name,
+                retry_after_secs = retry_after.as_secs(),
+                "Provider rate limit exceeded, skipping scheduled sync cycle for provider"
+            );
+            true
         }
     }
 }
@@ -469,6 +665,8 @@ async fn sync_single_user(
     user: &ConnectedUser,
     provider_name: &str,
 ) {
+    log_smart_schedule_interval(user, provider_name);
+
     let start = Instant::now();
     match orchestrator.sync_user(&user.user_id, provider_name).await {
         Ok(result) => {
@@ -506,6 +704,25 @@ async fn sync_single_user(
             );
         }
     }
+}
+
+/// Log the recommended smart-schedule interval for a user.
+///
+/// Activity count is not yet available from the database; uses 0 as baseline.
+/// When a recent-activity-count query is added to the repository layer,
+/// wire it here to enable true per-user adaptive scheduling.
+#[cfg(feature = "health-sync")]
+fn log_smart_schedule_interval(user: &ConnectedUser, provider_name: &str) {
+    let weights = SmartScheduleWeights::default();
+    let activity_count: u32 = 0;
+    let recommended_interval = compute_smart_interval(activity_count, &weights);
+    info!(
+        user_id = user.user_id,
+        provider = provider_name,
+        activity_count_7d = activity_count,
+        recommended_interval_secs = recommended_interval.as_secs(),
+        "Smart schedule: computed per-user refresh interval"
+    );
 }
 
 /// Update the `last_sync` timestamp on the OAuth token for the given user and provider.
@@ -550,6 +767,62 @@ async fn send_sync_notification(
         let _ = sse_manager
             .send_notification(user_uuid, &notification)
             .await;
+    }
+}
+
+// ============================================================================
+// Push notification dispatch for sync completions
+// ============================================================================
+
+/// Dispatch a push notification after a successful sync with new records.
+///
+/// Sends via the notification service (dravr-commere) when available.
+/// Silently skips if no service is configured or dispatch fails (best-effort).
+#[cfg(feature = "client-notifications")]
+async fn dispatch_sync_push_notification(
+    service: Option<&pierre_notifications::NotificationService>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider_name: &str,
+    records_created: u32,
+) {
+    use pierre_notifications::models::NotificationCategory as CommNotifCategory;
+    use pierre_notifications::{DispatchRequest, TenantId as CommTenantId};
+
+    let Some(svc) = service else {
+        return;
+    };
+
+    let request = DispatchRequest {
+        user_id,
+        tenant_id: CommTenantId(tenant_id.0),
+        category: CommNotifCategory::Training,
+        notification_type: "data_synced".to_owned(),
+        title: "Data Synced".to_owned(),
+        body: format!("Synced {records_created} new records from {provider_name}"),
+        data: None,
+        image_url: None,
+        actions: None,
+        bypass_frequency_cap: false,
+    };
+
+    match svc.dispatch(&request).await {
+        Ok(outcome) => {
+            tracing::debug!(
+                user_id = %user_id,
+                provider = provider_name,
+                outcome = ?outcome,
+                "Push notification dispatched for sync"
+            );
+        }
+        Err(e) => {
+            tracing::debug!(
+                user_id = %user_id,
+                provider = provider_name,
+                error = %e,
+                "Push notification dispatch failed (best-effort)"
+            );
+        }
     }
 }
 
