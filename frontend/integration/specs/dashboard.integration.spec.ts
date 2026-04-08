@@ -7,7 +7,6 @@
 import { test, expect } from '@playwright/test';
 import {
   createAndLoginAsAdmin,
-  navigateToTab,
   waitForDashboardLoad,
   getBackendUrl,
 } from '../helpers';
@@ -20,23 +19,21 @@ test.describe('Dashboard Integration Tests', () => {
     await waitForDashboardLoad(page);
   });
 
-  test.describe('Overview Tab', () => {
-    test('displays real usage statistics from server', async ({ page }) => {
-      await navigateToTab(page, 'Overview');
-
+  test.describe('Users Tab (default landing)', () => {
+    test('displays user management content on admin login', async ({ page }) => {
+      // Admin lands directly on Users tab — no navigation needed
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
-      const hasStats = await page.locator('text=/\\d+/, text=/Total|Active|Requests|Keys/')
+      const hasContent = await page.locator('text=/\\d+/, text=/Users|Active|Pending/')
         .first()
         .isVisible()
         .catch(() => false);
 
-      expect(hasStats || await page.locator('[class*="stat"], [class*="card"], [class*="metric"]').first().isVisible()).toBe(true);
+      expect(hasContent || await page.locator('[class*="stat"], [class*="card"], [class*="table"]').first().isVisible()).toBe(true);
     });
 
     test('dashboard data refreshes on page reload', async ({ page }) => {
-      await navigateToTab(page, 'Overview');
-
+      // Admin lands directly on Users tab — no navigation needed
       await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
       const initialContent = await page.content();
@@ -53,7 +50,7 @@ test.describe('Dashboard Integration Tests', () => {
 
   test.describe('Navigation', () => {
     test('can navigate between dashboard tabs', async ({ page }) => {
-      const tabs = ['Overview', 'Connections', 'Tools'];
+      const tabs = ['Users', 'Coaches', 'Engagement'];
 
       for (const tab of tabs) {
         const tabButton = page.locator(`button:has-text("${tab}")`).first();

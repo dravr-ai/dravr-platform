@@ -212,23 +212,19 @@ async fn test_parity_tenant_tool_overrides() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    // Create identical tenants and users in both databases
-    let tenant_id = TenantId::new();
-    let sqlite_user_id = create_test_user(&sqlite_repos).await;
-    let pg_user_id = create_test_user(&pg_repos).await;
-
-    create_test_tenant(&sqlite_repos, tenant_id, sqlite_user_id).await;
-    create_test_tenant(&pg_repos, tenant_id, pg_user_id).await;
+    // Create users with tenants in both databases
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
 
     // Both should start with empty overrides
     let sqlite_overrides = sqlite_repos
         .tool_selection
-        .get_overrides(tenant_id)
+        .get_overrides(sqlite_tenant_id)
         .await
         .expect("SQLite: Failed to get overrides");
     let pg_overrides = pg_repos
         .tool_selection
-        .get_overrides(tenant_id)
+        .get_overrides(pg_tenant_id)
         .await
         .expect("PostgreSQL: Failed to get overrides");
 
@@ -245,7 +241,7 @@ async fn test_parity_tenant_tool_overrides() {
     let sqlite_created = sqlite_repos
         .tool_selection
         .upsert_override(
-            tenant_id,
+            sqlite_tenant_id,
             "get_activities",
             false,
             Some(sqlite_user_id),
@@ -257,7 +253,7 @@ async fn test_parity_tenant_tool_overrides() {
     let pg_created = pg_repos
         .tool_selection
         .upsert_override(
-            tenant_id,
+            pg_tenant_id,
             "get_activities",
             false,
             Some(pg_user_id),
@@ -273,12 +269,12 @@ async fn test_parity_tenant_tool_overrides() {
     // Delete in both
     let sqlite_deleted = sqlite_repos
         .tool_selection
-        .delete_override(tenant_id, "get_activities")
+        .delete_override(sqlite_tenant_id, "get_activities")
         .await
         .expect("SQLite: Failed to delete override");
     let pg_deleted = pg_repos
         .tool_selection
-        .delete_override(tenant_id, "get_activities")
+        .delete_override(pg_tenant_id, "get_activities")
         .await
         .expect("PostgreSQL: Failed to delete override");
 
@@ -300,15 +296,14 @@ async fn test_parity_chat_create_conversation() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_repos).await;
-    let pg_user_id = create_test_user(&pg_repos).await;
-    let tenant_id = TenantId::new();
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
 
     let sqlite_conv = sqlite_repos
         .chat
         .create_conversation(
             &sqlite_user_id.to_string(),
-            tenant_id,
+            sqlite_tenant_id,
             "Test Chat",
             "gpt-4",
             Some("System prompt"),
@@ -320,7 +315,7 @@ async fn test_parity_chat_create_conversation() {
         .chat
         .create_conversation(
             &pg_user_id.to_string(),
-            tenant_id,
+            pg_tenant_id,
             "Test Chat",
             "gpt-4",
             Some("System prompt"),
@@ -351,16 +346,15 @@ async fn test_parity_chat_messages() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_repos).await;
-    let pg_user_id = create_test_user(&pg_repos).await;
-    let tenant_id = TenantId::new();
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
 
     // Create conversations
     let sqlite_conv = sqlite_repos
         .chat
         .create_conversation(
             &sqlite_user_id.to_string(),
-            tenant_id,
+            sqlite_tenant_id,
             "Message Test",
             "gpt-4",
             None,
@@ -372,7 +366,7 @@ async fn test_parity_chat_messages() {
         .chat
         .create_conversation(
             &pg_user_id.to_string(),
-            tenant_id,
+            pg_tenant_id,
             "Message Test",
             "gpt-4",
             None,
@@ -483,9 +477,8 @@ async fn test_parity_chat_list_conversations() {
     let sqlite_repos = sqlite_db.repositories();
     let pg_repos = pg_db.repositories();
 
-    let sqlite_user_id = create_test_user(&sqlite_repos).await;
-    let pg_user_id = create_test_user(&pg_repos).await;
-    let tenant_id = TenantId::new();
+    let (sqlite_user_id, sqlite_tenant_id) = create_test_user(&sqlite_repos).await;
+    let (pg_user_id, pg_tenant_id) = create_test_user(&pg_repos).await;
 
     // Create same conversations in both
     for i in 1..=5 {
@@ -493,7 +486,7 @@ async fn test_parity_chat_list_conversations() {
             .chat
             .create_conversation(
                 &sqlite_user_id.to_string(),
-                tenant_id,
+                sqlite_tenant_id,
                 &format!("Chat {i}"),
                 "gpt-4",
                 None,
@@ -505,7 +498,7 @@ async fn test_parity_chat_list_conversations() {
             .chat
             .create_conversation(
                 &pg_user_id.to_string(),
-                tenant_id,
+                pg_tenant_id,
                 &format!("Chat {i}"),
                 "gpt-4",
                 None,
@@ -517,13 +510,13 @@ async fn test_parity_chat_list_conversations() {
     // Test pagination works the same
     let sqlite_list = sqlite_repos
         .chat
-        .list_conversations(&sqlite_user_id.to_string(), tenant_id, 3, 0)
+        .list_conversations(&sqlite_user_id.to_string(), sqlite_tenant_id, 3, 0)
         .await
         .expect("SQLite: Failed to list");
 
     let pg_list = pg_repos
         .chat
-        .list_conversations(&pg_user_id.to_string(), tenant_id, 3, 0)
+        .list_conversations(&pg_user_id.to_string(), pg_tenant_id, 3, 0)
         .await
         .expect("PostgreSQL: Failed to list");
 
@@ -536,13 +529,13 @@ async fn test_parity_chat_list_conversations() {
     // Test delete all works the same
     let sqlite_deleted = sqlite_repos
         .chat
-        .delete_all_user_conversations(&sqlite_user_id.to_string(), tenant_id)
+        .delete_all_user_conversations(&sqlite_user_id.to_string(), sqlite_tenant_id)
         .await
         .expect("SQLite: Failed to delete all");
 
     let pg_deleted = pg_repos
         .chat
-        .delete_all_user_conversations(&pg_user_id.to_string(), tenant_id)
+        .delete_all_user_conversations(&pg_user_id.to_string(), pg_tenant_id)
         .await
         .expect("PostgreSQL: Failed to delete all");
 
@@ -585,7 +578,13 @@ async fn create_both_databases(
     Some((sqlite_db, pg_db, pg_handle))
 }
 
-async fn create_test_user(repos: &RepositoryRegistry) -> Uuid {
+/// Create a test user with an associated tenant.
+///
+/// Creates the user, then a tenant owned by that user, then calls
+/// `update_tenant_id` to link them via the `tenant_users` junction table.
+/// The tenant must exist before `update_tenant_id` because `tenant_users`
+/// has a foreign key on `tenants(id)`.
+async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
     let user_id = Uuid::new_v4();
     let user = User {
         id: user_id,
@@ -612,17 +611,15 @@ async fn create_test_user(repos: &RepositoryRegistry) -> Uuid {
         .create(&user)
         .await
         .expect("Failed to create user");
-    user_id
-}
 
-async fn create_test_tenant(repos: &RepositoryRegistry, tenant_id: TenantId, owner_id: Uuid) {
+    let tenant_id = TenantId::new();
     let tenant = Tenant {
         id: tenant_id,
-        name: "Parity Test Tenant".to_owned(),
+        name: format!("Parity Test Tenant for {user_id}"),
         slug: format!("parity-test-{tenant_id}"),
         domain: None,
         plan: "starter".to_owned(),
-        owner_user_id: owner_id,
+        owner_user_id: user_id,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -632,4 +629,12 @@ async fn create_test_tenant(repos: &RepositoryRegistry, tenant_id: TenantId, own
         .create(&tenant)
         .await
         .expect("Failed to create tenant");
+
+    repos
+        .users
+        .update_tenant_id(user_id, tenant_id)
+        .await
+        .expect("Failed to link user to tenant via tenant_users");
+
+    (user_id, tenant_id)
 }

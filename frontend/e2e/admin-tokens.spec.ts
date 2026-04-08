@@ -155,7 +155,7 @@ test.describe('API Key List', () => {
   });
 
   test('displays API keys list', async ({ page }) => {
-    // Navigate to keys section (might be in Overview or separate tab)
+    // Check if keys are displayed on the current page
     // Look for key-related content
     await page.waitForTimeout(500);
 

@@ -633,7 +633,7 @@ impl UserRepository for PostgresDatabase {
         sqlx::query(
             r"
             INSERT INTO tenant_users (tenant_id, user_id, role, invited_at, joined_at)
-            VALUES ($1, $2, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            VALUES ($1::uuid, $2, 'member', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (tenant_id, user_id) DO NOTHING
             ",
         )

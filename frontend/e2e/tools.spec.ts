@@ -94,7 +94,7 @@ async function loginAndNavigateToEngagement(page: Page) {
   await page.waitForTimeout(500);
 }
 
-test.describe('Engagement Tab - Overview', () => {
+test.describe('Engagement Tab - Header and Controls', () => {
   test('renders Engagement tab with header', async ({ page }) => {
     await setupEngagementMocks(page);
     await loginAndNavigateToEngagement(page);
