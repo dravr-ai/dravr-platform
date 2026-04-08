@@ -646,6 +646,113 @@ impl UserRepository for PostgresDatabase {
         Ok(())
     }
 
+    async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<User> {
+        // Load current user to validate the transition and preserve super-admin role
+        let current = self
+            .get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
+
+        // Guard: super-admins cannot be demoted via this method
+        if !is_admin && matches!(current.role, UserRole::SuperAdmin) {
+            return Err(AppError::invalid_input(
+                "Cannot demote super-admin via set_admin_status; use direct DB update",
+            ));
+        }
+
+        // Compute new role: preserve super-admin, else admin/user based on flag
+        let new_role_str = if is_admin {
+            match current.role {
+                UserRole::SuperAdmin => "super_admin",
+                _ => "admin",
+            }
+        } else {
+            "user"
+        };
+
+        let result = sqlx::query(
+            r"
+            UPDATE users
+            SET is_admin = $1, role = $2
+            WHERE id = $3
+            ",
+        )
+        .bind(is_admin)
+        .bind(new_role_str)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set admin status: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        self.get_global(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("User after admin status update"))
+    }
+
+    async fn list_admins(&self) -> AppResult<Vec<User>> {
+        let rows = sqlx::query(
+            r"
+            SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
+                   role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
+                   created_at, last_active, firebase_uid, auth_provider
+            FROM users
+            WHERE is_admin = TRUE
+            ORDER BY email ASC
+            ",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to list admin users: {e}")))?;
+
+        let mut users = Vec::with_capacity(rows.len());
+        for row in rows {
+            let user_status_str: String = row.get("user_status");
+            let user_status = match user_status_str.as_str() {
+                "pending" => UserStatus::Pending,
+                "suspended" => UserStatus::Suspended,
+                _ => UserStatus::Active,
+            };
+
+            users.push(User {
+                id: row.get("id"),
+                email: row.get("email"),
+                display_name: row.get("display_name"),
+                password_hash: row.get("password_hash"),
+                tier: {
+                    let tier_str: String = row.get("tier");
+                    match tier_str.as_str() {
+                        tiers::PROFESSIONAL => UserTier::Professional,
+                        tiers::ENTERPRISE => UserTier::Enterprise,
+                        _ => UserTier::Starter,
+                    }
+                },
+                strava_token: None,
+                fitbit_token: None,
+                is_active: row.get("is_active"),
+                user_status,
+                is_admin: row.get("is_admin"),
+                role: {
+                    let role_str: Option<String> = row.try_get("role").ok().flatten();
+                    role_str.map_or(UserRole::User, |s| shared::enums::str_to_user_role(&s))
+                },
+                approved_by: row.get("approved_by"),
+                approved_at: row.get("approved_at"),
+                created_at: row.get("created_at"),
+                last_active: row.get("last_active"),
+                firebase_uid: row.try_get("firebase_uid").ok().flatten(),
+                auth_provider: row
+                    .try_get("auth_provider")
+                    .unwrap_or_else(|_| "email".to_owned()),
+            });
+        }
+
+        Ok(users)
+    }
+
     async fn update_password(&self, user_id: Uuid, password_hash: &str) -> AppResult<()> {
         let result = sqlx::query(
             r"

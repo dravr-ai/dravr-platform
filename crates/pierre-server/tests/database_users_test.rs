@@ -606,6 +606,108 @@ async fn test_user_status_transitions() {
 }
 
 #[tokio::test]
+async fn test_set_admin_status_promote_demote() {
+    let db = create_test_database().await;
+    let user = create_test_user("promote@example.com", Some("Promote Me".to_owned()));
+    UserRepository::create(&db, &user).await.unwrap();
+
+    // Promote to admin
+    let promoted = db.set_admin_status(user.id, true).await.unwrap();
+    assert!(promoted.is_admin);
+    assert_eq!(promoted.role, UserRole::Admin);
+
+    // Idempotency: promoting an already-admin user is safe
+    let repromoted = db.set_admin_status(user.id, true).await.unwrap();
+    assert!(repromoted.is_admin);
+    assert_eq!(repromoted.role, UserRole::Admin);
+
+    // Demote to user
+    let demoted = db.set_admin_status(user.id, false).await.unwrap();
+    assert!(!demoted.is_admin);
+    assert_eq!(demoted.role, UserRole::User);
+}
+
+#[tokio::test]
+async fn test_set_admin_status_preserves_super_admin_on_promote() {
+    let db = create_test_database().await;
+    // Seed user as super-admin
+    let mut user = create_test_user("super@example.com", Some("Super".to_owned()));
+    user.is_admin = true;
+    user.role = UserRole::SuperAdmin;
+    UserRepository::create(&db, &user).await.unwrap();
+
+    // Verify role persisted from create (guards against SELECT queries
+    // that forget to include the role column)
+    let after_create = db.get_global(user.id).await.unwrap().unwrap();
+    assert_eq!(
+        after_create.role,
+        UserRole::SuperAdmin,
+        "create() must persist SuperAdmin role"
+    );
+
+    // Re-promoting should preserve SuperAdmin (not downgrade to Admin)
+    let result = db.set_admin_status(user.id, true).await.unwrap();
+    assert!(result.is_admin);
+    assert_eq!(result.role, UserRole::SuperAdmin);
+}
+
+#[tokio::test]
+async fn test_set_admin_status_rejects_super_admin_demote() {
+    let db = create_test_database().await;
+    let mut user = create_test_user("sa_protect@example.com", Some("SA Protect".to_owned()));
+    user.is_admin = true;
+    user.role = UserRole::SuperAdmin;
+    UserRepository::create(&db, &user).await.unwrap();
+
+    // Demoting a super-admin must fail
+    let result = db.set_admin_status(user.id, false).await;
+    assert!(result.is_err(), "super-admin demote must be rejected");
+}
+
+#[tokio::test]
+async fn test_set_admin_status_nonexistent_user() {
+    let db = create_test_database().await;
+    let result = db.set_admin_status(Uuid::new_v4(), true).await;
+    assert!(result.is_err(), "nonexistent user promote must fail");
+}
+
+#[tokio::test]
+async fn test_list_admins_returns_only_admins() {
+    let db = create_test_database().await;
+
+    // Seed 1 admin, 1 super-admin, 2 regular users
+    let admin = create_test_admin_user("admin1@example.com", Some("Admin 1".to_owned()));
+    UserRepository::create(&db, &admin).await.unwrap();
+
+    let mut super_admin = create_test_user("super1@example.com", Some("Super 1".to_owned()));
+    super_admin.is_admin = true;
+    super_admin.role = UserRole::SuperAdmin;
+    UserRepository::create(&db, &super_admin).await.unwrap();
+
+    let user1 = create_test_user("user1@example.com", Some("User 1".to_owned()));
+    UserRepository::create(&db, &user1).await.unwrap();
+    let user2 = create_test_user("user2@example.com", Some("User 2".to_owned()));
+    UserRepository::create(&db, &user2).await.unwrap();
+
+    let admins = db.list_admins().await.unwrap();
+    assert_eq!(admins.len(), 2);
+    // Results are ordered by email ascending
+    assert_eq!(admins[0].email, "admin1@example.com");
+    assert_eq!(admins[1].email, "super1@example.com");
+    assert!(admins.iter().all(|u| u.is_admin));
+}
+
+#[tokio::test]
+async fn test_list_admins_empty() {
+    let db = create_test_database().await;
+    let user = create_test_user("plain@example.com", Some("Plain".to_owned()));
+    UserRepository::create(&db, &user).await.unwrap();
+
+    let admins = db.list_admins().await.unwrap();
+    assert!(admins.is_empty());
+}
+
+#[tokio::test]
 async fn test_concurrent_user_operations() {
     let db = create_test_database().await;
 

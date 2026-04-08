@@ -48,8 +48,10 @@ impl Database {
                     tier = $4,
                     is_active = $5,
                     user_status = $6,
-                    approved_by = $7,
-                    approved_at = $8,
+                    is_admin = $7,
+                    role = $8,
+                    approved_by = $9,
+                    approved_at = $10,
                     last_active = CURRENT_TIMESTAMP
                 WHERE id = $1
                 ",
@@ -60,6 +62,8 @@ impl Database {
             .bind(user.tier.as_str())
             .bind(user.is_active)
             .bind(shared::enums::user_status_to_str(&user.user_status))
+            .bind(user.is_admin)
+            .bind(user.role.as_str())
             .bind(user.approved_by.map(|id| id.to_string()))
             .bind(user.approved_at)
             .execute(&self.pool)
@@ -72,9 +76,9 @@ impl Database {
                 r"
                 INSERT INTO users (
                     id, email, display_name, password_hash, tier,
-                    is_active, user_status, is_admin, approved_by, approved_at,
+                    is_active, user_status, is_admin, role, approved_by, approved_at,
                     created_at, last_active, firebase_uid, auth_provider
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ",
             )
             .bind(user.id.to_string())
@@ -85,6 +89,7 @@ impl Database {
             .bind(user.is_active)
             .bind(shared::enums::user_status_to_str(&user.user_status))
             .bind(user.is_admin)
+            .bind(user.role.as_str())
             .bind(user.approved_by.map(|id| id.to_string()))
             .bind(user.approved_at)
             .bind(user.created_at)
@@ -121,7 +126,7 @@ impl Database {
     ) -> AppResult<Option<User>> {
         let query = r"
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
-                   u.is_active, u.user_status, u.is_admin, u.approved_by, u.approved_at,
+                   u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
@@ -180,7 +185,7 @@ impl Database {
         let query = format!(
             r"
             SELECT id, email, display_name, password_hash, tier,
-                   is_active, user_status, is_admin, approved_by, approved_at,
+                   is_active, user_status, is_admin, role, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider
             FROM users WHERE {field} = $1
             "
@@ -691,6 +696,85 @@ impl Database {
             .ok_or_else(|| AppError::not_found("User after status update"))
     }
 
+    /// Set admin status on a user: toggles `is_admin` flag and syncs `role` column.
+    ///
+    /// Super-admins are preserved when granting admin; demoting super-admins is rejected
+    /// to prevent accidental privilege loss at the super-admin tier.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user is not found, is a super-admin being demoted,
+    /// or the database update fails.
+    pub async fn set_user_admin_status_impl(
+        &self,
+        user_id: Uuid,
+        is_admin: bool,
+    ) -> AppResult<User> {
+        // Load current user to validate the transition
+        let current = self
+            .get_user_global_impl(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
+
+        // Guard: super-admins cannot be demoted via this method
+        if !is_admin && matches!(current.role, UserRole::SuperAdmin) {
+            return Err(AppError::invalid_input(
+                "Cannot demote super-admin via set_admin_status; use direct DB update",
+            ));
+        }
+
+        // Compute new role: preserve super-admin, else admin/user based on flag
+        let new_role_str = if is_admin {
+            match current.role {
+                UserRole::SuperAdmin => "super_admin",
+                _ => "admin",
+            }
+        } else {
+            "user"
+        };
+
+        let result = sqlx::query(
+            r"
+            UPDATE users SET
+                is_admin = ?1,
+                role = ?2
+            WHERE id = ?3
+            ",
+        )
+        .bind(is_admin)
+        .bind(new_role_str)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set admin status: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        self.get_user_global_impl(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("User after admin status update"))
+    }
+
+    /// List all users where `is_admin = true`, ordered by email ascending.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn list_admin_users_impl(&self) -> AppResult<Vec<User>> {
+        let rows = sqlx::query("SELECT * FROM users WHERE is_admin = 1 ORDER BY email ASC")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to list admin users: {e}")))?;
+
+        let mut users = Vec::with_capacity(rows.len());
+        for row in rows {
+            users.push(Self::row_to_user(&row)?);
+        }
+        Ok(users)
+    }
+
     /// Update user's `tenant_id` to link them to a tenant
     ///
     /// # Errors
@@ -1004,6 +1088,12 @@ impl UserRepository for Database {
         approved_by: Option<Uuid>,
     ) -> AppResult<User> {
         Self::update_user_status(self, user_id, new_status, approved_by).await
+    }
+    async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<User> {
+        Self::set_user_admin_status_impl(self, user_id, is_admin).await
+    }
+    async fn list_admins(&self) -> AppResult<Vec<User>> {
+        Self::list_admin_users_impl(self).await
     }
     async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()> {
         Self::update_user_tenant_id_impl(self, user_id, tenant_id).await

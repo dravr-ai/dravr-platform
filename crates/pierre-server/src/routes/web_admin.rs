@@ -151,6 +151,41 @@ struct UserStatusChangeUser {
     user_status: String,
 }
 
+/// Response for admin privilege change (promote/demote)
+#[derive(Serialize)]
+struct AdminPrivilegeChangeResponse {
+    success: bool,
+    message: String,
+    user: AdminPrivilegeChangeUser,
+}
+
+/// User data in admin privilege change response
+#[derive(Serialize)]
+struct AdminPrivilegeChangeUser {
+    id: String,
+    email: String,
+    is_admin: bool,
+    role: String,
+}
+
+/// Admin user entry for the list-admins response
+#[derive(Serialize)]
+struct AdminListEntry {
+    id: String,
+    email: String,
+    display_name: Option<String>,
+    role: String,
+    user_status: String,
+    created_at: String,
+}
+
+/// Response for listing all admins
+#[derive(Serialize)]
+struct AdminListResponse {
+    count: usize,
+    admins: Vec<AdminListEntry>,
+}
+
 /// Query parameters for user activity endpoint
 #[derive(Debug, Deserialize)]
 pub struct UserActivityQuery {
@@ -242,6 +277,15 @@ impl WebAdminRoutes {
                 "/api/admin/analytics/recent-activity",
                 get(Self::handle_recent_activity),
             )
+            .route(
+                "/api/admin/users/{user_id}/promote",
+                post(Self::handle_promote_user),
+            )
+            .route(
+                "/api/admin/users/{user_id}/demote",
+                post(Self::handle_demote_user),
+            )
+            .route("/api/admin/admins", get(Self::handle_list_admins))
             .with_state(resources)
     }
 
@@ -1167,6 +1211,114 @@ impl WebAdminRoutes {
                     "estimated_cost_today": activity.summary.estimated_cost_today,
                 }
             })),
+        )
+            .into_response())
+    }
+
+    /// Promote a user to admin (super-admin only)
+    async fn handle_promote_user(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        info!(
+            admin_user_id = %auth.user_id,
+            target_user_id = %user_id,
+            "Web admin promoting user to admin"
+        );
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+        let result = admin_ops::promote_user_to_admin(&resources, auth.user_id, user_uuid).await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(AdminPrivilegeChangeResponse {
+                success: true,
+                message: "User promoted to admin successfully".to_owned(),
+                user: AdminPrivilegeChangeUser {
+                    id: result.user_id,
+                    email: result.email,
+                    is_admin: result.is_admin,
+                    role: result.role,
+                },
+            }),
+        )
+            .into_response())
+    }
+
+    /// Demote an admin user back to a regular user (super-admin only)
+    async fn handle_demote_user(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+        Path(user_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        info!(
+            admin_user_id = %auth.user_id,
+            target_user_id = %user_id,
+            "Web admin demoting user from admin"
+        );
+
+        let user_uuid = Uuid::parse_str(&user_id)
+            .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+        let result = admin_ops::demote_user_from_admin(&resources, auth.user_id, user_uuid).await?;
+
+        Ok((
+            StatusCode::OK,
+            Json(AdminPrivilegeChangeResponse {
+                success: true,
+                message: "User demoted from admin successfully".to_owned(),
+                user: AdminPrivilegeChangeUser {
+                    id: result.user_id,
+                    email: result.email,
+                    is_admin: result.is_admin,
+                    role: result.role,
+                },
+            }),
+        )
+            .into_response())
+    }
+
+    /// List all admin users across all tenants (super-admin only)
+    async fn handle_list_admins(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+    ) -> Result<Response, AppError> {
+        let auth = Self::authenticate_admin(&headers, &resources).await?;
+
+        info!(
+            admin_user_id = %auth.user_id,
+            "Web admin listing all admin users"
+        );
+
+        let admins = admin_ops::list_all_admins(&resources, auth.user_id).await?;
+
+        let entries: Vec<AdminListEntry> = admins
+            .into_iter()
+            .map(|a| AdminListEntry {
+                id: a.id,
+                email: a.email,
+                display_name: a.display_name,
+                role: a.role,
+                user_status: a.user_status,
+                created_at: a.created_at,
+            })
+            .collect();
+
+        let count = entries.len();
+
+        Ok((
+            StatusCode::OK,
+            Json(AdminListResponse {
+                count,
+                admins: entries,
+            }),
         )
             .into_response())
     }
