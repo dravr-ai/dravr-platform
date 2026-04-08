@@ -52,7 +52,7 @@ async fn setup_test_database() -> Result<Database> {
     Ok(database)
 }
 
-/// Create a test user (without tenant association — call assign_to_tenant after tenant exists)
+/// Create a test user (without tenant association — call `assign_to_tenant` after tenant exists)
 async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
     let user_id = Uuid::new_v4();
     let user = User {
