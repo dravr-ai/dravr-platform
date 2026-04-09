@@ -36,15 +36,14 @@ pub fn init_analytics() {
         .map(|v| v != "false" && v != "0")
         .unwrap_or(true);
 
-    let tracker: Box<dyn AnalyticsTracker> = if enabled {
-        create_posthog_tracker().unwrap_or_else(|| {
+    let tracker: Box<dyn AnalyticsTracker> = create_posthog_tracker().unwrap_or_else(|| {
+        if enabled {
             warn!("Analytics enabled but POSTHOG_API_KEY not set -- using noop tracker");
-            Box::new(NoopAnalyticsTracker)
-        })
-    } else {
-        info!("Analytics disabled (POSTHOG_ENABLED=false)");
+        } else {
+            info!("Analytics disabled (POSTHOG_ENABLED=false)");
+        }
         Box::new(NoopAnalyticsTracker)
-    };
+    });
 
     let _ = ANALYTICS.set(tracker);
 }
@@ -120,7 +119,7 @@ pub trait AnalyticsTracker: Send + Sync {
 
     // -- Tool & Command Usage --
 
-    /// MCP tool executed during LLM dispatch (auto-captured per tool name)
+    /// `MCP` tool executed during LLM dispatch (auto-captured per tool name)
     fn track_tool_executed(
         &self,
         channel: &str,

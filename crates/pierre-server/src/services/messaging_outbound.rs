@@ -107,17 +107,7 @@ async fn process_single_entry(db: &dyn MessagingRepository, entry: &Value) {
         return;
     };
 
-    let Some(prepared) = prepare_delivery(
-        db,
-        fields.entry_id,
-        tenant_id,
-        fields.channel_type_str,
-        channel_type,
-        fields.payload_str,
-        fields.attempt_count,
-    )
-    .await
-    else {
+    let Some(prepared) = prepare_delivery(db, &fields, tenant_id, channel_type).await else {
         return;
     };
 
@@ -129,15 +119,18 @@ async fn process_single_entry(db: &dyn MessagingRepository, entry: &Value) {
 /// Returns `None` if any step fails (already logged).
 async fn prepare_delivery(
     db: &dyn MessagingRepository,
-    entry_id: &str,
+    fields: &EntryFields<'_>,
     tenant_id: TenantId,
-    channel_type_str: &str,
     channel_type: ChannelType,
-    payload_str: &str,
-    attempt_count: i64,
 ) -> Option<(Arc<dyn MessagingChannel>, Value, ChannelConfig)> {
-    let config =
-        load_entry_config(db, entry_id, tenant_id, channel_type_str, attempt_count).await?;
+    let config = load_entry_config(
+        db,
+        fields.entry_id,
+        tenant_id,
+        fields.channel_type_str,
+        fields.attempt_count,
+    )
+    .await?;
 
     let adapter = match create_adapter_from_config(channel_type, &config) {
         Ok(a) => a,
@@ -147,7 +140,7 @@ async fn prepare_delivery(
         }
     };
 
-    let payload: Value = serde_json::from_str(payload_str).unwrap_or_default();
+    let payload: Value = serde_json::from_str(fields.payload_str).unwrap_or_default();
     let channel_config = match serde_json::from_value::<ChannelConfig>(config) {
         Ok(c) => c,
         Err(e) => {
