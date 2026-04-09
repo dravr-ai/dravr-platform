@@ -427,6 +427,8 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     repos.users.create(&admin_user).await?;
 

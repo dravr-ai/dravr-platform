@@ -473,6 +473,8 @@ async fn test_oauth_callback_error_handling() {
         approved_at: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let admin_id = database
         .repositories()
@@ -518,6 +520,8 @@ async fn test_oauth_callback_error_handling() {
         approved_at: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let test_user_id = database
         .repositories()
@@ -771,6 +775,8 @@ async fn test_oauth_state_csrf_protection() {
         approved_at: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let admin_id = database
         .repositories()

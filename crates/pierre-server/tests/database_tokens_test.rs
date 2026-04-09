@@ -41,6 +41,8 @@ async fn test_strava_token_storage() {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     UserRepository::create(&db, &user)
@@ -142,6 +144,8 @@ async fn test_fitbit_token_storage() {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     UserRepository::create(&db, &user)

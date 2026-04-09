@@ -86,6 +86,8 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         approved_at: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

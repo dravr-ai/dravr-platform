@@ -20,6 +20,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use crate::mcp::resources::ServerResources;
+use crate::services::analytics::{analytics, hash_id};
 
 /// Polling interval for the outbound retry worker
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
@@ -126,6 +127,8 @@ async fn process_single_entry(db: &dyn MessagingRepository, entry: &Value) {
         &prepared.1,
         &prepared.2,
         fields.entry_id,
+        fields.channel_type_str,
+        fields.tenant_id_str,
         fields.attempt_count,
     )
     .await;
@@ -199,8 +202,12 @@ async fn attempt_delivery(
     payload: &Value,
     channel_config: &ChannelConfig,
     entry_id: &str,
+    channel_type_str: &str,
+    tenant_id_str: &str,
     attempt_count: i64,
 ) {
+    let hashed_tenant = hash_id(tenant_id_str);
+
     match adapter.send_raw(payload, channel_config).await {
         Ok(receipt) => {
             let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
@@ -208,6 +215,11 @@ async fn attempt_delivery(
                 entry_id = %entry_id,
                 channel_message_id = %channel_msg_id,
                 "Outbound retry delivery succeeded"
+            );
+            analytics().track_outbound_delivered(
+                channel_type_str,
+                &hashed_tenant,
+                attempt_count > 0,
             );
             let _ = db
                 .update_outbound_status(
@@ -248,6 +260,8 @@ async fn handle_retry_decision(db: &dyn MessagingRepository, entry_id: &str, att
                 entry_id = %entry_id,
                 "All retries exhausted, moving to dead-letter queue"
             );
+            // Dead-letter analytics: entry_id used as tenant proxy (no tenant in scope)
+            analytics().track_error("unknown", entry_id, "dead_lettered");
             let _ = db
                 .update_outbound_status(entry_id, "dlq", update.attempt_count, None)
                 .await;

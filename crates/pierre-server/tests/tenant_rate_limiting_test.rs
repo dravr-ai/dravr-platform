@@ -77,6 +77,8 @@ fn create_test_user(tier: UserTier) -> User {
         last_active: Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 

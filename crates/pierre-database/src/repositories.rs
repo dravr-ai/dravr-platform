@@ -164,6 +164,8 @@ pub trait UserRepository: Send + Sync {
     async fn get_first_admin_user(&self) -> AppResult<Option<User>>;
     /// Check if a user has synthetic activities seeded
     async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool>;
+    /// Update user's analytics consent preference
+    async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
 }
 
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)

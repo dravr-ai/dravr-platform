@@ -28,12 +28,13 @@ use crate::{
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
 
 use super::types::{
-    ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest, LoginRequest,
-    OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse, RefreshTokenRequest,
-    RegisterRequest, SessionResponse, UpdateProfileRequest, UpdateProfileResponse, UserInfo,
-    UserStatsResponse,
+    AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
+    LoginRequest, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
+    RefreshTokenRequest, RegisterRequest, SessionResponse, UpdateProfileRequest,
+    UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
+use crate::services::analytics::{analytics, hash_id};
 // Re-export AuthService from the service layer so existing `use crate::routes::auth::AuthService`
 // paths continue to compile without changes across the codebase.
 pub use crate::services::auth::AuthService;
@@ -811,4 +812,40 @@ pub(super) async fn handle_oauth2_token(
             Ok((status, Json(error_response)).into_response())
         }
     }
+}
+
+/// Handle analytics consent update for authenticated users
+///
+/// Updates the user's analytics consent preference and records the timestamp.
+/// Also updates the in-memory consent cache used by the analytics tracker.
+pub(super) async fn handle_analytics_consent(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    Json(request): Json<AnalyticsConsentRequest>,
+) -> Result<Response, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let user_id = auth.user_id;
+
+    resources
+        .repos
+        .users
+        .update_analytics_consent(user_id, request.enabled)
+        .await?;
+
+    // Update the in-memory consent cache so subsequent analytics events
+    // respect the new preference immediately
+    let hashed_user = hash_id(&user_id.to_string());
+    analytics().set_consent(&hashed_user, request.enabled);
+
+    info!(
+        user_id = %user_id,
+        enabled = request.enabled,
+        "Analytics consent updated"
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "message": "Analytics consent updated", "enabled": request.enabled })),
+    )
+        .into_response())
 }

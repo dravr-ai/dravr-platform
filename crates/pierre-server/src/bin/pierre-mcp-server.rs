@@ -551,6 +551,9 @@ async fn create_server(
     pierre_mcp_server::init_ops_notifier();
     pierre_mcp_server::ops_notifier().notify_deploy();
 
+    // Initialize product analytics (PostHog or noop)
+    pierre_mcp_server::init_analytics();
+
     MultiTenantMcpServer::new(resources)
 }
 

@@ -234,6 +234,8 @@ export const ENDPOINTS = {
     MCP_TOKEN: (id: string) => `/api/user/mcp-tokens/${id}`,
     /** Change password */
     CHANGE_PASSWORD: '/api/user/change-password',
+    /** Analytics consent */
+    ANALYTICS_CONSENT: '/api/user/analytics-consent',
     /** LLM settings */
     LLM_SETTINGS: '/api/user/llm-settings',
     /** Validate LLM settings */

@@ -101,6 +101,13 @@ pub struct UpdateProfileResponse {
     pub user: UserInfo,
 }
 
+/// Analytics consent update request
+#[derive(Debug, Deserialize)]
+pub struct AnalyticsConsentRequest {
+    /// Whether the user consents to anonymized analytics tracking
+    pub enabled: bool,
+}
+
 /// Change password request for authenticated users
 #[derive(Debug, Deserialize)]
 pub struct ChangePasswordRequest {
