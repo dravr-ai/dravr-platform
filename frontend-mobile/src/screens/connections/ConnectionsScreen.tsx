@@ -293,7 +293,7 @@ export function ConnectionsScreen() {
           <View className="p-4">
             <Text className="text-sm font-semibold text-text-primary mb-1">Privacy Note</Text>
             <Text className="text-sm text-text-secondary leading-5">
-              Pierre only accesses the data you authorize. We never share your
+              Dravr only accesses the data you authorize. We never share your
               fitness data with third parties. You can disconnect any provider at
               any time.
             </Text>

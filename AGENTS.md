@@ -1,4 +1,4 @@
-# Pierre Fitness Platform
+# Dravr
 
 **Multi-tenant fitness intelligence API** exposing fitness data via MCP/A2A/REST protocols. Core capabilities:
 - OAuth provider integrations (Strava, Fitbit, Garmin, Whoop, Terra, etc.)

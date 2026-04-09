@@ -1,8 +1,8 @@
-# Pierre MCP Server - Brand Identity & Design System
+# Dravr - Brand Identity & Design System
 
 ## Brand Concept: "Holistic Intelligence"
 
-Pierre is a complete fitness intelligence platform that connects AI assistants with fitness data providers. The visual identity represents the human in motion, with data flowing between three core wellness pillars.
+Dravr is a complete fitness intelligence platform that connects AI assistants with fitness data providers. The visual identity represents the human in motion, with data flowing between three core wellness pillars.
 
 > **Design Review**: This design system incorporates recommendations from professional UI/UX analysis to ensure a premium, accessible, and modern fitness app experience.
 
@@ -11,8 +11,8 @@ Pierre is a complete fitness intelligence platform that connects AI assistants w
 ### Primary Colors
 | Name | Hex | CSS Variable | Usage |
 |------|-----|--------------|-------|
-| Pierre Violet | `#7C3AED` | `--pierre-violet` | Intelligence, AI, sophistication |
-| Pierre Cyan | `#06B6D4` | `--pierre-cyan` | Data flow, connectivity, freshness |
+| Dravr Violet | `#7C3AED` | `--pierre-violet` | Intelligence, AI, sophistication |
+| Dravr Cyan | `#06B6D4` | `--pierre-cyan` | Data flow, connectivity, freshness |
 
 ### Three Pillars (Semantic Accents)
 | Pillar | Color | Hex | Tailwind Class | Usage |
@@ -61,7 +61,7 @@ background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
 ### Logo Concept
 The logo depicts a stylized running figure composed of interconnected data nodes:
 - **Head/Upper body** (Emerald nodes): Activity tracking
-- **Core** (Violet-Cyan gradient): Pierre AI intelligence hub
+- **Core** (Violet-Cyan gradient): Dravr AI intelligence hub
 - **Side nodes** (Amber): Nutrition data
 - **Lower body** (Indigo nodes): Recovery metrics
 - **Connection lines**: Data flow between pillars
@@ -343,4 +343,4 @@ className="bg-pierre-slate/60 backdrop-blur-xl border border-white/10 rounded-2x
 
 ## Provider Agnosticism
 
-Pierre's branding intentionally avoids referencing specific fitness providers (Strava, Fitbit, etc.). The three-pillar system (Activity, Nutrition, Recovery) is universal and provider-neutral.
+Dravr's branding intentionally avoids referencing specific fitness providers (Strava, Fitbit, etc.). The three-pillar system (Activity, Nutrition, Recovery) is universal and provider-neutral.

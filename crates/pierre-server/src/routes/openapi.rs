@@ -30,12 +30,12 @@ use crate::routes::coaches::{
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "Pierre Fitness API",
+        title = "Dravr API",
         version = "0.2.0",
         description = "Multi-protocol fitness data API for LLMs (MCP + A2A)",
         license(name = "MIT OR Apache-2.0"),
         contact(
-            name = "Pierre Fitness Intelligence",
+            name = "Dravr",
             url = "https://github.com/dravr-ai/dravr-platform"
         )
     ),

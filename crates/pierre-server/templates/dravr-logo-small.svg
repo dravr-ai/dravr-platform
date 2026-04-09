@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <title>Pierre Fitness Platform</title>
-  <desc>Simplified Pierre logo - head and core nodes from the holistic running figure</desc>
+  <title>Dravr</title>
+  <desc>Simplified Dravr logo - head and core nodes from the holistic running figure</desc>
 
   <defs>
-    <!-- Pierre Primary Gradient -->
+    <!-- Primary Gradient -->
     <linearGradient id="pierreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#7C3AED"/>
       <stop offset="100%" style="stop-color:#06B6D4"/>

@@ -13,14 +13,14 @@ import type { Message, MessageMetadata } from '../types';
 const mockAssistantMessage: Message = {
   id: 'msg-1',
   role: 'assistant',
-  content: 'This is a test response from Pierre.',
+  content: 'This is a test response from Dravr.',
   created_at: new Date().toISOString(),
 };
 
 const mockUserMessage: Message = {
   id: 'msg-2',
   role: 'user',
-  content: 'Hello Pierre!',
+  content: 'Hello Dravr!',
   created_at: new Date().toISOString(),
 };
 
@@ -31,19 +31,19 @@ const mockMetadata: MessageMetadata = {
 
 describe('MessageItem', () => {
   describe('basic rendering', () => {
-    it('should render assistant message with Pierre avatar', () => {
+    it('should render assistant message with Dravr avatar', () => {
       render(<MessageItem message={mockAssistantMessage} />);
 
-      expect(screen.getByText('Pierre')).toBeInTheDocument();
-      expect(screen.getByText('This is a test response from Pierre.')).toBeInTheDocument();
-      expect(screen.getByAltText('Pierre')).toBeInTheDocument();
+      expect(screen.getByText('Dravr')).toBeInTheDocument();
+      expect(screen.getByText('This is a test response from Dravr.')).toBeInTheDocument();
+      expect(screen.getByAltText('Dravr')).toBeInTheDocument();
     });
 
     it('should render user message with user avatar', () => {
       render(<MessageItem message={mockUserMessage} />);
 
       expect(screen.getByText('You')).toBeInTheDocument();
-      expect(screen.getByText('Hello Pierre!')).toBeInTheDocument();
+      expect(screen.getByText('Hello Dravr!')).toBeInTheDocument();
     });
 
     it('should display metadata when provided', () => {
@@ -263,7 +263,7 @@ describe('MessageItem', () => {
         />
       );
 
-      const contentDiv = screen.getByText('This is a test response from Pierre.').closest('div');
+      const contentDiv = screen.getByText('This is a test response from Dravr.').closest('div');
       expect(contentDiv).toHaveClass('text-red-400');
     });
 

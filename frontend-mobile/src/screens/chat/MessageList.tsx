@@ -432,7 +432,7 @@ export function MessageList({
       >
         <View className="w-8 h-8 rounded-full mr-3 overflow-hidden">
           <Image
-            source={require('../../../assets/pierre-logo.png')}
+            source={require('../../../assets/dravr-logo.png')}
             className="w-8 h-8"
             resizeMode="cover"
           />
@@ -506,7 +506,7 @@ export function MessageList({
         <View className="flex-1 items-center justify-center px-8 py-12">
           <Text className="text-lg font-semibold text-text-primary mb-2">No coaches yet</Text>
           <Text className="text-base text-text-tertiary text-center">
-            Create your first coach to customize how Pierre helps you.
+            Create your first coach to customize how Dravr helps you.
           </Text>
         </View>
       )}

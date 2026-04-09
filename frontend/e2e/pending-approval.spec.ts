@@ -115,7 +115,7 @@ test.describe('Pending Approval Page - Logout', () => {
     await page.getByRole('button', { name: 'Sign Out' }).click();
 
     // Should return to login page
-    await expect(page.locator('h1')).toContainText('Pierre Fitness Platform', { timeout: 5000 });
+    await expect(page.locator('h1')).toContainText('Dravr', { timeout: 5000 });
     await expect(page.locator('input[name="email"]')).toBeVisible();
   });
 });
@@ -260,11 +260,11 @@ test.describe('Pending Approval Page - Active User Redirect', () => {
   });
 });
 
-test.describe('Pending Approval Page - Pierre Branding', () => {
-  test('shows Pierre logo', async ({ page }) => {
+test.describe('Pending Approval Page - Dravr Branding', () => {
+  test('shows Dravr logo', async ({ page }) => {
     await loginAsPendingUser(page);
 
-    // Check for SVG logo (Pierre holistic node logo)
+    // Check for SVG logo (holistic node logo)
     const logo = page.locator('svg').first();
     await expect(logo).toBeVisible();
   });

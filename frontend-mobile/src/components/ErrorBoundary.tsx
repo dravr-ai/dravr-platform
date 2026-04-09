@@ -46,7 +46,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           className="flex-1 bg-background-primary items-center justify-center px-8"
         >
           <Image
-            source={require('../../assets/pierre-logo.png')}
+            source={require('../../assets/dravr-logo.png')}
             className="w-20 h-20 mb-8"
             resizeMode="contain"
           />

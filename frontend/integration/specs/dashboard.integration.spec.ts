@@ -114,7 +114,7 @@ test.describe('Dashboard Integration Tests', () => {
       await page.waitForTimeout(2000);
 
       const hasError = await page.locator('text=/error|failed|unavailable/i').first().isVisible().catch(() => false);
-      const pageLoaded = await page.locator('text=Pierre').isVisible().catch(() => false);
+      const pageLoaded = await page.locator('text=Dravr').isVisible().catch(() => false);
 
       expect(hasError || pageLoaded).toBe(true);
     });

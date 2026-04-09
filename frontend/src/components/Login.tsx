@@ -132,7 +132,7 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
             <div className="flex flex-col items-center">
               <PierreLogo />
               <h1 className="mt-4 text-xl font-bold text-white tracking-tight">
-                Pierre Fitness Platform
+                Dravr
               </h1>
               <p className="mt-1 text-sm text-zinc-400">
                 Sign in to your account

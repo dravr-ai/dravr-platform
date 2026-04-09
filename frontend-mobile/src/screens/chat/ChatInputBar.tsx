@@ -88,7 +88,7 @@ export function ChatInputBar({
         <TextInput
           ref={inputRef}
           className="flex-1 text-base text-text-primary py-2 max-h-[100px]"
-          placeholder={isListening ? 'Listening...' : 'Message Pierre...'}
+          placeholder={isListening ? 'Listening...' : 'Message Dravr...'}
           placeholderTextColor={isListening ? colors.error : colors.text.tertiary}
           value={displayText}
           onChangeText={onChangeText}

@@ -87,8 +87,8 @@ async function loginAsSuperAdminAndNavigateToUsers(page: Page) {
   await page.locator('input[name="password"]').fill('password123');
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  // Wait for dashboard sidebar to appear - the sidebar contains Pierre logo
-  await page.waitForSelector('text=Pierre', { timeout: 10000 });
+  // Wait for dashboard sidebar to appear - the sidebar contains Dravr logo
+  await page.waitForSelector('text=Dravr', { timeout: 10000 });
   await page.waitForTimeout(300);
 }
 
@@ -173,7 +173,7 @@ async function loginAsRegularAdmin(page: Page) {
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // Wait for dashboard sidebar to appear
-  await page.waitForSelector('text=Pierre', { timeout: 10000 });
+  await page.waitForSelector('text=Dravr', { timeout: 10000 });
   await page.waitForTimeout(300);
 }
 

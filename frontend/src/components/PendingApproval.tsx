@@ -134,7 +134,7 @@ export default function PendingApproval() {
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-pierre-activity mt-0.5">•</span>
-                  <span>Once approved, you can access Pierre&apos;s fitness intelligence</span>
+                  <span>Once approved, you can access Dravr&apos;s fitness intelligence</span>
                 </li>
               </ul>
             </div>

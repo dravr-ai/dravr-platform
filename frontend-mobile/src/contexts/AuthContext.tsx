@@ -1,4 +1,4 @@
-// ABOUTME: Authentication context provider for Pierre Mobile app
+// ABOUTME: Authentication context provider for Dravr Mobile app
 // ABOUTME: Manages user auth state, login/logout, and persists tokens with AsyncStorage
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';

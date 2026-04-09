@@ -161,7 +161,7 @@ export function ActivityDetailScreen() {
                 </View>
               </View>
 
-              {/* Ask Pierre Button */}
+              {/* Ask Dravr Button */}
               <TouchableOpacity
                 className="flex-row items-center justify-center px-4 py-3 rounded-xl"
                 style={{
@@ -177,7 +177,7 @@ export function ActivityDetailScreen() {
               >
                 <Feather name="message-circle" size={18} color="white" />
                 <Text className="text-sm font-semibold text-white ml-2">
-                  Ask Pierre for More
+                  Ask Dravr for More
                 </Text>
               </TouchableOpacity>
             </View>
@@ -197,7 +197,7 @@ export function ActivityDetailScreen() {
                 Share this activity with friends
               </Text>
               <Text className="text-sm text-zinc-400 mb-4 text-center leading-5">
-                Let Pierre create a coach-generated insight to share with your training partners.
+                Let Dravr create a coach-generated insight to share with your training partners.
                 Your private data stays private - only the insight is shared.
               </Text>
               <TouchableOpacity
@@ -233,7 +233,7 @@ export function ActivityDetailScreen() {
                 Get AI Insights
               </Text>
               <Text className="text-sm text-zinc-400 mb-4 text-center leading-5">
-                Ask Pierre to analyze this activity and provide personalized coaching insights.
+                Ask Dravr to analyze this activity and provide personalized coaching insights.
               </Text>
               <TouchableOpacity
                 className="flex-row items-center px-6 py-3 rounded-full"
@@ -250,7 +250,7 @@ export function ActivityDetailScreen() {
               >
                 <Feather name="message-circle" size={18} color="white" />
                 <Text className="text-sm font-semibold text-white ml-2">
-                  Ask Pierre
+                  Ask Dravr
                 </Text>
               </TouchableOpacity>
             </View>

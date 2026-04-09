@@ -64,7 +64,7 @@ describe('Login Component', () => {
   it('should render login form', async () => {
     await renderLogin()
 
-    expect(screen.getByRole('heading', { name: /pierre fitness platform/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /dravr/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/email address/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()

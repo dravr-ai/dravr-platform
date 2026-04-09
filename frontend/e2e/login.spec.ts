@@ -32,7 +32,7 @@ test.describe('Login Page', () => {
 
     // Check for main heading
     const heading = page.locator('h1');
-    await expect(heading).toContainText('Pierre Fitness Platform');
+    await expect(heading).toContainText('Dravr');
 
     // Check for form elements
     await expect(page.locator('input[name="email"]')).toBeVisible();

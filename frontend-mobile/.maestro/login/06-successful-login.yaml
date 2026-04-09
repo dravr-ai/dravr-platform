@@ -1,6 +1,6 @@
 # ABOUTME: Test successful login with valid credentials
 # ABOUTME: Converted from login.test.js "should login successfully with valid credentials"
-# ABOUTME: NOTE: This test requires the Pierre backend server running with test user
+# ABOUTME: NOTE: This test requires the Dravr backend server running with test user
 
 appId: com.pierre.fitness
 

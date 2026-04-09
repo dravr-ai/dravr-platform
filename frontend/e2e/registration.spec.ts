@@ -97,7 +97,7 @@ test.describe('Registration Page - Form Display', () => {
     await page.getByText('Already have an account?').click();
 
     // Should see login form
-    await expect(page.locator('h1')).toContainText('Pierre Fitness Platform');
+    await expect(page.locator('h1')).toContainText('Dravr');
     await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
   });
 });

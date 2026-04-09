@@ -124,7 +124,7 @@ export function RegisterScreen() {
                 </LinearGradient>
                 <Text className="text-xl font-bold text-text-primary mb-1">Create Account</Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  Join Pierre to unlock AI-powered fitness insights
+                  Join Dravr to unlock AI-powered fitness insights
                 </Text>
               </View>
 

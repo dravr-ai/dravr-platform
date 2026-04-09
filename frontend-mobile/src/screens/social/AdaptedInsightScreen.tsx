@@ -99,7 +99,7 @@ export function AdaptedInsightScreen() {
             <Feather name="check" size={24} color={colors.text.primary} />
           </View>
           <Text className="flex-1 text-text-primary text-base font-medium">
-            Pierre has personalized this insight for your training
+            Dravr has personalized this insight for your training
           </Text>
         </View>
 
@@ -154,7 +154,7 @@ export function AdaptedInsightScreen() {
               <Text className="text-sm font-bold" style={{ color: colors.pierre.violet }}>2</Text>
             </View>
             <Text className="flex-1 text-text-secondary text-base leading-6">
-              Pierre analyzed your recent activities and fitness profile
+              Dravr analyzed your recent activities and fitness profile
             </Text>
           </View>
           <View className="flex-row items-start gap-4">

@@ -575,7 +575,7 @@ impl A2ARoutes {
             "jsonrpc": "2.0",
             "id": id,
             "result": {
-                "name": "Pierre Fitness AI",
+                "name": "Dravr AI",
                 "version": "1.0.0",
                 "capabilities": [
                     "fitness-data-analysis",

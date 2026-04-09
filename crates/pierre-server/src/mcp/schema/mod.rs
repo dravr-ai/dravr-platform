@@ -434,7 +434,7 @@ impl InitializeResponse {
             server_info: ServerInfo {
                 name: server_name,
                 version: server_version,
-                title: Some("Pierre Fitness Intelligence".to_owned()),
+                title: Some("Dravr".to_owned()),
                 description: Some(
                     "MCP server for fitness data analytics, coaching, and nutrition planning"
                         .to_owned(),
