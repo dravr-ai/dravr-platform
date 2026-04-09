@@ -29,6 +29,8 @@ use super::context::ToolExecutionContext;
 use super::errors::ToolError;
 use super::result::ToolResult;
 use super::traits::{McpTool, ToolCapabilities};
+#[cfg(feature = "contremaitre")]
+use crate::contremaitre::ToolDescriptionRegistry;
 
 /// Per-tool schema size measurement
 #[derive(Debug, Clone, Serialize)]
@@ -86,7 +88,7 @@ pub struct ToolRegistry {
     categories: HashMap<String, Vec<String>>,
     /// External tool description overlays from contremaitre (hot-reloadable)
     #[cfg(feature = "contremaitre")]
-    tool_descriptions: Option<Arc<crate::contremaitre::ToolDescriptionRegistry>>,
+    tool_descriptions: Option<Arc<ToolDescriptionRegistry>>,
 }
 
 impl ToolRegistry {
@@ -103,10 +105,7 @@ impl ToolRegistry {
 
     /// Set the external tool description registry for schema overlay.
     #[cfg(feature = "contremaitre")]
-    pub fn set_tool_descriptions(
-        &mut self,
-        registry: Arc<crate::contremaitre::ToolDescriptionRegistry>,
-    ) {
+    pub fn set_tool_descriptions(&mut self, registry: Arc<ToolDescriptionRegistry>) {
         self.tool_descriptions = Some(registry);
     }
 
@@ -804,10 +803,16 @@ impl Default for ToolRegistry {
 
 impl fmt::Debug for ToolRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ToolRegistry")
+        let mut debug = f.debug_struct("ToolRegistry");
+        debug
             .field("tool_count", &self.tools.len())
             .field("tools", &self.tool_names())
-            .field("categories", &self.categories())
-            .finish()
+            .field("categories", &self.categories());
+        #[cfg(feature = "contremaitre")]
+        debug.field(
+            "tool_descriptions",
+            &self.tool_descriptions.as_ref().map(|r| r.count()),
+        );
+        debug.finish()
     }
 }
