@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::{Duration, Utc};
+use dashmap::DashMap;
 use pierre_core::models::messaging::{
     CardAction, ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
@@ -22,8 +23,9 @@ use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
+use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -1488,10 +1490,26 @@ async fn resolve_user_tenant(
     }
 }
 
+/// Per-conversation dispatch locks ensuring sequential LLM processing.
+///
+/// Without this, concurrent webhook calls for the same conversation race:
+/// message 2's dispatch can finish before message 1's, producing out-of-order
+/// replies. The lock serializes dispatches per conversation while allowing
+/// different conversations to proceed in parallel.
+static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<TokioMutex<()>>>> =
+    LazyLock::new(DashMap::new);
+
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
+/// Acquires a per-conversation lock to ensure messages are processed in order.
 pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
+    let lock = CONVERSATION_DISPATCH_LOCKS
+        .entry(dispatch.session.conversation.clone())
+        .or_insert_with(|| Arc::new(TokioMutex::new(())))
+        .clone();
+    let _guard = lock.lock().await;
+
     let start = Instant::now();
     let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
     let hashed_user = hash_id(&dispatch.session.user_id);

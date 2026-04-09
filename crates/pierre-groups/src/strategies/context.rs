@@ -36,12 +36,17 @@ pub struct IndividualFocusContext;
 
 impl GroupContextStrategy for IndividualFocusContext {
     fn build_group_context(&self, group: &GroupContext, members: &[MemberSummaryCard]) -> String {
+        let requester_name = resolve_requester_name(group, members);
         let mut text = String::with_capacity(512);
         let _ = writeln!(text, "\n--- Group Coaching Context ---");
         let _ = writeln!(
             text,
             "You are coaching a group of {} athletes called \"{}\".",
             group.member_count, group.group.name
+        );
+        let _ = writeln!(
+            text,
+            "The person chatting with you right now is {requester_name}."
         );
         let _ = writeln!(text, "{} members are currently active.", group.active_count);
         let _ = writeln!(text);
@@ -110,6 +115,7 @@ pub struct GroupOverviewContext;
 
 impl GroupContextStrategy for GroupOverviewContext {
     fn build_group_context(&self, group: &GroupContext, members: &[MemberSummaryCard]) -> String {
+        let requester_name = resolve_requester_name(group, members);
         let mut text = String::with_capacity(1024);
         let _ = writeln!(text, "\n--- Group Coaching Context (Admin View) ---");
         let _ = writeln!(
@@ -119,7 +125,9 @@ impl GroupContextStrategy for GroupOverviewContext {
         );
         let _ = writeln!(
             text,
-            "The admin/owner is reviewing the group. Provide full details."
+            "The person chatting with you right now is {requester_name} (group admin). \
+             When they ask about \"my\" activities or data, use {requester_name}'s data. \
+             Provide full details for all members."
         );
         let _ = writeln!(text);
         let _ = writeln!(text, "Roster:");
@@ -178,6 +186,17 @@ pub fn select_context_strategy(is_admin: bool) -> Box<dyn GroupContextStrategy> 
     } else {
         Box::new(IndividualFocusContext)
     }
+}
+
+/// Resolve the display name of the requester from the member cards.
+///
+/// Falls back to "the current user" if the requester is not in the roster
+/// (e.g., conversation owner is not a group member).
+fn resolve_requester_name(group: &GroupContext, members: &[MemberSummaryCard]) -> String {
+    members
+        .iter()
+        .find(|m| m.user_id == group.requester_user_id)
+        .map_or_else(|| "the current user".to_owned(), |m| m.display_name.clone())
 }
 
 /// Build the detail level label for logging
