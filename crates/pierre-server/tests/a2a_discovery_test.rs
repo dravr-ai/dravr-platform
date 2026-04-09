@@ -13,7 +13,7 @@ fn test_agent_card_structure() {
     let card = AgentCard::new();
 
     // Verify basic fields
-    assert_eq!(card.name, "Pierre Fitness AI");
+    assert_eq!(card.name, "Dravr AI");
     assert!(!card.description.is_empty());
     assert_eq!(card.version, "1.0.0");
 
