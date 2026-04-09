@@ -19,6 +19,7 @@ static ANALYTICS: OnceLock<Box<dyn AnalyticsTracker>> = OnceLock::new();
 ///
 /// `PostHog` never sees real user UUIDs, tenant IDs, or channel user IDs.
 /// Only the hash (hex-encoded) is transmitted.
+#[must_use]
 pub fn hash_id(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
@@ -36,13 +37,10 @@ pub fn init_analytics() {
         .unwrap_or(true);
 
     let tracker: Box<dyn AnalyticsTracker> = if enabled {
-        match create_posthog_tracker() {
-            Some(tracker) => tracker,
-            None => {
-                warn!("Analytics enabled but POSTHOG_API_KEY not set -- using noop tracker");
-                Box::new(NoopAnalyticsTracker)
-            }
-        }
+        create_posthog_tracker().unwrap_or_else(|| {
+            warn!("Analytics enabled but POSTHOG_API_KEY not set -- using noop tracker");
+            Box::new(NoopAnalyticsTracker)
+        })
     } else {
         info!("Analytics disabled (POSTHOG_ENABLED=false)");
         Box::new(NoopAnalyticsTracker)
@@ -88,7 +86,7 @@ pub trait AnalyticsTracker: Send + Sync {
         content_type: &str,
     );
 
-    /// User intent recognized (link_code, otp_flow, slash_command:<name>, logout, normal_chat)
+    /// User intent recognized (`link_code`, `otp_flow`, `slash_command:<name>`, `logout`, `normal_chat`)
     fn track_intent(&self, channel: &str, tenant_id: &str, distinct_id: &str, intent_type: &str);
 
     /// Bot response sent back to the user
@@ -102,13 +100,13 @@ pub trait AnalyticsTracker: Send + Sync {
         model: &str,
     );
 
-    /// Account linking completed (deep_link or otp)
+    /// Account linking completed (`deep_link` or `otp`)
     fn track_linking_completed(&self, channel: &str, tenant_id: &str, user_id: &str, method: &str);
 
     /// Account linking failed
     fn track_linking_failed(&self, channel: &str, tenant_id: &str, reason: &str);
 
-    /// Error occurred (llm_dispatch_failed, delivery_failed, dead_lettered)
+    /// Error occurred (`llm_dispatch_failed`, `delivery_failed`, `dead_lettered`)
     fn track_error(&self, channel: &str, tenant_id: &str, error_type: &str);
 
     /// Outbound message delivered successfully
@@ -222,7 +220,7 @@ struct PostHogTracker {
     api_key: String,
     host: String,
     http_client: reqwest::Client,
-    /// Per-user consent cache: hashed_user_id to consented
+    /// Per-user consent cache: `hashed_user_id` to consented
     /// Missing entry = no consent known, skip events
     consent_cache: DashMap<String, bool>,
 }
@@ -232,10 +230,10 @@ impl PostHogTracker {
     /// Check if a user has given analytics consent.
     /// Returns `false` if user is unknown or has not consented.
     fn has_consent(&self, hashed_user_id: &str) -> bool {
-        self.consent_cache.get(hashed_user_id).map_or(false, |v| *v)
+        self.consent_cache.get(hashed_user_id).is_some_and(|v| *v)
     }
 
-    /// Fire-and-forget: spawn a tokio task to POST the event to PostHog's capture API
+    /// Fire-and-forget: spawn a tokio task to POST the event to `PostHog`'s capture API
     fn capture_event(&self, event_name: &str, distinct_id: &str, props: Value) {
         if !self.has_consent(distinct_id) {
             return;

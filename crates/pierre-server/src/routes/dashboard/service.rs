@@ -14,7 +14,7 @@ use crate::mcp::resources::ServerResources;
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc};
 use pierre_auth::api_keys::ApiKeyTier;
 use pierre_auth::auth::AuthResult;
-use pierre_core::models::{RequestLog, ToolUsage};
+use pierre_core::models::{LlmUsageDailyRow, RequestLog, ToolUsage};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -313,7 +313,7 @@ impl DashboardRoutes {
             .await
             .unwrap_or_default();
 
-        let llm_by_date: std::collections::HashMap<String, &pierre_core::models::LlmUsageDailyRow> =
+        let llm_by_date: HashMap<String, &LlmUsageDailyRow> =
             llm_daily.iter().map(|r| (r.date.clone(), r)).collect();
 
         // Time series data (daily aggregates from LLM usage)
@@ -322,11 +322,9 @@ impl DashboardRoutes {
             let day_start = start_date + Duration::days(i64::from(day));
             let day_date = day_start.format("%Y-%m-%d").to_string();
 
-            let (request_count, error_count) = if let Some(row) = llm_by_date.get(&day_date) {
-                (row.calls.unsigned_abs(), 0u64)
-            } else {
-                (0u64, 0u64)
-            };
+            let (request_count, error_count) = llm_by_date
+                .get(&day_date)
+                .map_or((0u64, 0u64), |row| (row.calls.unsigned_abs(), 0u64));
 
             time_series.push(UsageDataPoint {
                 date: day_date,

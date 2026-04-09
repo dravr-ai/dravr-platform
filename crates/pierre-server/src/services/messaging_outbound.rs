@@ -121,17 +121,7 @@ async fn process_single_entry(db: &dyn MessagingRepository, entry: &Value) {
         return;
     };
 
-    attempt_delivery(
-        db,
-        &prepared.0,
-        &prepared.1,
-        &prepared.2,
-        fields.entry_id,
-        fields.channel_type_str,
-        fields.tenant_id_str,
-        fields.attempt_count,
-    )
-    .await;
+    attempt_delivery(db, &prepared.0, &prepared.1, &prepared.2, &fields).await;
 }
 
 /// Load config, create adapter, and parse payload for delivery
@@ -201,31 +191,28 @@ async fn attempt_delivery(
     adapter: &Arc<dyn MessagingChannel>,
     payload: &Value,
     channel_config: &ChannelConfig,
-    entry_id: &str,
-    channel_type_str: &str,
-    tenant_id_str: &str,
-    attempt_count: i64,
+    fields: &EntryFields<'_>,
 ) {
-    let hashed_tenant = hash_id(tenant_id_str);
+    let hashed_tenant = hash_id(fields.tenant_id_str);
 
     match adapter.send_raw(payload, channel_config).await {
         Ok(receipt) => {
             let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
             info!(
-                entry_id = %entry_id,
+                entry_id = %fields.entry_id,
                 channel_message_id = %channel_msg_id,
                 "Outbound retry delivery succeeded"
             );
             analytics().track_outbound_delivered(
-                channel_type_str,
+                fields.channel_type_str,
                 &hashed_tenant,
-                attempt_count > 0,
+                fields.attempt_count > 0,
             );
             let _ = db
                 .update_outbound_status(
-                    entry_id,
+                    fields.entry_id,
                     "sent",
-                    i32::try_from(attempt_count + 1).unwrap_or(i32::MAX),
+                    i32::try_from(fields.attempt_count + 1).unwrap_or(i32::MAX),
                     None,
                 )
                 .await;
@@ -233,11 +220,11 @@ async fn attempt_delivery(
         Err(e) => {
             warn!(
                 error = %e,
-                entry_id = %entry_id,
-                attempt = attempt_count + 1,
+                entry_id = %fields.entry_id,
+                attempt = fields.attempt_count + 1,
                 "Outbound delivery failed"
             );
-            handle_retry_decision(db, entry_id, attempt_count).await;
+            handle_retry_decision(db, fields.entry_id, fields.attempt_count).await;
         }
     }
 }
