@@ -1,0 +1,8 @@
+// ABOUTME: Cloudflare Workers/Pages configuration for the Dravr website
+// ABOUTME: Minimal config — auth uses cookie-based sessions, not Cloudflare KV sessions
+
+{
+  "name": "dravr-website",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"]
+}

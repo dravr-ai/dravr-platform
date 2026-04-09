@@ -1,0 +1,33 @@
+---
+// ABOUTME: Reusable button component for the Dravr website
+// ABOUTME: Three variants matching the Boreal Editorial design system
+
+interface Props {
+  variant?: 'primary' | 'secondary' | 'ghost';
+  href?: string;
+  type?: 'button' | 'submit';
+  class?: string;
+}
+
+const { variant = 'primary', href, type = 'button', class: className = '' } = Astro.props;
+
+const base = 'inline-flex items-center justify-center font-medium transition-colors rounded-md text-sm';
+
+const variants = {
+  primary: 'bg-primary text-on-primary px-5 py-2.5 hover:bg-primary-container',
+  secondary: 'text-primary underline underline-offset-4 hover:no-underline px-2 py-1',
+  ghost: 'border border-outline-variant/40 text-on-surface px-5 py-2.5 hover:bg-surface-container-high',
+};
+
+const classes = `${base} ${variants[variant]} ${className}`;
+---
+
+{href ? (
+  <a href={href} class={classes}>
+    <slot />
+  </a>
+) : (
+  <button type={type} class={classes}>
+    <slot />
+  </button>
+)}

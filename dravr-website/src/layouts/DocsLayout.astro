@@ -1,0 +1,186 @@
+---
+// ABOUTME: Layout for authenticated alpha user documentation pages
+// ABOUTME: Implements Stitch docs design — editorial grid, Newsreader serif, glass-panel sidebar card
+
+import Base from './Base.astro';
+import { getCollection } from 'astro:content';
+
+interface Props {
+  title: string;
+  description?: string;
+  current?: string;
+}
+
+const { title, description, current } = Astro.props;
+const user = Astro.locals.user;
+
+const guides = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+
+const slugToPath = (slug: string) => `/docs/${slug}`;
+---
+
+<Base title={title} description={description} noNav noFooter>
+  <div class="min-h-screen bg-surface flex font-body text-on-surface">
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="hidden lg:flex flex-col w-72 bg-surface-container-low min-h-screen fixed top-0 left-0 bottom-0 z-40">
+
+      <!-- Sidebar Header -->
+      <div class="px-6 py-6 border-b border-outline-variant/15">
+        <a href="/" class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</a>
+        <p class="font-label text-[0.625rem] text-on-surface-variant/50 tracking-widest uppercase mt-1">Alpha Documentation</p>
+      </div>
+
+      <!-- Navigation -->
+      <nav class="flex-1 px-4 py-6 overflow-y-auto">
+        <p class="font-label text-[0.625rem] text-on-surface/30 tracking-widest uppercase px-2 mb-3">Guides</p>
+        <ul class="space-y-0.5">
+          {guides.map((guide) => {
+            const isActive = current === guide.slug;
+            return (
+              <li>
+                <a
+                  href={slugToPath(guide.slug)}
+                  class={`flex items-center px-3 py-2 rounded-lg text-sm font-label transition-colors ${
+                    isActive
+                      ? 'bg-primary text-on-primary'
+                      : 'text-on-surface/60 hover:text-on-surface hover:bg-surface-container-high'
+                  }`}
+                >
+                  {guide.data.title}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <!-- Boreal Insight Card (from Stitch docs design) -->
+      <div class="mx-4 mb-4">
+        <div class="glass-panel rounded-xl p-4 overflow-hidden relative">
+          <img
+            src="/images/boreal-mesh.jpg"
+            alt="Boreal forest texture"
+            class="absolute inset-0 w-full h-full object-cover opacity-20"
+          />
+          <div class="relative z-10">
+            <p class="font-label text-[0.5625rem] tracking-[0.15em] uppercase text-on-surface-variant/60 mb-1">Boreal Insight</p>
+            <p class="font-serif text-sm text-on-surface/80 italic leading-relaxed">
+              "The boreal forest is the world's largest land biome. Dravr helps manage it."
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Footer -->
+      <div class="px-6 py-4 border-t border-outline-variant/15">
+        <p class="font-label text-[0.625rem] text-on-surface/40 truncate mb-2">{user?.email}</p>
+        <a
+          href="/docs/auth/logout"
+          class="font-label text-[0.6875rem] text-on-surface/40 hover:text-on-surface transition-colors underline underline-offset-2"
+        >
+          Sign out
+        </a>
+      </div>
+    </aside>
+
+    <!-- Mobile Header Bar -->
+    <div class="lg:hidden fixed top-0 left-0 right-0 z-50 bg-surface-container-low px-4 py-4 flex items-center justify-between border-b border-outline-variant/15">
+      <a href="/" class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</a>
+      <button id="sidebar-btn" class="text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Toggle navigation">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Mobile Sidebar Drawer -->
+    <div id="mobile-sidebar" class="lg:hidden fixed inset-0 z-40 hidden">
+      <div id="mobile-overlay" class="absolute inset-0 bg-on-surface/20 backdrop-blur-sm"></div>
+      <aside class="absolute left-0 top-0 bottom-0 w-72 bg-surface-container-low flex flex-col">
+        <div class="px-6 py-6 border-b border-outline-variant/15 flex items-center justify-between">
+          <span class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</span>
+          <button id="close-sidebar" class="text-on-surface/40 hover:text-on-surface transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <nav class="flex-1 px-4 py-6 overflow-y-auto">
+          <ul class="space-y-0.5">
+            {guides.map((guide) => {
+              const isActive = current === guide.slug;
+              return (
+                <li>
+                  <a
+                    href={slugToPath(guide.slug)}
+                    class={`flex items-center px-3 py-2 rounded-lg text-sm font-label transition-colors ${
+                      isActive
+                        ? 'bg-primary text-on-primary'
+                        : 'text-on-surface/60 hover:text-on-surface hover:bg-surface-container-high'
+                    }`}
+                  >
+                    {guide.data.title}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+        <div class="px-6 py-4 border-t border-outline-variant/15">
+          <p class="font-label text-[0.625rem] text-on-surface/40 truncate mb-2">{user?.email}</p>
+          <a href="/docs/auth/logout" class="font-label text-[0.6875rem] text-on-surface/40 hover:text-on-surface underline underline-offset-2">Sign out</a>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Main Content (12-col editorial grid: 3 sidebar + 9 content) -->
+    <div class="flex-1 lg:ml-72 pt-16 lg:pt-0">
+      <div class="max-w-3xl mx-auto px-6 lg:px-16 py-12 lg:py-16">
+
+        <!-- Breadcrumb -->
+        <nav class="flex items-center gap-2 font-label text-[0.6875rem] text-on-surface/40 mb-10">
+          <a href="/docs" class="hover:text-on-surface transition-colors uppercase tracking-widest">Guides</a>
+          <span class="text-outline-variant/60">/</span>
+          <span class="text-on-surface/60 uppercase tracking-widest">{title}</span>
+        </nav>
+
+        <!-- Content — Newsreader serif for editorial feel -->
+        <article class="
+          prose prose-stone max-w-none
+          prose-headings:font-headline prose-headings:font-semibold prose-headings:text-on-surface prose-headings:tracking-tight
+          prose-h1:text-4xl prose-h1:mb-6
+          prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-4
+          prose-h3:text-lg prose-h3:mt-8 prose-h3:mb-3
+          prose-p:font-serif prose-p:text-on-surface/75 prose-p:leading-[1.75] prose-p:text-[1.0625rem]
+          prose-li:font-body prose-li:text-on-surface/70 prose-li:leading-relaxed
+          prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-a:font-medium
+          prose-strong:text-on-surface prose-strong:font-semibold
+          prose-code:text-xs prose-code:bg-surface-container-low prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-label prose-code:text-on-surface/80
+          prose-pre:bg-surface-container-low prose-pre:border prose-pre:border-outline-variant/20 prose-pre:rounded-xl
+          prose-table:text-sm prose-th:font-label prose-th:font-medium prose-th:text-on-surface
+          prose-td:text-on-surface/70
+          prose-hr:border-outline-variant/20
+          prose-blockquote:border-l-2 prose-blockquote:border-primary-fixed-dim prose-blockquote:text-on-surface-variant prose-blockquote:font-serif prose-blockquote:italic
+        ">
+          <slot />
+        </article>
+
+      </div>
+    </div>
+  </div>
+</Base>
+
+<script>
+  const btn = document.getElementById('sidebar-btn');
+  const mobileSidebar = document.getElementById('mobile-sidebar');
+  const closeBtn = document.getElementById('close-sidebar');
+  const overlay = document.getElementById('mobile-overlay');
+
+  const openSidebar = () => mobileSidebar?.classList.remove('hidden');
+  const closeSidebar = () => mobileSidebar?.classList.add('hidden');
+
+  btn?.addEventListener('click', openSidebar);
+  closeBtn?.addEventListener('click', closeSidebar);
+  overlay?.addEventListener('click', closeSidebar);
+</script>

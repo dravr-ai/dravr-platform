@@ -1,0 +1,154 @@
+---
+// ABOUTME: Dravr marketing home page — full-screen boreal river hero, waitlist CTA
+// ABOUTME: Faithfully implements the Stitch home screen design (project 1685995167983782189)
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Dravr" description="Navigate your health data." noNav noFooter>
+
+  <!-- Main Canvas -->
+  <div class="relative min-h-screen w-full flex flex-col justify-center items-center overflow-hidden bg-primary font-body text-on-surface selection:bg-primary-fixed-dim selection:text-primary-container">
+
+    <!-- Atmospheric Background Layer -->
+    <div class="absolute inset-0 z-0">
+      <img
+        alt="Historical draveur on a river at sunset in the Quebec boreal forest"
+        class="w-full h-full object-cover"
+        src="/images/boreal-river.jpg"
+      />
+      <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
+    </div>
+
+    <!-- Hero Content Section -->
+    <section class="relative z-20 w-full max-w-7xl px-8 flex flex-col items-center text-center">
+
+      <!-- Brand Anchor -->
+      <div class="mb-12">
+        <h1 class="font-headline text-6xl md:text-9xl font-bold tracking-[0.2em] uppercase text-white/95 text-glow">
+          DRAVR
+        </h1>
+        <p class="font-label text-xs md:text-sm tracking-[0.4em] uppercase text-primary-fixed-dim/80 mt-4">
+          Navigate your health data.
+        </p>
+      </div>
+
+      <!-- Minimal Sign-up Flow -->
+      <div class="w-full max-w-md space-y-12">
+        <div class="space-y-4">
+          <h2 class="font-headline text-3xl text-white font-light tracking-tight">
+            Your health data, finally unified.
+          </h2>
+          <p class="text-white/70 font-body text-sm leading-relaxed max-w-xs mx-auto">
+            Dravr is an AI layer that connects your fitness, wellness, and health data — so you and your coach always have the full picture.
+          </p>
+        </div>
+
+        <form id="waitlist-form" class="flex flex-col gap-6">
+          <div class="relative group">
+            <input
+              id="waitlist-email"
+              name="email"
+              type="email"
+              required
+              placeholder="Enter your email"
+              class="w-full bg-transparent border-b border-outline-variant/40 text-white py-3 px-1 focus:outline-none focus:border-primary-fixed-dim transition-all duration-500 placeholder:text-white/30 font-body"
+            />
+            <div class="absolute bottom-0 left-0 w-0 h-[2px] bg-primary-fixed-dim transition-all duration-500 group-focus-within:w-full"></div>
+          </div>
+
+          <div id="waitlist-status" class="hidden text-sm font-label text-center"></div>
+
+          <button
+            type="submit"
+            class="group flex items-center justify-center gap-3 text-white font-headline tracking-widest text-sm uppercase transition-all duration-300"
+          >
+            <span class="border-b border-transparent group-hover:border-white pb-1">Join the Waitlist</span>
+            <span class="material-symbols-outlined text-sm">arrow_forward</span>
+          </button>
+        </form>
+      </div>
+
+    </section>
+
+    <!-- Bottom-right Boreal Status Card -->
+    <div class="absolute bottom-32 right-8 md:right-24 z-20 hidden lg:block">
+      <div class="boreal-overlay p-6 rounded-lg text-white max-w-[280px]">
+        <div class="flex items-center gap-4 mb-4">
+          <span class="material-symbols-outlined text-primary-fixed-dim">monitoring</span>
+          <span class="font-label text-[0.6875rem] tracking-[0.1em] uppercase text-primary-fixed-dim">Project Status: Stealth</span>
+        </div>
+        <div class="space-y-3">
+          <div class="flex justify-between items-end">
+            <span class="font-label text-[0.6rem] text-white/40 uppercase">Phase 03</span>
+            <span class="font-headline text-xl text-white">Early Access</span>
+          </div>
+          <div class="h-[1px] w-full bg-white/10"></div>
+          <p class="text-[0.75rem] text-white/60 leading-relaxed font-body">
+            Building the orchestration layer for endurance athletes and coaches. Connecting Strava, Garmin, Whoop, and more.
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer class="fixed bottom-0 left-0 w-full z-30 py-8 bg-transparent">
+    <div class="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="text-2xl font-bold tracking-[0.15em] uppercase text-white/90 font-headline">
+        DRAVR
+      </div>
+      <nav class="flex gap-8">
+        <a class="text-white/60 font-label text-[0.6875rem] tracking-[0.05em] uppercase hover:text-white transition-colors duration-300" href="#">Privacy Policy</a>
+        <a class="text-white/60 font-label text-[0.6875rem] tracking-[0.05em] uppercase hover:text-white transition-colors duration-300" href="#">Terms of Service</a>
+        <a class="text-white/60 font-label text-[0.6875rem] tracking-[0.05em] uppercase hover:text-white transition-colors duration-300" href="/docs">Documentation</a>
+      </nav>
+      <div class="text-white/40 font-label text-[0.6875rem] tracking-[0.05em] uppercase">
+        © 2025 DRAVR. All rights reserved.
+      </div>
+    </div>
+  </footer>
+
+</Base>
+
+<script>
+  const form = document.getElementById('waitlist-form') as HTMLFormElement | null;
+  const status = document.getElementById('waitlist-status');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value;
+    const btn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+
+    btn.disabled = true;
+
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json() as { success?: boolean; error?: string };
+
+      if (status) {
+        status.classList.remove('hidden');
+        if (data.success) {
+          status.textContent = "You're on the list. We'll reach out soon.";
+          status.className = 'text-sm font-label text-primary-fixed-dim';
+          form.reset();
+        } else {
+          status.textContent = data.error ?? 'Something went wrong. Try again.';
+          status.className = 'text-sm font-label text-red-300';
+          btn.disabled = false;
+        }
+      }
+    } catch {
+      if (status) {
+        status.classList.remove('hidden');
+        status.textContent = 'Something went wrong. Try again.';
+        status.className = 'text-sm font-label text-red-300';
+      }
+      btn.disabled = false;
+    }
+  });
+</script>

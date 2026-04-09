@@ -1,0 +1,164 @@
+---
+// ABOUTME: Magic link login for alpha user documentation access
+// ABOUTME: Faithfully implements the Stitch login screen — boreal glass card, Material Symbols, trust badges
+import Base from '../../layouts/Base.astro';
+
+const reason = Astro.url.searchParams.get('reason');
+---
+
+<Base title="Alpha Portal" noNav noFooter>
+
+  <div class="bg-surface font-body text-on-surface min-h-screen flex flex-col items-center justify-center overflow-hidden">
+
+    <!-- Background Layer with Boreal Image -->
+    <div class="fixed inset-0 z-0">
+      <img
+        alt="Boreal River Background"
+        class="w-full h-full object-cover"
+        src="/images/boreal-river.jpg"
+      />
+      <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
+    </div>
+
+    <!-- Main Content Canvas -->
+    <main class="relative z-10 w-full max-w-md px-6 py-12">
+
+      <!-- Header / Identity -->
+      <div class="text-center mb-10">
+        <h1 class="font-headline text-2xl tracking-[0.25em] font-bold uppercase mb-2 text-white/95">Alpha Portal</h1>
+        <p class="font-label text-[0.6875rem] tracking-[0.1em] uppercase text-primary-fixed-dim/80">Dravr Boreal Archives • Security Tier 4</p>
+      </div>
+
+      <!-- Glassmorphic Login Card -->
+      <div class="boreal-glass p-10 rounded-xl shadow-[0_24px_48px_-12px_rgba(26,28,27,0.06)] border border-outline-variant/15">
+
+        <div class="mb-8">
+          <h2 class="font-headline text-xl font-medium text-primary tracking-tight mb-1">Initialize Session</h2>
+          <p class="font-body text-sm text-on-surface-variant/80">Authorized personnel only. Terminal access active.</p>
+        </div>
+
+        {reason === 'not-approved' && (
+          <div class="mb-6 p-4 rounded-lg bg-primary/5 border border-outline-variant/20">
+            <p class="text-xs font-label text-on-surface-variant/70">
+              Your account is on the waitlist but not yet approved. We'll reach out when access opens.
+            </p>
+          </div>
+        )}
+
+        <form id="login-form" class="space-y-8">
+
+          <!-- Email Input (adapted from two-field Stitch design for magic link) -->
+          <div class="relative">
+            <label class="font-label text-[0.6875rem] uppercase tracking-widest text-on-surface-variant/60 block mb-2" for="login-email">
+              Access Email
+            </label>
+            <div class="flex items-center group">
+              <span class="material-symbols-outlined text-primary/40 mr-3 text-lg">vpn_key</span>
+              <input
+                id="login-email"
+                name="email"
+                type="email"
+                required
+                placeholder="your@email.com"
+                class="w-full bg-transparent border-0 border-b border-outline-variant/40 py-2 focus:ring-0 focus:border-primary transition-all text-on-surface placeholder:text-outline-variant/60 font-body"
+              />
+            </div>
+          </div>
+
+          <div id="login-status" class="hidden text-sm font-label"></div>
+
+          <!-- Primary Action -->
+          <button
+            type="submit"
+            class="w-full bg-primary text-on-primary py-4 rounded-lg font-headline font-semibold tracking-widest text-sm uppercase hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2 group shadow-lg shadow-primary/10"
+          >
+            Initialize Session
+            <span class="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
+          </button>
+
+        </form>
+
+        <!-- Technical Trust Indicators -->
+        <div class="mt-10 pt-8 border-t border-outline-variant/15">
+          <div class="flex justify-between items-center text-[0.625rem] font-label text-on-surface-variant/50 uppercase tracking-widest">
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+              E2E Encrypted
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">terminal</span>
+              Secure Terminal
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">hub</span>
+              V.4.2-Boreal
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Secondary Navigation / Support -->
+      <div class="mt-8 flex justify-between px-2 font-label text-[0.6875rem] uppercase tracking-wider text-white/70">
+        <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/#waitlist">Request Access</a>
+        <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/">← Back to Dravr</a>
+      </div>
+
+    </main>
+
+    <!-- Footer Area -->
+    <footer class="fixed bottom-0 w-full z-10 p-10 bg-transparent flex flex-col md:flex-row justify-between items-center gap-4">
+      <div class="font-headline text-[0.625rem] tracking-[0.2em] font-bold uppercase text-white/40">
+        Alpha Portal Access Node: 48.8566 N, 2.3522 E
+      </div>
+      <div class="font-label text-[0.625rem] tracking-widest uppercase text-white/30">
+        © 2025 DRAVR BOREAL ARCHIVES. ALL RIGHTS RESERVED.
+      </div>
+    </footer>
+
+  </div>
+
+</Base>
+
+<script>
+  import { createBrowserClient } from '../../lib/supabase';
+
+  const form = document.getElementById('login-form') as HTMLFormElement | null;
+  const statusEl = document.getElementById('login-status');
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = (form.elements.namedItem('email') as HTMLInputElement).value.trim();
+    const btn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+
+    btn.disabled = true;
+    btn.innerHTML = `
+      <span class="font-headline tracking-widest">Sending link…</span>
+    `;
+
+    const supabase = createBrowserClient();
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${window.location.origin}/docs/auth/callback`,
+      },
+    });
+
+    if (statusEl) {
+      statusEl.classList.remove('hidden');
+      if (error) {
+        statusEl.textContent = 'Could not send the link. Try again in a moment.';
+        statusEl.className = 'text-sm font-label text-error';
+        btn.disabled = false;
+        btn.innerHTML = `
+          Initialize Session
+          <span class="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
+        `;
+      } else {
+        statusEl.textContent = 'Check your email — the magic link expires in 10 minutes.';
+        statusEl.className = 'text-sm font-label text-on-surface-variant';
+        btn.textContent = 'Link sent ✓';
+      }
+    }
+  });
+</script>

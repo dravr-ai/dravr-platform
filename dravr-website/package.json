@@ -1,0 +1,22 @@
+{
+  "name": "dravr-website",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "bun@1.1.0",
+  "scripts": {
+    "preinstall": "node -e \"if(!process.env.npm_execpath || !process.env.npm_execpath.includes('bun')) { console.error('\\n\\x1b[31mERROR: Use bun, not npm/yarn!\\x1b[0m\\nRun: bun install\\n'); process.exit(1); }\"",
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "12.6.13",
+    "@supabase/supabase-js": "2.102.1",
+    "@tailwindcss/vite": "4.2.2",
+    "astro": "5.18.1",
+    "sharp": "0.34.5",
+    "tailwindcss": "4.2.2"
+  }
+}

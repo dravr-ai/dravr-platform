@@ -1,0 +1,64 @@
+---
+// ABOUTME: Site navigation for the Dravr marketing website
+// ABOUTME: Transparent on hero, glass-morphism on scroll — Boreal Editorial style
+---
+
+<header id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+  <div class="max-w-6xl mx-auto px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16">
+      <a href="/" class="text-brand text-sm font-semibold tracking-brand text-primary uppercase">
+        DRAVR
+      </a>
+      <nav class="hidden md:flex items-center gap-8">
+        <a href="#about" class="text-sm text-on-surface/60 hover:text-on-surface transition-colors font-label">
+          About
+        </a>
+        <a href="/docs/login" class="text-sm text-on-surface/60 hover:text-on-surface transition-colors font-label">
+          Docs
+        </a>
+        <a
+          href="#waitlist"
+          class="text-sm font-medium bg-primary text-on-primary px-4 py-2 rounded-md hover:bg-primary-container transition-colors"
+        >
+          Join the Waitlist
+        </a>
+      </nav>
+      <button
+        id="mobile-menu-btn"
+        class="md:hidden p-2 text-on-surface/60 hover:text-on-surface transition-colors"
+        aria-label="Open menu"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+    </div>
+    <div id="mobile-menu" class="hidden md:hidden pb-4 border-t border-outline-variant/15 mt-2">
+      <div class="flex flex-col gap-1 pt-3">
+        <a href="#about" class="px-2 py-2 text-sm text-on-surface/70 hover:text-on-surface transition-colors">About</a>
+        <a href="/docs/login" class="px-2 py-2 text-sm text-on-surface/70 hover:text-on-surface transition-colors">Docs</a>
+        <a href="#waitlist" class="mt-2 text-sm font-medium bg-primary text-on-primary px-4 py-2.5 rounded-md text-center">
+          Join the Waitlist
+        </a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<script>
+  const nav = document.getElementById('site-nav');
+  const btn = document.getElementById('mobile-menu-btn');
+  const menu = document.getElementById('mobile-menu');
+
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 40) {
+      nav?.classList.add('boreal-glass', 'shadow-ambient');
+    } else {
+      nav?.classList.remove('boreal-glass', 'shadow-ambient');
+    }
+  });
+
+  btn?.addEventListener('click', () => {
+    menu?.classList.toggle('hidden');
+  });
+</script>

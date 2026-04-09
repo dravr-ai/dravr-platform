@@ -1,0 +1,22 @@
+# Build output
+dist/
+.output/
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment
+.env
+.env.local
+
+# Astro
+.astro/
+
+# Cloudflare
+.wrangler/
+
+# OS
+.DS_Store

@@ -1,0 +1,61 @@
+---
+// ABOUTME: Base HTML layout for all Dravr website pages
+// ABOUTME: Loads global styles, fonts (Space Grotesk, Plus Jakarta Sans, Inter, Newsreader, Material Symbols)
+
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  noNav?: boolean;
+  noFooter?: boolean;
+}
+
+const {
+  title,
+  description = 'Train smarter. Ask Dravr.',
+  noNav = false,
+  noFooter = false,
+} = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} — Dravr</title>
+  <meta name="description" content={description} />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content={`${title} — Dravr`} />
+  <meta property="og:description" content={description} />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://dravr.ai" />
+
+  <!-- Favicon placeholder -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300;1,6..72,400&display=swap"
+    rel="stylesheet"
+  />
+  <!-- Material Symbols Outlined (for icons used in Stitch designs) -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body class="bg-surface text-on-surface antialiased">
+  {!noNav && <Nav />}
+  <main>
+    <slot />
+  </main>
+  {!noFooter && <Footer />}
+</body>
+</html>

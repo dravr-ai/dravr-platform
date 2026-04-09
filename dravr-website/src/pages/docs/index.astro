@@ -1,0 +1,55 @@
+---
+// ABOUTME: Documentation hub page listing all alpha user guides
+// ABOUTME: Auth-gated via middleware — only approved waitlist users can access
+
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import { getCollection } from 'astro:content';
+
+const guides = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const user = Astro.locals.user;
+
+const platformIcons: Record<string, string> = {
+  discord: '#5865F2',
+  slack: '#4A154B',
+  telegram: '#229ED9',
+  whatsapp: '#25D366',
+};
+---
+
+<DocsLayout title="Guides" description="Alpha user documentation for Dravr.">
+  <div class="mb-8">
+    <p class="text-on-surface/50 text-sm font-body">
+      Welcome{user?.email ? `, ${user.email.split('@')[0]}` : ''}. Here's everything you need to get started.
+    </p>
+  </div>
+
+  <div class="grid gap-4 not-prose">
+    {guides.map((guide) => {
+      const color = guide.data.platform ? platformIcons[guide.data.platform] : '#00241A';
+      return (
+        <a
+          href={`/docs/${guide.slug}`}
+          class="group flex items-start gap-4 p-4 rounded-md bg-surface-container-low hover:bg-surface-container-high transition-colors"
+        >
+          <div
+            class="w-8 h-8 rounded shrink-0 mt-0.5"
+            style={`background-color: ${color}1A;`}
+          >
+            <div class="w-full h-full flex items-center justify-center">
+              <div class="w-2 h-2 rounded-full" style={`background-color: ${color};`}></div>
+            </div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-sm font-semibold text-on-surface font-display group-hover:text-primary transition-colors">
+              {guide.data.title}
+            </h3>
+            <p class="text-xs text-on-surface/50 font-label mt-0.5 leading-relaxed">{guide.data.description}</p>
+          </div>
+          <svg class="w-4 h-4 text-on-surface/25 group-hover:text-on-surface/50 transition-colors shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      );
+    })}
+  </div>
+</DocsLayout>

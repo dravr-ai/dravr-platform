@@ -1,0 +1,150 @@
+/* ABOUTME: Global styles for the Dravr website using Tailwind v4 */
+/* ABOUTME: Boreal Editorial design system — full MD3 token set, matches Stitch designs exactly */
+
+@import "tailwindcss";
+
+@theme {
+  /* ── MD3 Color Tokens (from Stitch) ── */
+  --color-primary: #00241a;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #0d3b2e;
+  --color-on-primary-container: #79a694;
+  --color-primary-fixed: #beedd9;
+  --color-primary-fixed-dim: #a3d0be;
+  --color-on-primary-fixed: #002117;
+  --color-on-primary-fixed-variant: #234e40;
+  --color-inverse-primary: #a3d0be;
+
+  --color-secondary: #5e5e64;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #e3e2e9;
+  --color-on-secondary-container: #64646a;
+  --color-secondary-fixed: #e3e2e9;
+  --color-secondary-fixed-dim: #c7c6cd;
+  --color-on-secondary-fixed: #1a1b20;
+  --color-on-secondary-fixed-variant: #46464c;
+
+  --color-tertiary: #03231d;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #1b3932;
+  --color-on-tertiary-container: #83a399;
+  --color-tertiary-fixed: #c8eadf;
+  --color-tertiary-fixed-dim: #adcdc3;
+  --color-on-tertiary-fixed: #01201a;
+  --color-on-tertiary-fixed-variant: #2f4c45;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-surface: #f9f9f6;
+  --color-surface-dim: #dadad7;
+  --color-surface-bright: #f9f9f6;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f4f1;
+  --color-surface-container: #eeeeeb;
+  --color-surface-container-high: #e8e8e5;
+  --color-surface-container-highest: #e2e3e0;
+  --color-surface-variant: #e2e3e0;
+  --color-surface-tint: #3c6658;
+  --color-on-surface: #1a1c1b;
+  --color-on-surface-variant: #414845;
+  --color-inverse-surface: #2f312f;
+  --color-inverse-on-surface: #f1f1ee;
+
+  --color-background: #f9f9f6;
+  --color-on-background: #1a1c1b;
+
+  --color-outline: #717974;
+  --color-outline-variant: #c0c8c3;
+
+  /* ── Typography ── */
+  --font-headline: "Space Grotesk", sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Plus Jakarta Sans", sans-serif;
+  --font-label: "Inter", sans-serif;
+  --font-serif: "Newsreader", serif;
+  --font-sans: "Plus Jakarta Sans", sans-serif;
+
+  /* ── Border Radius (matches Stitch) ── */
+  --radius: 0.125rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.5rem;
+  --radius-full: 0.75rem;
+
+  /* ── Spacing ── */
+  --spacing-section: 8.5rem;
+
+  /* ── Box shadows ── */
+  --shadow-ambient: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
+  --shadow-card: 0 24px 48px -12px rgba(26, 28, 27, 0.06);
+}
+
+@layer base {
+  html {
+    font-family: "Plus Jakarta Sans", sans-serif;
+    background-color: #f9f9f6;
+    color: #1a1c1b;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Space Grotesk", sans-serif;
+    line-height: 1.15;
+  }
+}
+
+@layer utilities {
+  /* Glow for hero brand text (from Stitch home) */
+  .text-glow {
+    text-shadow: 0 0 30px rgba(163, 208, 190, 0.2);
+  }
+
+  /* Dark glass overlay panel (bottom-right card on home) */
+  .boreal-overlay {
+    background: linear-gradient(145deg, rgba(0, 36, 26, 0.85) 0%, rgba(13, 59, 46, 0.75) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Light glassmorphism card (login card) */
+  .boreal-glass {
+    background: rgba(249, 249, 246, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Docs sidebar card glass */
+  .glass-panel {
+    background: rgba(249, 249, 246, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(192, 200, 195, 0.25);
+  }
+
+  /* Ghost border for subtle separation */
+  .ghost-border {
+    border: 1px solid rgba(192, 200, 195, 0.15);
+  }
+
+  /* Bottom-stroke only input (home waitlist form) */
+  .input-underline {
+    border: none;
+    border-bottom: 1px solid rgba(192, 200, 195, 0.4);
+    border-radius: 0;
+    outline: none;
+    background: transparent;
+    transition: border-color 0.2s ease;
+  }
+
+  .input-underline:focus {
+    border-bottom-color: rgba(163, 208, 190, 0.8);
+  }
+
+  /* Material Symbols icon rendering */
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  }
+}

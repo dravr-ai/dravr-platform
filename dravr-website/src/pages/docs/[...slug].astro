@@ -1,0 +1,62 @@
+---
+// ABOUTME: Dynamic SSR route that renders individual documentation guide pages
+// ABOUTME: Auth-gated via middleware; fetches guide by slug from URL
+
+import DocsLayout from '../../layouts/DocsLayout.astro';
+import { getCollection, getEntry, render } from 'astro:content';
+
+const { slug } = Astro.params;
+
+if (!slug) {
+  return Astro.redirect('/docs');
+}
+
+const guide = await getEntry('docs', slug);
+
+if (!guide) {
+  return new Response(null, { status: 404 });
+}
+
+const { Content } = await render(guide);
+
+const allGuides = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const currentIndex = allGuides.findIndex((g) => g.slug === guide.slug);
+const prev = currentIndex > 0 ? allGuides[currentIndex - 1] : null;
+const next = currentIndex < allGuides.length - 1 ? allGuides[currentIndex + 1] : null;
+---
+
+<DocsLayout
+  title={guide.data.title}
+  description={guide.data.description}
+  current={guide.slug}
+>
+  <Content />
+
+  {(prev || next) && (
+    <div class="not-prose mt-12 pt-8 border-t border-outline-variant/20 flex items-center justify-between gap-4">
+      {prev ? (
+        <a
+          href={`/docs/${prev.slug}`}
+          class="group flex items-center gap-2 text-sm font-label text-on-surface/50 hover:text-on-surface transition-colors"
+        >
+          <svg class="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 19l-7-7 7-7"/>
+          </svg>
+          {prev.data.title}
+        </a>
+      ) : <div />}
+
+      {next && (
+        <a
+          href={`/docs/${next.slug}`}
+          class="group flex items-center gap-2 text-sm font-label text-on-surface/50 hover:text-on-surface transition-colors ml-auto"
+        >
+          {next.data.title}
+          <svg class="w-4 h-4 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      )}
+    </div>
+  )}
+</DocsLayout>
