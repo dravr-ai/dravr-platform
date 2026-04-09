@@ -344,7 +344,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             <div className="text-sm text-zinc-400">Enabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">
-            <div className="text-2xl font-bold text-red-400">{summaryData.data.disabled_tools}</div>
+            <div className="text-2xl font-bold text-red-400">{summaryData.data.total_tools - summaryData.data.enabled_tools}</div>
             <div className="text-sm text-zinc-400">Disabled</div>
           </Card>
           <Card variant="dark" className="text-center py-4">

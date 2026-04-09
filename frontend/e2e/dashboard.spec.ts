@@ -141,7 +141,7 @@ test.describe('Dashboard Navigation', () => {
 
     // Check main navigation tabs are present (using span text within buttons)
     await expect(page.locator('nav button').filter({ has: page.locator('span:text-is("Users")') })).toBeVisible();
-    await expect(page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') })).toBeVisible();
+    await expect(page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Analytics")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Activity")') })).toBeVisible();
     await expect(page.locator('button').filter({ has: page.locator('span:has-text("Engagement")') })).toBeVisible();
@@ -179,8 +179,8 @@ test.describe('Dashboard Navigation', () => {
     await expect(usersTab).toHaveClass(/bg-gradient/);
 
     // Navigate to Connections - check tab becomes active
-    await navigateToTab(page, 'API Keys');
-    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("API Keys")') });
+    await navigateToTab(page, 'Service Tokens');
+    const connectionsTab = page.locator('button').filter({ has: page.locator('span:has-text("Service Tokens")') });
     await expect(connectionsTab).toHaveClass(/bg-gradient/);
     await expect(usersTab).not.toHaveClass(/bg-gradient/);
 
