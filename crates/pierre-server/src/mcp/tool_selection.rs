@@ -10,16 +10,19 @@ use crate::models::{
     CategorySummary, EffectiveTool, TenantPlan, TenantToolOverride, ToolAvailabilitySummary,
     ToolCatalogEntry, ToolCategory, ToolEnablementSource,
 };
+use crate::tools::registry::ToolRegistry;
+use crate::tools::traits::ToolCapabilities;
+use chrono::Utc;
 use lru::LruCache;
 use pierre_core::models::TenantId;
-// ToolSelectionRepository dispatched through repos.tool_selection
+use pierre_database::repositories::ToolSelectionRepository;
 use pierre_database::RepositoryRegistry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Cache size for tenant tool configurations (1000 tenants max)
@@ -436,4 +439,143 @@ impl ToolSelectionService {
         // Fall back to catalog default
         (entry.is_enabled_by_default, ToolEnablementSource::Default)
     }
+}
+
+// =============================================================================
+// Startup catalog sync
+// =============================================================================
+
+/// Derive `ToolCategory` from `ToolCapabilities` flags.
+///
+/// Uses the most specific capability flag available. Falls back to `Fitness`
+/// for tools that only declare `READS_DATA` / `WRITES_DATA` without a domain flag.
+fn category_from_capabilities(caps: ToolCapabilities) -> ToolCategory {
+    if caps.contains(ToolCapabilities::ADMIN_ONLY) {
+        ToolCategory::Admin
+    } else if caps.contains(ToolCapabilities::COACHES) {
+        ToolCategory::Coaches
+    } else if caps.contains(ToolCapabilities::ANALYTICS) {
+        ToolCategory::Analysis
+    } else if caps.contains(ToolCapabilities::GOALS) {
+        ToolCategory::Goals
+    } else if caps.contains(ToolCapabilities::CONFIGURATION) {
+        ToolCategory::Configuration
+    } else if caps.contains(ToolCapabilities::RECIPES) {
+        ToolCategory::Recipes
+    } else if caps.contains(ToolCapabilities::SLEEP_RECOVERY) {
+        ToolCategory::Sleep
+    } else if caps.contains(ToolCapabilities::REQUIRES_PROVIDER) {
+        ToolCategory::Connections
+    } else {
+        ToolCategory::Fitness
+    }
+}
+
+/// Convert a snake_case tool name to Title Case display name.
+///
+/// `"get_activities"` becomes `"Get Activities"`, `"admin_list_system_coaches"`
+/// becomes `"Admin List System Coaches"`.
+fn display_name_from_tool_name(name: &str) -> String {
+    name.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(c) => {
+                    let upper: String = c.to_uppercase().collect();
+                    format!("{upper}{rest}", rest = chars.as_str())
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Synchronize the `tool_catalog` table with the live `ToolRegistry`.
+///
+/// Inserts tools that exist in the registry but are missing from the catalog,
+/// and removes phantom entries that no longer exist in the registry.
+/// Existing entries are left untouched (preserving admin customizations).
+///
+/// Called once during server startup after the `ToolRegistry` is built.
+pub async fn sync_tool_catalog(
+    tool_registry: &ToolRegistry,
+    repo: &dyn ToolSelectionRepository,
+) -> AppResult<(usize, usize)> {
+    let catalog_entries = repo.get_tool_catalog().await?;
+    let catalog_names: HashSet<String> = catalog_entries
+        .iter()
+        .map(|e| e.tool_name.clone())
+        .collect();
+
+    let registry_tools = tool_registry.all_tool_metadata();
+    let registry_names: HashSet<&str> = registry_tools.iter().map(|(name, _, _)| *name).collect();
+
+    // Insert missing tools (in registry, not in catalog)
+    let mut inserted = 0usize;
+    for &(name, description, capabilities) in &registry_tools {
+        if catalog_names.contains(name) {
+            continue;
+        }
+
+        let category = category_from_capabilities(capabilities);
+        let entry = ToolCatalogEntry {
+            id: format!("tc-auto-{}", Uuid::new_v4().as_simple()),
+            tool_name: name.to_owned(),
+            display_name: display_name_from_tool_name(name),
+            description: description.to_owned(),
+            category,
+            is_enabled_by_default: true,
+            requires_provider: if capabilities.requires_provider() {
+                Some("any".to_owned())
+            } else {
+                None
+            },
+            min_plan: TenantPlan::Starter,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        if let Err(e) = repo.upsert_tool_catalog_entry(&entry).await {
+            warn!(
+                tool_name = name,
+                error = %e,
+                "Failed to insert tool catalog entry during sync"
+            );
+            continue;
+        }
+        inserted += 1;
+    }
+
+    // Remove phantom entries (in catalog, not in registry)
+    let mut removed = 0usize;
+    for catalog_entry in &catalog_entries {
+        if registry_names.contains(catalog_entry.tool_name.as_str()) {
+            continue;
+        }
+
+        if let Err(e) = repo
+            .delete_tool_catalog_entry(&catalog_entry.tool_name)
+            .await
+        {
+            warn!(
+                tool_name = %catalog_entry.tool_name,
+                error = %e,
+                "Failed to remove phantom tool catalog entry during sync"
+            );
+            continue;
+        }
+        removed += 1;
+    }
+
+    if inserted > 0 || removed > 0 {
+        info!(
+            inserted,
+            removed, "Tool catalog sync: updated to match registry"
+        );
+    } else {
+        debug!("Tool catalog sync: already in sync");
+    }
+
+    Ok((inserted, removed))
 }

@@ -451,6 +451,14 @@ impl ServerResources {
         // Create and populate tool registry with all built-in tools
         let tool_registry = Arc::new(Self::create_tool_registry());
 
+        // Sync tool_catalog table with registry so tenant filtering always has complete data
+        if let Err(e) =
+            super::tool_selection::sync_tool_catalog(&tool_registry, repos.tool_selection.as_ref())
+                .await
+        {
+            tracing::warn!(error = %e, "Tool catalog sync failed, catalog may be incomplete");
+        }
+
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
         let nonce_store = Arc::new(NonceStore::new(cache_arc.clone()));
