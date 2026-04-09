@@ -189,7 +189,7 @@ impl AnalyticsTracker for NoopAnalyticsTracker {
 /// Attempt to create a `PostHog` tracker from environment variables.
 ///
 /// Returns `None` if `POSTHOG_API_KEY` is not set.
-/// The `posthog-rs` client is initialized lazily on first capture (async init).
+/// Uses direct HTTP calls to the PostHog capture API via reqwest.
 #[cfg(feature = "analytics-posthog")]
 fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
     let api_key = env::var("POSTHOG_API_KEY").ok()?;
@@ -199,11 +199,14 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
 
     let host = env::var("POSTHOG_HOST").unwrap_or_else(|_| "https://us.i.posthog.com".to_owned());
 
+    let http_client = reqwest::Client::new();
+
     info!(host = %host, "PostHog analytics initialized");
 
     Some(Box::new(PostHogTracker {
         api_key,
         host,
+        http_client,
         consent_cache: DashMap::new(),
     }))
 }
@@ -218,6 +221,7 @@ fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
 struct PostHogTracker {
     api_key: String,
     host: String,
+    http_client: reqwest::Client,
     /// Per-user consent cache: hashed_user_id to consented
     /// Missing entry = no consent known, skip events
     consent_cache: DashMap<String, bool>,
@@ -231,33 +235,41 @@ impl PostHogTracker {
         self.consent_cache.get(hashed_user_id).map_or(false, |v| *v)
     }
 
-    /// Fire-and-forget: spawn a tokio task to capture the event
+    /// Fire-and-forget: spawn a tokio task to POST the event to PostHog's capture API
     fn capture_event(&self, event_name: &str, distinct_id: &str, props: Value) {
         if !self.has_consent(distinct_id) {
             return;
         }
 
+        let client = self.http_client.clone();
+        let url = format!("{}/capture/", self.host);
         let api_key = self.api_key.clone();
-        let host = self.host.clone();
         let event_name = event_name.to_owned();
         let distinct_id = distinct_id.to_owned();
 
         tokio::spawn(async move {
-            use posthog_rs::{client, Event};
+            let body = serde_json::json!({
+                "api_key": api_key,
+                "event": event_name,
+                "distinct_id": distinct_id,
+                "properties": props,
+            });
 
-            let client = client((&*api_key, &*host)).await;
-            let mut event = Event::new(&event_name, &distinct_id);
+            let result = client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await;
 
-            if let Some(obj) = props.as_object() {
-                for (k, v) in obj {
-                    if let Err(e) = event.insert_prop(k.as_str(), v.clone()) {
-                        warn!(key = %k, error = %e, "Failed to set PostHog event property");
-                    }
+            match result {
+                Ok(resp) if !resp.status().is_success() => {
+                    warn!(event = %event_name, status = %resp.status(), "PostHog capture returned non-2xx");
                 }
-            }
-
-            if let Err(e) = client.capture(event).await {
-                warn!(event = %event_name, error = %e, "PostHog capture failed");
+                Err(e) => {
+                    warn!(event = %event_name, error = %e, "PostHog capture failed");
+                }
+                Ok(_) => {}
             }
         });
     }
@@ -444,44 +456,19 @@ impl AnalyticsTracker for PostHogTracker {
     }
 
     fn alias(&self, channel_identity: &str, pierre_user_id: &str) {
-        let api_key = self.api_key.clone();
-        let host = self.host.clone();
-        let channel_identity = channel_identity.to_owned();
-        let pierre_user_id = pierre_user_id.to_owned();
-
-        tokio::spawn(async move {
-            use posthog_rs::{client, Event};
-
-            let client = client((&*api_key, &*host)).await;
-            let mut event = Event::new("$create_alias", &pierre_user_id);
-            if let Err(e) = event.insert_prop("alias", &channel_identity) {
-                warn!(error = %e, "Failed to set alias property");
-                return;
-            }
-            if let Err(e) = client.capture(event).await {
-                warn!(error = %e, "PostHog alias capture failed");
-            }
-        });
+        self.capture_event(
+            "$create_alias",
+            pierre_user_id,
+            serde_json::json!({ "alias": channel_identity }),
+        );
     }
 
     fn identify(&self, user_id: &str, properties: Value) {
-        let api_key = self.api_key.clone();
-        let host = self.host.clone();
-        let user_id = user_id.to_owned();
-
-        tokio::spawn(async move {
-            use posthog_rs::{client, Event};
-
-            let client = client((&*api_key, &*host)).await;
-            let mut event = Event::new("$identify", &user_id);
-            if let Err(e) = event.insert_prop("$set", properties) {
-                warn!(error = %e, "Failed to set identify properties");
-                return;
-            }
-            if let Err(e) = client.capture(event).await {
-                warn!(error = %e, "PostHog identify capture failed");
-            }
-        });
+        self.capture_event(
+            "$identify",
+            user_id,
+            serde_json::json!({ "$set": properties }),
+        );
     }
 
     fn set_consent(&self, user_id: &str, enabled: bool) {
