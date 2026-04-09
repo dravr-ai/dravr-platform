@@ -28,6 +28,8 @@ pub mod manifest;
 pub mod registry;
 /// Startup and webhook-triggered sync engine
 pub mod sync;
+/// Hot-reloadable tool description overlays for MCP tool schemas
+pub mod tool_descriptions;
 /// GitHub webhook handler with HMAC-SHA256 verification
 pub mod webhook;
 
@@ -35,3 +37,4 @@ pub use config::ContremaitreConfig;
 pub use errors::ContremaitreError;
 pub use manifest::Manifest;
 pub use registry::PromptRegistry;
+pub use tool_descriptions::ToolDescriptionRegistry;

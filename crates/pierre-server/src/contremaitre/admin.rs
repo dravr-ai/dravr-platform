@@ -336,7 +336,12 @@ async fn handle_manual_sync(
     };
 
     let client = config.github_client();
-    let result = super::sync::full_sync(&resources.prompt_registry, &client).await?;
+    let result = super::sync::full_sync(
+        &resources.prompt_registry,
+        &resources.tool_description_registry,
+        &client,
+    )
+    .await?;
 
     Ok((
         StatusCode::OK,

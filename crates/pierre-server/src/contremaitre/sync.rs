@@ -13,6 +13,7 @@ use super::errors::ContremaitreError;
 use super::github::GitHubContentsClient;
 use super::manifest::{compute_sha256, ManifestEntry};
 use super::registry::PromptRegistry;
+use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
 
 /// Results of a sync operation.
 #[derive(Debug, Clone)]
@@ -188,6 +189,7 @@ async fn sync_all_coach_prompts(
 /// Returns an error if manifest fetch or file operations fail.
 pub async fn full_sync(
     registry: &PromptRegistry,
+    tool_desc_registry: &ToolDescriptionRegistry,
     client: &GitHubContentsClient,
 ) -> Result<SyncResult, ContremaitreError> {
     info!("Starting contremaitre full sync");
@@ -196,17 +198,20 @@ pub async fn full_sync(
 
     let system_result = sync_all_system_prompts(registry, client, &manifest.prompts.system).await?;
     let coach_result = sync_all_coach_prompts(registry, client, &manifest.prompts.coaches).await?;
+    let tool_result =
+        sync_all_tool_descriptions(tool_desc_registry, client, &manifest.tools.0).await?;
 
     let result = SyncResult {
-        synced: system_result.synced + coach_result.synced,
-        skipped: system_result.skipped + coach_result.skipped,
-        failed: system_result.failed + coach_result.failed,
+        synced: system_result.synced + coach_result.synced + tool_result.synced,
+        skipped: system_result.skipped + coach_result.skipped + tool_result.skipped,
+        failed: system_result.failed + coach_result.failed + tool_result.failed,
     };
 
     info!(
         synced = result.synced,
         skipped = result.skipped,
         failed = result.failed,
+        tools_synced = tool_result.synced,
         "Contremaitre full sync complete"
     );
 
@@ -313,6 +318,7 @@ async fn sync_changed_coach_prompts(
 /// Returns an error if manifest fetch or file operations fail.
 pub async fn selective_sync(
     registry: &PromptRegistry,
+    tool_desc_registry: &ToolDescriptionRegistry,
     client: &GitHubContentsClient,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
@@ -333,10 +339,14 @@ pub async fn selective_sync(
         sync_changed_coach_prompts(registry, client, &manifest.prompts.coaches, &changed_set)
             .await?;
 
+    let tool_result =
+        sync_changed_tool_descriptions(tool_desc_registry, client, &manifest.tools.0, &changed_set)
+            .await?;
+
     let result = SyncResult {
-        synced: system_result.synced + coach_result.synced,
-        skipped: system_result.skipped + coach_result.skipped,
-        failed: system_result.failed + coach_result.failed,
+        synced: system_result.synced + coach_result.synced + tool_result.synced,
+        skipped: system_result.skipped + coach_result.skipped + tool_result.skipped,
+        failed: system_result.failed + coach_result.failed + tool_result.failed,
     };
 
     info!(
@@ -347,4 +357,86 @@ pub async fn selective_sync(
     );
 
     Ok(result)
+}
+
+// =============================================================================
+// Tool description sync
+// =============================================================================
+
+/// Sync all tool descriptions from the manifest (full sync).
+async fn sync_all_tool_descriptions(
+    registry: &ToolDescriptionRegistry,
+    client: &GitHubContentsClient,
+    manifest_tools: &HashMap<String, ManifestEntry>,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (tool_name, entry) in manifest_tools {
+        if registry.sha256(tool_name).as_deref() == Some(&entry.sha256) {
+            debug!(tool_name, "tool description unchanged, skipping");
+            result.skipped += 1;
+            continue;
+        }
+        let outcome = fetch_and_apply_tool_description(registry, client, tool_name, entry).await;
+        accumulate_outcome(&mut result, outcome);
+    }
+
+    Ok(result)
+}
+
+/// Sync only changed tool descriptions (selective sync from webhook).
+async fn sync_changed_tool_descriptions(
+    registry: &ToolDescriptionRegistry,
+    client: &GitHubContentsClient,
+    manifest_tools: &HashMap<String, ManifestEntry>,
+    changed_set: &HashSet<&str>,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (tool_name, entry) in manifest_tools {
+        if !changed_set.contains(entry.path.as_str()) {
+            continue;
+        }
+        let outcome = fetch_and_apply_tool_description(registry, client, tool_name, entry).await;
+        accumulate_outcome(&mut result, outcome);
+    }
+
+    Ok(result)
+}
+
+/// Download and apply a single tool description YAML.
+async fn fetch_and_apply_tool_description(
+    registry: &ToolDescriptionRegistry,
+    client: &GitHubContentsClient,
+    tool_name: &str,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match client.read_file(&entry.path).await {
+        Ok(file) => {
+            let actual_sha = compute_sha256(file.content.as_bytes());
+            match parse_tool_yaml(&file.content) {
+                Ok(overlay) => {
+                    registry.update(tool_name, overlay, actual_sha);
+                    info!(tool_name, "synced tool description");
+                    SyncOutcome::Synced
+                }
+                Err(e) => {
+                    warn!(tool_name, error = %e, "failed to parse tool description YAML");
+                    SyncOutcome::Failed
+                }
+            }
+        }
+        Err(e) => {
+            warn!(tool_name, error = %e, "failed to download tool description");
+            SyncOutcome::Failed
+        }
+    }
 }

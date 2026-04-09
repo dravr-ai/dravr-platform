@@ -252,6 +252,9 @@ pub struct ServerResources {
     /// Prompt registry for hot-reloadable system prompts and coach personas
     #[cfg(feature = "contremaitre")]
     pub prompt_registry: Arc<PromptRegistry>,
+    /// Tool description registry for hot-reloadable MCP tool schema overlays
+    #[cfg(feature = "contremaitre")]
+    pub tool_description_registry: Arc<crate::contremaitre::ToolDescriptionRegistry>,
     /// Contremaitre configuration for GitHub sync and webhook verification
     #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
@@ -263,22 +266,28 @@ pub struct ServerResources {
     pub mint_rate_limiter: Arc<MintRateLimiter>,
 }
 
-/// Initialize the prompt registry and sync from contremaitre if configured.
+/// Initialize prompt and tool description registries, sync from contremaitre if configured.
 #[cfg(feature = "contremaitre")]
-async fn init_prompt_registry() -> Arc<PromptRegistry> {
-    let registry = Arc::new(PromptRegistry::new());
+async fn init_contremaitre_registries() -> (
+    Arc<PromptRegistry>,
+    Arc<crate::contremaitre::ToolDescriptionRegistry>,
+) {
+    let prompt_registry = Arc::new(PromptRegistry::new());
+    let tool_desc_registry = Arc::new(crate::contremaitre::ToolDescriptionRegistry::new());
+
     if let Some(config) = ContremaitreConfig::from_env() {
         let client = config.github_client();
-        match full_sync(&registry, &client).await {
+        match full_sync(&prompt_registry, &tool_desc_registry, &client).await {
             Ok(result) => info!(%result, "Contremaitre sync complete"),
             Err(e) => {
-                warn!(error = %e, "Contremaitre sync failed, using compiled-in prompts");
+                warn!(error = %e, "Contremaitre sync failed, using compiled-in defaults");
             }
         }
     } else {
-        info!("Contremaitre not configured, using compiled-in prompts");
+        info!("Contremaitre not configured, using compiled-in defaults");
     }
-    registry
+
+    (prompt_registry, tool_desc_registry)
 }
 
 impl ServerResources {
@@ -459,6 +468,11 @@ impl ServerResources {
             tracing::warn!(error = %e, "Tool catalog sync failed, catalog may be incomplete");
         }
 
+        // Initialize contremaitre registries (prompts + tool descriptions)
+        #[cfg(feature = "contremaitre")]
+        let (contremaitre_prompt_registry, contremaitre_tool_desc_registry) =
+            init_contremaitre_registries().await;
+
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
         let nonce_store = Arc::new(NonceStore::new(cache_arc.clone()));
@@ -522,7 +536,9 @@ impl ServerResources {
             #[cfg(feature = "health-sync")]
             sync_scheduler_abort_handle: Some(sync_scheduler_abort_handle),
             #[cfg(feature = "contremaitre")]
-            prompt_registry: init_prompt_registry().await,
+            prompt_registry: contremaitre_prompt_registry,
+            #[cfg(feature = "contremaitre")]
+            tool_description_registry: contremaitre_tool_desc_registry,
             #[cfg(feature = "contremaitre")]
             contremaitre_config: ContremaitreConfig::from_env(),
             #[cfg(feature = "provider-sciotte")]
