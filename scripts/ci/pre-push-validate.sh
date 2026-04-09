@@ -13,7 +13,7 @@ MARKER_FILE="$GIT_DIR/validation-passed"
 VALIDATION_TTL_MINUTES=15
 
 echo ""
-echo "🔍 Pierre MCP Server - Pre-Push Validation"
+echo "Pre-Push Validation"
 echo "==========================================="
 echo ""
 
@@ -53,13 +53,13 @@ while IFS= read -r file; do
     esac
 done <<< "$CHANGED_FILES"
 
-# Any Rust ecosystem change triggers fmt + architectural validation
+# Any Rust ecosystem change triggers fmt + clippy
 HAS_RUST_CHANGES=false
 if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_CARGO_CHANGES" == "true" ]]; then
     HAS_RUST_CHANGES=true
 fi
 
-echo "📋 Changed file types:"
+echo "Changed file types:"
 echo "   Rust src: $HAS_RUST_SRC_CHANGES"
 echo "   Cargo config: $HAS_CARGO_CHANGES"
 echo "   Frontend: $HAS_FRONTEND_CHANGES"
@@ -71,14 +71,14 @@ echo ""
 # TIER 0: Code Formatting
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
-    echo "🎨 Tier 0: Code Formatting"
+    echo "Tier 0: Code Formatting"
     echo "--------------------------"
     echo -n "Checking cargo fmt... "
 
     if cargo fmt --all -- --check > /dev/null 2>&1; then
-        echo "✅"
+        echo "OK"
     else
-        echo "❌"
+        echo "FAIL"
         echo ""
         echo "Code is not properly formatted. Run:"
         echo "  cargo fmt --all"
@@ -91,163 +91,84 @@ fi
 # TIER 1: Architectural Validation
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/architectural-validation.sh" ]]; then
-    echo "📐 Tier 1: Architectural Validation"
+    echo "Tier 1: Architectural Validation"
     echo "------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/architectural-validation.sh"; then
         echo ""
-        echo "❌ Architectural validation failed!"
+        echo "FAIL: Architectural validation failed!"
         exit 1
     fi
     echo ""
 fi
 
 # ============================================================================
-# TIER 2: Schema Validation
+# TIER 2: Clippy (same flags as CI — zero tolerance)
+# Tests are handled by CI's 4-shard parallel pipeline.
 # ============================================================================
-if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
-    echo "📋 Tier 2: Schema Validation"
-    echo "----------------------------"
-    echo -n "Running schema consistency check... "
+if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
+    echo "Tier 2: Clippy (--all-targets --all-features)"
+    echo "----------------------------------------------"
+    echo "Running cargo clippy (this may take a few minutes)..."
 
-    if cargo test --test schema_completeness_test --quiet -- --test-threads=4 > /dev/null 2>&1; then
-        echo "✅"
+    if cargo clippy --all-targets --all-features -- -D warnings 2>&1; then
+        echo "OK: Clippy passed"
     else
-        echo "❌"
         echo ""
-        echo "Schema validation failed. Run: cargo test --test schema_completeness_test"
+        echo "FAIL: Clippy failed! Fix all warnings before pushing."
         exit 1
     fi
     echo ""
 fi
 
 # ============================================================================
-# TIER 3: Targeted Tests (Smart Selection)
-# ============================================================================
-if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
-    echo "🧪 Tier 3: Targeted Tests"
-    echo "-------------------------"
-
-    RUST_CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(rs)$' || echo "")
-
-    if [[ -z "$RUST_CHANGED_FILES" ]]; then
-        echo "No Rust files changed - skipping targeted tests"
-    else
-        # Collect tests to run (using associative array to dedupe)
-        declare -A TESTS_TO_RUN
-
-        add_tests() {
-            for test in "$@"; do
-                TESTS_TO_RUN["$test"]=1
-            done
-        }
-
-        while IFS= read -r file; do
-            case "$file" in
-                crates/pierre-server/src/database/*) add_tests database_test database_plugins_test tenant_data_isolation ;;
-                crates/pierre-server/src/auth/*|crates/pierre-server/src/routes/auth.rs) add_tests auth_test api_keys_test jwt_secret_persistence_test oauth2_security_test ;;
-                crates/pierre-server/src/routes/*) add_tests routes_health_http_test security_headers_test rate_limiting_middleware_test ;;
-                crates/pierre-server/src/protocols/*|crates/pierre-server/src/mcp/*) add_tests mcp_compliance_test jsonrpc_test mcp_tools_unit ;;
-                crates/pierre-server/src/tools/*) add_tests mcp_tools_unit ;;
-                crates/pierre-server/src/intelligence/*) add_tests intelligence_algorithms_test ;;
-                crates/pierre-server/src/a2a/*) add_tests a2a_system_user_test ;;
-                crates/pierre-server/src/models/*) add_tests models_test ;;
-                crates/pierre-server/src/errors/*) add_tests errors_test ;;
-                crates/pierre-server/src/crypto/*) add_tests crypto_keys_test ;;
-                crates/pierre-server/src/context/*|crates/pierre-server/src/tenant/*) add_tests tenant_context_resolution_test tenant_data_isolation ;;
-                crates/pierre-server/src/config/*) add_tests simple_integration_test ;;
-                crates/pierre-database/migrations/*|migrations/*) add_tests database_test ;;
-                crates/pierre-server/tests/*.rs)
-                    # Only process files directly in tests/, not subdirectories
-                    # (case pattern * matches / in bash, so we need explicit check)
-                    if [[ "$file" =~ ^crates/pierre-server/tests/[^/]+\.rs$ ]]; then
-                        test_name=$(basename "$file" .rs)
-                        if [[ "$test_name" != "common" && "$test_name" != "helpers" && "$test_name" != "fixtures" ]]; then
-                            add_tests "$test_name"
-                        fi
-                    fi
-                    ;;
-                crates/pierre-server/src/lib.rs) add_tests simple_integration_test routes_health_http_test ;;
-                crates/pierre-server/src/*) add_tests simple_integration_test ;;
-            esac
-        done <<< "$RUST_CHANGED_FILES"
-
-        TEST_COUNT=${#TESTS_TO_RUN[@]}
-
-        if [[ "$TEST_COUNT" -eq 0 ]]; then
-            echo "No tests mapped for changed files"
-        else
-            echo "Running $TEST_COUNT targeted test file(s):"
-
-            TEST_ARGS=""
-            for test in "${!TESTS_TO_RUN[@]}"; do
-                echo "  🧪 $test"
-                TEST_ARGS="$TEST_ARGS --test $test"
-            done
-            echo ""
-
-            if ! cargo test $TEST_ARGS --quiet -- --test-threads=4; then
-                echo ""
-                echo "❌ Targeted tests failed!"
-                echo ""
-                echo "Run individual tests for debugging:"
-                echo "  cargo test --test <test_name> -- --nocapture"
-                exit 1
-            fi
-            echo "✅ Targeted tests passed"
-        fi
-    fi
-    echo ""
-fi
-
-# ============================================================================
-# TIER 4: Frontend Tests (if changed)
+# TIER 3: Frontend Lint + Type Check (if changed)
 # ============================================================================
 if [[ "$HAS_FRONTEND_CHANGES" == "true" ]]; then
-    echo "🌐 Tier 4: Frontend Tests"
+    echo "Tier 3: Frontend Validation"
     echo "-------------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh" ]]; then
         if ! "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh"; then
-            echo "❌ Frontend tests failed!"
+            echo "FAIL: Frontend validation failed!"
             exit 1
         fi
     else
-        echo "⚠️  pre-push-frontend-tests.sh not found, skipping"
+        echo "WARN: pre-push-frontend-tests.sh not found, skipping"
     fi
     echo ""
 fi
 
 # ============================================================================
-# TIER 5: SDK Tests (if changed)
+# TIER 4: SDK Validation (if changed)
 # ============================================================================
 if [[ "$HAS_SDK_CHANGES" == "true" ]]; then
-    echo "📦 Tier 5: SDK Tests"
+    echo "Tier 4: SDK Validation"
     echo "--------------------"
     if [[ -d "$PROJECT_ROOT/sdk/node_modules" ]]; then
         echo "Running SDK unit tests..."
         if ! (cd "$PROJECT_ROOT/sdk" && npm run test:unit --silent 2>&1 | tail -5); then
-            echo "❌ SDK tests failed!"
+            echo "FAIL: SDK tests failed!"
             exit 1
         fi
-        echo "✅ SDK tests passed"
+        echo "OK: SDK tests passed"
     else
-        echo "⚠️  sdk/node_modules not found, skipping"
+        echo "WARN: sdk/node_modules not found, skipping"
     fi
     echo ""
 fi
 
 # ============================================================================
-# TIER 6: Mobile Tests (if changed)
+# TIER 5: Mobile Validation (if changed)
 # ============================================================================
 if [[ "$HAS_MOBILE_CHANGES" == "true" ]]; then
-    echo "📱 Tier 6: Mobile Tests"
+    echo "Tier 5: Mobile Validation"
     echo "-----------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh" ]]; then
         if ! "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh"; then
-            echo "❌ Mobile tests failed!"
+            echo "FAIL: Mobile validation failed!"
             exit 1
         fi
     else
-        echo "⚠️  pre-push-mobile-tests.sh not found, skipping"
+        echo "WARN: pre-push-mobile-tests.sh not found, skipping"
     fi
     echo ""
 fi

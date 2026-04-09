@@ -186,7 +186,7 @@ impl AnalyticsTracker for NoopAnalyticsTracker {
 /// Attempt to create a `PostHog` tracker from environment variables.
 ///
 /// Returns `None` if `POSTHOG_API_KEY` is not set.
-/// Uses direct HTTP calls to the PostHog capture API via reqwest.
+/// Uses direct HTTP calls to the `PostHog` capture API via reqwest.
 #[cfg(feature = "analytics-posthog")]
 fn create_posthog_tracker() -> Option<Box<dyn AnalyticsTracker>> {
     let api_key = env::var("POSTHOG_API_KEY").ok()?;
