@@ -1514,6 +1514,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
                 "LLM dispatch failed for messaging"
             );
             analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
+            send_error_reply(&dispatch, "Désolé, je rencontre un problème technique en ce moment. Réessaie dans quelques instants!").await;
             return;
         }
     };
@@ -1543,8 +1544,13 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     if dispatch_result.content.trim().is_empty() {
         warn!(
             conversation_id = %dispatch.session.conversation,
-            "LLM returned empty response, skipping outbound send"
+            "LLM returned empty response, sending fallback"
         );
+        send_error_reply(
+            &dispatch,
+            "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?",
+        )
+        .await;
         return;
     }
 
@@ -1567,6 +1573,29 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     };
 
     send_outbound_response(&dispatch, &outgoing).await;
+}
+
+/// Send a user-facing error message when LLM dispatch fails or returns empty content.
+///
+/// Ensures the user always gets feedback instead of silence when something goes wrong.
+async fn send_error_reply(dispatch: &PendingDispatch, body: &str) {
+    let reply_target = dispatch
+        .conversation_id
+        .as_deref()
+        .unwrap_or(&dispatch.sender_id)
+        .to_owned();
+
+    let outgoing = OutgoingMessage {
+        channel_type: dispatch.channel_type,
+        recipient_id: reply_target,
+        content: MessageContent::Text {
+            body: body.to_owned(),
+        },
+        correlation_id: Uuid::new_v4(),
+        reply_to: Some(dispatch.channel_message_id.clone()),
+    };
+
+    send_outbound_response(dispatch, &outgoing).await;
 }
 
 /// Extract real token counts from provider usage, or estimate from content length.
