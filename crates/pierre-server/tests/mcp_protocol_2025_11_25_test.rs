@@ -162,7 +162,7 @@ async fn test_server_info_includes_metadata() {
 
     // Verify human-readable title (MCP 2025-11-25 metadata)
     assert_eq!(
-        server_info["title"], "Pierre Fitness Intelligence",
+        server_info["title"], "Dravr",
         "serverInfo.title should be the human-readable display name"
     );
 
