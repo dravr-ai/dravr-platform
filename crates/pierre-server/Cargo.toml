@@ -81,7 +81,7 @@ postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-database/pos
 testing = []
 telemetry = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry_sdk"]
 toon = ["dep:toon-format"]
-analytics-posthog = ["dep:posthog-rs"]
+analytics-posthog = []
 
 # Provider feature flags - forwarded to pierre-providers crate
 provider-strava = ["pierre-providers/provider-strava"]
@@ -313,7 +313,8 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 cron = "0.15.0"
 # Product analytics — optional PostHog integration for messaging funnel tracking
-posthog-rs = { version = "0.5", optional = true }
+# posthog-rs removed: it depends on reqwest 0.11/hyper 0.14, causing duplicate hyper.
+# PostHog capture API is called directly via the existing reqwest 0.12 dependency.
 
 [dev-dependencies]
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.14.10" }
