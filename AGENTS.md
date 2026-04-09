@@ -298,52 +298,16 @@ bun run test:e2e
 - **State**: React Query for server state, React Context for app state
 - **Components**: Follow existing patterns in `src/components/`
 
-## Pre-Push Validation Workflow
+## Pre-Push Hook Details
 
-The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues. Tests run separately from the push.
-
-### Workflow
-
-1. **Make your changes and commit**
-2. **Run validation before pushing:**
-   ```bash
-   ./scripts/ci/pre-push-validate.sh
-   ```
-   This runs:
-   - Tier 0: Code formatting check (`cargo fmt --check`)
-   - Tier 1: Architectural validation (pattern checks)
-   - Tier 2: Clippy (`--all-targets --all-features -D warnings`) — same flags as CI
-   - Tier 3-5: Frontend/SDK/Mobile validation (if those files changed)
-   
-   Tests are NOT run locally — CI handles them with 4-shard parallelism.
-
-   On success, creates `.git/validation-passed` marker (valid for 15 minutes).
-
-3. **Push:**
-   ```bash
-   git push
-   ```
-   The pre-push hook checks:
-   - Marker exists
-   - Marker is fresh (< 15 minutes)
-   - Marker matches current commit (no changes since validation)
-
-### Why This Design
-
-- **Avoids SSH timeout**: Tests run in a separate terminal, not blocking the push
-- **Enforces validation**: Can't push without running validation first
-- **Prevents stale validation**: Marker expires, must re-validate after changes
-
-### Important Notes
-
-- If validation expires or commit changes, re-run `./scripts/ci/pre-push-validate.sh`
-- To bypass (NOT RECOMMENDED): `git push --no-verify`
+The pre-push hook uses a **marker-based validation**. The script `./scripts/ci/pre-push-validate.sh` creates a `.git/validation-passed` marker (valid 15 minutes). The hook checks the marker exists, is fresh, and matches the current commit.
 
 ### NEVER
 
-- Manually create `.git/validation-passed` marker - always run `./scripts/ci/pre-push-validate.sh`
-- Skip validation by creating a fake marker - CI will catch issues and main will break
-- Claim "rustfmt isn't installed" or similar excuses to bypass validation
+- Run `cargo fmt`, `cargo check`, or `cargo clippy` individually — the script does all of this
+- Manually create `.git/validation-passed` marker
+- Skip validation by creating a fake marker — CI will catch issues and main will break
+- Bypass with `git push --no-verify` unless explicitly asked
 
 ### Before Pushing
 
@@ -386,7 +350,6 @@ The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` 
 - Commit without AI assistant-related commit messages. Do not reference AI assistance in git commits.
 - Do not add AI-generated commit text in commit messages
 - Always create a branch when adding new features. Bug fixes go directly to main branch.
-- always run `./scripts/ci/pre-push-validate.sh` before pushing — it runs fmt, architectural validation, and full clippy
 - avoid #[cfg(test)] in the src code. Only in tests
 
 ## Security Engineering Rules
@@ -443,32 +406,26 @@ Everything else, including all read-only operations and analysis tools, can be r
 ### Write Permissions
 - Writing markdown files is limited to the `claude_docs/` folder under the repo
 
-## Required Pre-Commit Validation
+## Validation: One Script, One Command
 
-### IMPORTANT: Test Suite Timing Context
+**CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY validation command you need.**
+
+Do NOT run `cargo fmt`, `cargo check`, `cargo clippy`, or any other individual validation commands. The script runs all of them with the correct flags. Running individual commands wastes time and risks using wrong flags.
+
+### Workflow
+
+1. **During development**: write code, run targeted tests (see below)
+2. **Before pushing**: `git add` your changes, commit, then run:
+   ```bash
+   ./scripts/ci/pre-push-validate.sh
+   ```
+   This runs fmt check, architectural validation, and full clippy (`--all-targets --all-features -D warnings`).
+   Tests are handled by CI with 4-shard parallelism — do not run the full test suite locally.
+3. **Push**: `git push` (the pre-push hook verifies the validation marker)
+
+### Test Suite Timing Context
 - Full test suite: ~13 minutes (3,462 tests across 238 test binaries, 234 test files)
-- **DO NOT run `cargo test` without targeting** - use targeted tests during development
-
-### Tiered Validation Approach
-
-#### During development (after each code change)
-```bash
-# 1. Format code
-cargo fmt
-
-# 2. Compile check (fast feedback)
-cargo check --quiet
-
-# 3. Run ONLY tests related to your changes (ALWAYS use --test to avoid compiling all files)
-cargo test --test <test_file> <test_name_pattern> -- --nocapture
-```
-
-#### Before pushing (mandatory)
-```bash
-./scripts/ci/pre-push-validate.sh
-```
-This runs fmt, architectural validation, and **full clippy** (`--all-targets --all-features -D warnings`).
-Tests are handled by CI with 4-shard parallelism — do not run the full test suite locally.
+- **DO NOT run `cargo test` without targeting** — use targeted tests during development
 
 ### Test Targeting Patterns
 
