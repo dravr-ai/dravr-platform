@@ -161,7 +161,7 @@ jobs:
           cargo nextest run \
             --all-features \
             --test-threads 4 \
-            -E 'not (test(cache_redis_test) | test(database_plugins_postgresql_test))'
+            -E 'not (test(cache_redis_test) | test(database_plugins_postgresql_test) | test(/postgres/))'
         env:
           DATABASE_URL: "sqlite::memory:"
           ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
