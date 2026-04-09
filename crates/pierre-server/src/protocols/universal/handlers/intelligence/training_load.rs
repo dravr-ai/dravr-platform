@@ -23,6 +23,63 @@ use {
     std::sync::Arc, uuid::Uuid,
 };
 
+/// User physiological parameters for personalized TSS calculation
+struct UserPhysiologicalParams {
+    ftp: Option<f64>,
+    lthr: Option<f64>,
+    max_hr: Option<f64>,
+    resting_hr: Option<f64>,
+    weight_kg: Option<f64>,
+}
+
+/// Fetch user physiological parameters from stored configuration.
+///
+/// Returns params with whatever the user has configured; missing values stay None
+/// and the TSS calculator falls back to pace-based estimation.
+async fn fetch_user_physiological_params(
+    executor: &UniversalToolExecutor,
+    user_uuid: uuid::Uuid,
+) -> UserPhysiologicalParams {
+    let config_json = executor
+        .resources
+        .repos
+        .profiles
+        .get_configuration(&user_uuid.to_string())
+        .await
+        .ok()
+        .flatten();
+
+    let Some(config_str) = config_json else {
+        return UserPhysiologicalParams {
+            ftp: None,
+            lthr: None,
+            max_hr: None,
+            resting_hr: None,
+            weight_kg: None,
+        };
+    };
+
+    let config: serde_json::Value = serde_json::from_str(&config_str).unwrap_or_default();
+
+    // Configuration is stored as: { "profile": { ... }, "session_overrides": { ... } }
+    // Physiological data lives in session_overrides or at the top level.
+    let overrides = config.get("session_overrides").unwrap_or(&config);
+
+    UserPhysiologicalParams {
+        ftp: overrides.get("ftp").and_then(|v| v.as_f64()),
+        lthr: overrides
+            .get("lactate_threshold_hr")
+            .or_else(|| overrides.get("threshold_hr"))
+            .and_then(|v| v.as_f64()),
+        max_hr: overrides.get("max_hr").and_then(|v| v.as_f64()),
+        resting_hr: overrides.get("resting_hr").and_then(|v| v.as_f64()),
+        weight_kg: overrides
+            .get("weight_kg")
+            .or_else(|| overrides.get("weight"))
+            .and_then(|v| v.as_f64()),
+    }
+}
+
 /// Recovery context from sleep/HRV data for training load interpretation
 struct RecoveryContextInfo {
     /// Sleep quality score (0-100)
@@ -80,8 +137,12 @@ async fn fetch_recovery_context_for_training_load(
     })
 }
 
-/// Analyze detailed training load from activities
-fn analyze_detailed_training_load(activities: &[Activity], timeframe: &str) -> serde_json::Value {
+/// Analyze detailed training load from activities using user-specific physiological data
+fn analyze_detailed_training_load(
+    activities: &[Activity],
+    timeframe: &str,
+    params: &UserPhysiologicalParams,
+) -> serde_json::Value {
     use TrainingLoadCalculator;
 
     if activities.is_empty() {
@@ -97,19 +158,18 @@ fn analyze_detailed_training_load(activities: &[Activity], timeframe: &str) -> s
     let mut sorted_activities = activities.to_vec();
     sorted_activities.sort_by_key(Activity::start_date);
 
-    // Use TrainingLoadCalculator from Phase 1 foundation
     let calculator = TrainingLoadCalculator::new();
 
-    // Calculate training load (CTL, ATL, TSB) using real TSS calculation
-    // Note: For accurate TSS, we'd need user's FTP, LTHR, max_hr, etc.
-    // For now, use None values which will trigger pace-based estimation
+    // Pass user physiological data for accurate TSS calculation.
+    // When present, enables power-based (FTP) or HR-based (LTHR) TSS
+    // instead of the less accurate pace-based fallback.
     let Ok(training_load) = calculator.calculate_training_load(
         &sorted_activities,
-        None, // FTP
-        None, // LTHR
-        None, // max_hr
-        None, // resting_hr
-        None, // weight_kg
+        params.ftp,
+        params.lthr,
+        params.max_hr,
+        params.resting_hr,
+        params.weight_kg,
     ) else {
         return serde_json::json!({
             "timeframe": timeframe,
@@ -400,7 +460,12 @@ pub fn handle_analyze_training_load(
                             );
                         }
 
-                        let mut analysis = analyze_detailed_training_load(&activities, timeframe);
+                        // Fetch user physiological data for accurate TSS
+                        let physio_params =
+                            fetch_user_physiological_params(executor, user_uuid).await;
+
+                        let mut analysis =
+                            analyze_detailed_training_load(&activities, timeframe, &physio_params);
 
                         // Fire intelligence-driven notification triggers based on computed metrics
                         #[cfg(feature = "client-notifications")]
