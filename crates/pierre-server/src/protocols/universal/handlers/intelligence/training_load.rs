@@ -66,17 +66,19 @@ async fn fetch_user_physiological_params(
     let overrides = config.get("session_overrides").unwrap_or(&config);
 
     UserPhysiologicalParams {
-        ftp: overrides.get("ftp").and_then(|v| v.as_f64()),
+        ftp: overrides.get("ftp").and_then(serde_json::Value::as_f64),
         lthr: overrides
             .get("lactate_threshold_hr")
             .or_else(|| overrides.get("threshold_hr"))
-            .and_then(|v| v.as_f64()),
-        max_hr: overrides.get("max_hr").and_then(|v| v.as_f64()),
-        resting_hr: overrides.get("resting_hr").and_then(|v| v.as_f64()),
+            .and_then(serde_json::Value::as_f64),
+        max_hr: overrides.get("max_hr").and_then(serde_json::Value::as_f64),
+        resting_hr: overrides
+            .get("resting_hr")
+            .and_then(serde_json::Value::as_f64),
         weight_kg: overrides
             .get("weight_kg")
             .or_else(|| overrides.get("weight"))
-            .and_then(|v| v.as_f64()),
+            .and_then(serde_json::Value::as_f64),
     }
 }
 
