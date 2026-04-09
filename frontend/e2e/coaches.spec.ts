@@ -441,8 +441,8 @@ test.describe('Coach Detail View', () => {
     // Should see detail view with stats
     await expect(page.getByText('150').first()).toBeVisible({ timeout: 5000 }); // token count
     await expect(page.getByText('42').first()).toBeVisible(); // use count
-    await expect(page.getByText('Tokens')).toBeVisible();
-    await expect(page.getByText('Uses')).toBeVisible();
+    await expect(page.getByText('Tokens').first()).toBeVisible();
+    await expect(page.getByText('Uses').first()).toBeVisible();
 
     // Should see system prompt
     await expect(page.getByText('You are a professional marathon coach')).toBeVisible();
