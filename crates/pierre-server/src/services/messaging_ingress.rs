@@ -1508,7 +1508,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         .entry(dispatch.session.conversation.clone())
         .or_insert_with(|| Arc::new(TokioMutex::new(())))
         .clone();
-    let _guard = lock.lock().await;
+    let dispatch_guard = lock.lock().await;
 
     let start = Instant::now();
     let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
