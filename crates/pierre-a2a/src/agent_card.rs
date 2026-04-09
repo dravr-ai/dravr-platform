@@ -20,7 +20,7 @@ use crate::constants::api_tier_limits::{STARTER_REQUESTS_PER_MONTH, TRIAL_REQUES
 /// A2A Agent Card for Pierre
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentCard {
-    /// Agent name ("Pierre Fitness AI")
+    /// Agent name ("Dravr AI")
     pub name: String,
     /// Human-readable description of the agent's capabilities
     pub description: String,
@@ -132,7 +132,7 @@ impl AgentCard {
     #[must_use]
     pub fn with_base_url(base_url: &str) -> Self {
         Self {
-            name: "Pierre Fitness AI".into(),
+            name: "Dravr AI".into(),
             description: "AI-powered fitness data analysis and insights platform providing comprehensive activity analysis, performance tracking, and intelligent recommendations for athletes and fitness enthusiasts.".into(),
             version: "1.0.0".into(),
             capabilities: vec![
