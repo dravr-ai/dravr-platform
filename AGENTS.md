@@ -310,11 +310,12 @@ The pre-push hook uses a **marker-based validation** to avoid SSH timeout issues
    ./scripts/ci/pre-push-validate.sh
    ```
    This runs:
-   - Tier 0: Code formatting check
-   - Tier 1: Architectural validation
-   - Tier 2: Schema validation
-   - Tier 3: Targeted tests (smart selection based on changed files)
-   - Tier 4-6: Frontend/SDK/Mobile tests (if those files changed)
+   - Tier 0: Code formatting check (`cargo fmt --check`)
+   - Tier 1: Architectural validation (pattern checks)
+   - Tier 2: Clippy (`--all-targets --all-features -D warnings`) — same flags as CI
+   - Tier 3-5: Frontend/SDK/Mobile validation (if those files changed)
+   
+   Tests are NOT run locally — CI handles them with 4-shard parallelism.
 
    On success, creates `.git/validation-passed` marker (valid for 15 minutes).
 
@@ -385,7 +386,7 @@ The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` 
 - Commit without AI assistant-related commit messages. Do not reference AI assistance in git commits.
 - Do not add AI-generated commit text in commit messages
 - Always create a branch when adding new features. Bug fixes go directly to main branch.
-- always run validation after making changes: cargo fmt, then ./scripts/ci/architectural-validation.sh, then TARGETED tests (see "Tiered Validation Approach")
+- always run `./scripts/ci/pre-push-validate.sh` before pushing — it runs fmt, architectural validation, and full clippy
 - avoid #[cfg(test)] in the src code. Only in tests
 
 ## Security Engineering Rules
@@ -450,35 +451,24 @@ Everything else, including all read-only operations and analysis tools, can be r
 
 ### Tiered Validation Approach
 
-#### Tier 1: Quick Iteration (during development)
-Run after each code change to catch errors fast:
+#### During development (after each code change)
 ```bash
 # 1. Format code
 cargo fmt
 
-# 2. Compile check only (fast - no linting)
+# 2. Compile check (fast feedback)
 cargo check --quiet
 
 # 3. Run ONLY tests related to your changes (ALWAYS use --test to avoid compiling all files)
 cargo test --test <test_file> <test_name_pattern> -- --nocapture
-# Example: cargo test --test intelligence_test test_training_load -- --nocapture
-# Example: cargo test --test store_routes_test test_browse_store -- --nocapture
 ```
 
-#### Tier 2: Pre-Commit (before committing)
-Run before creating a commit:
+#### Before pushing (mandatory)
 ```bash
-# 1. Format code
-cargo fmt
-
-# 2. Architectural validation
-./scripts/ci/architectural-validation.sh
-
-# 3. Run TARGETED tests for changed modules (ALWAYS use --test)
-cargo test --test <test_file> <test_pattern> -- --nocapture
+./scripts/ci/pre-push-validate.sh
 ```
-
-**Clippy is NOT run locally.** CI runs strict clippy on every push. After pushing, monitor CI (see "After Pushing" below) and fix any clippy failures before moving on.
+This runs fmt, architectural validation, and **full clippy** (`--all-targets --all-features -D warnings`).
+Tests are handled by CI with 4-shard parallelism — do not run the full test suite locally.
 
 ### Test Targeting Patterns
 
