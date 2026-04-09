@@ -1,15 +1,27 @@
-// ABOUTME: Astro middleware that guards /docs/* routes behind Supabase auth
+// ABOUTME: Astro middleware that guards /docs/* and /fr/docs/* routes behind Supabase auth
 // ABOUTME: Checks session cookie, verifies approval status, redirects unauthenticated requests
 
 import { defineMiddleware } from 'astro:middleware';
 import { createClient } from '@supabase/supabase-js';
 
-const PUBLIC_DOCS_PATHS = ['/docs/login', '/docs/auth/callback'];
+const PUBLIC_DOCS_PATHS = [
+  '/docs/login',
+  '/docs/auth/callback',
+  '/fr/docs/login',
+];
+
+function isProtectedDocsPath(pathname: string): boolean {
+  return pathname.startsWith('/docs/') || pathname.startsWith('/fr/docs/');
+}
+
+function loginRedirectFor(pathname: string): string {
+  return pathname.startsWith('/fr/') ? '/fr/docs/login' : '/docs/login';
+}
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const { pathname } = context.url;
 
-  if (!pathname.startsWith('/docs/')) {
+  if (!isProtectedDocsPath(pathname)) {
     return next();
   }
 
@@ -30,13 +42,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const accessToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
 
   if (!accessToken) {
-    return context.redirect('/docs/login');
+    return context.redirect(loginRedirectFor(pathname));
   }
 
   const { data: { user }, error } = await supabase.auth.getUser(accessToken);
 
   if (error || !user) {
-    return context.redirect('/docs/login');
+    return context.redirect(loginRedirectFor(pathname));
   }
 
   // Verify the user is on the approved waitlist
@@ -47,7 +59,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     .single();
 
   if (!waitlistEntry || waitlistEntry.status !== 'approved') {
-    return context.redirect('/docs/login?reason=not-approved');
+    return context.redirect(`${loginRedirectFor(pathname)}?reason=not-approved`);
   }
 
   context.locals.user = user;

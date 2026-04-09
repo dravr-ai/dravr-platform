@@ -4,6 +4,8 @@
 
 import Base from './Base.astro';
 import { getCollection } from 'astro:content';
+import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../i18n/utils';
+import LanguagePicker from '../components/LanguagePicker.astro';
 
 interface Props {
   title: string;
@@ -14,9 +16,14 @@ interface Props {
 const { title, description, current } = Astro.props;
 const user = Astro.locals.user;
 
-const guides = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const collection = getDocsCollection(lang);
+const docsBase = getDocsBasePath(lang);
 
-const slugToPath = (slug: string) => `/docs/${slug}`;
+const guides = (await getCollection(collection)).sort((a, b) => a.data.order - b.data.order);
+
+const slugToPath = (slug: string) => `${docsBase}/${slug}`;
 ---
 
 <Base title={title} description={description} noNav noFooter>
@@ -27,13 +34,16 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
 
       <!-- Sidebar Header -->
       <div class="px-6 py-6 border-b border-outline-variant/15">
-        <a href="/" class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</a>
-        <p class="font-label text-[0.625rem] text-on-surface-variant/50 tracking-widest uppercase mt-1">Alpha Documentation</p>
+        <div class="flex items-center justify-between">
+          <a href="/" class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</a>
+          <LanguagePicker />
+        </div>
+        <p class="font-label text-[0.625rem] text-on-surface-variant/50 tracking-widest uppercase mt-1">{t('docs.sidebar.alpha')}</p>
       </div>
 
       <!-- Navigation -->
       <nav class="flex-1 px-4 py-6 overflow-y-auto">
-        <p class="font-label text-[0.625rem] text-on-surface/30 tracking-widest uppercase px-2 mb-3">Guides</p>
+        <p class="font-label text-[0.625rem] text-on-surface/30 tracking-widest uppercase px-2 mb-3">{t('docs.sidebar.guides')}</p>
         <ul class="space-y-0.5">
           {guides.map((guide) => {
             const isActive = current === guide.slug;
@@ -64,9 +74,9 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
             class="absolute inset-0 w-full h-full object-cover opacity-20"
           />
           <div class="relative z-10">
-            <p class="font-label text-[0.5625rem] tracking-[0.15em] uppercase text-on-surface-variant/60 mb-1">Boreal Insight</p>
+            <p class="font-label text-[0.5625rem] tracking-[0.15em] uppercase text-on-surface-variant/60 mb-1">{t('docs.sidebar.boreal.label')}</p>
             <p class="font-serif text-sm text-on-surface/80 italic leading-relaxed">
-              "The boreal forest is the world's largest land biome. Dravr helps manage it."
+              {t('docs.sidebar.boreal.quote')}
             </p>
           </div>
         </div>
@@ -79,7 +89,7 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
           href="/docs/auth/logout"
           class="font-label text-[0.6875rem] text-on-surface/40 hover:text-on-surface transition-colors underline underline-offset-2"
         >
-          Sign out
+          {t('docs.sidebar.signout')}
         </a>
       </div>
     </aside>
@@ -87,11 +97,14 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
     <!-- Mobile Header Bar -->
     <div class="lg:hidden fixed top-0 left-0 right-0 z-50 bg-surface-container-low px-4 py-4 flex items-center justify-between border-b border-outline-variant/15">
       <a href="/" class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</a>
-      <button id="sidebar-btn" class="text-on-surface/50 hover:text-on-surface transition-colors" aria-label="Toggle navigation">
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
-        </svg>
-      </button>
+      <div class="flex items-center gap-4">
+        <LanguagePicker />
+        <button id="sidebar-btn" class="text-on-surface/50 hover:text-on-surface transition-colors" aria-label={t('docs.sidebar.toggle')}>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Mobile Sidebar Drawer -->
@@ -129,7 +142,7 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
         </nav>
         <div class="px-6 py-4 border-t border-outline-variant/15">
           <p class="font-label text-[0.625rem] text-on-surface/40 truncate mb-2">{user?.email}</p>
-          <a href="/docs/auth/logout" class="font-label text-[0.6875rem] text-on-surface/40 hover:text-on-surface underline underline-offset-2">Sign out</a>
+          <a href="/docs/auth/logout" class="font-label text-[0.6875rem] text-on-surface/40 hover:text-on-surface underline underline-offset-2">{t('docs.sidebar.signout')}</a>
         </div>
       </aside>
     </div>
@@ -140,7 +153,7 @@ const slugToPath = (slug: string) => `/docs/${slug}`;
 
         <!-- Breadcrumb -->
         <nav class="flex items-center gap-2 font-label text-[0.6875rem] text-on-surface/40 mb-10">
-          <a href="/docs" class="hover:text-on-surface transition-colors uppercase tracking-widest">Guides</a>
+          <a href={docsBase} class="hover:text-on-surface transition-colors uppercase tracking-widest">{t('docs.breadcrumb.guides')}</a>
           <span class="text-outline-variant/60">/</span>
           <span class="text-on-surface/60 uppercase tracking-widest">{title}</span>
         </nav>

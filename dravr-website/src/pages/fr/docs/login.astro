@@ -1,9 +1,9 @@
 ---
-// ABOUTME: Magic link login for alpha user documentation access
-// ABOUTME: Faithfully implements the Stitch login screen — boreal glass card, Material Symbols, trust badges
-import Base from '../../layouts/Base.astro';
-import LanguagePicker from '../../components/LanguagePicker.astro';
-import { getLangFromUrl, useTranslations } from '../../i18n/utils';
+// ABOUTME: French version of the alpha portal login (/fr/docs/login)
+// ABOUTME: URL /fr/docs/login causes getLangFromUrl to return 'fr'; all copy renders in French
+import Base from '../../../layouts/Base.astro';
+import LanguagePicker from '../../../components/LanguagePicker.astro';
+import { getLangFromUrl, useTranslations } from '../../../i18n/utils';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
@@ -51,7 +51,6 @@ const reason = Astro.url.searchParams.get('reason');
 
         <form id="login-form" class="space-y-8">
 
-          <!-- Email Input (adapted from two-field Stitch design for magic link) -->
           <div class="relative">
             <label class="font-label text-[0.6875rem] uppercase tracking-widest text-on-surface-variant/60 block mb-2" for="login-email">
               {t('login.email.label')}
@@ -71,7 +70,6 @@ const reason = Astro.url.searchParams.get('reason');
 
           <div id="login-status" class="hidden text-sm font-label"></div>
 
-          <!-- Primary Action -->
           <button
             type="submit"
             class="w-full bg-primary text-on-primary py-4 rounded-lg font-headline font-semibold tracking-widest text-sm uppercase hover:opacity-90 active:scale-[0.98] transition-all flex justify-center items-center gap-2 group shadow-lg shadow-primary/10"
@@ -104,10 +102,10 @@ const reason = Astro.url.searchParams.get('reason');
 
       <!-- Secondary Navigation / Support -->
       <div class="mt-8 flex justify-between px-2 font-label text-[0.6875rem] uppercase tracking-wider text-white/70">
-        <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/#waitlist">{t('login.request')}</a>
+        <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/fr/#waitlist">{t('login.request')}</a>
         <div class="flex items-center gap-4">
           <LanguagePicker />
-          <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/">{t('login.back')}</a>
+          <a class="hover:text-primary-fixed-dim transition-colors hover:underline underline-offset-4" href="/fr/">{t('login.back')}</a>
         </div>
       </div>
 
@@ -127,17 +125,17 @@ const reason = Astro.url.searchParams.get('reason');
 
 </Base>
 
-<script define:vars={{ sendingText: '', errorText: '', checkText: '', sentText: '' }}>
-  import { createBrowserClient } from '../../lib/supabase';
+<script>
+  import { createBrowserClient } from '../../../lib/supabase';
 
   const form = document.getElementById('login-form');
   const statusEl = document.getElementById('login-status');
 
   const pageEl = document.querySelector('[data-i18n-sending]');
-  const textSending = pageEl?.getAttribute('data-i18n-sending') ?? 'Sending link…';
-  const textError = pageEl?.getAttribute('data-i18n-error') ?? 'Could not send the link. Try again in a moment.';
-  const textCheck = pageEl?.getAttribute('data-i18n-check') ?? 'Check your email — the magic link expires in 10 minutes.';
-  const textSent = pageEl?.getAttribute('data-i18n-sent') ?? 'Link sent ✓';
+  const textSending = pageEl?.getAttribute('data-i18n-sending') ?? 'Envoi du lien…';
+  const textError = pageEl?.getAttribute('data-i18n-error') ?? 'Impossible d\'envoyer le lien. Réessayez dans un moment.';
+  const textCheck = pageEl?.getAttribute('data-i18n-check') ?? 'Vérifiez votre courriel — le lien magique expire dans 10 minutes.';
+  const textSent = pageEl?.getAttribute('data-i18n-sent') ?? 'Lien envoyé ✓';
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -162,7 +160,7 @@ const reason = Astro.url.searchParams.get('reason');
         statusEl.className = 'text-sm font-label text-error';
         btn.disabled = false;
         btn.innerHTML = `
-          ${document.querySelector('button[type="submit"] span:first-child')?.textContent ?? 'Initialize Session'}
+          ${textSending.replace('…', '')}
           <span class="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
         `;
       } else {

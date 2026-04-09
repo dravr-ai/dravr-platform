@@ -1,0 +1,31 @@
+---
+// ABOUTME: Language toggle component — switches between EN and FR via URL prefix routing
+// ABOUTME: Computes alternate-language URL from current pathname using i18n utils
+
+import { getLangFromUrl, getAlternatePath } from '../i18n/utils';
+import { languages } from '../i18n/ui';
+
+const lang = getLangFromUrl(Astro.url);
+---
+
+<div class="flex items-center gap-1 font-label text-[0.6875rem] tracking-widest">
+  {Object.entries(languages).map(([code, label]) => {
+    const isActive = code === lang;
+    const href = isActive
+      ? Astro.url.pathname
+      : getAlternatePath(Astro.url.pathname, lang);
+    return (
+      <a
+        href={href}
+        aria-current={isActive ? 'true' : undefined}
+        class={`px-1.5 py-0.5 rounded transition-colors ${
+          isActive
+            ? 'text-on-surface font-semibold'
+            : 'text-on-surface/40 hover:text-on-surface/70'
+        }`}
+      >
+        {label}
+      </a>
+    );
+  })}
+</div>

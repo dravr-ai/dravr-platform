@@ -5,6 +5,7 @@
 import '../styles/global.css';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
+import { getLangFromUrl } from '../i18n/utils';
 
 interface Props {
   title: string;
@@ -19,10 +20,12 @@ const {
   noNav = false,
   noFooter = false,
 } = Astro.props;
+
+const lang = getLangFromUrl(Astro.url);
 ---
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang={lang}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />

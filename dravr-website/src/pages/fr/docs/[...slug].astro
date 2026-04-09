@@ -1,10 +1,10 @@
 ---
-// ABOUTME: Dynamic SSR route that renders individual documentation guide pages
-// ABOUTME: Auth-gated via middleware; fetches guide by slug from URL
+// ABOUTME: French guide pages (/fr/docs/[slug]) — renders docs-fr collection entries
+// ABOUTME: URL /fr/docs/[slug] causes getLangFromUrl to return 'fr'; layout and content are French
 
-import DocsLayout from '../../layouts/DocsLayout.astro';
+import DocsLayout from '../../../layouts/DocsLayout.astro';
 import { getCollection, getEntry, render } from 'astro:content';
-import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../../i18n/utils';
+import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../../../i18n/utils';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);

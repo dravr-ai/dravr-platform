@@ -1,9 +1,9 @@
 ---
-// ABOUTME: Dravr marketing home page — full-screen boreal river hero, waitlist CTA
-// ABOUTME: Faithfully implements the Stitch home screen design (project 1685995167983782189)
-import Base from '../layouts/Base.astro';
-import LanguagePicker from '../components/LanguagePicker.astro';
-import { getLangFromUrl, useTranslations, getDocsBasePath } from '../i18n/utils';
+// ABOUTME: French version of the Dravr marketing home page (/fr/)
+// ABOUTME: URL /fr/ causes getLangFromUrl to return 'fr'; all components render in French automatically
+import Base from '../../layouts/Base.astro';
+import LanguagePicker from '../../components/LanguagePicker.astro';
+import { getLangFromUrl, useTranslations, getDocsBasePath } from '../../i18n/utils';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
@@ -120,14 +120,13 @@ const docsBase = getDocsBasePath(lang);
 
 </Base>
 
-<script define:vars={{ successMsg: '', errorMsg: '' }}>
+<script>
   const form = document.getElementById('waitlist-form');
   const status = document.getElementById('waitlist-status');
 
-  // Read translated messages from data attributes set server-side
   const pageEl = document.querySelector('[data-i18n-success]');
-  const successText = pageEl?.getAttribute('data-i18n-success') ?? "You're on the list. We'll reach out soon.";
-  const errorText = pageEl?.getAttribute('data-i18n-error') ?? 'Something went wrong. Try again.';
+  const successText = pageEl?.getAttribute('data-i18n-success') ?? "Vous êtes sur la liste. On vous contactera bientôt.";
+  const errorText = pageEl?.getAttribute('data-i18n-error') ?? "Une erreur s'est produite. Réessayez.";
 
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();

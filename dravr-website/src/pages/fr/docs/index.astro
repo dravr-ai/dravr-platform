@@ -1,10 +1,10 @@
 ---
-// ABOUTME: Documentation hub page listing all alpha user guides
-// ABOUTME: Auth-gated via middleware — only approved waitlist users can access
+// ABOUTME: French documentation hub (/fr/docs/) — lists all French guides from docs-fr collection
+// ABOUTME: URL /fr/docs/ causes getLangFromUrl to return 'fr'; layout and copy render in French
 
-import DocsLayout from '../../layouts/DocsLayout.astro';
+import DocsLayout from '../../../layouts/DocsLayout.astro';
 import { getCollection } from 'astro:content';
-import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../../i18n/utils';
+import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../../../i18n/utils';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);

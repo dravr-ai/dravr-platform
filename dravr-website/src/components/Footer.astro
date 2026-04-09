@@ -1,6 +1,11 @@
 ---
 // ABOUTME: Minimal footer for the Dravr website
 // ABOUTME: Boreal Editorial style — left-aligned, generous spacing
+import { getLangFromUrl, useTranslations, getDocsBasePath } from '../i18n/utils';
+
+const lang = getLangFromUrl(Astro.url);
+const t = useTranslations(lang);
+const docsPath = getDocsBasePath(lang);
 ---
 
 <footer class="bg-surface-container-low mt-section">
@@ -8,14 +13,14 @@
     <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
       <div>
         <span class="text-brand text-sm font-semibold tracking-brand text-primary uppercase">DRAVR</span>
-        <p class="text-xs text-on-surface/40 mt-1 font-label">&copy; 2026 Dravr. All rights reserved.</p>
+        <p class="text-xs text-on-surface/40 mt-1 font-label">{t('footer.short.rights')}</p>
       </div>
       <nav class="flex items-center gap-6">
-        <a href="/docs/login" class="text-xs text-on-surface/50 hover:text-on-surface transition-colors font-label">
-          Alpha Docs
+        <a href={`${docsPath}/login`} class="text-xs text-on-surface/50 hover:text-on-surface transition-colors font-label">
+          {t('footer.alpha')}
         </a>
         <a href="#" class="text-xs text-on-surface/50 hover:text-on-surface transition-colors font-label">
-          Privacy
+          {t('footer.privacy')}
         </a>
       </nav>
     </div>
