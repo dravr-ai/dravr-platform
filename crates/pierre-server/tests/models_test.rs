@@ -299,6 +299,8 @@ fn test_user_creation_with_required_fields() {
         last_active: now,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     assert_eq!(user.id, user_id);
@@ -341,6 +343,8 @@ fn test_user_serialization_roundtrip() {
         last_active: now,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     let json = serde_json::to_string(&original_user).unwrap();
@@ -507,6 +511,8 @@ fn test_user_with_encrypted_tokens() {
         last_active: now,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // Verify tokens are present

@@ -235,6 +235,8 @@ impl MultiTenantMcpClient {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
         let repos = database.repositories();
         repos.users.create(&test_user).await?;

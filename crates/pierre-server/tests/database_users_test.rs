@@ -42,6 +42,8 @@ async fn test_create_and_get_user() {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // Create user
@@ -94,6 +96,8 @@ async fn test_last_active_update() {
         last_active: chrono::Utc::now() - chrono::Duration::hours(1),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     UserRepository::create(&db, &user)
@@ -143,6 +147,8 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
         last_active: now,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 

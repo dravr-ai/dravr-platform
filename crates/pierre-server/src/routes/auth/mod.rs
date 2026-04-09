@@ -32,12 +32,12 @@ pub use login::AuthService;
 pub use oauth::OAuthRoutes;
 
 pub use types::{
-    ChangePasswordRequest, CompleteResetRequest, ConnectionStatus, FirebaseLoginRequest,
-    ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest, LoginResponse,
-    OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse, OAuthAuthorizationResponse,
-    OAuthStatus, ProviderStatus, ProvidersStatusResponse, RefreshTokenRequest, RegisterRequest,
-    RegisterResponse, SessionResponse, UpdateProfileRequest, UpdateProfileResponse, UserInfo,
-    UserStatsResponse,
+    AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, ConnectionStatus,
+    FirebaseLoginRequest, ForgotPasswordRequest, ForgotPasswordResponse, LoginRequest,
+    LoginResponse, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
+    OAuthAuthorizationResponse, OAuthStatus, ProviderStatus, ProvidersStatusResponse,
+    RefreshTokenRequest, RegisterRequest, RegisterResponse, SessionResponse, UpdateProfileRequest,
+    UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
 // Re-export OAuthCallbackResponse from types module (moved for proper layering)
@@ -81,6 +81,10 @@ impl AuthRoutes {
                 post(login::handle_complete_reset),
             )
             .route("/api/user/stats", get(login::handle_user_stats))
+            .route(
+                "/api/user/analytics-consent",
+                put(login::handle_analytics_consent),
+            )
             // OAuth2 ROPC endpoint (RFC 6749 Section 4.3) - unified login for all clients
             .route("/oauth/token", post(login::handle_oauth2_token))
             .route(

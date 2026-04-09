@@ -843,6 +843,8 @@ async fn test_login_with_correct_credentials() {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     server_resources
         .repos

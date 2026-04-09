@@ -172,6 +172,10 @@ pub struct User {
     pub firebase_uid: Option<String>,
     /// Authentication provider: "email", "google.com", "apple.com", "github.com"
     pub auth_provider: String,
+    /// Whether the user consented to anonymized analytics tracking
+    pub analytics_consent: bool,
+    /// When the user last updated their analytics consent preference
+    pub analytics_consent_at: Option<DateTime<Utc>>,
 }
 
 impl User {
@@ -199,6 +203,8 @@ impl User {
             approved_at: None,
             firebase_uid: None, // No Firebase UID for email/password users
             auth_provider: "email".to_owned(), // Default to email provider
+            analytics_consent: false, // Opt-out by default
+            analytics_consent_at: None,
         }
     }
 

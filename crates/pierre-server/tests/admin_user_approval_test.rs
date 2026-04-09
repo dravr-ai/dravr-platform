@@ -102,6 +102,8 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let admin_user_id = admin_user.id;
     database.repositories().users.create(&admin_user).await?;
@@ -151,6 +153,8 @@ async fn test_get_pending_users() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     database.repositories().users.create(&pending_user).await?;
 
@@ -172,6 +176,8 @@ async fn test_get_pending_users() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     database.repositories().users.create(&active_user).await?;
 
@@ -214,6 +220,8 @@ async fn test_approve_user() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let user_id = pending_user.id;
     database.repositories().users.create(&pending_user).await?;
@@ -250,6 +258,8 @@ async fn test_approve_user() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // This should succeed since the admin user exists
@@ -300,6 +310,8 @@ async fn test_suspend_user() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let user_id = user.id;
     database.repositories().users.create(&user).await?;
@@ -350,6 +362,8 @@ async fn test_user_status_transitions() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let user_id = user.id;
     database.repositories().users.create(&user).await?;
@@ -407,6 +421,8 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     database.repositories().users.create(&pending_user).await?;
 
@@ -479,6 +495,8 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
         database.repositories().users.create(&user).await?;
 
@@ -547,6 +565,8 @@ async fn test_delete_user() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let user_id = user_to_delete.id;
     database

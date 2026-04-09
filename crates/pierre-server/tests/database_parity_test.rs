@@ -604,6 +604,8 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     repos

@@ -66,6 +66,8 @@ async fn create_test_user(db: &Database) -> Uuid {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     db.repositories()
@@ -354,6 +356,8 @@ async fn test_database_trait_abstraction() {
                 fitbit_token: None,
                 firebase_uid: None,
                 auth_provider: String::new(),
+                analytics_consent: false,
+                analytics_consent_at: None,
             };
 
             db_clone.repositories().users.create(&user).await
@@ -404,6 +408,8 @@ async fn test_system_stats() {
             fitbit_token: None,
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         db.repositories()

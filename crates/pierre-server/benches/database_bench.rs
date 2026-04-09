@@ -52,6 +52,8 @@ fn generate_test_user() -> User {
         approved_at: Some(chrono::Utc::now()),
         firebase_uid: None,
         auth_provider: "email".to_owned(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     }
 }
 

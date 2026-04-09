@@ -59,6 +59,8 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
 
         repos.users.create(&user).await?;
@@ -183,6 +185,8 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
         repos.users.create(&user).await?;
         sleep(Duration::from_millis(10)).await;
@@ -214,6 +218,8 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     repos.users.create(&new_user).await?;
 

@@ -54,6 +54,8 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let repos = server.database().repositories();
     repos.users.create(&user).await?;
@@ -105,6 +107,8 @@ async fn test_model_serialization_coverage() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // Test serialization
@@ -149,6 +153,8 @@ async fn test_admin_auth_flow() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     let repos = database.repositories();
@@ -199,6 +205,8 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             fitbit_token: None,
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
         repos.users.create(&user).await?;
         users.push(user);
@@ -244,6 +252,8 @@ async fn test_production_database_scenarios() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     // Create first user
@@ -269,6 +279,8 @@ async fn test_production_database_scenarios() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     let result = repos.users.create(&user2).await;
@@ -302,6 +314,8 @@ async fn test_production_rate_limiting() -> Result<()> {
         fitbit_token: None,
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
 
     let repos = database.repositories();
