@@ -16,8 +16,10 @@ export const GET: APIRoute = async ({ url, redirect, cookies }) => {
   const supabase = createBrowserClient();
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
+  const lang = url.searchParams.get('lang') === 'fr' ? 'fr' : 'en';
+
   if (error || !data.session) {
-    return redirect('/docs/login');
+    return redirect(lang === 'fr' ? '/fr/docs/login' : '/docs/login');
   }
 
   // Persist the access token in a cookie for middleware to read
@@ -29,5 +31,5 @@ export const GET: APIRoute = async ({ url, redirect, cookies }) => {
     path: '/',
   });
 
-  return redirect('/docs');
+  return redirect(lang === 'fr' ? '/fr/docs' : '/docs');
 };

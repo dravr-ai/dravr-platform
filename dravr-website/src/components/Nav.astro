@@ -12,7 +12,7 @@ const docsPath = getDocsBasePath(lang);
 <header id="site-nav" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
   <div class="max-w-6xl mx-auto px-6 lg:px-8">
     <div class="flex items-center justify-between h-16">
-      <a href={lang === 'fr' ? '/fr/' : '/'} class="text-brand text-sm font-semibold tracking-brand text-primary uppercase">
+      <a href={lang === 'fr' ? '/fr/' : '/'} class="text-sm font-semibold tracking-brand text-primary uppercase">
         DRAVR
       </a>
       <nav class="hidden md:flex items-center gap-8">
@@ -34,6 +34,8 @@ const docsPath = getDocsBasePath(lang);
         id="mobile-menu-btn"
         class="md:hidden p-2 text-on-surface/60 hover:text-on-surface transition-colors"
         aria-label={t('nav.mobile.open')}
+        aria-expanded="false"
+        aria-controls="mobile-menu"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 6h16M4 12h16M4 18h16"/>
@@ -67,6 +69,7 @@ const docsPath = getDocsBasePath(lang);
   });
 
   btn?.addEventListener('click', () => {
-    menu?.classList.toggle('hidden');
+    const nowHidden = menu?.classList.toggle('hidden');
+    btn.setAttribute('aria-expanded', String(!nowHidden));
   });
 </script>

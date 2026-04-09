@@ -113,7 +113,7 @@ const slugToPath = (slug: string) => `${docsBase}/${slug}`;
       <aside class="absolute left-0 top-0 bottom-0 w-72 bg-surface-container-low flex flex-col">
         <div class="px-6 py-6 border-b border-outline-variant/15 flex items-center justify-between">
           <span class="font-headline text-xs font-bold tracking-[0.2em] uppercase text-primary">DRAVR</span>
-          <button id="close-sidebar" class="text-on-surface/40 hover:text-on-surface transition-colors">
+          <button id="close-sidebar" class="text-on-surface/40 hover:text-on-surface transition-colors" aria-label={t('docs.sidebar.toggle')}>
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M6 6l12 12"/>
             </svg>

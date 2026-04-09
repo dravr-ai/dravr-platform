@@ -20,6 +20,7 @@ const reason = Astro.url.searchParams.get('reason');
         alt={t('login.img.alt')}
         class="w-full h-full object-cover"
         src="/images/boreal-river.jpg"
+        fetchpriority="high"
       />
       <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
     </div>
@@ -127,7 +128,7 @@ const reason = Astro.url.searchParams.get('reason');
 
 </Base>
 
-<script define:vars={{ sendingText: '', errorText: '', checkText: '', sentText: '' }}>
+<script>
   import { createBrowserClient } from '../../lib/supabase';
 
   const form = document.getElementById('login-form');
@@ -143,15 +144,17 @@ const reason = Astro.url.searchParams.get('reason');
     e.preventDefault();
     const email = form.elements.namedItem('email').value.trim();
     const btn = form.querySelector('button[type="submit"]');
+    const originalBtnHTML = btn.innerHTML;
 
     btn.disabled = true;
     btn.innerHTML = `<span class="font-headline tracking-widest">${textSending}</span>`;
 
+    const lang = window.location.pathname.startsWith('/fr') ? 'fr' : 'en';
     const supabase = createBrowserClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/docs/auth/callback`,
+        emailRedirectTo: `${window.location.origin}/docs/auth/callback?lang=${lang}`,
       },
     });
 
@@ -161,10 +164,7 @@ const reason = Astro.url.searchParams.get('reason');
         statusEl.textContent = textError;
         statusEl.className = 'text-sm font-label text-error';
         btn.disabled = false;
-        btn.innerHTML = `
-          ${document.querySelector('button[type="submit"] span:first-child')?.textContent ?? 'Initialize Session'}
-          <span class="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">arrow_forward</span>
-        `;
+        btn.innerHTML = originalBtnHTML;
       } else {
         statusEl.textContent = textCheck;
         statusEl.className = 'text-sm font-label text-on-surface-variant';

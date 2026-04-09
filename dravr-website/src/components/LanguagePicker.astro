@@ -18,6 +18,7 @@ const lang = getLangFromUrl(Astro.url);
       <a
         href={href}
         aria-current={isActive ? 'true' : undefined}
+        aria-label={isActive ? `${label} (current language)` : label}
         class={`px-1.5 py-0.5 rounded transition-colors ${
           isActive
             ? 'text-on-surface font-semibold'

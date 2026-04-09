@@ -59,6 +59,7 @@ const lang = getLangFromUrl(Astro.url);
   <main>
     <slot />
   </main>
+  <slot name="after-main" />
   {!noFooter && <Footer />}
 </body>
 </html>

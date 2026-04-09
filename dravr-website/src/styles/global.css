@@ -2,6 +2,7 @@
 /* ABOUTME: Boreal Editorial design system — full MD3 token set, matches Stitch designs exactly */
 
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @theme {
   /* ── MD3 Color Tokens (from Stitch) ── */
@@ -79,6 +80,9 @@
   /* ── Box shadows ── */
   --shadow-ambient: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
   --shadow-card: 0 24px 48px -12px rgba(26, 28, 27, 0.06);
+
+  /* ── Brand tracking ── */
+  --tracking-brand: 0.15em;
 }
 
 @layer base {

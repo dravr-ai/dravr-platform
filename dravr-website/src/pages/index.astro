@@ -21,12 +21,13 @@ const docsBase = getDocsBasePath(lang);
         alt={t('home.img.alt')}
         class="w-full h-full object-cover"
         src="/images/boreal-river.jpg"
+        fetchpriority="high"
       />
       <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
     </div>
 
     <!-- Hero Content Section -->
-    <section class="relative z-20 w-full max-w-7xl px-8 flex flex-col items-center text-center">
+    <section id="waitlist" class="relative z-20 w-full max-w-7xl px-8 flex flex-col items-center text-center">
 
       <!-- Brand Anchor -->
       <div class="mb-12">
@@ -98,8 +99,8 @@ const docsBase = getDocsBasePath(lang);
 
   </div>
 
-  <!-- Footer -->
-  <footer class="fixed bottom-0 left-0 w-full z-30 py-8 bg-transparent">
+  <!-- Footer (outside main via named slot) -->
+  <footer slot="after-main" class="fixed bottom-0 left-0 w-full z-30 py-8 bg-transparent">
     <div class="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-between items-center gap-4">
       <div class="text-2xl font-bold tracking-[0.15em] uppercase text-white/90 font-headline">
         DRAVR
@@ -120,7 +121,7 @@ const docsBase = getDocsBasePath(lang);
 
 </Base>
 
-<script define:vars={{ successMsg: '', errorMsg: '' }}>
+<script>
   const form = document.getElementById('waitlist-form');
   const status = document.getElementById('waitlist-status');
 

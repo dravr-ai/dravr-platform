@@ -36,7 +36,7 @@ export const ui = {
     'footer.privacy': 'Privacy Policy',
     'footer.terms': 'Terms of Service',
     'footer.docs': 'Documentation',
-    'footer.rights': '© 2025 DRAVR. All rights reserved.',
+    'footer.rights': '© 2026 DRAVR. All rights reserved.',
     // Footer component
     'footer.alpha': 'Alpha Docs',
     'footer.short.rights': '© 2026 Dravr. All rights reserved.',
@@ -111,7 +111,7 @@ export const ui = {
     'footer.privacy': 'Politique de confidentialité',
     'footer.terms': 'Conditions d\'utilisation',
     'footer.docs': 'Documentation',
-    'footer.rights': '© 2025 DRAVR. Tous droits réservés.',
+    'footer.rights': '© 2026 DRAVR. Tous droits réservés.',
     // Footer component
     'footer.alpha': 'Docs Alpha',
     'footer.short.rights': '© 2026 Dravr. Tous droits réservés.',
