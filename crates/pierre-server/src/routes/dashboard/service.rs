@@ -298,57 +298,41 @@ impl DashboardRoutes {
             user_id, days
         );
 
-        let api_keys = self
-            .resources
-            .repos
-            .api_keys
-            .get_for_user(user_id)
-            .await
-            .map_err(|e| AppError::database(format!("Failed to get user API keys: {e}")))?;
         let start_date = Utc::now() - Duration::days(i64::from(days));
 
-        // Time series data (daily aggregates)
+        // Use LLM usage daily series (covers all requests, not just API key ones)
+        let since = start_date.format("%Y-%m-%d").to_string();
+        let tenant_id = auth
+            .active_tenant_id
+            .map_or_else(String::new, |tid| tid.to_string());
+        let llm_daily = self
+            .resources
+            .repos
+            .llm_usage
+            .get_llm_usage_daily_series(&tenant_id, &since)
+            .await
+            .unwrap_or_default();
+
+        let llm_by_date: std::collections::HashMap<String, &pierre_core::models::LlmUsageDailyRow> =
+            llm_daily.iter().map(|r| (r.date.clone(), r)).collect();
+
+        // Time series data (daily aggregates from LLM usage)
         let mut time_series = Vec::new();
         for day in 0..days {
             let day_start = start_date + Duration::days(i64::from(day));
-            let day_end = day_start + Duration::days(1);
+            let day_date = day_start.format("%Y-%m-%d").to_string();
 
-            let mut total_requests = 0u64;
-            let mut total_errors = 0u64;
-            let mut total_response_time = 0u64;
-            let mut response_count = 0u64;
-
-            for api_key in &api_keys {
-                let stats = self
-                    .resources
-                    .repos
-                    .usage
-                    .get_api_key_stats(&api_key.id, day_start, day_end)
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!(
-                            "Failed to get API key usage stats for time series: {e}"
-                        ))
-                    })?;
-
-                total_requests += u64::from(stats.total_requests);
-                total_errors += u64::from(stats.failed_requests);
-                total_response_time += stats.total_response_time_ms;
-                response_count += u64::from(stats.total_requests);
-            }
+            let (request_count, error_count) = if let Some(row) = llm_by_date.get(&day_date) {
+                (row.calls.unsigned_abs(), 0u64)
+            } else {
+                (0u64, 0u64)
+            };
 
             time_series.push(UsageDataPoint {
-                date: day_start.format("%Y-%m-%d").to_string(),
-                request_count: total_requests,
-                error_count: total_errors,
-                average_response_time: if response_count > 0 {
-                    {
-                        f64::from(u32::try_from(total_response_time).unwrap_or(u32::MAX))
-                            / f64::from(u32::try_from(response_count).unwrap_or(u32::MAX))
-                    }
-                } else {
-                    0.0
-                },
+                date: day_date,
+                request_count,
+                error_count,
+                average_response_time: 0.0,
             });
         }
 

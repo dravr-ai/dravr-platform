@@ -147,9 +147,9 @@ describe('Dashboard Component', () => {
 
     // Admin sidebar tabs: Users, Coaches, Coach Store, Groups,
     // Tool Management, Prompts, Activity, Engagement, Notifications,
-    // API Keys, Analytics (Overview was removed)
+    // Service Tokens, Analytics (Overview was removed)
     expect(screen.getAllByText('Users').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('API Keys').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Service Tokens').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Analytics').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Activity').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Engagement').length).toBeGreaterThan(0);
@@ -192,7 +192,7 @@ describe('Dashboard Component', () => {
     });
   });
 
-  it('should switch to API Keys tab', async () => {
+  it('should switch to Service Tokens tab', async () => {
     const user = userEvent.setup();
 
     await act(async () => {
@@ -200,7 +200,7 @@ describe('Dashboard Component', () => {
     });
 
     // Click the sidebar nav button (first element found)
-    const buttons = screen.getAllByText('API Keys');
+    const buttons = screen.getAllByText('Service Tokens');
     await user.click(buttons[0]);
 
     // Wait for lazy component to load

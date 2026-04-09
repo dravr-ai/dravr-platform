@@ -73,15 +73,15 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
   });
 
   // ========================================
-  // API Keys Tab
+  // Service Tokens Tab
   // ========================================
-  test.describe('API Keys Tab', () => {
+  test.describe('Service Tokens Tab', () => {
     test.beforeEach(async ({ page }) => {
       await loginAsUser(page, 'admin');
     });
 
     test('connections - displays OAuth providers', async ({ page }) => {
-      await navigateToTab(page, 'API Keys');
+      await navigateToTab(page, 'Service Tokens');
       await waitForNetworkIdle(page);
 
       // Should show provider cards or empty state
@@ -92,7 +92,7 @@ test.describe('ASY-312: Web Admin Mode Visual Tests', () => {
     });
 
     test('connections - shows connection status', async ({ page }) => {
-      await navigateToTab(page, 'API Keys');
+      await navigateToTab(page, 'Service Tokens');
       await waitForNetworkIdle(page);
 
       await takeVisualScreenshot(page, 'admin-connections', 'status');

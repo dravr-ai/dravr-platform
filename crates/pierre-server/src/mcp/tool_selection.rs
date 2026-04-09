@@ -293,6 +293,10 @@ impl ToolSelectionService {
             .iter()
             .filter(|t| t.source == ToolEnablementSource::TenantOverride)
             .count();
+        let globally_disabled_count = tools
+            .iter()
+            .filter(|t| t.source == ToolEnablementSource::GlobalDisabled)
+            .count();
 
         // Group by category
         let mut category_map: HashMap<ToolCategory, (usize, usize)> = HashMap::new();
@@ -318,6 +322,7 @@ impl ToolSelectionService {
             enabled_tools,
             plan_restricted_tools,
             overridden_tools,
+            globally_disabled_count,
             by_category,
         })
     }

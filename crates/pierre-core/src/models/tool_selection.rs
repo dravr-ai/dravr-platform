@@ -223,6 +223,8 @@ pub struct ToolAvailabilitySummary {
     pub plan_restricted_tools: usize,
     /// Tools with tenant-specific overrides
     pub overridden_tools: usize,
+    /// Tools disabled globally via environment variable
+    pub globally_disabled_count: usize,
     /// Breakdown by category
     pub by_category: Vec<CategorySummary>,
 }
