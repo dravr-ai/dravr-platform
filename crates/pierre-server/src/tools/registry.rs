@@ -84,6 +84,9 @@ pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn McpTool>>,
     /// Tool categories for organization
     categories: HashMap<String, Vec<String>>,
+    /// External tool description overlays from contremaitre (hot-reloadable)
+    #[cfg(feature = "contremaitre")]
+    tool_descriptions: Option<Arc<crate::contremaitre::ToolDescriptionRegistry>>,
 }
 
 impl ToolRegistry {
@@ -93,7 +96,48 @@ impl ToolRegistry {
         Self {
             tools: HashMap::new(),
             categories: HashMap::new(),
+            #[cfg(feature = "contremaitre")]
+            tool_descriptions: None,
         }
+    }
+
+    /// Set the external tool description registry for schema overlay.
+    #[cfg(feature = "contremaitre")]
+    pub fn set_tool_descriptions(
+        &mut self,
+        registry: Arc<crate::contremaitre::ToolDescriptionRegistry>,
+    ) {
+        self.tool_descriptions = Some(registry);
+    }
+
+    /// Build a `ToolSchema` from a tool, applying external description overlays if available.
+    fn build_schema(&self, tool: &Arc<dyn McpTool>) -> ToolSchema {
+        let mut schema = ToolSchema {
+            name: tool.name().to_owned(),
+            description: tool.description().to_owned(),
+            input_schema: tool.input_schema(),
+            annotations: tool.annotations(),
+        };
+
+        #[cfg(feature = "contremaitre")]
+        if let Some(desc_registry) = &self.tool_descriptions {
+            if let Some(overlay) = desc_registry.get_overlay(tool.name()) {
+                if let Some(desc) = overlay.description {
+                    schema.description = desc;
+                }
+                if let Some(props) = &mut schema.input_schema.properties {
+                    for (param_name, param_overlay) in &overlay.parameters {
+                        if let Some(prop) = props.get_mut(param_name) {
+                            if let Some(desc) = &param_overlay.description {
+                                prop.description = Some(desc.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        schema
     }
 
     /// Register a tool in the registry
@@ -199,12 +243,7 @@ impl ToolRegistry {
         self.tools
             .values()
             .filter(|tool| is_admin || !tool.capabilities().is_admin_only())
-            .map(|tool| ToolSchema {
-                name: tool.name().to_owned(),
-                description: tool.description().to_owned(),
-                input_schema: tool.input_schema(),
-                annotations: tool.annotations(),
-            })
+            .map(|tool| self.build_schema(tool))
             .collect()
     }
 
@@ -220,12 +259,7 @@ impl ToolRegistry {
         self.tools
             .values()
             .filter(|tool| tool.capabilities().is_admin_only())
-            .map(|tool| ToolSchema {
-                name: tool.name().to_owned(),
-                description: tool.description().to_owned(),
-                input_schema: tool.input_schema(),
-                annotations: tool.annotations(),
-            })
+            .map(|tool| self.build_schema(tool))
             .collect()
     }
 

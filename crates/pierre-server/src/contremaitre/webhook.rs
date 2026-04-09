@@ -86,7 +86,7 @@ fn collect_changed_paths(event: &PushEvent) -> Vec<String> {
 
     changed_paths
         .into_iter()
-        .filter(|p| p.starts_with("prompts/"))
+        .filter(|p| p.starts_with("prompts/") || p.starts_with("tools/"))
         .collect()
 }
 
@@ -117,17 +117,21 @@ fn check_branch_match(event: &PushEvent, expected_branch: &str) -> Result<(), St
     }
 }
 
-/// Spawn a background selective sync for the changed prompt files.
+/// Spawn a background selective sync for the changed prompt/tool files.
 fn spawn_selective_sync(
     resources: &Arc<ServerResources>,
     config: &super::config::ContremaitreConfig,
     filtered_paths: Vec<String>,
 ) {
     let registry = Arc::clone(&resources.prompt_registry);
+    let tool_desc_registry = Arc::clone(&resources.tool_description_registry);
     let client = config.github_client();
 
     tokio::spawn(async move {
-        if let Err(e) = super::sync::selective_sync(&registry, &client, &filtered_paths).await {
+        if let Err(e) =
+            super::sync::selective_sync(&registry, &tool_desc_registry, &client, &filtered_paths)
+                .await
+        {
             warn!(error = %e, "Contremaitre selective sync failed");
         } else {
             info!("Contremaitre selective sync completed");

@@ -115,6 +115,7 @@ fn test_manifest_round_trip() {
             },
             coaches: HashMap::new(),
         },
+        tools: Default::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");

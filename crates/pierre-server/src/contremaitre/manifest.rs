@@ -17,10 +17,13 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (currently 1)
+    /// Schema version (1 = prompts only, 2 = prompts + tools)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
+    /// Tool description entries keyed by tool name (version 2+)
+    #[serde(default)]
+    pub tools: ManifestTools,
 }
 
 /// Prompt entries grouped by type: system prompts and coach personas.
@@ -31,6 +34,10 @@ pub struct ManifestPrompts {
     /// Coach personas keyed by slug (e.g., "marathon-coach", "5k-speed-coach")
     pub coaches: HashMap<String, ManifestEntry>,
 }
+
+/// Top-level manifest structure (version 2+) adds tool description entries.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
 
 /// A single prompt entry in the manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,9 +61,9 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ContremaitreError> {
     let manifest: Manifest =
         serde_json::from_str(json).map_err(|e| ContremaitreError::ManifestParse(e.to_string()))?;
 
-    if manifest.version != 1 {
+    if manifest.version == 0 || manifest.version > 2 {
         return Err(ContremaitreError::ManifestParse(format!(
-            "unsupported manifest version: {} (expected 1)",
+            "unsupported manifest version: {} (expected 1 or 2)",
             manifest.version
         )));
     }
