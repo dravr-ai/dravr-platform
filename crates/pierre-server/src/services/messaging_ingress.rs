@@ -1591,6 +1591,9 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     };
 
     send_outbound_response(&dispatch, &outgoing).await;
+
+    // Held until here to serialize dispatches for the same conversation
+    drop(dispatch_guard);
 }
 
 /// Send a user-facing error message when LLM dispatch fails or returns empty content.
