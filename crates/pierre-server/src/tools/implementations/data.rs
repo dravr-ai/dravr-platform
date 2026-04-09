@@ -131,7 +131,7 @@ impl McpTool for GetActivitiesTool {
             PropertySchema {
                 property_type: "integer".to_owned(),
                 description: Some(
-                    "Maximum number of activities to return. Defaults to format-aware limit to prevent context overflow.".to_owned(),
+                    "Maximum number of activities to return (1-400). Use the smallest value that answers the question: 1 for 'last activity', 5-10 for 'this week', 20 for broader queries. Response includes has_more and pagination info for follow-up requests.".to_owned(),
                 ),
                 ..Default::default()
             },
