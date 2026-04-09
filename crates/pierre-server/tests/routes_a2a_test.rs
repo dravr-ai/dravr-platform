@@ -359,7 +359,7 @@ async fn test_agent_card_structure_compliance() {
     let agent_card = setup.routes.get_agent_card().unwrap();
 
     // Test required fields are present
-    assert_eq!(agent_card.name, "Pierre Fitness AI");
+    assert_eq!(agent_card.name, "Dravr AI");
     assert!(agent_card.description.contains("AI-powered fitness"));
     assert!(!agent_card.version.is_empty());
 
@@ -1122,7 +1122,7 @@ async fn test_client_info_method() {
     assert!(response["result"].is_object());
 
     let result = &response["result"];
-    assert_eq!(result["name"], "Pierre Fitness AI");
+    assert_eq!(result["name"], "Dravr AI");
     assert_eq!(result["version"], "1.0.0");
     assert!(result["capabilities"].is_array());
     assert!(result["protocols"].is_array());
@@ -1749,7 +1749,7 @@ fn create_test_server_config() -> ServerConfig {
             auto_approve_domains: vec![],
             protocol: ProtocolConfig {
                 mcp_version: "2024-11-05".to_owned(),
-                server_name: "Pierre Fitness AI".to_owned(),
+                server_name: "Dravr AI".to_owned(),
                 server_version: "1.0.0".to_owned(),
             },
         },
