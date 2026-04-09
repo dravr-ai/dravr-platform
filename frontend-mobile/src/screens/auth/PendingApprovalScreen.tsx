@@ -59,7 +59,7 @@ export function PendingApprovalScreen() {
             {/* Pierre Logo */}
             <View className="items-center">
               <Image
-                source={require('../../../assets/pierre-logo.png')}
+                source={require('../../../assets/dravr-logo.png')}
                 style={logoStyle}
                 resizeMode="contain"
               />
@@ -70,7 +70,7 @@ export function PendingApprovalScreen() {
               Account Pending Approval
             </Text>
             <Text className="text-sm text-text-secondary text-center leading-5 mb-2">
-              Thank you for registering with Pierre! Your account is currently
+              Thank you for registering with Dravr! Your account is currently
               being reviewed by our team.
             </Text>
             <Text className="text-sm text-text-secondary text-center leading-5 mb-4">

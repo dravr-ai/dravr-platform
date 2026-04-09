@@ -58,8 +58,8 @@ export default function ChatSidebar({
       <div className="p-4 flex items-center justify-between flex-shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2">
-          <img src="/pierre-icon.svg" alt="Pierre" className="w-8 h-8" />
-          <span className="text-lg font-semibold text-white">Pierre</span>
+          <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8" />
+          <span className="text-lg font-semibold text-white">Dravr</span>
         </div>
         {/* New Chat Button */}
         <button

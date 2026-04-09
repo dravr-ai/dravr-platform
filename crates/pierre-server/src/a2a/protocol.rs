@@ -142,7 +142,7 @@ impl A2AServer {
                 "tools/call"
             ],
             "agent": {
-                "name": "Pierre Fitness Intelligence Agent",
+                "name": "Dravr Agent",
                 "version": "1.0.0",
                 "description": "AI-powered fitness data analysis and insights platform"
             }

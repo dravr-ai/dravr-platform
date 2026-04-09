@@ -118,7 +118,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 Create Your Account
               </h1>
               <p className="mt-1 text-sm text-zinc-400">
-                Join Pierre Fitness Intelligence
+                Join Dravr
               </p>
             </div>
 

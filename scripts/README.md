@@ -1,6 +1,6 @@
 # Scripts Directory
 
-CI/Dev tools for validation, testing, and release of the Pierre MCP Server.
+CI/Dev tools for validation, testing, and release of the Dravr MCP Server.
 
 For runtime scripts (starting/stopping services), see [bin/README.md](../bin/README.md).
 

@@ -1,4 +1,4 @@
-# ABOUTME: Helper flow to launch the Pierre app fresh for Expo Go E2E testing
+# ABOUTME: Helper flow to launch the Dravr app fresh for Expo Go E2E testing
 # ABOUTME: Uses clearKeychain (not clearState) to preserve dev menu dismiss flag across tests
 
 appId: host.exp.Exponent
@@ -26,13 +26,13 @@ appId: host.exp.Exponent
 - tapOn:
     point: "50%,10%"
 
-# Wait for Expo Go to load the project. The "Pierre" text appears in the
+# Wait for Expo Go to load the project. The "Dravr" text appears in the
 # project info sheet once the JS bundle is loaded.
 - extendedWaitUntil:
-    visible: "Pierre"
+    visible: "Dravr"
     timeout: 120000
 
-# Expo Go v55 shows a project info sheet ("Pierre", "Close", "Reload", "Go Home")
+# Expo Go v55 shows a project info sheet ("Dravr", "Close", "Reload", "Go Home")
 # after loading via deep link. This sheet overlays the RN accessibility tree.
 # The `runFlow: when: visible:` check runs ONCE instantly (no polling/timeout),
 # so we retry with delays to catch sheets that appear late.

@@ -298,7 +298,7 @@ export function SciotteLoginModal({
           })}
 
           <Text className="text-xs text-text-tertiary text-center mt-2 px-4">
-            Pierre uses a secure browser session to connect your account. Your credentials are never stored.
+            Dravr uses a secure browser session to connect your account. Your credentials are never stored.
           </Text>
         </View>
       );

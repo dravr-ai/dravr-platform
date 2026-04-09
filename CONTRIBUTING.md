@@ -1,4 +1,4 @@
-# Contributing to Pierre Fitness Platform
+# Contributing to Dravr
 
 Thank you for your interest in contributing! This guide covers everything you need to make your first contribution.
 
@@ -69,7 +69,7 @@ Ready to contribute - create a pull request from your branch.
 ### Feature Requests  
 - Use GitHub Issues with the "enhancement" label
 - Describe the use case and expected behavior
-- Consider if it fits Pierre's scope (fitness data + AI protocols)
+- Consider if it fits Dravr's scope (fitness data + AI protocols)
 
 ### Documentation
 - Fix typos, improve clarity, add missing examples
@@ -160,7 +160,7 @@ cargo test                  # All tests pass
 
 ### Automated Git Hooks (Zero Manual Commands Required!)
 
-Pierre uses automated git hooks to ensure code quality. **You don't need to run any commands manually!**
+Dravr uses automated git hooks to ensure code quality. **You don't need to run any commands manually!**
 
 #### Initial Setup (One Time)
 ```bash
@@ -298,7 +298,7 @@ Fixes #123, relates to #456
 
 ## Architecture Overview
 
-Pierre is a Rust workspace with 7 crates, designed to be modular and extensible:
+Dravr is a Rust workspace with 7 crates, designed to be modular and extensible:
 
 - **Main Server** (`src/`): Routes, MCP protocol, tools, database, authentication
 - **Core** (`crates/pierre-core/`): Shared types, errors, pagination, constants
@@ -418,7 +418,7 @@ Unacceptable behavior will not be tolerated. Contact maintainers if you experien
 
 ## License
 
-By contributing to Pierre, you agree that your contributions will be licensed under the same dual license as the project (MIT OR Apache-2.0).
+By contributing to Dravr, you agree that your contributions will be licensed under the same dual license as the project (MIT OR Apache-2.0).
 
 ---
 

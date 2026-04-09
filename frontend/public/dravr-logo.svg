@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
-  <title>Pierre Fitness Platform</title>
+  <title>Dravr</title>
   <desc>Holistic fitness intelligence - running figure composed of data nodes representing Activity, Nutrition, and Recovery pillars</desc>
 
   <defs>
-    <!-- Pierre Primary Gradient -->
+    <!-- Primary Gradient -->
     <linearGradient id="pierreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#7C3AED"/>
       <stop offset="100%" style="stop-color:#06B6D4"/>

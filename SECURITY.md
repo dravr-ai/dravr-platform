@@ -42,7 +42,7 @@ We take security vulnerabilities seriously. Please report security issues respon
 
 ## Security Best Practices
 
-When deploying Pierre Fitness Platform:
+When deploying Dravr:
 
 1. **Use HTTPS** in production
 2. **Rotate JWT tokens** regularly
@@ -54,7 +54,7 @@ When deploying Pierre Fitness Platform:
 
 ## Security Features
 
-Pierre includes:
+Dravr includes:
 
 - RS256 asymmetric JWT signing (4096-bit keys)
 - AES-256-GCM encryption for stored tokens

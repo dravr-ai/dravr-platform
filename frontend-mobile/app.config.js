@@ -1,8 +1,8 @@
-// ABOUTME: Expo configuration for Pierre mobile app
+// ABOUTME: Expo configuration for Dravr mobile app
 // ABOUTME: Uses Expo Go for development; native builds only needed for speech recognition testing
 
 module.exports = {
-  name: 'Pierre',
+  name: 'Dravr',
   slug: 'pierre-mobile',
   version: '1.0.0',
   runtimeVersion: {
@@ -23,9 +23,9 @@ module.exports = {
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSMicrophoneUsageDescription:
-        'Pierre needs microphone access to capture your voice for speech-to-text transcription.',
+        'Dravr needs microphone access to capture your voice for speech-to-text transcription.',
       NSSpeechRecognitionUsageDescription:
-        'Pierre uses speech recognition to transcribe your voice messages into text queries.',
+        'Dravr uses speech recognition to transcribe your voice messages into text queries.',
     },
   },
   android: {
@@ -67,9 +67,9 @@ module.exports = {
       'expo-speech-recognition',
       {
         microphonePermission:
-          'Pierre needs microphone access to capture your voice for speech-to-text transcription.',
+          'Dravr needs microphone access to capture your voice for speech-to-text transcription.',
         speechRecognitionPermission:
-          'Pierre uses speech recognition to transcribe your voice messages into text queries.',
+          'Dravr uses speech recognition to transcribe your voice messages into text queries.',
         androidSpeechServicePackages: ['com.google.android.googlequicksearchbox'],
       },
     ],

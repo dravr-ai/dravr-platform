@@ -1,4 +1,4 @@
-# Pierre MCP Server - Docker Compose for Development
+# Dravr MCP Server - Docker Compose for Development
 version: '3.8'
 
 # Load environment variables from .envrc (direnv)

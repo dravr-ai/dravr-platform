@@ -717,7 +717,7 @@ export function CoachLibraryScreen() {
                 </Text>
                 <Text className="text-base text-text-tertiary text-center">
                   {coaches.length === 0
-                    ? 'Create your first coach to customize how Pierre helps you.'
+                    ? 'Create your first coach to customize how Dravr helps you.'
                     : 'Try adjusting your filters.'}
                 </Text>
               </View>

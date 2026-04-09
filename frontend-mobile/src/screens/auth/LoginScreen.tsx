@@ -175,12 +175,12 @@ export function LoginScreen() {
               {/* Logo and Header */}
               <View className="items-center mb-6">
                 <Image
-                  source={require('../../../assets/pierre-logo.png')}
+                  source={require('../../../assets/dravr-logo.png')}
                   style={logoStyle}
                   resizeMode="contain"
                 />
                 <Text className="text-xl font-bold text-text-primary mb-1">
-                  Welcome to Pierre
+                  Welcome to Dravr
                 </Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">
                   Your AI-powered fitness intelligence companion

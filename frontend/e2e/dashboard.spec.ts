@@ -210,16 +210,15 @@ test.describe('Dashboard Navigation', () => {
 });
 
 test.describe('Dashboard Sidebar', () => {
-  test('displays Pierre logo and branding', async ({ page }) => {
+  test('displays Dravr logo and branding', async ({ page }) => {
     // Sidebar tests require admin users (non-admin users see chat-first layout)
     await setupFullDashboardMocks(page, { isAdmin: true });
     await loginAndGoToDashboard(page);
 
     await page.waitForSelector('nav', { timeout: 10000 });
 
-    // Check for Pierre branding text (use exact match to avoid matching "Chat with Pierre")
-    await expect(page.getByText('Pierre', { exact: true })).toBeVisible();
-    await expect(page.getByText('Fitness Intelligence')).toBeVisible();
+    // Check for Dravr branding text
+    await expect(page.getByText('Dravr', { exact: true })).toBeVisible();
   });
 
   test('collapses and expands sidebar', async ({ page }) => {
@@ -237,7 +236,7 @@ test.describe('Dashboard Sidebar', () => {
     await collapseButton.click();
 
     // Sidebar should be collapsed - branding text should be hidden
-    await expect(page.getByText('Fitness Intelligence')).not.toBeVisible();
+    await expect(page.getByText('Dravr', { exact: true })).not.toBeVisible();
 
     // Expand button should now be present
     const expandButton = page.locator('button[title="Expand sidebar"]');
@@ -247,7 +246,7 @@ test.describe('Dashboard Sidebar', () => {
     await expandButton.click();
 
     // Branding should be visible again
-    await expect(page.getByText('Fitness Intelligence')).toBeVisible();
+    await expect(page.getByText('Dravr', { exact: true })).toBeVisible();
   });
 
   test('shows tooltips in collapsed state', async ({ page }) => {

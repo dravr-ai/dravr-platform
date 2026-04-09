@@ -68,7 +68,7 @@ export async function loginWithCredentials(
     console.log('[Login] Waiting for dashboard content...');
     try {
       const dashboardLocator = page.locator('nav')
-        .or(page.locator('text=Pierre'))
+        .or(page.locator('text=Dravr'))
         .or(page.locator('[class*="dashboard"]'));
       await dashboardLocator.first().waitFor({ state: 'visible', timeout: 10000 });
       console.log('[Login] Dashboard content visible');
@@ -230,7 +230,7 @@ export async function navigateToTab(page: Page, tabName: string): Promise<void> 
  * Wait for the dashboard to fully load after login.
  */
 export async function waitForDashboardLoad(page: Page): Promise<void> {
-  await page.waitForSelector('text=Pierre', { timeout: 15000 });
+  await page.waitForSelector('text=Dravr', { timeout: 15000 });
 
   await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {
     // Network idle timeout is acceptable, page may have ongoing requests

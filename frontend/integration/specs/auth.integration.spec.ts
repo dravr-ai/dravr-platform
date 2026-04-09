@@ -25,7 +25,7 @@ test.describe('Authentication Integration Tests', () => {
 
       await waitForDashboardLoad(page);
 
-      await expect(page.locator('text=Pierre')).toBeVisible();
+      await expect(page.locator('text=Dravr')).toBeVisible();
     });
 
     test('login persists across page reload', async ({ page }) => {
@@ -109,7 +109,7 @@ test.describe('Authentication Integration Tests', () => {
       const statsVisible = await page.locator('[class*="stat"], [class*="card"]').first().isVisible()
         .catch(() => false);
 
-      expect(statsVisible || await page.locator('text=Pierre').isVisible()).toBe(true);
+      expect(statsVisible || await page.locator('text=Dravr').isVisible()).toBe(true);
     });
 
     test('multiple users can have separate sessions', async ({ browser }) => {

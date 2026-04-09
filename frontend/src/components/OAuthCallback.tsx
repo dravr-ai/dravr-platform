@@ -95,7 +95,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
             </svg>
           </div>
 
-          <div className="text-lg font-bold text-pierre-gray-900 mb-6">Pierre Fitness Intelligence</div>
+          <div className="text-lg font-bold text-pierre-gray-900 mb-6">Dravr</div>
 
           {success ? (
             <>

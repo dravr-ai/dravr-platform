@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="templates/pierre-logo.svg" width="150" height="150" alt="Pierre Fitness Platform Logo">
-  <h1>Pierre Fitness Platform</h1>
+  <img src="templates/dravr-logo.svg" width="150" height="150" alt="Dravr Logo">
+  <h1>Dravr</h1>
 </div>
 
 [![Backend CI](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/ci-backend.yml)
@@ -10,7 +10,7 @@
 [![MCP Compliance](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mcp-compliance.yml)
 [![Mobile Tests](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml/badge.svg)](https://github.com/dravr-ai/dravr-platform/actions/workflows/mobile-tests.yml)
 
-Pierre Fitness Platform connects AI assistants to fitness data from Strava, Garmin, Fitbit, WHOOP, COROS, and Terra (150+ wearables). Implements Model Context Protocol (MCP), A2A protocol, OAuth 2.0, and REST APIs for Claude, ChatGPT, and other AI assistants.
+Dravr connects AI assistants to fitness data from Strava, Garmin, Fitbit, WHOOP, COROS, and Terra (150+ wearables). Implements Model Context Protocol (MCP), A2A protocol, OAuth 2.0, and REST APIs for Claude, ChatGPT, and other AI assistants.
 
 ## Intelligence System
 

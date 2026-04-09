@@ -7,9 +7,9 @@
 #![recursion_limit = "256"]
 #![deny(unsafe_code)]
 
-//! # Pierre Fitness API Server Binary
+//! # Dravr API Server Binary
 //!
-//! This binary starts the multi-protocol Pierre Fitness API with user authentication,
+//! This binary starts the multi-protocol Dravr API with user authentication,
 //! secure token storage, and database management.
 
 use clap::{error::ErrorKind, Parser};
@@ -40,11 +40,11 @@ use std::{env, sync::Arc};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info};
 
-/// Command-line arguments for the Pierre MCP server
+/// Command-line arguments for the Dravr MCP server
 #[derive(Parser)]
 #[command(name = "pierre-mcp-server")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(about = "Pierre Fitness API - Multi-protocol fitness data API for LLMs")]
+#[command(about = "Dravr API - Multi-protocol fitness data API for LLMs")]
 pub struct Args {
     /// Configuration file path for providers
     #[arg(short, long)]
@@ -139,7 +139,7 @@ fn setup_configuration(args: &Args) -> Result<ServerConfig> {
     }
 
     logging::init_from_env()?;
-    info!("Starting Pierre Fitness API - Production Mode");
+    info!("Starting Dravr API - Production Mode");
     info!("{}", config.summary());
 
     validate_oauth_providers(&config);
@@ -184,7 +184,7 @@ fn validate_required_environment() -> Result<()> {
             name: "PROVIDER_LINK_WEBHOOK_URL",
             value: env::var("PROVIDER_LINK_WEBHOOK_URL").ok(),
             required: false,
-            description: "Optional outbound webhook URL for channel-initiated provider connections. When set, Pierre POSTs a `provider.linked` event to this URL on successful connection so the channel bot can post a confirmation.",
+            description: "Optional outbound webhook URL for channel-initiated provider connections. When set, Dravr POSTs a `provider.linked` event to this URL on successful connection so the channel bot can post a confirmation.",
         },
         EnvValidation {
             name: "STRAVA_CLIENT_ID",

@@ -590,7 +590,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     const strippedContent = stripContextPrefix(content);
     if (navigator.share) {
       navigator.share({
-        title: 'Pierre AI Insight',
+        title: 'Dravr AI Insight',
         text: strippedContent,
       }).catch(() => {
         // User cancelled share, ignore
@@ -778,7 +778,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                     type="text"
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder="Message Pierre..."
+                    placeholder="Message Dravr..."
                     className="w-full rounded-xl border border-white/10 bg-[#151520] text-white placeholder-zinc-500 pl-4 pr-24 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
                     disabled={createConversation.isPending}
                   />

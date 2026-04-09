@@ -255,10 +255,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
           {!sidebarCollapsed && (
             <div className="flex flex-col">
               <span className="text-lg font-semibold bg-gradient-to-r from-pierre-violet to-pierre-cyan bg-clip-text text-transparent">
-                Pierre
-              </span>
-              <span className="text-[10px] text-zinc-300 tracking-wide uppercase">
-                Fitness Intelligence
+                Dravr
               </span>
             </div>
           )}

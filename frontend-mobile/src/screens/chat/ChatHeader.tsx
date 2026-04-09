@@ -69,7 +69,7 @@ export function ChatHeader({
           <View className="relative mr-2">
             <View className="w-10 h-10 rounded-full overflow-hidden bg-pierre-slate items-center justify-center">
               <Image
-                source={require('../../../assets/pierre-logo.png')}
+                source={require('../../../assets/dravr-logo.png')}
                 className="w-10 h-10"
                 resizeMode="cover"
               />

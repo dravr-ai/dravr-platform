@@ -234,7 +234,7 @@ jobs:
               point: "50%,10%"
           # Wait for project to load
           - extendedWaitUntil:
-              visible: "Pierre"
+              visible: "Dravr"
               timeout: 120000
           # Multi-attempt dev panel dismiss (same strategy as iOS).
           - runFlow:

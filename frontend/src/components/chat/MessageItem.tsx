@@ -61,13 +61,13 @@ const MessageItem = memo(function MessageItem({
             </svg>
           </div>
         ) : (
-          <img src="/pierre-icon.svg" alt="Pierre" className="w-8 h-8 rounded-xl" />
+          <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
         )}
       </div>
       {/* Message Content */}
       <div className="flex-1 min-w-0 pt-1">
         <div className="font-medium text-white text-sm mb-1">
-          {isUser ? 'You' : 'Pierre'}
+          {isUser ? 'You' : 'Dravr'}
         </div>
         {/* Collapsible activity list (collapsed by default) */}
         {activityList && (

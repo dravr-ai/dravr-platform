@@ -125,7 +125,7 @@ jobs:
         run: |
           VERSION="${{ needs.validate.outputs.version }}"
           cat > release-notes.md <<EOF
-          ## Pierre MCP Server ${VERSION}
+          ## Dravr MCP Server ${VERSION}
 
           Multi-protocol fitness data API for LLMs with MCP and A2A support.
 
@@ -160,7 +160,7 @@ jobs:
           VERSION="${{ needs.validate.outputs.version }}"
           gh release create "$VERSION" \
             --draft \
-            --title "Pierre MCP Server $VERSION" \
+            --title "Dravr MCP Server $VERSION" \
             --notes-file release-notes.md
           echo "Draft release $VERSION created"
         env:
@@ -286,7 +286,7 @@ jobs:
 
           # Create INSTALL.txt with quick start instructions
           cat > "dist/${PACKAGE_NAME}/INSTALL.txt" <<EOF
-          Pierre MCP Server $VERSION - Installation Instructions
+          Dravr MCP Server $VERSION - Installation Instructions
 
           Quick Start:
           1. Add the bin/ directory to your PATH:
@@ -326,7 +326,7 @@ jobs:
 
           # Create INSTALL.txt
           @"
-          Pierre MCP Server $VERSION - Installation Instructions
+          Dravr MCP Server $VERSION - Installation Instructions
 
           Quick Start:
           1. Add the bin\ directory to your PATH or run from this directory

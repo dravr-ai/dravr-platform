@@ -1,4 +1,4 @@
-# ABOUTME: Helper flow to wait for Pierre's response after sending a message
+# ABOUTME: Helper flow to wait for Dravr's response after sending a message
 # ABOUTME: Waits for the thinking indicator to appear and then disappear
 
 appId: com.pierre.fitness

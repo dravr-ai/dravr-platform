@@ -1,4 +1,4 @@
-# ABOUTME: Maestro E2E test configuration for Pierre mobile app
+# ABOUTME: Maestro E2E test configuration for Dravr mobile app
 # ABOUTME: Defines global settings, app ID, and test flow organization
 
 appId: com.pierre.fitness

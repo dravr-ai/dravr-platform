@@ -298,7 +298,7 @@ test.describe('Chat - Welcome and Prompt Suggestions', () => {
 
   test('displays message input with placeholder', async ({ page }) => {
     // ChatTab uses <input> not <textarea> for the welcome form
-    await expect(page.getByPlaceholder('Message Pierre...')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByPlaceholder('Message Dravr...')).toBeVisible({ timeout: 10000 });
   });
 
   test('displays Send button', async ({ page }) => {

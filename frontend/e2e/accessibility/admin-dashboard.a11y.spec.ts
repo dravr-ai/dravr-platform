@@ -326,7 +326,7 @@ test.describe('Admin Dashboard Accessibility', () => {
     test('should have descriptive page title', async ({ page }) => {
       const title = await page.title();
       expect(title.length).toBeGreaterThan(0);
-      expect(title.toLowerCase()).toContain('pierre');
+      expect(title.toLowerCase()).toContain('dravr');
     });
 
     test('should update page title on navigation', async ({ page }) => {

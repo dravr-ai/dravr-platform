@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Pierre MCP Fitness API
+  title: Dravr API
   description: |
     Multi-tenant fitness data API platform that aggregates data across multiple providers through a unified MCP (Model Context Protocol) interface.
     
@@ -27,7 +27,7 @@ info:
     Connect to the MCP server via WebSocket and authenticate with JWT tokens to access all 18 fitness tools.
   version: 1.0.0
   contact:
-    name: Pierre MCP API
+    name: Dravr API
     email: contact@example.com
   license:
     name: Apache 2.0

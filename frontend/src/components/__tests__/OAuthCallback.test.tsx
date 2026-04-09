@@ -82,9 +82,9 @@ describe('OAuthCallback', () => {
     expect(stored.hasError).toBe(true)
   })
 
-  it('should show Pierre Fitness Intelligence branding', () => {
+  it('should show Dravr branding', () => {
     render(<OAuthCallback provider="strava" success={true} />)
 
-    expect(screen.getByText('Pierre Fitness Intelligence')).toBeInTheDocument()
+    expect(screen.getByText('Dravr')).toBeInTheDocument()
   })
 })
