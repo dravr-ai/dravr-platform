@@ -174,6 +174,17 @@ impl ToolRegistry {
         self.categories.keys().map(String::as_str).collect()
     }
 
+    /// Get metadata for all registered tools (name, description, capabilities).
+    ///
+    /// Used by the startup catalog sync to populate the `tool_catalog` table.
+    #[must_use]
+    pub fn all_tool_metadata(&self) -> Vec<(&str, &str, ToolCapabilities)> {
+        self.tools
+            .values()
+            .map(|tool| (tool.name(), tool.description(), tool.capabilities()))
+            .collect()
+    }
+
     /// List schemas for tools visible to a specific role
     ///
     /// # Arguments

@@ -788,6 +788,48 @@ impl ToolSelectionRepository for PostgresDatabase {
 
         Ok(count)
     }
+
+    async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO tool_catalog (id, tool_name, display_name, description, category,
+                                      is_enabled_by_default, requires_provider, min_plan,
+                                      created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+            ON CONFLICT(tool_name) DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                category = EXCLUDED.category,
+                is_enabled_by_default = EXCLUDED.is_enabled_by_default,
+                requires_provider = EXCLUDED.requires_provider,
+                min_plan = EXCLUDED.min_plan,
+                updated_at = NOW()
+            ",
+        )
+        .bind(&entry.id)
+        .bind(&entry.tool_name)
+        .bind(&entry.display_name)
+        .bind(&entry.description)
+        .bind(entry.category.as_str())
+        .bind(entry.is_enabled_by_default)
+        .bind(&entry.requires_provider)
+        .bind(entry.min_plan.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert tool catalog entry: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn delete_tool_catalog_entry(&self, tool_name: &str) -> AppResult<bool> {
+        let result = sqlx::query("DELETE FROM tool_catalog WHERE tool_name = $1")
+            .bind(tool_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to delete tool catalog entry: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }
 
 #[async_trait]

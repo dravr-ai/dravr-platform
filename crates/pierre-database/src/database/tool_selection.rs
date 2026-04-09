@@ -414,4 +414,46 @@ impl ToolSelectionRepository for Database {
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize> {
         Self::count_enabled_tools_impl(self, tenant_id).await
     }
+
+    async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()> {
+        sqlx::query(
+            r"
+            INSERT INTO tool_catalog (id, tool_name, display_name, description, category,
+                                      is_enabled_by_default, requires_provider, min_plan,
+                                      created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            ON CONFLICT(tool_name) DO UPDATE SET
+                display_name = excluded.display_name,
+                description = excluded.description,
+                category = excluded.category,
+                is_enabled_by_default = excluded.is_enabled_by_default,
+                requires_provider = excluded.requires_provider,
+                min_plan = excluded.min_plan,
+                updated_at = datetime('now')
+            ",
+        )
+        .bind(&entry.id)
+        .bind(&entry.tool_name)
+        .bind(&entry.display_name)
+        .bind(&entry.description)
+        .bind(entry.category.as_str())
+        .bind(entry.is_enabled_by_default)
+        .bind(&entry.requires_provider)
+        .bind(entry.min_plan.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert tool catalog entry: {e}")))?;
+
+        Ok(())
+    }
+
+    async fn delete_tool_catalog_entry(&self, tool_name: &str) -> AppResult<bool> {
+        let result = sqlx::query("DELETE FROM tool_catalog WHERE tool_name = ?")
+            .bind(tool_name)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to delete tool catalog entry: {e}")))?;
+
+        Ok(result.rows_affected() > 0)
+    }
 }

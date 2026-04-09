@@ -993,6 +993,11 @@ pub trait ToolSelectionRepository: Send + Sync {
     async fn delete_override(&self, tenant_id: TenantId, tool_name: &str) -> AppResult<bool>;
     /// Count enabled tools for a tenant
     async fn count_enabled_tools(&self, tenant_id: TenantId) -> AppResult<usize>;
+
+    /// Insert or update a tool catalog entry (used by startup catalog sync)
+    async fn upsert_tool_catalog_entry(&self, entry: &ToolCatalogEntry) -> AppResult<()>;
+    /// Delete a tool catalog entry by tool name (removes phantom entries)
+    async fn delete_tool_catalog_entry(&self, tool_name: &str) -> AppResult<bool>;
 }
 
 /// LLM usage tracking repository for cost analysis and quota enforcement
