@@ -643,6 +643,8 @@ async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     let user_id = user.id;
     repos.users.create(&user).await?;
@@ -700,6 +702,8 @@ async fn test_get_by_status_none_returns_all_users() -> Result<()> {
             last_active: chrono::Utc::now(),
             firebase_uid: None,
             auth_provider: String::new(),
+            analytics_consent: false,
+            analytics_consent_at: None,
         };
         repos.users.create(&user).await?;
         repos.users.update_tenant_id(user.id, tid).await?;
@@ -770,6 +774,8 @@ async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     repos.users.create(&pending).await?;
 
@@ -827,6 +833,8 @@ async fn test_update_tenant_id_idempotent() -> Result<()> {
         last_active: chrono::Utc::now(),
         firebase_uid: None,
         auth_provider: String::new(),
+        analytics_consent: false,
+        analytics_consent_at: None,
     };
     repos.users.create(&user).await?;
 
