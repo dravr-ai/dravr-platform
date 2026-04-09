@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 
 use pierre_mcp_server::contremaitre::errors::ContremaitreError;
 use pierre_mcp_server::contremaitre::manifest::{
-    compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestPrompts,
+    compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestPrompts, ManifestTools,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_mcp_server::contremaitre::webhook::verify_github_signature;
@@ -115,7 +115,7 @@ fn test_manifest_round_trip() {
             },
             coaches: HashMap::new(),
         },
-        tools: Default::default(),
+        tools: ManifestTools::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");

@@ -25,7 +25,7 @@ use crate::config::environment::ServerConfig;
 #[cfg(feature = "contremaitre")]
 use crate::contremaitre::sync::full_sync;
 #[cfg(feature = "contremaitre")]
-use crate::contremaitre::{ContremaitreConfig, PromptRegistry};
+use crate::contremaitre::{ContremaitreConfig, PromptRegistry, ToolDescriptionRegistry};
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
@@ -254,7 +254,7 @@ pub struct ServerResources {
     pub prompt_registry: Arc<PromptRegistry>,
     /// Tool description registry for hot-reloadable MCP tool schema overlays
     #[cfg(feature = "contremaitre")]
-    pub tool_description_registry: Arc<crate::contremaitre::ToolDescriptionRegistry>,
+    pub tool_description_registry: Arc<ToolDescriptionRegistry>,
     /// Contremaitre configuration for GitHub sync and webhook verification
     #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
@@ -268,12 +268,9 @@ pub struct ServerResources {
 
 /// Initialize prompt and tool description registries, sync from contremaitre if configured.
 #[cfg(feature = "contremaitre")]
-async fn init_contremaitre_registries() -> (
-    Arc<PromptRegistry>,
-    Arc<crate::contremaitre::ToolDescriptionRegistry>,
-) {
+async fn init_contremaitre_registries() -> (Arc<PromptRegistry>, Arc<ToolDescriptionRegistry>) {
     let prompt_registry = Arc::new(PromptRegistry::new());
-    let tool_desc_registry = Arc::new(crate::contremaitre::ToolDescriptionRegistry::new());
+    let tool_desc_registry = Arc::new(ToolDescriptionRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
         let client = config.github_client();
@@ -461,12 +458,7 @@ impl ServerResources {
         let tool_registry = Arc::new(Self::create_tool_registry());
 
         // Sync tool_catalog table with registry so tenant filtering always has complete data
-        if let Err(e) =
-            super::tool_selection::sync_tool_catalog(&tool_registry, repos.tool_selection.as_ref())
-                .await
-        {
-            tracing::warn!(error = %e, "Tool catalog sync failed, catalog may be incomplete");
-        }
+        Self::run_tool_catalog_sync(&tool_registry, &repos).await;
 
         // Initialize contremaitre registries (prompts + tool descriptions)
         #[cfg(feature = "contremaitre")]
@@ -607,6 +599,19 @@ impl ServerResources {
         );
 
         registry
+    }
+
+    /// Sync tool catalog table with the live tool registry at startup.
+    async fn run_tool_catalog_sync(
+        tool_registry: &Arc<ToolRegistry>,
+        repos: &Arc<RepositoryRegistry>,
+    ) {
+        if let Err(e) =
+            super::tool_selection::sync_tool_catalog(tool_registry, repos.tool_selection.as_ref())
+                .await
+        {
+            tracing::warn!(error = %e, "Tool catalog sync failed, catalog may be incomplete");
+        }
     }
 
     /// Create default activity intelligence for MCP server

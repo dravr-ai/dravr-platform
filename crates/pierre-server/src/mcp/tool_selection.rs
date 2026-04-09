@@ -471,7 +471,7 @@ fn category_from_capabilities(caps: ToolCapabilities) -> ToolCategory {
     }
 }
 
-/// Convert a snake_case tool name to Title Case display name.
+/// Convert a `snake_case` tool name to Title Case display name.
 ///
 /// `"get_activities"` becomes `"Get Activities"`, `"admin_list_system_coaches"`
 /// becomes `"Admin List System Coaches"`.
@@ -479,13 +479,10 @@ fn display_name_from_tool_name(name: &str) -> String {
     name.split('_')
         .map(|word| {
             let mut chars = word.chars();
-            match chars.next() {
-                Some(c) => {
-                    let upper: String = c.to_uppercase().collect();
-                    format!("{upper}{rest}", rest = chars.as_str())
-                }
-                None => String::new(),
-            }
+            chars.next().map_or_else(String::new, |c| {
+                let upper: String = c.to_uppercase().collect();
+                format!("{upper}{rest}", rest = chars.as_str())
+            })
         })
         .collect::<Vec<_>>()
         .join(" ")
@@ -498,6 +495,11 @@ fn display_name_from_tool_name(name: &str) -> String {
 /// Existing entries are left untouched (preserving admin customizations).
 ///
 /// Called once during server startup after the `ToolRegistry` is built.
+///
+/// # Errors
+///
+/// Returns an error if the initial catalog fetch fails. Individual insert/delete
+/// failures are logged and skipped.
 pub async fn sync_tool_catalog(
     tool_registry: &ToolRegistry,
     repo: &dyn ToolSelectionRepository,
@@ -511,20 +513,39 @@ pub async fn sync_tool_catalog(
     let registry_tools = tool_registry.all_tool_metadata();
     let registry_names: HashSet<&str> = registry_tools.iter().map(|(name, _, _)| *name).collect();
 
-    // Insert missing tools (in registry, not in catalog)
+    let inserted = insert_missing_tools(&registry_tools, &catalog_names, repo).await;
+    let removed = remove_phantom_tools(&catalog_entries, &registry_names, repo).await;
+
+    if inserted > 0 || removed > 0 {
+        info!(
+            inserted,
+            removed, "Tool catalog sync: updated to match registry"
+        );
+    } else {
+        debug!("Tool catalog sync: already in sync");
+    }
+
+    Ok((inserted, removed))
+}
+
+/// Insert tools present in the registry but missing from the catalog.
+async fn insert_missing_tools(
+    registry_tools: &[(&str, &str, ToolCapabilities)],
+    catalog_names: &HashSet<String>,
+    repo: &dyn ToolSelectionRepository,
+) -> usize {
     let mut inserted = 0usize;
-    for &(name, description, capabilities) in &registry_tools {
+    for &(name, description, capabilities) in registry_tools {
         if catalog_names.contains(name) {
             continue;
         }
 
-        let category = category_from_capabilities(capabilities);
         let entry = ToolCatalogEntry {
             id: format!("tc-auto-{}", Uuid::new_v4().as_simple()),
             tool_name: name.to_owned(),
             display_name: display_name_from_tool_name(name),
             description: description.to_owned(),
-            category,
+            category: category_from_capabilities(capabilities),
             is_enabled_by_default: true,
             requires_provider: if capabilities.requires_provider() {
                 Some("any".to_owned())
@@ -537,45 +558,30 @@ pub async fn sync_tool_catalog(
         };
 
         if let Err(e) = repo.upsert_tool_catalog_entry(&entry).await {
-            warn!(
-                tool_name = name,
-                error = %e,
-                "Failed to insert tool catalog entry during sync"
-            );
+            warn!(tool_name = name, error = %e, "Failed to insert tool catalog entry");
             continue;
         }
         inserted += 1;
     }
+    inserted
+}
 
-    // Remove phantom entries (in catalog, not in registry)
+/// Remove catalog entries not present in the registry (phantom cleanup).
+async fn remove_phantom_tools(
+    catalog_entries: &[ToolCatalogEntry],
+    registry_names: &HashSet<&str>,
+    repo: &dyn ToolSelectionRepository,
+) -> usize {
     let mut removed = 0usize;
-    for catalog_entry in &catalog_entries {
-        if registry_names.contains(catalog_entry.tool_name.as_str()) {
+    for entry in catalog_entries {
+        if registry_names.contains(entry.tool_name.as_str()) {
             continue;
         }
-
-        if let Err(e) = repo
-            .delete_tool_catalog_entry(&catalog_entry.tool_name)
-            .await
-        {
-            warn!(
-                tool_name = %catalog_entry.tool_name,
-                error = %e,
-                "Failed to remove phantom tool catalog entry during sync"
-            );
+        if let Err(e) = repo.delete_tool_catalog_entry(&entry.tool_name).await {
+            warn!(tool_name = %entry.tool_name, error = %e, "Failed to remove phantom catalog entry");
             continue;
         }
         removed += 1;
     }
-
-    if inserted > 0 || removed > 0 {
-        info!(
-            inserted,
-            removed, "Tool catalog sync: updated to match registry"
-        );
-    } else {
-        debug!("Tool catalog sync: already in sync");
-    }
-
-    Ok((inserted, removed))
+    removed
 }
