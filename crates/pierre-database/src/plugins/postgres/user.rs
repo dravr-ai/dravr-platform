@@ -718,7 +718,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
-                   created_at, last_active, firebase_uid, auth_provider
+                   created_at, last_active, firebase_uid, auth_provider,
+                   analytics_consent, analytics_consent_at
             FROM users
             WHERE is_admin = TRUE
             ORDER BY email ASC
@@ -767,6 +768,8 @@ impl UserRepository for PostgresDatabase {
                 auth_provider: row
                     .try_get("auth_provider")
                     .unwrap_or_else(|_| "email".to_owned()),
+                analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
+                analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
             });
         }
 
