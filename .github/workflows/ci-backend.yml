@@ -1,5 +1,5 @@
-# ABOUTME: Main backend CI pipeline — clippy + tests share ONE compilation via nextest.
-# ABOUTME: fast-gate (42s) catches fmt instantly, then clippy+tests run in a single job (15min).
+# ABOUTME: Main backend CI pipeline — fast-gate catches fmt in 15s, then clippy + 4 test shards run in parallel.
+# ABOUTME: Backend tests sharded across 4 runners for ~4x faster execution.
 name: "CI: Backend (Rust)"
 
 on:
@@ -27,7 +27,6 @@ on:
       - '.github/workflows/ci-backend.yml'
       - '.github/actions/rust-setup/**'
   schedule:
-    # Weekly release binary validation (Sundays at 2 AM UTC)
     - cron: '0 2 * * 0'
 
 concurrency:
@@ -110,12 +109,11 @@ jobs:
         run: ./scripts/ci/validate-no-secrets.sh
 
   # ============================================================================
-  # PHASE 1: Clippy + Tests in ONE job — single compilation, nextest for execution
-  # Clippy compiles all targets with --all-features, nextest reuses that build.
+  # PHASE 1: All jobs run in parallel after fast-gate
   # ============================================================================
 
-  clippy-and-test:
-    name: Clippy + Tests (single build)
+  clippy:
+    name: Clippy Linting
     runs-on: ubuntu-latest
     needs: fast-gate
 
@@ -132,49 +130,8 @@ jobs:
           components: clippy
           free-disk-space: 'true'
 
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Setup Node.js (for SDK E2E tests runtime)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup Bun (for SDK build)
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.3.4"
-
-      - name: Build MCP SDK (required for E2E tests)
-        working-directory: sdk
-        run: |
-          bun install --frozen-lockfile
-          bun run build
-
       - name: Lint with Clippy (Zero Tolerance + Cognitive Complexity)
         run: cargo clippy --all-targets --all-features -- -D warnings
-        env:
-          CARGO_INCREMENTAL: '0'
-
-      - name: Run all tests via nextest (reuses clippy compilation — zero recompile)
-        run: |
-          cargo nextest run \
-            --all-features \
-            --test-threads 4 \
-            -E 'not (test(cache_redis_test) | test(database_plugins_postgresql_test) | test(/postgres/))'
-        env:
-          DATABASE_URL: "sqlite::memory:"
-          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
-          PIERRE_RSA_KEY_SIZE: "2048"
-          STRAVA_CLIENT_ID: "test_client_id_ci"
-          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
-          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
-          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
-
-  # ============================================================================
-  # PHASE 1 (parallel): Lightweight jobs that don't need the main build
-  # ============================================================================
 
   security-audit:
     name: Security Audit
@@ -216,11 +173,6 @@ jobs:
           IGNORED_COUNT=$(echo "$DOCTEST_OUTPUT" | grep -E "test result:.*ignored" | grep -oE "[0-9]+ ignored" | grep -oE "[0-9]+" | head -1 || echo "0")
           if [ "${IGNORED_COUNT:-0}" -gt 0 ]; then
             echo "ERROR: Found $IGNORED_COUNT ignored doctests!"
-            echo "Doctests marked with 'ignore' are not compiled or tested."
-            echo "Use 'no_run' if code should compile but not execute,"
-            echo "or 'text' for documentation-only examples."
-            echo ""
-            echo "To find ignored doctests, run: cargo test --doc 2>&1 | grep -i ignore"
             exit 1
           fi
           echo "No ignored doctests found"
@@ -231,14 +183,99 @@ jobs:
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
 
+  backend-tests:
+    name: Backend Tests (SQLite ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    needs: fast-gate
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Configure git for private deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Setup Rust environment
+        uses: ./.github/actions/rust-setup
+        with:
+          free-disk-space: 'true'
+
+      - name: Setup Node.js (for SDK E2E tests runtime)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun (for SDK build)
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.4"
+
+      - name: Build MCP SDK (required for E2E tests)
+        working-directory: sdk
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+      - name: Run test shard ${{ matrix.shard }}/4
+        run: |
+          mapfile -t ALL_TESTS < <(
+            find crates/pierre-server/tests -maxdepth 1 -name '*.rs' -printf '%f\n' \
+              | sed 's/\.rs$//' \
+              | grep -v '^common$' \
+              | grep -v 'cache_redis_test' \
+              | grep -v 'database_plugins_postgresql_test' \
+              | sort
+          )
+          TOTAL=${#ALL_TESTS[@]}
+          SHARD=${{ matrix.shard }}
+          SHARDS=4
+
+          SHARD_TESTS=()
+          for i in "${!ALL_TESTS[@]}"; do
+            if (( (i % SHARDS) + 1 == SHARD )); then
+              SHARD_TESTS+=("${ALL_TESTS[$i]}")
+            fi
+          done
+
+          echo "=== Shard $SHARD/$SHARDS: ${#SHARD_TESTS[@]} of $TOTAL test files ==="
+          printf '  %s\n' "${SHARD_TESTS[@]}"
+          echo ""
+
+          FAILED=0
+          for test_file in "${SHARD_TESTS[@]}"; do
+            echo "::group::$test_file"
+            if ! cargo test --test "$test_file" -- --test-threads=4; then
+              echo "::error::Test file $test_file failed"
+              FAILED=1
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ $FAILED -ne 0 ]; then
+            exit 1
+          fi
+        env:
+          DATABASE_URL: "sqlite::memory:"
+          ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="
+          PIERRE_RSA_KEY_SIZE: "2048"
+          STRAVA_CLIENT_ID: "test_client_id_ci"
+          STRAVA_CLIENT_SECRET: "test_client_secret_ci"
+          STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          USDA_API_KEY: ${{ secrets.USDA_API_KEY }}
+
   # ============================================================================
-  # PHASE 1 (parallel): Release binary — separate profile, unavoidable second build
+  # PHASE 2: Release binary — gates on clippy, uploads artifact for other workflows
   # ============================================================================
 
   release-binary:
     name: Release Binary Validation
     runs-on: ubuntu-latest
-    needs: [fast-gate, detect-changes]
+    needs: [clippy, detect-changes]
     if: >-
       github.ref == 'refs/heads/main' ||
       needs.detect-changes.outputs.release-worthy == 'true'
