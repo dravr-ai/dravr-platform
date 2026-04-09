@@ -568,7 +568,7 @@ test.describe('Connections Tab - Empty States', () => {
     await page.waitForTimeout(500);
 
     // Should show empty state or "No tokens" message
-    await expect(page.getByText(/No.*token/i)).toBeVisible();
+    await expect(page.getByText(/No.*token/i).first()).toBeVisible();
   });
 
   test('shows empty state when no A2A clients', async ({ page }) => {
