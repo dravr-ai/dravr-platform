@@ -16,8 +16,12 @@ use pierre_mcp_server::contremaitre::manifest::{
     compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestPrompts, ManifestTools,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
+use pierre_mcp_server::contremaitre::tool_descriptions::{
+    parse_tool_yaml, ToolDescriptionOverlay, ToolDescriptionRegistry,
+};
 use pierre_mcp_server::contremaitre::webhook::verify_github_signature;
 use ring::hmac;
+use std::fs;
 
 // ── Manifest tests ─────────────────────────────────────────────────────
 
@@ -350,4 +354,339 @@ fn test_parse_push_event_changed_paths() {
     assert_eq!(changed.len(), 5);
     assert!(changed.contains("prompts/system/pierre_system.md"));
     assert!(changed.contains("prompts/coaches/training/marathon-coach.md"));
+}
+
+// ── Tool description YAML parsing tests ────────────────────────────────
+
+#[test]
+fn test_parse_tool_yaml_with_parameters() {
+    let yaml = r#"
+description: >
+  Analyze training load using CTL, ATL, and TSB metrics to assess fitness and form.
+parameters:
+  days:
+    description: Number of days of history to analyze.
+  provider:
+    description: "Fitness provider to query (e.g., 'strava')."
+"#;
+
+    let overlay = parse_tool_yaml(yaml).expect("parse");
+    assert!(overlay
+        .description
+        .as_ref()
+        .unwrap()
+        .contains("training load"));
+    assert_eq!(overlay.parameters.len(), 2);
+    assert_eq!(
+        overlay.parameters["days"].description.as_deref(),
+        Some("Number of days of history to analyze.")
+    );
+    assert_eq!(
+        overlay.parameters["provider"].description.as_deref(),
+        Some("Fitness provider to query (e.g., 'strava').")
+    );
+}
+
+#[test]
+fn test_parse_tool_yaml_description_only() {
+    let yaml = "description: Simple tool description\n";
+    let overlay = parse_tool_yaml(yaml).expect("parse");
+    assert_eq!(
+        overlay.description.as_deref(),
+        Some("Simple tool description")
+    );
+    assert!(overlay.parameters.is_empty());
+}
+
+#[test]
+fn test_parse_tool_yaml_invalid_syntax() {
+    let yaml = "description: [unclosed\n";
+    let err = parse_tool_yaml(yaml).unwrap_err();
+    match err {
+        ContremaitreError::ManifestParse(msg) => assert!(msg.contains("tool description YAML")),
+        other => panic!("expected ManifestParse, got: {other}"),
+    }
+}
+
+#[test]
+fn test_parse_tool_yaml_empty_parameters_block_allowed() {
+    // Missing `parameters` key is valid — default empty HashMap.
+    let yaml = "description: Has no params\n";
+    let overlay = parse_tool_yaml(yaml).expect("parse");
+    assert_eq!(overlay.parameters.len(), 0);
+}
+
+// ── Manifest v2 (tools section) tests ──────────────────────────────────
+
+#[test]
+fn test_parse_manifest_v2_with_tools() {
+    let json = r#"{
+        "version": 2,
+        "prompts": { "system": {}, "coaches": {} },
+        "tools": {
+            "analyze_activity": {
+                "path": "tools/analyze_activity.yaml",
+                "sha256": "deadbeef"
+            },
+            "get_activities": {
+                "path": "tools/get_activities.yaml",
+                "sha256": "cafebabe"
+            }
+        }
+    }"#;
+
+    let manifest = parse_manifest(json).expect("valid v2 manifest");
+    assert_eq!(manifest.version, 2);
+    assert_eq!(manifest.tools.0.len(), 2);
+
+    let analyze = &manifest.tools.0["analyze_activity"];
+    assert_eq!(analyze.path, "tools/analyze_activity.yaml");
+    assert_eq!(analyze.sha256, "deadbeef");
+}
+
+#[test]
+fn test_parse_manifest_v1_without_tools_section() {
+    // v1 manifests predate the tools section — must still parse with empty tools.
+    let json = r#"{
+        "version": 1,
+        "prompts": { "system": {}, "coaches": {} }
+    }"#;
+
+    let manifest = parse_manifest(json).expect("valid v1 manifest");
+    assert_eq!(manifest.version, 1);
+    assert!(manifest.tools.0.is_empty());
+}
+
+// ── ToolDescriptionRegistry tests ──────────────────────────────────────
+
+fn make_overlay(desc: &str) -> ToolDescriptionOverlay {
+    ToolDescriptionOverlay {
+        description: Some(desc.to_owned()),
+        parameters: HashMap::new(),
+    }
+}
+
+#[test]
+fn test_tool_description_registry_new_is_empty() {
+    let registry = ToolDescriptionRegistry::new();
+    assert_eq!(registry.count(), 0);
+    assert!(registry.get_overlay("analyze_activity").is_none());
+}
+
+#[test]
+fn test_tool_description_registry_update_and_get() {
+    let registry = ToolDescriptionRegistry::new();
+    registry.update(
+        "analyze_activity",
+        make_overlay("Analyze a single activity"),
+        "sha1".to_owned(),
+    );
+    assert_eq!(registry.count(), 1);
+
+    let overlay = registry.get_overlay("analyze_activity").expect("present");
+    assert_eq!(
+        overlay.description.as_deref(),
+        Some("Analyze a single activity")
+    );
+    assert_eq!(registry.sha256("analyze_activity").as_deref(), Some("sha1"));
+}
+
+#[test]
+fn test_tool_description_registry_update_replaces_existing() {
+    let registry = ToolDescriptionRegistry::new();
+    registry.update("foo", make_overlay("v1"), "sha_v1".to_owned());
+    registry.update("foo", make_overlay("v2"), "sha_v2".to_owned());
+
+    assert_eq!(registry.count(), 1);
+    assert_eq!(
+        registry.get_overlay("foo").unwrap().description.as_deref(),
+        Some("v2")
+    );
+    assert_eq!(registry.sha256("foo").as_deref(), Some("sha_v2"));
+}
+
+#[test]
+fn test_tool_description_registry_remove() {
+    let registry = ToolDescriptionRegistry::new();
+    registry.update("foo", make_overlay("desc"), "sha".to_owned());
+    assert!(registry.remove("foo"));
+    assert!(!registry.remove("foo"));
+    assert_eq!(registry.count(), 0);
+}
+
+#[test]
+fn test_tool_description_registry_list_returns_all_entries() {
+    let registry = ToolDescriptionRegistry::new();
+    registry.update("a", make_overlay("a"), "sha_a".to_owned());
+    registry.update("b", make_overlay("b"), "sha_b".to_owned());
+
+    let mut names: Vec<String> = registry.list().into_iter().map(|(n, _)| n).collect();
+    names.sort();
+    assert_eq!(names, vec!["a".to_owned(), "b".to_owned()]);
+}
+
+#[test]
+fn test_tool_description_registry_entries_marked_contremaitre_source() {
+    let registry = ToolDescriptionRegistry::new();
+    registry.update("foo", make_overlay("desc"), "sha".to_owned());
+    let entries = registry.list();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].1.source, PromptSource::Contremaitre);
+}
+
+// ── Tool description coverage / drift detection ────────────────────────
+
+/// Canonical list of MCP tool names that must have an overlay in
+/// dravr-contremaitre (`tools/<name>.yaml` + manifest entry).
+///
+/// When you add a new tool:
+///   1. Add `tools/<tool_name>.yaml` to dravr-contremaitre
+///   2. Update dravr-contremaitre's `manifest.json` (tools section)
+///   3. Add the tool name here
+///
+/// When you remove a tool: delete it here and from dravr-contremaitre.
+const EXPECTED_TOOLS: &[&str] = &[
+    "activate_coach",
+    "admin_assign_coach",
+    "admin_create_system_coach",
+    "admin_delete_system_coach",
+    "admin_get_system_coach",
+    "admin_list_coach_assignments",
+    "admin_list_system_coaches",
+    "admin_unassign_coach",
+    "admin_update_system_coach",
+    "analyze_activity",
+    "analyze_goal_feasibility",
+    "analyze_meal_nutrition",
+    "analyze_performance_trends",
+    "analyze_sleep_quality",
+    "analyze_training_load",
+    "analyze_weather_impact",
+    "calculate_daily_nutrition",
+    "calculate_fitness_score",
+    "calculate_metrics",
+    "calculate_personalized_zones",
+    "calculate_recovery_score",
+    "compare_activities",
+    "connect_provider",
+    "create_coach",
+    "deactivate_coach",
+    "delete_coach",
+    "delete_fitness_config",
+    "delete_recipe",
+    "detect_patterns",
+    "disconnect_provider",
+    "get_active_coach",
+    "get_activities",
+    "get_activity_intelligence",
+    "get_athlete",
+    "get_coach",
+    "get_configuration_catalog",
+    "get_configuration_profiles",
+    "get_connection_status",
+    "get_data_freshness",
+    "get_fitness_config",
+    "get_food_details",
+    "get_nutrient_timing",
+    "get_recipe",
+    "get_recipe_constraints",
+    "get_stats",
+    "get_stretching_exercise",
+    "get_user_configuration",
+    "get_yoga_pose",
+    "hide_coach",
+    "list_coaches",
+    "list_fitness_configs",
+    "list_hidden_coaches",
+    "list_recipes",
+    "list_stretching_exercises",
+    "list_yoga_poses",
+    "optimize_sleep_schedule",
+    "refresh_provider_data",
+    "save_recipe",
+    "search_coaches",
+    "search_food",
+    "search_recipes",
+    "set_fitness_config",
+    "set_goal",
+    "show_coach",
+    "suggest_goals",
+    "suggest_rest_day",
+    "suggest_stretches_for_activity",
+    "suggest_yoga_sequence",
+    "toggle_coach_favorite",
+    "track_progress",
+    "track_sleep_trends",
+    "update_coach",
+    "update_user_configuration",
+    "validate_configuration",
+    "validate_recipe",
+];
+
+/// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions
+/// in all `.rs` files under the given directory.
+fn extract_tool_names_from_source(dir: &std::path::Path) -> HashSet<String> {
+    let re = regex::Regex::new(
+        r#"fn\s+name\s*\(\s*&\s*self\s*\)\s*->\s*&\s*'static\s+str\s*\{\s*"([a-z_][a-z0-9_]*)"\s*\}"#,
+    )
+    .expect("valid regex");
+
+    let mut names = HashSet::new();
+    for entry in fs::read_dir(dir).expect("read implementations dir") {
+        let entry = entry.expect("dir entry");
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+            continue;
+        }
+        if path.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
+            continue;
+        }
+        let source = fs::read_to_string(&path).expect("read rust source");
+        for cap in re.captures_iter(&source) {
+            names.insert(cap[1].to_owned());
+        }
+    }
+    names
+}
+
+#[test]
+fn test_expected_tools_matches_rust_source() {
+    // Drift guard: the EXPECTED_TOOLS list must stay in sync with the actual
+    // tools registered in pierre-server. If this fails, either:
+    //   - A new tool was added: update EXPECTED_TOOLS and add a YAML to dravr-contremaitre
+    //   - A tool was removed: delete from EXPECTED_TOOLS and from dravr-contremaitre
+    let impl_dir = std::path::Path::new("src/tools/implementations");
+    let found = extract_tool_names_from_source(impl_dir);
+    let expected: HashSet<String> = EXPECTED_TOOLS.iter().map(|s| (*s).to_owned()).collect();
+
+    let missing_from_list: Vec<_> = found.difference(&expected).cloned().collect();
+    let stale_in_list: Vec<_> = expected.difference(&found).cloned().collect();
+
+    assert!(
+        missing_from_list.is_empty() && stale_in_list.is_empty(),
+        "EXPECTED_TOOLS is out of sync with src/tools/implementations.\n\
+         New tools found in source (add to EXPECTED_TOOLS and to dravr-contremaitre): {missing_from_list:?}\n\
+         Stale tools in EXPECTED_TOOLS (remove from list and from dravr-contremaitre): {stale_in_list:?}"
+    );
+}
+
+#[test]
+fn test_expected_tools_list_has_no_duplicates() {
+    let unique: HashSet<&str> = EXPECTED_TOOLS.iter().copied().collect();
+    assert_eq!(
+        unique.len(),
+        EXPECTED_TOOLS.len(),
+        "EXPECTED_TOOLS contains duplicates"
+    );
+}
+
+#[test]
+fn test_expected_tools_list_is_sorted() {
+    let mut sorted = EXPECTED_TOOLS.to_vec();
+    sorted.sort_unstable();
+    assert_eq!(
+        sorted.as_slice(),
+        EXPECTED_TOOLS,
+        "EXPECTED_TOOLS must stay alphabetically sorted for stable diffs"
+    );
 }
