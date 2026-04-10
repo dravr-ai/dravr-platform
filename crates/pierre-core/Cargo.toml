@@ -86,21 +86,21 @@ async-trait = { version = "0.1", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # Optional: Embacle CLI LLM runner types (standalone library)
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.14.10", optional = true }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.14.11", optional = true }
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.2" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.3" }
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.1.7" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.1.8" }
 
 # Health and wellness domain models with composition-based provider traits
-dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.1.0" }
+dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }
 
 # Time-series storage engine for metric persistence
-dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.1.0" }
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
 
 # Optional: OpenAPI schema generation
 utoipa = { version = "5.4", optional = true }
