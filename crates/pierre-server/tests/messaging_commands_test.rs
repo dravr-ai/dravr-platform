@@ -314,4 +314,154 @@ mod command_tests {
         // May or may not match depending on matcher — at minimum should not crash
         assert_eq!(status, StatusCode::OK);
     }
+
+    #[tokio::test]
+    async fn test_privacy_status_command() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (router, ..) = setup_linked_user(&resources).await;
+
+        let (status, _) = send_command(&router, "/privacy", 20).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_privacy_status_alias() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (router, ..) = setup_linked_user(&resources).await;
+
+        // Verify the 2-word alias `/privacy status` routes to PrivacyStatusHandler
+        let (status, _) = send_command(&router, "/privacy status", 21).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Direct handler unit tests
+    //
+    // The webhook-based tests above only verify HTTP 200 OK. For
+    // `/privacy on` and `/privacy off`, we also need to verify the
+    // database is actually updated. We call the handler's execute()
+    // directly with a constructed PlatformCommandContext, bypassing
+    // the command matcher and webhook layer.
+    // ────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_privacy_on_handler_enables_consent() {
+        use pierre_mcp_server::services::commands::privacy::PrivacyOnHandler;
+        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+
+        // Confirm initial state: analytics_consent is false
+        let before = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!before.analytics_consent);
+
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec![],
+            raw_text: "/privacy on".to_owned(),
+            resources: Arc::clone(&resources),
+        };
+
+        let response = PrivacyOnHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("enabled"));
+
+        // Verify the database reflects the enabled state
+        let after = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(after.analytics_consent);
+        assert!(after.analytics_consent_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_privacy_off_handler_disables_consent() {
+        use pierre_mcp_server::services::commands::privacy::PrivacyOffHandler;
+        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+
+        // Seed with consent enabled so we can verify the toggle
+        resources
+            .repos
+            .users
+            .update_analytics_consent(user_id, true)
+            .await
+            .unwrap();
+        let before = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(before.analytics_consent);
+
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec![],
+            raw_text: "/privacy off".to_owned(),
+            resources: Arc::clone(&resources),
+        };
+
+        let response = PrivacyOffHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("disabled"));
+
+        // Verify the database reflects the disabled state
+        let after = resources
+            .repos
+            .users
+            .get_global(user_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!after.analytics_consent);
+    }
+
+    #[tokio::test]
+    async fn test_privacy_status_handler_reads_current_state() {
+        use pierre_mcp_server::services::commands::privacy::PrivacyStatusHandler;
+        use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
+
+        let resources = create_test_server_resources().await.unwrap();
+        let (_router, user_id, tenant_id) = setup_linked_user(&resources).await;
+
+        let ctx = PlatformCommandContext {
+            user_id,
+            tenant_id,
+            channel_type: "telegram".to_owned(),
+            args: vec![],
+            raw_text: "/privacy".to_owned(),
+            resources: Arc::clone(&resources),
+        };
+
+        // Default state: consent disabled
+        let response = PrivacyStatusHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("disabled"));
+
+        // Flip to enabled and re-run
+        resources
+            .repos
+            .users
+            .update_analytics_consent(user_id, true)
+            .await
+            .unwrap();
+        let response = PrivacyStatusHandler.execute(&ctx).await.unwrap();
+        assert!(response.text.contains("enabled"));
+    }
 }

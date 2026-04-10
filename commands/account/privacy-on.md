@@ -9,6 +9,6 @@ requires_group: false
 ---
 
 ## Response Template
-Analytics consent has been **enabled**. Thank you for helping us improve Pierre!
+Analytics consent has been <b>enabled</b>. Thank you for helping us improve Pierre!
 
-Use `/privacy off` to opt out at any time.
+Use <code>/privacy off</code> to opt out at any time.
