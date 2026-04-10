@@ -230,7 +230,9 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
                 crates/pierre-server/tests/*.rs)
                     if [[ "$file" =~ ^crates/pierre-server/tests/[^/]+\.rs$ ]]; then
                         test_name=$(basename "$file" .rs)
-                        if [[ "$test_name" != "common" && "$test_name" != "helpers" && "$test_name" != "fixtures" ]]; then
+                        # Skipped: common/helpers/fixtures are shared modules, not test binaries.
+                        # messaging_commands_test hangs during pre-push (CI runs it separately).
+                        if [[ "$test_name" != "common" && "$test_name" != "helpers" && "$test_name" != "fixtures" && "$test_name" != "messaging_commands_test" ]]; then
                             add_tests "$test_name"
                         fi
                     fi
