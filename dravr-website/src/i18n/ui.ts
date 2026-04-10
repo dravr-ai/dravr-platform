@@ -18,14 +18,14 @@ export const ui = {
 
     // Home
     'home.tagline': 'Navigate your health data.',
-    'home.hero': 'Your health data, finally unified.',
+    'home.hero': 'Your health and fitness data, finally unified.',
     'home.body':
       'Dravr is an AI layer that connects your fitness, wellness, and health data — so you and your coach always have the full picture.',
     'home.email.placeholder': 'Enter your email',
     'home.cta': 'Join the Waitlist',
     'home.img.alt': 'Historical draveur on a river at sunset in the Quebec boreal forest',
-    'home.status.label': 'Project Status: Stealth',
-    'home.status.phase': 'Phase 03',
+    'home.status.label': 'Project Status: Alpha',
+    'home.status.phase': 'Phase 01',
     'home.status.title': 'Early Access',
     'home.status.desc':
       'Building the orchestration layer for endurance athletes and coaches. Connecting Strava, Garmin, Whoop, and more.',
@@ -92,14 +92,14 @@ export const ui = {
 
     // Home
     'home.tagline': 'Naviguez vos données de santé.',
-    'home.hero': 'Vos données de santé, enfin unifiées.',
+    'home.hero': 'Vos données de sport et santé, enfin unifiées.',
     'home.body':
       'Dravr est une couche IA qui connecte vos données de forme physique, de bien-être et de santé — pour que vous et votre entraîneur ayez toujours le portrait complet.',
     'home.email.placeholder': 'Votre adresse courriel',
     'home.cta': 'Rejoindre la liste d\'attente',
     'home.img.alt': 'Draveur historique sur une rivière au coucher de soleil dans la forêt boréale québécoise',
-    'home.status.label': 'Statut du projet : Furtif',
-    'home.status.phase': 'Phase 03',
+    'home.status.label': 'Statut du projet : Alpha',
+    'home.status.phase': 'Phase 01',
     'home.status.title': 'Accès anticipé',
     'home.status.desc':
       'Construction de la couche d\'orchestration pour les athlètes d\'endurance et les entraîneurs. Connexion à Strava, Garmin, Whoop, et plus.',
