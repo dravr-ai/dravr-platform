@@ -9,6 +9,6 @@ requires_group: false
 ---
 
 ## Response Template
-Analytics consent has been **disabled**. No anonymous usage data will be collected.
+Analytics consent has been <b>disabled</b>. No anonymous usage data will be collected.
 
-Use `/privacy on` to opt back in at any time.
+Use <code>/privacy on</code> to opt back in at any time.

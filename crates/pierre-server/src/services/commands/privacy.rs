@@ -34,8 +34,8 @@ impl CommandHandler for PrivacyStatusHandler {
         };
 
         let text = format!(
-            "Analytics consent is currently **{status}**.\n\n\
-             Use `/privacy on` to enable or `/privacy off` to disable anonymous analytics."
+            "Analytics consent is currently <b>{status}</b>.\n\n\
+             Use <code>/privacy on</code> to enable or <code>/privacy off</code> to disable anonymous analytics."
         );
 
         Ok(CommandResponse::text(text))
@@ -59,9 +59,9 @@ impl CommandHandler for PrivacyOnHandler {
 
         info!(user_id = %ctx.user_id, "Analytics consent enabled via /privacy on");
 
-        let text = "Analytics consent has been **enabled**. \
+        let text = "Analytics consent has been <b>enabled</b>. \
                     Thank you for helping us improve Pierre!\n\n\
-                    Use `/privacy off` to opt out at any time.";
+                    Use <code>/privacy off</code> to opt out at any time.";
 
         Ok(CommandResponse::text(text))
     }
@@ -84,9 +84,9 @@ impl CommandHandler for PrivacyOffHandler {
 
         info!(user_id = %ctx.user_id, "Analytics consent disabled via /privacy off");
 
-        let text = "Analytics consent has been **disabled**. \
+        let text = "Analytics consent has been <b>disabled</b>. \
                     No anonymous usage data will be collected.\n\n\
-                    Use `/privacy on` to opt back in at any time.";
+                    Use <code>/privacy on</code> to opt back in at any time.";
 
         Ok(CommandResponse::text(text))
     }

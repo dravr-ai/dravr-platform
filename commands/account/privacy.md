@@ -9,6 +9,6 @@ requires_group: false
 ---
 
 ## Response Template
-Analytics consent is currently **{status}**.
+Analytics consent is currently <b>{status}</b>.
 
-Use `/privacy on` to enable or `/privacy off` to disable anonymous analytics.
+Use <code>/privacy on</code> to enable or <code>/privacy off</code> to disable anonymous analytics.
