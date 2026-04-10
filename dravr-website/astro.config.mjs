@@ -21,8 +21,11 @@ export default defineConfig({
   }),
   integrations: [
     sitemap({
-      // The gated alpha docs area is not for public crawling.
-      filter: (page) => !page.includes('/docs/'),
+      // The gated alpha docs area is not for public crawling. Matches both
+      // the bare index URLs (/docs, /fr/docs) and nested guide URLs, since
+      // `trailingSlash: 'never'` means the canonical index URLs have no
+      // trailing slash and wouldn't be caught by a `/docs/` substring check.
+      filter: (page) => !/\/(fr\/)?docs(\/|$)/.test(page),
     }),
   ],
   vite: {

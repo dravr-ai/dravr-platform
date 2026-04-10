@@ -82,31 +82,67 @@ bun dev
 
 ---
 
-## 3. Cloudflare Pages deployment
+## 3. Cloudflare Workers deployment
 
-1. In the Cloudflare dashboard, go to **Workers & Pages → Create → Pages**.
-2. Connect your GitHub repository.
-3. Set build settings:
-   - **Build command:** `cd dravr-website && bun install && bun run build`
-   - **Build output directory:** `dravr-website/dist`
-   - **Root directory:** `/` (leave as repo root)
-4. Add environment variables (Settings → Environment Variables):
-   - `PUBLIC_SUPABASE_URL` — variable
-   - `PUBLIC_SUPABASE_PUBLISHABLE_KEY` — variable
-   - `PUBLIC_SITE_URL` — variable, set to `https://dravr.ai` (or preview URL for preview envs)
-   - `PUBLIC_TURNSTILE_SITE_KEY` — variable
-   - `PUBLIC_GOOGLE_AUTH_ENABLED` — variable, `true` or `false`
-   - `SUPABASE_SECRET_KEY` — **secret**
-   - `TURNSTILE_SECRET_KEY` — **secret**
-5. Deploy.
+The site deploys as a Cloudflare **Worker with Static Assets** — the Astro
+Cloudflare adapter emits `dist/_worker.js/` (SSR entry) alongside the static
+files, and Cloudflare serves `dist/*` as assets while routing dynamic
+requests through the Worker. Config lives in `wrangler.jsonc`; see the
+[Workers best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/)
+for the reasoning behind the `nodejs_compat` flag, `observability`, and
+Smart Placement.
+
+### Secrets hygiene
+
+**Never put `*_SECRET_KEY` values in `wrangler.jsonc`** — it's committed
+to git. Use `wrangler secret put NAME` instead. Public build-time vars
+(`PUBLIC_*`) are inlined into the bundle at `astro build`, so they must
+exist in the build environment **at build time**, not just at runtime.
+
+### First-time deploy
+
+1. Authenticate wrangler once on your machine:
+   ```bash
+   cd dravr-website
+   bunx wrangler login
+   ```
+2. Set the production secrets (one-time, interactive prompts):
+   ```bash
+   bunx wrangler secret put SUPABASE_SECRET_KEY
+   bunx wrangler secret put TURNSTILE_SECRET_KEY
+   ```
+3. Export the public build-time vars before running the build. Either put
+   them in `.env` (loaded by Astro) or export them in your shell:
+   - `PUBLIC_SUPABASE_URL`
+   - `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+   - `PUBLIC_SITE_URL` (`https://dravr.ai` for production)
+   - `PUBLIC_TURNSTILE_SITE_KEY`
+   - `PUBLIC_GOOGLE_AUTH_ENABLED`
+4. Deploy:
+   ```bash
+   bun run deploy
+   ```
+   The first deploy will prompt to create the `dravr-website` Worker.
+   Subsequent deploys are silent.
+
+### Useful commands
+
+```bash
+bun run deploy:dry-run   # build + validate wrangler.jsonc without publishing
+bun run cf:tail          # live-tail production Worker logs
+bunx wrangler dev        # run the built Worker locally on :8787
+```
 
 ---
 
 ## 4. Custom domain
 
-1. In Cloudflare Pages → your project → **Custom domains** → Add `dravr.ai`.
-2. Since the domain is already on Cloudflare, DNS is configured automatically.
-3. Update Supabase Site URL and redirect URLs to `https://dravr.ai`.
+1. In the Cloudflare dashboard, go to **Workers & Pages → dravr-website →
+   Settings → Domains & Routes → Add** → `dravr.ai`.
+2. Since the `dravr.ai` zone is already on Cloudflare, DNS is configured
+   automatically — no external DNS step.
+3. Update Supabase Site URL and redirect URLs to `https://dravr.ai`
+   (see §1, step 4).
 
 ---
 

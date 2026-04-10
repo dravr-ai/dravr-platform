@@ -1,7 +1,28 @@
-// ABOUTME: Cloudflare Workers/Pages configuration for the Dravr website
-// ABOUTME: Minimal config — auth uses cookie-based sessions, not Cloudflare KV sessions
+// ABOUTME: Cloudflare Workers configuration for the Dravr website (Astro SSR)
+// ABOUTME: Static assets served from ./dist, SSR worker entry at ./dist/_worker.js/index.js
 
 {
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "dravr-website",
-  "compatibility_date": "2025-01-01"
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2025-01-01",
+  // @supabase/ssr and @supabase/supabase-js touch Node built-ins (crypto,
+  // stream, buffer). Without this flag the Worker crashes at cold-start.
+  "compatibility_flags": ["nodejs_compat"],
+  // Static files (_headers, assets/*, favicon.svg, sitemaps, prerendered HTML)
+  // are served directly by Cloudflare's asset server instead of going through
+  // the SSR worker.
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
+  // Workers logs / live tail without needing a separate Logpush config.
+  "observability": {
+    "enabled": true
+  },
+  // Smart Placement co-locates the Worker with Supabase's DB region, reducing
+  // tail latency on the middleware auth + waitlist lookups.
+  "placement": {
+    "mode": "smart"
+  }
 }

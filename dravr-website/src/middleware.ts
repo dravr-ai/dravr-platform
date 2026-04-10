@@ -12,7 +12,12 @@ const PUBLIC_DOCS_PATHS = [
 ];
 
 function isProtectedDocsPath(pathname: string): boolean {
-  return pathname.startsWith('/docs/') || pathname.startsWith('/fr/docs/');
+  return (
+    pathname === '/docs' ||
+    pathname === '/fr/docs' ||
+    pathname.startsWith('/docs/') ||
+    pathname.startsWith('/fr/docs/')
+  );
 }
 
 function loginRedirectFor(pathname: string): string {

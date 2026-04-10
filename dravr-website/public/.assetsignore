@@ -1,0 +1,6 @@
+# Files in dist/ that must NOT be served as public static assets.
+# Astro copies public/ verbatim into dist/, so this ends up at dist/.assetsignore
+# where wrangler reads it before uploading the asset directory.
+# Without this, the Astro-generated SSR worker code would be exposed publicly.
+_worker.js
+_routes.json

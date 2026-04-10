@@ -10,6 +10,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && wrangler deploy",
+    "deploy:dry-run": "astro build && wrangler deploy --dry-run",
+    "cf:tail": "wrangler tail",
     "astro": "astro"
   },
   "dependencies": {
@@ -22,5 +24,8 @@
     "astro": "5.18.1",
     "sharp": "0.34.5",
     "tailwindcss": "4.2.2"
+  },
+  "devDependencies": {
+    "wrangler": "4.81.1"
   }
 }
