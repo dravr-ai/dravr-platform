@@ -12,6 +12,8 @@ pub mod coach;
 pub mod group;
 /// Help command listing available commands
 pub mod help;
+/// Privacy consent commands (view, enable, disable analytics)
+pub mod privacy;
 /// Status command showing user and platform state
 pub mod status;
 
