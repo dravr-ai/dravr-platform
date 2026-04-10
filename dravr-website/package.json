@@ -9,10 +9,13 @@
     "start": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "astro build && wrangler deploy",
     "astro": "astro"
   },
   "dependencies": {
     "@astrojs/cloudflare": "12.6.13",
+    "@astrojs/sitemap": "3.7.2",
+    "@supabase/ssr": "0.10.2",
     "@supabase/supabase-js": "2.102.1",
     "@tailwindcss/typography": "0.5.19",
     "@tailwindcss/vite": "4.2.2",

@@ -77,7 +77,9 @@
   /* ── Spacing ── */
   --spacing-section: 8.5rem;
 
-  /* ── Box shadows ── */
+  /* ── Box shadows ──
+     DESIGN.md spec: y≥24, blur≥24, spread -4, 6% on_surface alpha.
+     The 48px blur exceeds the minimum, which is allowed by spec. */
   --shadow-ambient: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
   --shadow-card: 0 24px 48px -12px rgba(26, 28, 27, 0.06);
 
@@ -140,11 +142,46 @@
     border-radius: 0;
     outline: none;
     background: transparent;
-    transition: border-color 0.2s ease;
+    padding-bottom: 0.5rem;
+    transition: border-color 0.2s ease, border-bottom-width 0.2s ease, padding-bottom 0.2s ease;
   }
 
+  /* Focus state (DESIGN.md §5): border becomes primary and grows to 2px.
+     We compensate padding by 1px to prevent a layout shift when the border
+     thickens from 1px to 2px. */
   .input-underline:focus {
-    border-bottom-color: rgba(163, 208, 190, 0.8);
+    border-bottom: 2px solid #00241a;
+    padding-bottom: calc(0.5rem - 1px);
+  }
+
+  /* Boreal hero gradient (DESIGN.md §2): 145° primary → primary_container. */
+  .boreal-hero-gradient {
+    background: linear-gradient(145deg, #00241a 0%, #0d3b2e 100%);
+    opacity: 0.75;
+  }
+
+  /* Secondary button (DESIGN.md §5): underline expands from the center on
+     hover. Implemented with a pseudo-element whose width animates from 0
+     to 100% anchored at the midpoint. */
+  .btn-secondary {
+    position: relative;
+    display: inline-block;
+  }
+
+  .btn-secondary::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    width: 0;
+    height: 1px;
+    background-color: currentColor;
+    transition: width 0.3s ease, left 0.3s ease;
+  }
+
+  .btn-secondary:hover::after {
+    left: 0;
+    width: 100%;
   }
 
   /* Material Symbols icon rendering */

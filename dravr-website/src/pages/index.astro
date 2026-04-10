@@ -1,29 +1,40 @@
 ---
 // ABOUTME: Dravr marketing home page — full-screen boreal river hero, waitlist CTA
 // ABOUTME: Faithfully implements the Stitch home screen design (project 1685995167983782189)
+export const prerender = true;
+
+import { Image } from 'astro:assets';
 import Base from '../layouts/Base.astro';
 import LanguagePicker from '../components/LanguagePicker.astro';
+import borealRiver from '../assets/images/boreal-river.jpg';
 import { getLangFromUrl, useTranslations, getDocsBasePath } from '../i18n/utils';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
 const docsBase = getDocsBasePath(lang);
+const turnstileSiteKey = import.meta.env.PUBLIC_TURNSTILE_SITE_KEY;
 ---
 
 <Base title="Dravr" description={t('home.tagline')} noNav noFooter>
+
+  <script slot="head" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
   <!-- Main Canvas -->
   <div class="relative min-h-screen w-full flex flex-col justify-center items-center overflow-hidden bg-primary font-body text-on-surface selection:bg-primary-fixed-dim selection:text-primary-container">
 
     <!-- Atmospheric Background Layer -->
     <div class="absolute inset-0 z-0">
-      <img
+      <Image
         alt={t('home.img.alt')}
         class="w-full h-full object-cover"
-        src="/images/boreal-river.jpg"
+        src={borealRiver}
+        widths={[640, 1024, 1920, 2560]}
+        sizes="100vw"
+        format="webp"
+        loading="eager"
         fetchpriority="high"
       />
-      <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
+      <div class="boreal-hero-gradient absolute inset-0 z-10"></div>
     </div>
 
     <!-- Hero Content Section -->
@@ -58,10 +69,17 @@ const docsBase = getDocsBasePath(lang);
               type="email"
               required
               placeholder={t('home.email.placeholder')}
-              class="w-full bg-transparent border-b border-outline-variant/40 text-white py-3 px-1 focus:outline-none focus:border-primary-fixed-dim transition-all duration-500 placeholder:text-white/30 font-body"
+              class="w-full bg-transparent border-b border-outline-variant/40 text-white py-3 px-1 focus:outline-none focus:border-b-2 focus:border-primary transition-all duration-500 placeholder:text-white/30 font-body"
             />
-            <div class="absolute bottom-0 left-0 w-0 h-[2px] bg-primary-fixed-dim transition-all duration-500 group-focus-within:w-full"></div>
+            <div class="absolute bottom-0 left-0 w-0 h-[2px] bg-primary transition-all duration-500 group-focus-within:w-full"></div>
           </div>
+
+          <div
+            class="cf-turnstile flex justify-center"
+            data-sitekey={turnstileSiteKey}
+            data-theme="dark"
+            data-size="flexible"
+          ></div>
 
           <div id="waitlist-status" class="hidden text-sm font-label text-center"></div>
 
@@ -134,6 +152,8 @@ const docsBase = getDocsBasePath(lang);
     e.preventDefault();
     const email = form.elements.namedItem('email').value;
     const btn = form.querySelector('button[type="submit"]');
+    const turnstileInput = form.querySelector('[name="cf-turnstile-response"]');
+    const turnstileToken = turnstileInput instanceof HTMLInputElement ? turnstileInput.value : '';
 
     btn.disabled = true;
 
@@ -141,7 +161,7 @@ const docsBase = getDocsBasePath(lang);
       const res = await fetch('/api/waitlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, turnstileToken }),
       });
       const data = await res.json();
 
@@ -152,7 +172,7 @@ const docsBase = getDocsBasePath(lang);
           status.className = 'text-sm font-label text-primary-fixed-dim';
           form.reset();
         } else {
-          status.textContent = data.error ?? errorText;
+          status.textContent = errorText;
           status.className = 'text-sm font-label text-red-300';
           btn.disabled = false;
         }

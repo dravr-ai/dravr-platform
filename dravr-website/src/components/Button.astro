@@ -11,11 +11,14 @@ interface Props {
 
 const { variant = 'primary', href, type = 'button', class: className = '' } = Astro.props;
 
-const base = 'inline-flex items-center justify-center font-medium transition-colors rounded-md text-sm';
+// DESIGN.md §5:
+// - Primary button hover → subtle inner glow at 10% surface_tint (#3c6658), same bg
+// - Secondary button hover → underline expands from the center (custom pseudo-element)
+const base = 'inline-flex items-center justify-center font-medium transition-all rounded-md text-sm';
 
 const variants = {
-  primary: 'bg-primary text-on-primary px-5 py-2.5 hover:bg-primary-container',
-  secondary: 'text-primary underline underline-offset-4 hover:no-underline px-2 py-1',
+  primary: 'bg-primary text-on-primary px-5 py-2.5 hover:shadow-[inset_0_0_12px_rgba(60,102,88,0.1)]',
+  secondary: 'btn-secondary text-primary px-2 py-1',
   ghost: 'border border-outline-variant/40 text-on-surface px-5 py-2.5 hover:bg-surface-container-high',
 };
 

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /docs/
+Disallow: /fr/docs/
+Disallow: /api/
+
+Sitemap: https://dravr.ai/sitemap-index.xml

@@ -2,10 +2,12 @@
 // ABOUTME: Layout for authenticated alpha user documentation pages
 // ABOUTME: Implements Stitch docs design — editorial grid, Newsreader serif, glass-panel sidebar card
 
+import { Image } from 'astro:assets';
 import Base from './Base.astro';
 import { getCollection } from 'astro:content';
 import { getLangFromUrl, useTranslations, getDocsCollection, getDocsBasePath } from '../i18n/utils';
 import LanguagePicker from '../components/LanguagePicker.astro';
+import borealMesh from '../assets/images/boreal-mesh.jpg';
 
 interface Props {
   title: string;
@@ -68,9 +70,13 @@ const slugToPath = (slug: string) => `${docsBase}/${slug}`;
       <!-- Boreal Insight Card (from Stitch docs design) -->
       <div class="mx-4 mb-4">
         <div class="glass-panel rounded-xl p-4 overflow-hidden relative">
-          <img
-            src="/images/boreal-mesh.jpg"
+          <Image
+            src={borealMesh}
             alt="Boreal forest texture"
+            widths={[320, 480]}
+            sizes="288px"
+            format="webp"
+            loading="lazy"
             class="absolute inset-0 w-full h-full object-cover opacity-20"
           />
           <div class="relative z-10">

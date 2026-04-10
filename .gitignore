@@ -50,6 +50,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!dravr-website/src/lib/
 lib64/
 parts/
 sdist/

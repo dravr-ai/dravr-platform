@@ -1,13 +1,17 @@
 ---
 // ABOUTME: French version of the alpha portal login (/fr/docs/login)
 // ABOUTME: URL /fr/docs/login causes getLangFromUrl to return 'fr'; all copy renders in French
+import { Image } from 'astro:assets';
 import Base from '../../../layouts/Base.astro';
 import LanguagePicker from '../../../components/LanguagePicker.astro';
+import borealRiver from '../../../assets/images/boreal-river.jpg';
 import { getLangFromUrl, useTranslations } from '../../../i18n/utils';
+import { isFlagEnabled } from '../../../lib/flags';
 
 const lang = getLangFromUrl(Astro.url);
 const t = useTranslations(lang);
 const reason = Astro.url.searchParams.get('reason');
+const googleEnabled = isFlagEnabled(import.meta.env.PUBLIC_GOOGLE_AUTH_ENABLED);
 ---
 
 <Base title={t('login.title')} noNav noFooter>
@@ -16,12 +20,17 @@ const reason = Astro.url.searchParams.get('reason');
 
     <!-- Background Layer with Boreal Image -->
     <div class="fixed inset-0 z-0">
-      <img
+      <Image
         alt={t('login.img.alt')}
         class="w-full h-full object-cover"
-        src="/images/boreal-river.jpg"
+        src={borealRiver}
+        widths={[640, 1024, 1920, 2560]}
+        sizes="100vw"
+        format="webp"
+        loading="eager"
+        fetchpriority="high"
       />
-      <div class="absolute inset-0 bg-gradient-to-b from-primary/40 via-primary/20 to-primary/90 z-10"></div>
+      <div class="boreal-hero-gradient absolute inset-0 z-10"></div>
     </div>
 
     <!-- Main Content Canvas -->
@@ -63,7 +72,7 @@ const reason = Astro.url.searchParams.get('reason');
                 type="email"
                 required
                 placeholder={t('login.email.placeholder')}
-                class="w-full bg-transparent border-0 border-b border-outline-variant/40 py-2 focus:ring-0 focus:border-primary transition-all text-on-surface placeholder:text-outline-variant/60 font-body"
+                class="w-full bg-transparent border-0 border-b border-outline-variant/40 py-2 focus:ring-0 focus:border-b-2 focus:border-primary transition-all text-on-surface placeholder:text-outline-variant/60 font-body"
               />
             </div>
           </div>
@@ -79,6 +88,32 @@ const reason = Astro.url.searchParams.get('reason');
           </button>
 
         </form>
+
+        {googleEnabled && (
+          <>
+            <!-- "Or" divider — negative space only, per DESIGN.md: no 1px solid sectioning rules -->
+            <div class="mt-10 mb-6 flex justify-center">
+              <span class="font-label text-[0.6875rem] uppercase tracking-widest text-on-surface-variant/40">
+                {t('login.or')}
+              </span>
+            </div>
+
+            <!-- Google Sign-In -->
+            <button
+              id="google-btn"
+              type="button"
+              class="w-full border border-outline-variant/30 text-on-surface py-3 rounded-lg font-label text-sm tracking-wide hover:bg-surface-variant/20 active:scale-[0.98] transition-all flex justify-center items-center gap-3"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+                <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+                <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+                <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+              </svg>
+              {t('login.google')}
+            </button>
+          </>
+        )}
 
         <!-- Technical Trust Indicators -->
         <div class="mt-10 pt-8 border-t border-outline-variant/15">
@@ -145,11 +180,15 @@ const reason = Astro.url.searchParams.get('reason');
     btn.disabled = true;
     btn.innerHTML = `<span class="font-headline tracking-widest">${textSending}</span>`;
 
+    const siteUrl = import.meta.env.PUBLIC_SITE_URL || window.location.origin;
+    // The callback route lives only at /docs/auth/callback — there is no
+    // /fr/docs/auth/callback. The `lang=fr` query param tells the callback
+    // handler which locale to redirect back to after the code exchange.
     const supabase = createBrowserClient();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/docs/auth/callback`,
+        emailRedirectTo: `${siteUrl}/docs/auth/callback?lang=fr`,
       },
     });
 
@@ -169,6 +208,20 @@ const reason = Astro.url.searchParams.get('reason');
         btn.textContent = textSent;
       }
     }
+  });
+
+  const googleBtn = document.getElementById('google-btn');
+  googleBtn?.addEventListener('click', async () => {
+    (googleBtn as HTMLButtonElement).disabled = true;
+    const lang = window.location.pathname.startsWith('/fr') ? 'fr' : 'en';
+    const siteUrl = import.meta.env.PUBLIC_SITE_URL || window.location.origin;
+    const supabase = createBrowserClient();
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${siteUrl}/docs/auth/callback?lang=${lang}`,
+      },
+    });
   });
 </script>
 

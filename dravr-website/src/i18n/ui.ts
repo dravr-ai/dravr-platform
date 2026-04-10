@@ -78,6 +78,8 @@ export const ui = {
     'login.check.email': 'Check your email — the magic link expires in 10 minutes.',
     'login.sent': 'Link sent ✓',
     'login.img.alt': 'Boreal River Background',
+    'login.or': 'or',
+    'login.google': 'Continue with Google',
 
     // Docs slug page nav
     'docs.nav.prev': 'Previous',
@@ -153,6 +155,8 @@ export const ui = {
     'login.check.email': 'Vérifiez votre courriel — le lien magique expire dans 10 minutes.',
     'login.sent': 'Lien envoyé ✓',
     'login.img.alt': 'Arrière-plan de rivière boréale',
+    'login.or': 'ou',
+    'login.google': 'Continuer avec Google',
 
     // Docs slug page nav
     'docs.nav.prev': 'Précédent',

@@ -1,12 +1,13 @@
 // ABOUTME: Astro middleware that guards /docs/* and /fr/docs/* routes behind Supabase auth
-// ABOUTME: Checks session cookie, verifies approval status, redirects unauthenticated requests
+// ABOUTME: Uses @supabase/ssr for session cookie handling + refresh; checks waitlist approval
 
 import { defineMiddleware } from 'astro:middleware';
-import { createClient } from '@supabase/supabase-js';
+import { createAstroServerClient, createAdminClient } from './lib/supabase';
 
 const PUBLIC_DOCS_PATHS = [
   '/docs/login',
   '/docs/auth/callback',
+  '/docs/auth/logout',
   '/fr/docs/login',
 ];
 
@@ -29,30 +30,23 @@ export const onRequest = defineMiddleware(async (context, next) => {
     return next();
   }
 
-  // Build Supabase client that reads cookies from the request
-  const supabase = createClient(
-    import.meta.env.SUPABASE_URL,
-    import.meta.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { autoRefreshToken: false, persistSession: false } },
-  );
-
-  // Extract Supabase session token from cookie
-  const cookieHeader = context.request.headers.get('cookie') ?? '';
-  const tokenMatch = cookieHeader.match(/sb-access-token=([^;]+)/);
-  const accessToken = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
-
-  if (!accessToken) {
-    return context.redirect(loginRedirectFor(pathname));
-  }
-
-  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+  // Read the current session (transparently refreshes expired access tokens
+  // and writes the new cookies back through context.cookies).
+  const supabase = createAstroServerClient(context.request, context.cookies);
+  const { data: { user }, error } = await supabase.auth.getUser();
 
   if (error || !user) {
+    if (error) {
+      console.warn('auth.getUser failed', { path: pathname, code: error.code });
+    }
     return context.redirect(loginRedirectFor(pathname));
   }
 
-  // Verify the user is on the approved waitlist
-  const { data: waitlistEntry } = await supabase
+  // Waitlist approval check uses the service-role client because the waitlist
+  // table is locked down to service_role only (see RLS policies in
+  // supabase/migrations/002_waitlist_policies.sql).
+  const admin = createAdminClient();
+  const { data: waitlistEntry } = await admin
     .from('waitlist')
     .select('status')
     .eq('email', user.email ?? '')
