@@ -1,5 +1,5 @@
 // ABOUTME: Supabase client factories for the Dravr website
-// ABOUTME: Browser (anon), Astro server (anon + cookie session), admin (service role)
+// ABOUTME: Browser (publishable), Astro server (publishable + cookie session), admin (secret key)
 
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -9,16 +9,16 @@ import {
 } from '@supabase/ssr';
 import type { AstroCookies } from 'astro';
 
-// Browser-side: anon key, reads/writes session via document.cookie.
+// Browser-side: publishable key, reads/writes session via document.cookie.
 // Used from `<script>` tags in login/callback pages.
 export function createBrowserClient() {
   return createBrowserClientSsr(
     import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
+    import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   );
 }
 
-// Server-side: anon key, reads/writes session via Astro cookies.
+// Server-side: publishable key, reads/writes session via Astro cookies.
 // Reads the Supabase session from the request `Cookie` header and writes
 // refreshed tokens back through `AstroCookies.set()`. Automatically rotates
 // refresh tokens — callers should always use `supabase.auth.getUser()` to
@@ -26,7 +26,7 @@ export function createBrowserClient() {
 export function createAstroServerClient(request: Request, cookies: AstroCookies) {
   return createServerClientSsr(
     import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
+    import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     {
       cookies: {
         getAll() {
@@ -50,13 +50,13 @@ export function createAstroServerClient(request: Request, cookies: AstroCookies)
   );
 }
 
-// Admin client: service role, no cookie handling.
+// Admin client: secret key, no cookie handling.
 // Used by the waitlist API to insert rows bypassing RLS, and by middleware
 // to check waitlist approval status for the authenticated user.
 export function createAdminClient() {
   return createClient(
     import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.SUPABASE_SERVICE_ROLE_KEY,
+    import.meta.env.SUPABASE_SECRET_KEY,
     {
       auth: {
         autoRefreshToken: false,

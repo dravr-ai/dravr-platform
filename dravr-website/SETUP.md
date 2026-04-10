@@ -22,10 +22,17 @@
      - `http://localhost:4321/docs/auth/callback` (for local dev only)
    - A permissive allowlist here lets an attacker intercept magic-link tokens —
      audit the list before going public.
-5. Copy your project keys from **Settings → API**:
-   - `URL` → `PUBLIC_SUPABASE_URL`
-   - `anon public` key → `PUBLIC_SUPABASE_ANON_KEY`
-   - `service_role` key → `SUPABASE_SERVICE_ROLE_KEY` (keep this secret)
+5. Copy your project keys from **Settings → API Keys**. Use the
+   **"Publishable and secret API keys"** tab — the legacy `anon` /
+   `service_role` keys still work during the transition, but new projects
+   should use the new key format:
+   - `Project URL` → `PUBLIC_SUPABASE_URL`
+   - `Publishable key` (`sb_publishable_...`) → `PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+     — safe to expose in browser bundles; subject to RLS.
+   - `Secret key` (`sb_secret_...`) → `SUPABASE_SECRET_KEY` — server-only,
+     bypasses RLS. Required for the middleware waitlist-approval lookup
+     and for `/api/waitlist` inserts (the `waitlist` table is locked to
+     the `service_role` role by migration `002_waitlist_policies.sql`).
 
 ---
 
@@ -85,11 +92,11 @@ bun dev
    - **Root directory:** `/` (leave as repo root)
 4. Add environment variables (Settings → Environment Variables):
    - `PUBLIC_SUPABASE_URL` — variable
-   - `PUBLIC_SUPABASE_ANON_KEY` — variable
+   - `PUBLIC_SUPABASE_PUBLISHABLE_KEY` — variable
    - `PUBLIC_SITE_URL` — variable, set to `https://dravr.ai` (or preview URL for preview envs)
    - `PUBLIC_TURNSTILE_SITE_KEY` — variable
    - `PUBLIC_GOOGLE_AUTH_ENABLED` — variable, `true` or `false`
-   - `SUPABASE_SERVICE_ROLE_KEY` — **secret**
+   - `SUPABASE_SECRET_KEY` — **secret**
    - `TURNSTILE_SECRET_KEY` — **secret**
 5. Deploy.
 
