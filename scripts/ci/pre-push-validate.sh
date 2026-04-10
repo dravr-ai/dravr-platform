@@ -129,26 +129,48 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ -f "$PROJECT_ROOT/scripts/ci/archit
 fi
 
 # ============================================================================
-# TIER 2: Per-Crate Clippy (only crates that changed)
-# Full --all-features clippy runs in CI; locally we scope to touched crates.
+# TIER 2: Per-Crate Clippy (small crates only — pierre-server is CI's job)
+# pierre_mcp_server is large enough that per-crate clippy is as slow as the
+# full workspace run. For pierre-server changes, Tier 4 targeted tests are
+# the local feedback loop; CI's ci-backend.yml handles workspace clippy.
 # ============================================================================
 if [[ "$HAS_RUST_CHANGES" == "true" ]] && [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
-    echo "Tier 2: Per-Crate Clippy"
-    echo "------------------------"
+    SMALL_CRATES_CHANGED=()
     for crate_dir in "${!CHANGED_CRATES[@]}"; do
-        pkg=$(crate_dir_to_package "$crate_dir")
-        echo "  clippy -p $pkg --all-targets --all-features"
-        if ! cargo clippy -p "$pkg" --all-targets --all-features -- -D warnings; then
-            echo ""
-            echo "FAIL: Clippy failed for $pkg"
-            echo ""
-            echo "Fix warnings then re-run:"
-            echo "  cargo clippy -p $pkg --all-targets --all-features -- -D warnings"
-            exit 1
+        if [[ "$crate_dir" == "pierre-server" ]]; then
+            continue
         fi
+        SMALL_CRATES_CHANGED+=("$crate_dir")
     done
-    echo "OK: Per-crate clippy passed"
-    echo ""
+
+    if [[ ${#SMALL_CRATES_CHANGED[@]} -eq 0 ]]; then
+        if [[ -n "${CHANGED_CRATES[pierre-server]:-}" ]]; then
+            echo "Tier 2: Per-Crate Clippy"
+            echo "------------------------"
+            echo "Only pierre-server changed — skipping local clippy (CI handles pierre_mcp_server)"
+            echo ""
+        fi
+    else
+        echo "Tier 2: Per-Crate Clippy"
+        echo "------------------------"
+        for crate_dir in "${SMALL_CRATES_CHANGED[@]}"; do
+            pkg=$(crate_dir_to_package "$crate_dir")
+            echo "  clippy -p $pkg --all-targets --all-features"
+            if ! cargo clippy -p "$pkg" --all-targets --all-features -- -D warnings; then
+                echo ""
+                echo "FAIL: Clippy failed for $pkg"
+                echo ""
+                echo "Fix warnings then re-run:"
+                echo "  cargo clippy -p $pkg --all-targets --all-features -- -D warnings"
+                exit 1
+            fi
+        done
+        if [[ -n "${CHANGED_CRATES[pierre-server]:-}" ]]; then
+            echo "Note: skipped pierre-server clippy (CI handles workspace clippy for pierre_mcp_server)"
+        fi
+        echo "OK: Per-crate clippy passed"
+        echo ""
+    fi
 fi
 
 # ============================================================================

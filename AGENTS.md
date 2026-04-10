@@ -418,7 +418,7 @@ The script only touches tiers whose files actually changed on the branch:
 
 1. **Tier 0** — `cargo fmt --all -- --check`
 2. **Tier 1** — architectural validation (`scripts/ci/architectural-validation.sh`)
-3. **Tier 2** — **per-crate clippy** for *only* the crates whose files changed: `cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`. Single-crate scope keeps it fast; `--all-features` matches the flag set CI uses so local passes don't become CI failures. Full-workspace clippy is CI's job — running it locally is too slow to be useful.
+3. **Tier 2** — **per-crate clippy** for *only* the small changed crates: `cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`. **`pierre-server` is explicitly skipped** — the `pierre_mcp_server` crate is large enough that per-crate clippy is as slow as the full workspace run (13+ minutes). For pierre-server changes, Tier 4 targeted tests are the local feedback loop and CI's `ci-backend.yml` handles workspace clippy. Full-workspace clippy locally is never the right answer.
 4. **Tier 3** — schema consistency (`cargo test --test schema_completeness_test`)
 5. **Tier 4** — **targeted tests**: the script maps each changed `.rs` file to a small set of test binaries and runs only those with `cargo test --test <file>`
 6. **Tiers 5–7** — frontend / SDK / mobile sub-scripts (only if those trees changed)
