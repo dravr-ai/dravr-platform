@@ -53,6 +53,7 @@ use crate::services::commands::{
         GroupStatusHandler,
     },
     help::HelpHandler,
+    privacy::{PrivacyOffHandler, PrivacyOnHandler, PrivacyStatusHandler},
     status::StatusHandler,
     CommandHandlerRegistry,
 };
@@ -451,6 +452,9 @@ impl ServerResources {
             handler_reg.register("coach", Arc::new(CoachListHandler));
             handler_reg.register("coach-select", Arc::new(CoachSelectHandler));
             handler_reg.register("coach-assign", Arc::new(CoachAssignHandler));
+            handler_reg.register("privacy", Arc::new(PrivacyStatusHandler));
+            handler_reg.register("privacy-on", Arc::new(PrivacyOnHandler));
+            handler_reg.register("privacy-off", Arc::new(PrivacyOffHandler));
             (Some(registry), Some(Arc::new(handler_reg)))
         };
 
