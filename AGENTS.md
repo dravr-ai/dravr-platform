@@ -304,7 +304,7 @@ The pre-push hook uses a **marker-based validation**. The script `./scripts/ci/p
 
 ### NEVER
 
-- Run `cargo fmt`, `cargo check`, or `cargo clippy` individually — the script does all of this
+- Run `cargo clippy --all-targets --all-features` locally as a pre-push gate — too slow to iterate on. Per-crate clippy during dev is fine and encouraged; the full-workspace variant is CI's job.
 - Manually create `.git/validation-passed` marker
 - Skip validation by creating a fake marker — CI will catch issues and main will break
 - Bypass with `git push --no-verify` unless explicitly asked
@@ -410,18 +410,29 @@ Everything else, including all read-only operations and analysis tools, can be r
 
 **CRITICAL: `./scripts/ci/pre-push-validate.sh` is the ONLY validation command you need.**
 
-Do NOT run `cargo fmt`, `cargo check`, `cargo clippy`, or any other individual validation commands. The script runs all of them with the correct flags. Running individual commands wastes time and risks using wrong flags.
+Do NOT run `cargo fmt`, `cargo check`, or `cargo clippy` ad-hoc. The script runs them with the correct flags and scopes. Running individual commands wastes time and risks using wrong flags.
+
+### What the script runs
+
+The script only touches tiers whose files actually changed on the branch:
+
+1. **Tier 0** — `cargo fmt --all -- --check`
+2. **Tier 1** — architectural validation (`scripts/ci/architectural-validation.sh`)
+3. **Tier 2** — **per-crate clippy** for *only* the crates whose files changed: `cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`. Single-crate scope keeps it fast; `--all-features` matches the flag set CI uses so local passes don't become CI failures. Full-workspace clippy is CI's job — running it locally is too slow to be useful.
+4. **Tier 3** — schema consistency (`cargo test --test schema_completeness_test`)
+5. **Tier 4** — **targeted tests**: the script maps each changed `.rs` file to a small set of test binaries and runs only those with `cargo test --test <file>`
+6. **Tiers 5–7** — frontend / SDK / mobile sub-scripts (only if those trees changed)
 
 ### Workflow
 
-1. **During development**: write code, run targeted tests (see below)
+1. **During development**: write code, run targeted tests (`cargo test --test <test_file>`), run per-crate clippy on the crate you're in (`cargo clippy -p <pkg> --all-targets --all-features -- -D warnings`).
 2. **Before pushing**: `git add` your changes, commit, then run:
    ```bash
    ./scripts/ci/pre-push-validate.sh
    ```
-   This runs fmt check, architectural validation, and full clippy (`--all-targets --all-features -D warnings`).
-   Tests are handled by CI with 4-shard parallelism — do not run the full test suite locally.
 3. **Push**: `git push` (the pre-push hook verifies the validation marker)
+
+**Full-workspace clippy and the full 13-minute test suite run in CI with 4-shard parallelism. Do not run them locally — monitor CI after pushing instead.**
 
 ### Test Suite Timing Context
 - Full test suite: ~13 minutes (3,462 tests across 238 test binaries, 234 test files)
