@@ -25,12 +25,11 @@ rm -f "$MARKER_FILE"
 # ============================================================================
 # Detect changed files and classify them
 # ============================================================================
-CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-
-if git rev-parse --verify "origin/$CURRENT_BRANCH" &>/dev/null; then
-    BASE_REF="origin/$CURRENT_BRANCH"
-elif git rev-parse --verify "origin/main" &>/dev/null; then
-    BASE_REF="origin/main"
+# Use the merge-base with origin/main so that rebased branches don't report
+# main commits they picked up as branch-owned changes. Falls back to
+# origin/main or HEAD~1 if merge-base lookup fails (e.g., fresh clone).
+if git rev-parse --verify "origin/main" &>/dev/null; then
+    BASE_REF=$(git merge-base "origin/main" HEAD 2>/dev/null || echo "origin/main")
 else
     BASE_REF="HEAD~1"
 fi
