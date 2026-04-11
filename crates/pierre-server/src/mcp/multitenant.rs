@@ -1041,6 +1041,12 @@ impl MultiTenantMcpServer {
                 resources.tool_selection.clone(),
             );
             admin_context.tool_registry = Some(resources.tool_registry.clone());
+            admin_context
+                .email_service
+                .clone_from(&resources.email_service);
+            admin_context
+                .frontend_url
+                .clone_from(&resources.config.frontend_url);
             let admin_routes = AdminRoutes::routes(admin_context);
 
             let admin_config_routes = resources.admin_config.as_ref().map_or_else(

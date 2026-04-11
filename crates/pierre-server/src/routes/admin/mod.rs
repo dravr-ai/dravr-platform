@@ -38,6 +38,7 @@ use tracing::info;
 
 use crate::{
     admin::{auth::AdminAuthService, middleware::admin_auth_middleware, JwksManager},
+    email::ResendEmailService,
     mcp::ToolSelectionService,
     routes::tool_selection::{ToolSelectionContext, ToolSelectionRoutes},
     tools::registry::ToolRegistry,
@@ -67,6 +68,10 @@ pub struct AdminApiContext {
     pub tool_selection: Arc<ToolSelectionService>,
     /// Tool registry for diagnostics (schema size estimation)
     pub tool_registry: Option<Arc<ToolRegistry>>,
+    /// Transactional email service for user lifecycle notifications (None when Resend is unconfigured)
+    pub email_service: Option<Arc<ResendEmailService>>,
+    /// Public frontend URL used to build sign-in links in outbound emails
+    pub frontend_url: Option<String>,
 }
 
 impl AdminApiContext {
@@ -98,6 +103,8 @@ impl AdminApiContext {
             admin_api_key_monthly_limit,
             tool_selection,
             tool_registry: None,
+            email_service: None,
+            frontend_url: None,
         }
     }
 }

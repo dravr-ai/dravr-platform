@@ -9,6 +9,7 @@
 //! This module contains all DTOs (Data Transfer Objects) used by the authentication
 //! routes for serialization and deserialization of API requests and responses.
 
+use crate::models::UserStatus;
 use serde::{Deserialize, Serialize};
 
 /// User registration request
@@ -27,6 +28,11 @@ pub struct RegisterRequest {
 pub struct RegisterResponse {
     /// Unique identifier for the newly created user
     pub user_id: String,
+    /// User account status at creation time (`pending` or `active`)
+    pub user_status: UserStatus,
+    /// Display name, if the user supplied one at registration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// Success message for the registration
     pub message: String,
 }

@@ -62,6 +62,10 @@ export interface LoginResponse {
 export interface RegisterResponse {
   user_id: string;
   email: string;
+  /** Account status at creation time ("pending" or "active") */
+  user_status: 'pending' | 'active' | 'suspended';
+  /** Display name, if the user supplied one at registration */
+  display_name?: string;
   message: string;
 }
 

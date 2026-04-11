@@ -133,6 +133,8 @@ impl AuthService {
 
         Ok(RegisterResponse {
             user_id: user_id.to_string(),
+            user_status: user.user_status,
+            display_name: user.display_name,
             message,
         })
     }

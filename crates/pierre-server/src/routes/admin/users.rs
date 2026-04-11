@@ -22,7 +22,7 @@ use uuid::Uuid;
 use crate::{
     admin::{models::ValidatedAdminToken, AdminPermission as AdminPerm},
     errors::{AppError, AppResult},
-    models::UserStatus,
+    models::{User, UserStatus},
     services::tenant_admin as tenant_admin_service,
 };
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
@@ -317,6 +317,8 @@ pub(super) async fn handle_approve_user(
     // Send ops notification for user approval
     crate::ops_notifier().notify_user_approved(&updated_user.email, &admin_token.service_name);
 
+    send_user_approved_email(ctx, &updated_user).await;
+
     Ok(json_response(
         AdminResponse {
             success: true,
@@ -336,6 +338,27 @@ pub(super) async fn handle_approve_user(
         },
         StatusCode::OK,
     ))
+}
+
+/// Fire-and-forget dispatch of the "your account is approved" email
+///
+/// Delivery failures or missing Resend config are warn-logged only — never
+/// propagated, so they cannot fail the parent approval response.
+async fn send_user_approved_email(ctx: &AdminApiContext, user: &User) {
+    let Some(email_svc) = ctx.email_service.as_ref() else {
+        return;
+    };
+    let sign_in_url = ctx.frontend_url.as_deref();
+    if let Err(e) = email_svc
+        .send_registration_approved(&user.email, user.display_name.as_deref(), sign_in_url)
+        .await
+    {
+        warn!(
+            user_id = %user.id,
+            error = %e,
+            "Failed to send account-approved email — user not notified"
+        );
+    }
 }
 
 /// Handle user suspension workflow
