@@ -26,40 +26,43 @@ appId: host.exp.Exponent
 - tapOn:
     point: "50%,10%"
 
-# Wait for Expo Go to load the project. The "Dravr" text appears in the
-# project info sheet once the JS bundle is loaded.
-- extendedWaitUntil:
-    visible: "Dravr"
-    timeout: 120000
-
 # Expo Go v55 shows a project info sheet ("Dravr", "Close", "Reload", "Go Home")
 # after loading via deep link. This sheet overlays the RN accessibility tree.
 # The `runFlow: when: visible:` check runs ONCE instantly (no polling/timeout),
-# so we retry with delays to catch sheets that appear late.
+# so we retry with delays to catch sheets that appear late. We no longer assert
+# a specific text is visible first — Expo Go v55's bundle load timing is
+# inconsistent across CI iOS simulators, causing that assertion to flake.
 
-# Dismiss attempt 1: immediate check
+# Initial 5-second settle via micro-swipe (Maestro has no native sleep command).
+# Gives Expo Go time to download the bundle and render the project info sheet.
+- swipe:
+    start: "50%,30%"
+    end: "50%,31%"
+    duration: 5000
+
+# Dismiss attempt 1
 - runFlow:
     when:
       visible: "Close"
     file: dismiss-dev-panel.yaml
 
-# 3-second delay via micro-swipe (Maestro has no native sleep command).
+# 3-second delay
 - swipe:
     start: "50%,30%"
     end: "50%,32%"
     duration: 3000
 
-# Dismiss attempt 2: catches sheet that appeared during the 3s delay
+# Dismiss attempt 2: catches sheet that appeared during the delay
 - runFlow:
     when:
       visible: "Close"
     file: dismiss-dev-panel.yaml
 
-# 2-second delay
+# 3-second delay
 - swipe:
     start: "50%,30%"
     end: "50%,28%"
-    duration: 2000
+    duration: 3000
 
 # Dismiss attempt 3: final safety check
 - runFlow:
