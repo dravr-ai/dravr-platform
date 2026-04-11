@@ -22,6 +22,7 @@ use pierre_mcp_server::contremaitre::tool_descriptions::{
 use pierre_mcp_server::contremaitre::webhook::verify_github_signature;
 use ring::hmac;
 use std::fs;
+use std::path::Path;
 
 // ── Manifest tests ─────────────────────────────────────────────────────
 
@@ -625,7 +626,7 @@ const EXPECTED_TOOLS: &[&str] = &[
 
 /// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions
 /// in all `.rs` files under the given directory.
-fn extract_tool_names_from_source(dir: &std::path::Path) -> HashSet<String> {
+fn extract_tool_names_from_source(dir: &Path) -> HashSet<String> {
     let re = regex::Regex::new(
         r#"fn\s+name\s*\(\s*&\s*self\s*\)\s*->\s*&\s*'static\s+str\s*\{\s*"([a-z_][a-z0-9_]*)"\s*\}"#,
     )
@@ -655,7 +656,7 @@ fn test_expected_tools_matches_rust_source() {
     // tools registered in pierre-server. If this fails, either:
     //   - A new tool was added: update EXPECTED_TOOLS and add a YAML to dravr-contremaitre
     //   - A tool was removed: delete from EXPECTED_TOOLS and from dravr-contremaitre
-    let impl_dir = std::path::Path::new("src/tools/implementations");
+    let impl_dir = Path::new("src/tools/implementations");
     let found = extract_tool_names_from_source(impl_dir);
     let expected: HashSet<String> = EXPECTED_TOOLS.iter().map(|s| (*s).to_owned()).collect();
 
