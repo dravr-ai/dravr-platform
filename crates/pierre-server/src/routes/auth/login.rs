@@ -23,6 +23,7 @@ use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     middleware::extract_auth_from_headers,
+    models::UserStatus,
     utils::auth::extract_bearer_token_owned,
 };
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
@@ -96,12 +97,55 @@ pub(super) async fn handle_register(
         server_context.data().clone(),
     );
 
-    match auth_service.register(request).await {
-        Ok(response) => Ok((StatusCode::CREATED, Json(response)).into_response()),
+    match auth_service.register(request.clone()).await {
+        Ok(response) => {
+            send_post_registration_email(&resources, &request.email, &response).await;
+            Ok((StatusCode::CREATED, Json(response)).into_response())
+        }
         Err(e) => {
             error!("Registration failed: {}", e);
             Err(e)
         }
+    }
+}
+
+/// Fire-and-forget post-registration email dispatch
+///
+/// Sends a "pending review" email for new accounts in Pending status, or a
+/// "welcome / account approved" email for accounts that were auto-approved at
+/// registration time. Never fails the parent request — missing Resend config
+/// or transient delivery errors are logged as warnings only.
+async fn send_post_registration_email(
+    resources: &ServerResources,
+    email: &str,
+    response: &super::types::RegisterResponse,
+) {
+    let Some(email_svc) = resources.email_service.as_ref() else {
+        warn!(
+            user_id = %response.user_id,
+            "Email service not configured — skipping registration confirmation email"
+        );
+        return;
+    };
+
+    let display_name = response.display_name.as_deref();
+    let result = if response.user_status == UserStatus::Active {
+        let sign_in_url = resources.config.frontend_url.as_deref();
+        email_svc
+            .send_registration_approved(email, display_name, sign_in_url)
+            .await
+    } else {
+        email_svc
+            .send_registration_pending(email, display_name)
+            .await
+    };
+
+    if let Err(e) = result {
+        warn!(
+            user_id = %response.user_id,
+            error = %e,
+            "Failed to send registration confirmation email — user not notified"
+        );
     }
 }
 
@@ -127,8 +171,11 @@ pub(super) async fn handle_public_register(
         server_context.data().clone(),
     );
 
-    match auth_service.register(request).await {
-        Ok(response) => Ok((StatusCode::CREATED, Json(response)).into_response()),
+    match auth_service.register(request.clone()).await {
+        Ok(response) => {
+            send_post_registration_email(&resources, &request.email, &response).await;
+            Ok((StatusCode::CREATED, Json(response)).into_response())
+        }
         Err(e) => {
             error!("Public registration failed: {}", e);
             Err(e)

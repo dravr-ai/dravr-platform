@@ -4,7 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-mod templates;
+/// HTML email templates for transactional and lifecycle emails
+pub mod templates;
 
 use crate::errors::{AppError, AppResult};
 use crate::utils::http_client::shared_client;
@@ -100,6 +101,46 @@ impl ResendEmailService {
     pub async fn send_password_reset_code(&self, to: &str, code: &str) -> AppResult<()> {
         let html = templates::password_reset_code_html(code);
         self.send_email(to, "Your password reset code", &html).await
+    }
+
+    /// Send a "registration received, pending approval" email
+    ///
+    /// Delivered immediately after self-registration when the account lands
+    /// in Pending status. Lets the user know that an admin will review the
+    /// account and that a follow-up email will arrive on approval.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_registration_pending(
+        &self,
+        to: &str,
+        display_name: Option<&str>,
+    ) -> AppResult<()> {
+        let html = templates::registration_pending_html(display_name);
+        self.send_email(to, "Welcome to Dravr — account pending review", &html)
+            .await
+    }
+
+    /// Send a "your account has been approved" email
+    ///
+    /// Delivered after an admin approves a pending registration, or after
+    /// auto-approval during registration. When a `sign_in_url` is provided
+    /// the email renders a call-to-action button; otherwise it falls back
+    /// to a plain notice.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_registration_approved(
+        &self,
+        to: &str,
+        display_name: Option<&str>,
+        sign_in_url: Option<&str>,
+    ) -> AppResult<()> {
+        let html = templates::registration_approved_html(display_name, sign_in_url);
+        self.send_email(to, "Your Dravr account is approved", &html)
+            .await
     }
 
     /// Send a channel linking verification code email
