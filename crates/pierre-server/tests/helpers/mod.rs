@@ -7,5 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 pub mod axum_test;
+#[cfg(feature = "client-messaging")]
+pub mod messaging_webhooks;
 pub mod synthetic_data;
 pub mod test_utils;

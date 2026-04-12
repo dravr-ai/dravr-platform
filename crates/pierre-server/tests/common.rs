@@ -74,6 +74,18 @@ pub fn init_server_config() {
         env::set_var("CI", "true");
         env::set_var("DATABASE_URL", "sqlite::memory:");
 
+        // Point the messaging command loader at the repo-root `commands/`
+        // directory so command handlers are populated in the test
+        // `ServerResources`. Without this, the loader resolves relative to
+        // the test process CWD (`crates/pierre-server/`) and finds nothing.
+        let commands_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(Path::parent)
+            .map(|root| root.join("commands"));
+        if let Some(path) = commands_path {
+            env::set_var("PIERRE_COMMANDS_DIR", path);
+        }
+
         // Set OAuth environment variables for testing
         env::set_var("PIERRE_STRAVA_CLIENT_ID", "test_strava_client_id");
         env::set_var("PIERRE_STRAVA_CLIENT_SECRET", "test_strava_client_secret");

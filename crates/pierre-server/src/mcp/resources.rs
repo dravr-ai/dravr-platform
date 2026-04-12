@@ -83,7 +83,8 @@ use pierre_messaging::ChannelRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
 use std::collections::HashMap;
-use std::path::Path;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -429,11 +430,17 @@ impl ServerResources {
             tier_strategy_for("professional"),
         ));
 
-        // Load messaging slash commands from commands/ directory
+        // Load messaging slash commands from commands/ directory.
+        //
+        // `PIERRE_COMMANDS_DIR` overrides the default CWD-relative lookup so
+        // tests and non-default deployments can point at an absolute path.
         #[cfg(feature = "client-messaging")]
         let (command_registry, command_handler_registry) = {
-            let commands_dir = Path::new("commands");
-            let defs = commands::load_command_definitions(commands_dir);
+            let commands_dir_override = env::var("PIERRE_COMMANDS_DIR").ok();
+            let commands_dir = commands_dir_override
+                .as_deref()
+                .map_or_else(|| Path::new("commands").to_path_buf(), PathBuf::from);
+            let defs = commands::load_command_definitions(&commands_dir);
             let mut registry = CommandRegistry::new();
             for def in defs {
                 registry.register(def);
