@@ -23,7 +23,9 @@ http-response = ["dep:axum", "dep:http"]
 database-errors = ["dep:sqlx"]
 
 # sqlx Type/Encode/Decode derives for domain types (TenantId, etc.)
-sqlx-types = ["dep:sqlx", "sqlx/derive"]
+# `uuid` and `chrono` features bring in the Type/Encode/Decode impls that
+# TenantId uses to delegate to <Uuid as Encode<Postgres>> / <Decode<Postgres>>.
+sqlx-types = ["dep:sqlx", "sqlx/derive", "sqlx/uuid", "sqlx/chrono"]
 
 # SQLite-specific Encode/Type for domain types (TenantId as TEXT, not BLOB)
 sqlx-sqlite = ["sqlx-types", "sqlx/sqlite"]
@@ -103,7 +105,11 @@ dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.2.3" }
 
 # Optional: OpenAPI schema generation
-utoipa = { version = "5.4", optional = true }
+# `uuid` and `chrono` features provide `ToSchema` impls for `Uuid` and
+# `DateTime<Utc>`, required by `#[derive(utoipa::ToSchema)]` on structs in
+# `models/` — without them, per-crate `--all-features` clippy fails because
+# workspace feature unification isn't in play.
+utoipa = { version = "5.4", optional = true, features = ["uuid", "chrono"] }
 
 # Optional: Admin JWT utilities
 sha2 = { version = "0.10", optional = true }
