@@ -120,7 +120,7 @@ The following sections are NOT counted:
 4. Write the Purpose section
 5. Write the Instructions section (most important)
 6. Add optional sections as needed
-7. Run `cargo run --bin seed-coaches` to load into database
+7. Run `cargo run --bin pierre-cli -- seed coaches` to load into database
 
 ## Example Coach File
 

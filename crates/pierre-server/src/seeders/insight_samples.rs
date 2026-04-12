@@ -13,77 +13,57 @@
 //!
 //! ```bash
 //! # List all insight samples (no validation)
-//! cargo run --bin seed-insight-samples
+//! pierre-cli seed insight-samples
 //!
 //! # Validate samples against LLM
-//! cargo run --bin seed-insight-samples -- --validate
+//! pierre-cli seed insight-samples --validate
 //!
 //! # Validate with specific tier
-//! cargo run --bin seed-insight-samples -- --validate --tier professional
+//! pierre-cli seed insight-samples --validate --tier professional
 //!
-//! # Verbose output
-//! cargo run --bin seed-insight-samples -- -v
+//! # Show tags and content preview
+//! pierre-cli seed insight-samples --detailed
 //!
 //! # Dry run (show what would be done)
-//! cargo run --bin seed-insight-samples -- --dry-run
+//! pierre-cli seed insight-samples --dry-run
 //! ```
 
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
-use clap::Parser;
 use glob::glob;
-use thiserror::Error;
+use pierre_core::errors::{AppError, AppResult};
 use tracing::{debug, warn};
 
-use pierre_mcp_server::insight_samples::{parse_insight_sample_file, InsightSampleDefinition};
-use pierre_mcp_server::models::UserTier;
+use crate::insight_samples::{parse_insight_sample_file, InsightSampleDefinition};
+use crate::models::UserTier;
 
-/// CLI-specific error type for the seed binary
-#[derive(Error, Debug)]
-enum SeedError {
-    #[error("Glob pattern error: {0}")]
-    GlobPattern(#[from] glob::PatternError),
-
-    #[error("Glob error: {0}")]
-    Glob(#[from] glob::GlobError),
-
-    #[error("{0}")]
-    Validation(String),
-}
-
-type SeedResult<T> = Result<T, SeedError>;
-
-#[derive(Parser)]
-#[command(
-    name = "seed-insight-samples",
-    about = "Pierre MCP Server Insight Sample Seeder",
-    long_about = "Load insight samples from markdown files and optionally validate against LLM"
-)]
-struct SeedArgs {
+/// CLI arguments for the insight samples validator.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Path to `insight_samples` directory
     #[arg(long, default_value = "insight_samples")]
-    samples_dir: PathBuf,
+    pub samples_dir: PathBuf,
 
     /// Run LLM validation on samples (requires API key)
     #[arg(long)]
-    validate: bool,
+    pub validate: bool,
 
     /// User tier for validation (starter, professional, enterprise)
     #[arg(long, default_value = "starter")]
-    tier: String,
+    pub tier: String,
 
     /// Dry run - show what would be done without making changes
     #[arg(long)]
-    dry_run: bool,
+    pub dry_run: bool,
 
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    /// Show tags and content preview for each sample
+    #[arg(long)]
+    pub detailed: bool,
 
     /// Only show samples in a specific category (valid, invalid, improvable)
     #[arg(long)]
-    category: Option<String>,
+    pub category: Option<String>,
 }
 
 /// Seeding result statistics
@@ -103,39 +83,22 @@ impl SeedStats {
     }
 }
 
-#[tokio::main]
-async fn main() -> SeedResult<()> {
-    let args = SeedArgs::parse();
-
-    // Initialize logging for debug/warn messages only
-    let log_level = if args.verbose { "debug" } else { "warn" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
+/// Parse insight sample markdown files and optionally validate them against the LLM service.
+///
+/// # Errors
+///
+/// Returns an error if the tier string is invalid or if sample discovery fails.
+pub fn run(args: &SeedArgs) -> AppResult<()> {
     println!("=== Pierre MCP Server Insight Sample Seeder ===");
-
     if args.dry_run {
         println!("DRY RUN - no validation will be performed");
     }
 
-    // Parse user tier
-    let user_tier = match args.tier.to_lowercase().as_str() {
-        "starter" => UserTier::Starter,
-        "professional" => UserTier::Professional,
-        "enterprise" => UserTier::Enterprise,
-        _ => {
-            return Err(SeedError::Validation(format!(
-                "Invalid tier '{}'. Use: starter, professional, or enterprise",
-                args.tier
-            )));
-        }
-    };
-
+    let user_tier = parse_user_tier(&args.tier)?;
     println!("Using tier: {user_tier:?}");
 
-    // Find and parse all insight sample markdown files
     let samples = discover_samples(&args.samples_dir, args.category.as_deref())?;
     println!("Found {} insight sample files", samples.len());
-
     if samples.is_empty() {
         eprintln!(
             "Warning: No insight sample files found in {}",
@@ -144,18 +107,23 @@ async fn main() -> SeedResult<()> {
         return Ok(());
     }
 
-    // Display samples
-    let stats = display_samples(&samples, args.verbose);
-
-    // Run validation if requested
+    let stats = display_samples(&samples, args.detailed);
     if args.validate && !args.dry_run {
         run_validation_mode(&samples, &user_tier);
     }
-
-    // Summary
     print_summary(&stats, args.dry_run);
-
     Ok(())
+}
+
+fn parse_user_tier(tier: &str) -> AppResult<UserTier> {
+    match tier.to_lowercase().as_str() {
+        "starter" => Ok(UserTier::Starter),
+        "professional" => Ok(UserTier::Professional),
+        "enterprise" => Ok(UserTier::Enterprise),
+        other => Err(AppError::config(format!(
+            "Invalid tier '{other}'. Use: starter, professional, or enterprise"
+        ))),
+    }
 }
 
 /// Run validation mode and display expected results
@@ -178,14 +146,16 @@ fn run_validation_mode(samples: &[InsightSampleDefinition], user_tier: &UserTier
 fn discover_samples(
     samples_dir: &Path,
     category_filter: Option<&str>,
-) -> SeedResult<Vec<InsightSampleDefinition>> {
+) -> AppResult<Vec<InsightSampleDefinition>> {
     let pattern = samples_dir.join("**/*.md");
     let pattern_str = pattern.to_string_lossy();
 
     let mut samples = Vec::new();
 
-    for entry in glob(&pattern_str)? {
-        let path = entry?;
+    let entries =
+        glob(&pattern_str).map_err(|e| AppError::config(format!("Invalid glob pattern: {e}")))?;
+    for entry in entries {
+        let path = entry.map_err(|e| AppError::config(format!("Glob iteration error: {e}")))?;
 
         // Skip README files
         if path.file_name().is_some_and(|n| n == "README.md") {

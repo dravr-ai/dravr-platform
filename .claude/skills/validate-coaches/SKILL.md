@@ -79,7 +79,7 @@ head -20 coaches/training/marathon-coach.md
 
 ### Load Coaches into Database
 ```bash
-cargo run --bin seed-coaches
+cargo run --bin pierre-cli -- seed coaches
 ```
 This command will fail if any coach file is malformed.
 
@@ -97,7 +97,7 @@ For each coach file:
 
 ## Success Criteria
 - All coach files pass validation
-- `cargo run --bin seed-coaches` completes without errors
+- `cargo run --bin pierre-cli -- seed coaches` completes without errors
 - No orphaned coach files (files without proper frontmatter)
 - Category directories match frontmatter category values
 

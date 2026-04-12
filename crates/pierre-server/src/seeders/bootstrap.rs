@@ -15,51 +15,33 @@
 //! Usage:
 //! ```bash
 //! # Minimal: password from environment
-//! ADMIN_PASSWORD=SecurePass123 cargo run --bin seed-bootstrap
+//! ADMIN_PASSWORD=SecurePass123 pierre-cli seed bootstrap
 //!
-//! # Override email and database URL
-//! cargo run --bin seed-bootstrap -- --admin-email ops@dravr.ai --database-url postgresql://...
-//!
-//! # Verbose output
-//! cargo run --bin seed-bootstrap -- -v
+//! # Override email
+//! pierre-cli seed bootstrap --admin-email ops@dravr.ai
 //! ```
 
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
-use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant};
 use pierre_database::RepositoryRegistry;
-use std::env;
 use tracing::info;
 use uuid::Uuid;
 
 /// Password for demo users (not the admin — admin password comes from env/CLI)
 const DEMO_USER_PASSWORD: &str = "DemoUser123!";
 
-#[derive(Parser)]
-#[command(
-    name = "seed-bootstrap",
-    about = "Pierre MCP Server Bootstrap Seeder",
-    long_about = "Create admin and demo users for a fresh deployment (idempotent)"
-)]
-struct SeedArgs {
-    /// Database URL override (falls back to `DATABASE_URL` env var)
-    #[arg(long)]
-    database_url: Option<String>,
-
+/// CLI arguments for the bootstrap seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Admin email address
     #[arg(long, env = "ADMIN_EMAIL", default_value = "admin@example.com")]
-    admin_email: String,
+    pub admin_email: String,
 
     /// Admin password (required — no hardcoded default)
     #[arg(long, env = "ADMIN_PASSWORD")]
-    admin_password: String,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub admin_password: String,
 }
 
 /// Bootstrap user definition
@@ -192,82 +174,57 @@ async fn create_user(
     Ok(user_id)
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
-
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
+/// Seed an admin user plus the fixed demo users, upserting credentials if they already exist.
+///
+/// # Errors
+///
+/// Returns an error if bcrypt hashing fails or if any of the repository operations fail.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre Bootstrap Seeder ===");
 
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
+    sync_user(
+        repos,
+        &args.admin_email,
+        "Admin",
+        &args.admin_password,
+        "enterprise",
+        true,
+    )
+    .await?;
 
-    info!("Connecting to database...");
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // --- Admin user ---
-    let admin_email = &args.admin_email;
-    let existing_admin = repos.seeder.seed_check_user_exists(admin_email).await?;
-    if let Some(id) = existing_admin {
-        // Update password/role for existing admin (upsert via ON CONFLICT)
-        upsert_user_credentials(
-            &repos,
-            admin_email,
-            "Admin",
-            &args.admin_password,
-            "enterprise",
-            true,
-        )
-        .await?;
-        info!("Updated admin user credentials: {admin_email} ({id})");
-    } else {
-        let id = create_user(
-            &repos,
-            admin_email,
-            "Admin",
-            &args.admin_password,
-            "enterprise",
-            true,
-        )
-        .await?;
-        info!("Created admin user: {admin_email} ({id})");
-    }
-
-    // --- Demo users ---
     for user in DEMO_USERS {
         let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
-        let existing = repos.seeder.seed_check_user_exists(user.email).await?;
-        if let Some(id) = existing {
-            // Update password/role for existing demo user (upsert via ON CONFLICT)
-            upsert_user_credentials(
-                &repos,
-                user.email,
-                user.display_name,
-                password,
-                user.tier,
-                user.is_admin,
-            )
-            .await?;
-            info!("Updated demo user credentials: {} ({id})", user.email);
-        } else {
-            let id = create_user(
-                &repos,
-                user.email,
-                user.display_name,
-                password,
-                user.tier,
-                user.is_admin,
-            )
-            .await?;
-            info!("Created demo user: {} ({id})", user.email);
-        }
+        sync_user(
+            repos,
+            user.email,
+            user.display_name,
+            password,
+            user.tier,
+            user.is_admin,
+        )
+        .await?;
     }
 
     info!("=== Bootstrap seeding complete ===");
+    Ok(())
+}
+
+/// Idempotently create or update a single user, picking the right path based on existence.
+async fn sync_user(
+    repos: &RepositoryRegistry,
+    email: &str,
+    display_name: &str,
+    password: &str,
+    tier: &str,
+    is_admin: bool,
+) -> AppResult<()> {
+    let existing = repos.seeder.seed_check_user_exists(email).await?;
+    if let Some(id) = existing {
+        upsert_user_credentials(repos, email, display_name, password, tier, is_admin).await?;
+        info!("Updated user credentials: {email} ({id})");
+    } else {
+        let id = create_user(repos, email, display_name, password, tier, is_admin).await?;
+        info!("Created user: {email} ({id})");
+    }
     Ok(())
 }

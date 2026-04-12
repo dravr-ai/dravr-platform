@@ -29,45 +29,8 @@ name = "pierre-cli"
 path = "src/bin/pierre_cli/main.rs"
 bench = false
 
-[[bin]]
-name = "seed-demo-data"
-path = "src/bin/seed_demo_data.rs"
-bench = false
-
-[[bin]]
-name = "seed-coaches"
-path = "src/bin/seed_coaches.rs"
-bench = false
-
-[[bin]]
-name = "seed-mobility"
-path = "src/bin/seed_mobility.rs"
-bench = false
-
-[[bin]]
-name = "seed-social"
-path = "src/bin/seed_social.rs"
-bench = false
-
-[[bin]]
-name = "seed-insight-samples"
-path = "src/bin/seed_insight_samples.rs"
-bench = false
-
-[[bin]]
-name = "seed-synthetic-activities"
-path = "src/bin/seed_synthetic_activities.rs"
-bench = false
-
-[[bin]]
-name = "seed-llm-usage"
-path = "src/bin/seed_llm_usage.rs"
-bench = false
-
-[[bin]]
-name = "seed-bootstrap"
-path = "src/bin/seed_bootstrap.rs"
-bench = false
+# Seeder binaries have been consolidated into `pierre-cli seed <domain>` subcommands.
+# Seeder logic now lives in `src/seeders/` and is dispatched by `bin/pierre_cli/commands/seed.rs`.
 
 # [[bin]]
 # name = "serve-docs"

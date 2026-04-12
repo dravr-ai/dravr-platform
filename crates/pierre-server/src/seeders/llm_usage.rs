@@ -13,46 +13,31 @@
 //! Usage:
 //! ```bash
 //! # Seed with default settings (30 days, assigns to first admin's tenant)
-//! cargo run --bin seed-llm-usage
+//! pierre-cli seed llm-usage
 //!
 //! # Specify admin email and day count
-//! cargo run --bin seed-llm-usage -- --admin-email admin@example.com --days 60
+//! pierre-cli seed llm-usage --admin-email admin@example.com --days 60
 //! ```
 
 use chrono::{Datelike, Duration, Timelike, Utc};
-use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::seed_models::SeedLlmUsageRecord;
 use pierre_database::RepositoryRegistry;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::env;
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Parser)]
-#[command(
-    name = "seed-llm-usage",
-    about = "Pierre LLM Usage Data Seeder",
-    long_about = "Populate the llm_usage table with realistic LLM call data for analytics dashboards"
-)]
-struct SeedArgs {
+/// CLI arguments for the LLM usage seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Admin email to look up the target tenant (uses first admin if not specified)
     #[arg(long)]
-    admin_email: Option<String>,
-
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
+    pub admin_email: Option<String>,
 
     /// Number of days of historical data to generate
     #[arg(long, default_value = "30")]
-    days: u32,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub days: u32,
 }
 
 /// Provider/model configuration for data generation
@@ -163,26 +148,37 @@ fn pick_call_type(rng: &mut impl Rng) -> &'static str {
     "chat"
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
-
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
+/// Generate synthetic LLM call records across multiple providers for analytics dashboards.
+///
+/// # Errors
+///
+/// Returns an error if no admin user is found, if the user has no tenant, or if any
+/// repository operation fails while inserting usage records.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre LLM Usage Data Seeder ===");
+    let (user_id, tenant_id) = resolve_admin_tenant(repos, args.admin_email.as_deref()).await?;
+    clear_existing_usage(repos, tenant_id).await?;
+    let record_count = generate_usage_data(repos, tenant_id, user_id, args.days).await?;
+    info!("=== Seeding Complete: {record_count} LLM usage records ===");
+    Ok(())
+}
 
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
+async fn generate_usage_data(
+    repos: &RepositoryRegistry,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    days: u32,
+) -> AppResult<u64> {
+    info!("Generating {days} days of LLM usage data...");
+    seed_llm_usage(repos, tenant_id, user_id, days).await
+}
 
-    info!("Connecting to database: {}", database_url);
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // Find admin user and their tenant
-    let admin = if let Some(ref email) = args.admin_email {
+/// Look up the admin user (by email or fall back to first) and resolve their tenant UUID.
+async fn resolve_admin_tenant(
+    repos: &RepositoryRegistry,
+    admin_email: Option<&str>,
+) -> AppResult<(Uuid, Uuid)> {
+    let admin = if let Some(email) = admin_email {
         repos.seeder.seed_find_user_by_email(email).await?
     } else {
         repos.seeder.seed_get_admin_user().await?
@@ -194,13 +190,11 @@ async fn main() -> AppResult<()> {
         ));
     };
 
-    let tenant_id_str = repos.seeder.seed_get_user_tenant(admin.id).await?;
-    let Some(tenant_id_str) = tenant_id_str else {
-        return Err(AppError::config(format!(
-            "User {} has no tenant_id",
-            admin.email
-        )));
-    };
+    let tenant_id_str = repos
+        .seeder
+        .seed_get_user_tenant(admin.id)
+        .await?
+        .ok_or_else(|| AppError::config(format!("User {} has no tenant_id", admin.email)))?;
     let tenant_id = Uuid::parse_str(&tenant_id_str)
         .map_err(|e| AppError::config(format!("Invalid tenant_id UUID: {e}")))?;
 
@@ -209,22 +203,18 @@ async fn main() -> AppResult<()> {
         admin.email, admin.id, tenant_id
     );
 
-    // Clear existing LLM usage data for idempotent re-runs
+    Ok((admin.id, tenant_id))
+}
+
+/// Delete existing LLM usage records for a tenant so re-runs are idempotent.
+async fn clear_existing_usage(repos: &RepositoryRegistry, tenant_id: Uuid) -> AppResult<()> {
     let deleted = repos
         .seeder
         .seed_delete_llm_usage_by_tenant(tenant_id)
         .await?;
     if deleted > 0 {
-        info!("Cleared {} existing llm_usage records for tenant", deleted);
+        info!("Cleared {deleted} existing llm_usage records for tenant");
     }
-
-    // Generate usage data
-    info!("Generating {} days of LLM usage data...", args.days);
-    let record_count = seed_llm_usage(&repos, tenant_id, admin.id, args.days).await?;
-
-    info!("=== Seeding Complete ===");
-    info!("LLM Usage Records: {}", record_count);
-
     Ok(())
 }
 

@@ -12,51 +12,31 @@
 //! Usage:
 //! ```bash
 //! # Seed mobility data (uses DATABASE_URL from environment)
-//! cargo run --bin seed-mobility
-//!
-//! # Override database URL
-//! cargo run --bin seed-mobility -- --database-url sqlite:./data/users.db
-//!
-//! # Verbose output
-//! cargo run --bin seed-mobility -- -v
+//! pierre-cli seed mobility
 //!
 //! # Force re-seed (replaces existing data)
-//! cargo run --bin seed-mobility -- --force
+//! pierre-cli seed mobility --force
 //! ```
 
 use std::collections::HashMap;
 
 use chrono::Utc;
-use clap::Parser;
 use pierre_core::errors::AppResult;
 use pierre_core::models::mobility::{
     ActivityMuscleMapping, DifficultyLevel, StretchingCategory, StretchingExercise, YogaCategory,
     YogaPose, YogaPoseType,
 };
-use pierre_database::plugins::factory::Database;
 use pierre_database::repositories::SeedTable;
-use std::env;
+use pierre_database::RepositoryRegistry;
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Parser)]
-#[command(
-    name = "seed-mobility",
-    about = "Pierre MCP Server Mobility Data Seeder",
-    long_about = "Create stretching exercises, yoga poses, and activity-muscle mappings for the Pierre Fitness app"
-)]
-struct SeedArgs {
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
-
+/// CLI arguments for the mobility seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Force re-seed even if data already exists
     #[arg(long)]
-    force: bool,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub force: bool,
 }
 
 // ============================================================================
@@ -816,25 +796,37 @@ const ACTIVITY_MAPPINGS: &[ActivityMappingData] = &[
     },
 ];
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
-
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
+/// Seed the default stretching exercises, yoga poses, and activity-muscle mappings.
+///
+/// # Errors
+///
+/// Returns an error if any repository upsert fails.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre MCP Server Mobility Data Seeder ===");
+    if existing_data_blocks_seeding(repos, args.force).await {
+        return Ok(());
+    }
+    let now = Utc::now();
+    seed_stretching_exercises(repos, now).await?;
+    seed_yoga_poses(repos, now).await?;
+    seed_activity_mappings(repos, now).await?;
+    log_mobility_summary();
+    Ok(())
+}
 
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
+/// Log counts of seeded mobility resources.
+fn log_mobility_summary() {
+    info!(
+        "=== Seeding Complete: {} stretches, {} yoga poses, {} mappings ===",
+        STRETCHING_EXERCISES.len(),
+        YOGA_POSES.len(),
+        ACTIVITY_MAPPINGS.len()
+    );
+}
 
-    info!("Connecting to database: {}", database_url);
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // Check if data already exists via SeederRepository
+/// Check whether any mobility table already has data; if so and `--force` wasn't passed,
+/// log and signal the caller to skip re-seeding.
+async fn existing_data_blocks_seeding(repos: &RepositoryRegistry, force: bool) -> bool {
     let stretch_count = repos
         .seeder
         .seed_count_table(SeedTable::StretchingExercises)
@@ -851,16 +843,20 @@ async fn main() -> AppResult<()> {
         .await
         .unwrap_or(0);
 
-    if (stretch_count > 0 || yoga_count > 0 || mapping_count > 0) && !args.force {
+    if (stretch_count > 0 || yoga_count > 0 || mapping_count > 0) && !force {
         info!(
             "Mobility data already seeded ({} stretches, {} yoga poses, {} mappings). Use --force to re-seed.",
             stretch_count, yoga_count, mapping_count
         );
-        return Ok(());
+        return true;
     }
+    false
+}
 
-    let now = Utc::now();
-
+async fn seed_stretching_exercises(
+    repos: &RepositoryRegistry,
+    now: chrono::DateTime<Utc>,
+) -> AppResult<()> {
     info!(
         "Seeding {} stretching exercises...",
         STRETCHING_EXERCISES.len()
@@ -873,14 +869,23 @@ async fn main() -> AppResult<()> {
             .await?;
         info!("  + {}", data.name);
     }
+    Ok(())
+}
 
+async fn seed_yoga_poses(repos: &RepositoryRegistry, now: chrono::DateTime<Utc>) -> AppResult<()> {
     info!("Seeding {} yoga poses...", YOGA_POSES.len());
     for data in YOGA_POSES {
         let pose = to_yoga_pose(data, now);
         repos.seeder.seed_upsert_yoga_pose(&pose).await?;
         info!("  + {}", data.english_name);
     }
+    Ok(())
+}
 
+async fn seed_activity_mappings(
+    repos: &RepositoryRegistry,
+    now: chrono::DateTime<Utc>,
+) -> AppResult<()> {
     info!(
         "Seeding {} activity-muscle mappings...",
         ACTIVITY_MAPPINGS.len()
@@ -890,19 +895,6 @@ async fn main() -> AppResult<()> {
         repos.seeder.seed_upsert_activity_mapping(&mapping).await?;
         info!("  + {}", data.activity_type);
     }
-
-    info!("");
-    info!("=== Seeding Complete ===");
-    info!(
-        "Created {} stretching exercises",
-        STRETCHING_EXERCISES.len()
-    );
-    info!("Created {} yoga poses", YOGA_POSES.len());
-    info!(
-        "Created {} activity-muscle mappings",
-        ACTIVITY_MAPPINGS.len()
-    );
-
     Ok(())
 }
 

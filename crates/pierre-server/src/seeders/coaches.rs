@@ -13,29 +13,20 @@
 //!
 //! ```bash
 //! # Seed coaches from markdown files
-//! cargo run --bin seed-coaches
-//!
-//! # Override database URL
-//! cargo run --bin seed-coaches -- --database-url sqlite:./data/users.db
-//!
-//! # Verbose output
-//! cargo run --bin seed-coaches -- -v
+//! pierre-cli seed coaches
 //!
 //! # Dry run (show what would be done)
-//! cargo run --bin seed-coaches -- --dry-run
+//! pierre-cli seed coaches --dry-run
 //! ```
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::env;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
-use clap::Parser;
 use glob::glob;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
 use pierre_database::seed_models::{
     SeedCoach, SeedCoachAuthor, SeedCoachRelation, SeedStoreListing,
 };
@@ -43,30 +34,18 @@ use pierre_database::RepositoryRegistry;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use pierre_mcp_server::coaches::{parse_coach_file, CoachDefinition, RelatedCoach, RelationType};
+use crate::coaches::{parse_coach_file, CoachDefinition, RelatedCoach, RelationType};
 
-#[derive(Parser)]
-#[command(
-    name = "seed-coaches",
-    about = "Pierre MCP Server Coach Seeder",
-    long_about = "Load coach definitions from markdown files and sync to database"
-)]
-struct SeedArgs {
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
-
+/// CLI arguments for the coaches seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Path to coaches directory
     #[arg(long, default_value = "coaches")]
-    coaches_dir: PathBuf,
+    pub coaches_dir: PathBuf,
 
     /// Dry run - show what would be done without making changes
     #[arg(long)]
-    dry_run: bool,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub dry_run: bool,
 }
 
 /// Seeding result statistics
@@ -86,67 +65,60 @@ impl SeedStats {
     }
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
+/// Parse coach markdown definitions and sync them to the database, publishing system coaches to the store.
+///
+/// # Errors
+///
+/// Returns an error if coach markdown files cannot be discovered or parsed, or if any
+/// repository operation fails while syncing coaches, relations, or store listings.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
+    info!(
+        "=== Pierre MCP Server Coach Seeder (dry_run={}) ===",
+        args.dry_run
+    );
 
-    // Initialize logging
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
-    info!("=== Pierre MCP Server Coach Seeder ===");
-
-    if args.dry_run {
-        info!("DRY RUN - no changes will be made");
-    }
-
-    // Find and parse all coach markdown files
     let coaches = discover_coaches(&args.coaches_dir)?;
-    info!("Found {} coach markdown files", coaches.len());
-
     if coaches.is_empty() {
         warn!("No coach files found in {:?}", args.coaches_dir);
         return Ok(());
     }
 
-    // Load database URL
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
-
-    // Connect to database
-    info!("Connecting to database: {}", database_url);
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // Find admin user
-    let admin = find_admin_user(&repos).await?;
+    let admin = find_admin_user(repos).await?;
     info!(
-        "Using admin user: {} (tenant: {})",
-        admin.email, admin.tenant_id
+        "Found {} coach files, using admin {} (tenant: {})",
+        coaches.len(),
+        admin.email,
+        admin.tenant_id
     );
 
-    // Pass 1: Upsert coaches
-    let (mut stats, slug_to_id) = sync_coaches(&repos, &coaches, &admin, args.dry_run).await;
-
-    // Pass 2: Create relations
-    sync_relations(&repos, &coaches, &slug_to_id, &mut stats, args.dry_run).await;
-
-    // Pass 3: Publish system coaches to the store
-    publish_to_store(&repos, &slug_to_id, &admin, &mut stats, args.dry_run).await;
-
-    // Summary
+    let stats = run_coach_passes(repos, &coaches, &admin, args.dry_run).await;
     print_summary(&stats, args.dry_run);
+    finalize_stats(&stats)
+}
 
-    if !stats.errors.is_empty() {
-        return Err(AppError::config(format!(
+/// Execute the three coach sync passes (upsert, relations, store publishing) and return the
+/// accumulated stats.
+async fn run_coach_passes(
+    repos: &RepositoryRegistry,
+    coaches: &[CoachDefinition],
+    admin: &AdminUser,
+    dry_run: bool,
+) -> SeedStats {
+    let (mut stats, slug_to_id) = sync_coaches(repos, coaches, admin, dry_run).await;
+    sync_relations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
+    publish_to_store(repos, &slug_to_id, admin, &mut stats, dry_run).await;
+    stats
+}
+
+fn finalize_stats(stats: &SeedStats) -> AppResult<()> {
+    if stats.errors.is_empty() {
+        Ok(())
+    } else {
+        Err(AppError::config(format!(
             "{} coach(es) failed to seed",
             stats.errors.len()
-        )));
+        )))
     }
-
-    Ok(())
 }
 
 /// Sync all coaches to the database (Pass 1)

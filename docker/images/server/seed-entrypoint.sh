@@ -22,8 +22,8 @@ if [ -n "$DATABASE_HOST" ] && [ -n "$DATABASE_NAME" ] && [ -n "$DATABASE_USER" ]
     echo "Constructed DATABASE_URL for Cloud SQL (PostgreSQL via unix socket)"
 fi
 
-SEEDER_BINARY="$1"
+DOMAIN="$1"
 shift
 
-echo "Running seeder: ${SEEDER_BINARY}"
-exec "/app/${SEEDER_BINARY}" "$@"
+echo "Running seeder: pierre-cli seed ${DOMAIN}"
+exec /app/pierre-cli seed "$DOMAIN" "$@"

@@ -277,7 +277,7 @@ User-created coaches appear in a "Personalized" section above system coaches and
 To seed or refresh the default coaches:
 
 ```bash
-cargo run --bin seed-coaches
+cargo run --bin pierre-cli -- seed coaches
 ```
 
 This creates the 9 default AI coaching personas if they don't already exist.

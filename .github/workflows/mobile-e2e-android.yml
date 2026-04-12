@@ -71,7 +71,6 @@ jobs:
           path: |
             target/release/pierre-mcp-server
             target/release/pierre-cli
-            target/release/seed-coaches
           retention-days: 1
 
   e2e-tests:
@@ -94,7 +93,7 @@ jobs:
           path: target/release/
 
       - name: Make binaries executable
-        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli target/release/seed-coaches
+        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -191,7 +190,7 @@ jobs:
 
       - name: Seed system coaches for Maestro tests
         run: |
-          ./target/release/seed-coaches
+          ./target/release/pierre-cli seed coaches
         env:
           DATABASE_URL: "sqlite:${{ github.workspace }}/data/maestro-android-test.db"
           PIERRE_MASTER_ENCRYPTION_KEY: "rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo="

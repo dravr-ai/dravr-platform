@@ -139,38 +139,43 @@ echo "User JWT: $JWT_TOKEN"
 4. **Start Server** - Starts on port 8081
 5. **Health Check** - Waits for server to be healthy
 
-**Note:** Basic setup only runs `seed-coaches`. For full test data, run additional seeders below.
+**Note:** Basic setup only runs `pierre-cli seed coaches`. For full test data, run additional seeders below.
 
 ## Data Seeders (IMPORTANT FOR TESTING)
 
 **CLAUDE: Before testing features, run the appropriate seeders to populate test data.**
 
+All seeders are consolidated under `pierre-cli seed <domain>` subcommands.
+
 ### Available Seeders
 
 | Seeder | Command | What It Creates |
 |--------|---------|-----------------|
-| Coaches | `cargo run --bin seed-coaches` | 9 AI coaching personas (training, nutrition, recovery, mobility) |
-| Demo Data | `cargo run --bin seed-demo-data` | Dashboard analytics, API keys, usage time-series data |
-| Mobility | `cargo run --bin seed-mobility` | Stretching exercises, yoga poses, activity-muscle mappings |
-| Social | `cargo run --bin seed-social` | Friend connections, shared insights, reactions, feed data |
-| **Synthetic Activities** | `cargo run --bin seed-synthetic-activities` | **100+ diverse activities (run, MTB, nordic ski, etc.)** |
+| Bootstrap | `pierre-cli seed bootstrap` | Admin + demo users (idempotent; requires `ADMIN_PASSWORD`) |
+| Coaches | `pierre-cli seed coaches` | 9 AI coaching personas (training, nutrition, recovery, mobility) |
+| Demo Data | `pierre-cli seed demo-data` | Dashboard analytics, API keys, usage time-series data |
+| Mobility | `pierre-cli seed mobility` | Stretching exercises, yoga poses, activity-muscle mappings |
+| Social | `pierre-cli seed social` | Friend connections, shared insights, reactions, feed data |
+| **Synthetic Activities** | `pierre-cli seed synthetic-activities` | **100+ diverse activities (run, MTB, nordic ski, etc.)** |
+| LLM Usage | `pierre-cli seed llm-usage` | 30 days of LLM call records for analytics dashboards |
+| Insight Samples | `pierre-cli seed insight-samples` | Loads and validates insight sample markdown files (no DB writes) |
 
-### Synthetic Activities Seeder (NEW - For Testing Without Strava)
+### Synthetic Activities Seeder (For Testing Without Strava)
 
 **CRITICAL: Use this seeder for testing without OAuth.**
 
 ```bash
 # Seed 100 activities for default test user
-cargo run --bin seed-synthetic-activities
+pierre-cli seed synthetic-activities
 
 # Seed more activities
-cargo run --bin seed-synthetic-activities -- --count 200
+pierre-cli seed synthetic-activities --count 200
 
 # Seed for specific user
-cargo run --bin seed-synthetic-activities -- --email alice@example.com
+pierre-cli seed synthetic-activities --email alice@example.com
 
 # Reset and reseed
-cargo run --bin seed-synthetic-activities -- --reset --count 150
+pierre-cli seed synthetic-activities --reset --count 150
 ```
 
 **Sport types included:** Run, Trail Run, Ride, Mountain Bike, Gravel Ride, Nordic Ski, Backcountry Ski, Alpine Ski, Swim, Hike, Walk, Weight Training, Yoga, Rowing, Kayaking, SUP, and more.
@@ -185,23 +190,23 @@ This wipes the database and runs ALL seeders automatically.
 
 **Option B: Run seeders individually (existing database)**
 ```bash
-cargo run --bin seed-coaches
-cargo run --bin seed-demo-data
-cargo run --bin seed-mobility
-cargo run --bin seed-social
+pierre-cli seed coaches
+pierre-cli seed demo-data
+pierre-cli seed mobility
+pierre-cli seed social
 ```
 
 ### When to Run Which Seeder
 
 | Testing This Feature | Required Seeders |
 |---------------------|------------------|
-| Mobile app login | `seed-coaches` (minimal) |
-| Coach conversations | `seed-coaches` |
-| Activity list/analysis | **`seed-synthetic-activities`** |
-| Performance insights | **`seed-synthetic-activities`** |
-| Dashboard/Analytics | `seed-demo-data` |
-| Mobility/Stretching | `seed-mobility` |
-| Friends/Feed/Social | `seed-social` + `seed-synthetic-activities` |
+| Mobile app login | `seed coaches` (minimal) |
+| Coach conversations | `seed coaches` |
+| Activity list/analysis | **`seed synthetic-activities`** |
+| Performance insights | **`seed synthetic-activities`** |
+| Dashboard/Analytics | `seed demo-data` |
+| Mobility/Stretching | `seed mobility` |
+| Friends/Feed/Social | `seed social` + `seed synthetic-activities` |
 | **Full E2E testing** | **All seeders** |
 
 ## Complete User Workflow

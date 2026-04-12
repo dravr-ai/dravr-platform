@@ -178,6 +178,9 @@ pub mod test_utils;
 /// Domain service layer for protocol-agnostic business logic
 pub mod services;
 
+/// Seeder entry points invoked by `pierre-cli seed <domain>` subcommands
+pub mod seeders;
+
 // Re-export messaging outbound worker and channel seeder for binary startup
 #[cfg(feature = "client-messaging")]
 pub use services::discord_gateway::start_discord_gateway;
