@@ -82,7 +82,7 @@ async fn fetch_activities(
 /// Extract seasonal context from the most recent activity's GPS coordinates.
 /// Falls back to None when no activity has lat/lon data.
 fn seasonal_context_from_activities(activities: &[Activity]) -> Option<SeasonalContext> {
-    let lat = activities.iter().find_map(|a| a.start_latitude())?;
+    let lat = activities.iter().find_map(Activity::start_latitude)?;
     let month = Utc::now().month();
     Some(build_seasonal_context(lat, month))
 }

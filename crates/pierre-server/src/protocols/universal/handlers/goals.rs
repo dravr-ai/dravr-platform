@@ -899,7 +899,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
     let fitness_level = infer_fitness_level(activities);
     let seasonal_context = activities
         .iter()
-        .find_map(|a| a.start_latitude())
+        .find_map(Activity::start_latitude)
         .map(|lat| build_seasonal_context(lat, Utc::now().month()));
 
     UserFitnessProfile {
