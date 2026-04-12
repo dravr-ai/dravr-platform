@@ -94,7 +94,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.1.8" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.2.0" }
 
 # Health and wellness domain models with composition-based provider traits
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.2.3" }

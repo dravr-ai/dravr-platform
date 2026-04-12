@@ -1164,8 +1164,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-cageux"
-version = "0.1.8"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.1.8#55dace16591108994a1aeff35a0a87049a002bc0"
+version = "0.2.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.2.0#e762f9578e0884de1004c4d6590994e456c33638"
 dependencies = [
  "async-trait",
  "chrono",
