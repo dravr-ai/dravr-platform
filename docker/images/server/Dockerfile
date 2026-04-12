@@ -29,23 +29,17 @@ RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo chef cook --release --no-default-features --features "server-production,postgresql,sqlx/migrate" --recipe-path recipe.json
 
-# Build the actual application and seeder binaries (reruns only when source code changes)
+# Build the server binary and pierre-cli (which now hosts all seeder subcommands).
+# Reruns only when source code changes.
 COPY . .
 RUN --mount=type=secret,id=git_token \
     git config --global url."https://x-access-token:$(cat /run/secrets/git_token)@github.com/".insteadOf "https://github.com/" \
     && cargo build --release --no-default-features --features "server-production,postgresql,sqlx/migrate" \
     --bin pierre-mcp-server \
-    --bin seed-bootstrap \
-    --bin seed-coaches \
-    --bin seed-mobility \
-    --bin seed-synthetic-activities
+    --bin pierre-cli
 
 # Verify binaries were built
-RUN ls -la target/release/pierre-mcp-server \
-    target/release/seed-bootstrap \
-    target/release/seed-coaches \
-    target/release/seed-mobility \
-    target/release/seed-synthetic-activities
+RUN ls -la target/release/pierre-mcp-server target/release/pierre-cli
 
 FROM --platform=linux/amd64 debian:trixie-slim
 
@@ -78,12 +72,9 @@ RUN useradd -m -u 1001 appuser \
     && mkdir -p /app/data \
     && chown -R appuser:appuser /app
 
-# Copy server binary, seeder binaries, and entrypoint scripts from builder stage
+# Copy server binary, pierre-cli (seeders + admin tools), and entrypoint scripts
 COPY --from=builder /app/target/release/pierre-mcp-server /app/pierre-mcp-server
-COPY --from=builder /app/target/release/seed-bootstrap /app/seed-bootstrap
-COPY --from=builder /app/target/release/seed-coaches /app/seed-coaches
-COPY --from=builder /app/target/release/seed-mobility /app/seed-mobility
-COPY --from=builder /app/target/release/seed-synthetic-activities /app/seed-synthetic-activities
+COPY --from=builder /app/target/release/pierre-cli /app/pierre-cli
 COPY --from=builder /app/coaches /app/coaches
 COPY --from=builder /app/commands /app/commands
 COPY docker/images/server/entrypoint.sh /app/docker-entrypoint.sh
@@ -92,10 +83,7 @@ COPY docker/images/server/chromium-headless.sh /usr/local/bin/chromium-headless
 
 # Make binaries and entrypoints executable and owned by appuser
 RUN chmod +x /app/pierre-mcp-server \
-    && chmod +x /app/seed-bootstrap \
-    && chmod +x /app/seed-coaches \
-    && chmod +x /app/seed-mobility \
-    && chmod +x /app/seed-synthetic-activities \
+    && chmod +x /app/pierre-cli \
     && chmod +x /app/docker-entrypoint.sh \
     && chmod +x /app/seed-entrypoint.sh \
     && chmod +x /usr/local/bin/chromium-headless \

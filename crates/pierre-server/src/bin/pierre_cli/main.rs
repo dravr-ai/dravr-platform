@@ -38,6 +38,16 @@
 //!
 //! # Show token statistics
 //! pierre-cli token stats
+//!
+//! # Seed reference data (admin/demo users, coaches, mobility, etc.)
+//! ADMIN_PASSWORD=secret pierre-cli seed bootstrap
+//! pierre-cli seed demo-data
+//! pierre-cli seed coaches
+//! pierre-cli seed mobility
+//! pierre-cli seed social
+//! pierre-cli seed synthetic-activities --email alice@example.com --count 200
+//! pierre-cli seed llm-usage --days 60
+//! pierre-cli seed insight-samples --validate
 //! ```
 
 mod commands;
@@ -92,6 +102,12 @@ enum Command {
     Token {
         #[command(subcommand)]
         action: TokenCommand,
+    },
+
+    /// Reference and demo data seeders
+    Seed {
+        #[command(subcommand)]
+        action: commands::seed::SeedCommand,
     },
 }
 
@@ -219,6 +235,12 @@ async fn main() -> Result<()> {
         .or_else(|| env::var("DATABASE_URL").ok())
         .unwrap_or_else(|| "sqlite:./data/users.db".into());
 
+    // Seed commands skip the full KeyManager bootstrap because seeders only touch
+    // reference data and use a zero encryption key via `init_for_seeding`.
+    if let Command::Seed { action } = cli.command {
+        return commands::seed::dispatch(action, &database_url).await;
+    }
+
     // Initialize two-tier key management system
     let (mut key_manager, database_encryption_key) = KeyManager::bootstrap()?;
     info!("Two-tier key management system initialized for pierre-cli");
@@ -249,6 +271,7 @@ async fn main() -> Result<()> {
 
     // Execute command
     match cli.command {
+        Command::Seed { .. } => unreachable!("Seed is handled in the early return above"),
         Command::User { action } => match action {
             UserCommand::Create {
                 email,

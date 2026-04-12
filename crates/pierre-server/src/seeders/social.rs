@@ -12,22 +12,17 @@
 //! Usage:
 //! ```bash
 //! # Seed with default settings
-//! cargo run --bin seed-social
+//! pierre-cli seed social
 //!
 //! # Reset social data before seeding
-//! cargo run --bin seed-social -- --reset
-//!
-//! # Verbose output
-//! cargo run --bin seed-social -- -v
+//! pierre-cli seed social --reset
 //! ```
 //!
 //! Prerequisites:
-//! - Run `cargo run --bin seed-demo-data` first to create demo users
+//! - Run `pierre-cli seed demo-data` first to create demo users
 
 use chrono::{Duration, Utc};
-use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::seed_models::{
     SeedAdaptedInsight, SeedFriendConnection, SeedInsightReaction, SeedSharedInsight,
     SeedSocialSettings,
@@ -36,28 +31,15 @@ use pierre_database::RepositoryRegistry;
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::env;
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Parser)]
-#[command(
-    name = "seed-social",
-    about = "Pierre MCP Server Social Data Seeder",
-    long_about = "Populate the database with social demo data for Friends, Feed, and Adapt features"
-)]
-struct SeedArgs {
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
-
+/// CLI arguments for the social data seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Reset social data before seeding
     #[arg(long)]
-    reset: bool,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub reset: bool,
 }
 
 /// Shared insight content definitions
@@ -177,104 +159,103 @@ fn get_adaptation_templates() -> Vec<&'static str> {
     ]
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
-
-    // Initialize logging
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
+/// Seed friend connections, shared insights, reactions, and adapted insights across demo users.
+///
+/// # Errors
+///
+/// Returns an error if fewer than five demo users exist, or if any repository operation fails.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     info!("=== Pierre MCP Server Social Data Seeder ===");
+    let ctx = prepare_social_context(repos, args.reset).await?;
+    run_social_pipeline(repos, &ctx).await?;
+    info!("=== Seeding Complete ===");
+    Ok(())
+}
 
-    // Load database URL
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
+/// Mutable state assembled before the social seeding steps begin: the demo user pool and
+/// an optional admin user id used to test admin-facing social features.
+struct SocialContext {
+    user_ids: Vec<Uuid>,
+    admin_id: Option<Uuid>,
+}
 
-    info!("Connecting to database: {}", database_url);
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // Verify demo users exist
+async fn prepare_social_context(
+    repos: &RepositoryRegistry,
+    reset: bool,
+) -> AppResult<SocialContext> {
     let user_count = repos.seeder.seed_count_non_admin_users().await?;
     if user_count < 5 {
         return Err(AppError::config(format!(
-            "Not enough demo users found ({user_count}). Run 'cargo run --bin seed-demo-data' first."
+            "Not enough demo users found ({user_count}). Run 'pierre-cli seed demo-data' first."
         )));
     }
 
-    // Reset if requested
-    if args.reset {
+    if reset {
         info!("Resetting social data...");
         repos.seeder.seed_reset_social_data().await?;
     }
 
-    // Get demo user IDs (non-admin)
     let user_ids = repos.seeder.seed_get_non_admin_user_ids().await?;
-    info!("Found {} demo users", user_ids.len());
+    let admin_id = repos.seeder.seed_get_admin_user().await?.map(|a| a.id);
+    info!(
+        "Found {} demo users (admin for testing: {:?})",
+        user_ids.len(),
+        admin_id
+    );
+    Ok(SocialContext { user_ids, admin_id })
+}
 
-    // Get admin user ID for testing
-    let admin = repos.seeder.seed_get_admin_user().await?;
-    let admin_id = admin.map(|a| a.id);
-    if let Some(ref id) = admin_id {
-        info!("Found admin user for social testing: {}", id);
-    }
+async fn run_social_pipeline(repos: &RepositoryRegistry, ctx: &SocialContext) -> AppResult<()> {
+    step_social_settings(repos, ctx).await?;
+    step_friend_connections(repos, ctx).await?;
+    step_shared_insights(repos, &ctx.user_ids).await?;
+    step_reactions(repos, &ctx.user_ids).await?;
+    step_adapted_insights(repos, ctx).await?;
+    Ok(())
+}
 
-    // Seed social settings
-    info!("Step 1: Creating user social settings...");
-    let settings_count = seed_social_settings(&repos, &user_ids).await?;
-    let admin_settings = if let Some(ref id) = admin_id {
-        seed_social_settings(&repos, &[*id]).await?
+async fn step_social_settings(repos: &RepositoryRegistry, ctx: &SocialContext) -> AppResult<()> {
+    let settings = seed_social_settings(repos, &ctx.user_ids).await?;
+    let admin_settings = if let Some(id) = ctx.admin_id {
+        seed_social_settings(repos, &[id]).await?
     } else {
         0
     };
-    info!(
-        "  Created {} social settings (+ {} for admin)",
-        settings_count, admin_settings
-    );
+    info!("Step 1: {settings} social settings (+ {admin_settings} for admin)");
+    Ok(())
+}
 
-    // Seed friend connections
-    info!("Step 2: Creating friend connections...");
-    let friend_count = seed_friend_connections(&repos, &user_ids).await?;
-    let admin_friend_count = if let Some(ref id) = admin_id {
-        seed_admin_friend_connections(&repos, id, &user_ids).await?
+async fn step_friend_connections(repos: &RepositoryRegistry, ctx: &SocialContext) -> AppResult<()> {
+    let friends = seed_friend_connections(repos, &ctx.user_ids).await?;
+    let admin_friends = if let Some(id) = ctx.admin_id {
+        seed_admin_friend_connections(repos, &id, &ctx.user_ids).await?
     } else {
         0
     };
-    info!(
-        "  Created {} friend connections (+ {} for admin)",
-        friend_count, admin_friend_count
-    );
+    info!("Step 2: {friends} friend connections (+ {admin_friends} for admin)");
+    Ok(())
+}
 
-    // Seed shared insights
-    info!("Step 3: Creating shared insights...");
-    let insight_count = seed_shared_insights(&repos, &user_ids).await?;
-    info!("  Created {} shared insights", insight_count);
+async fn step_shared_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<()> {
+    let count = seed_shared_insights(repos, user_ids).await?;
+    info!("Step 3: {count} shared insights");
+    Ok(())
+}
 
-    // Seed reactions
-    info!("Step 4: Creating insight reactions...");
-    let reaction_count = seed_reactions(&repos, &user_ids).await?;
-    info!("  Created {} reactions", reaction_count);
+async fn step_reactions(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<()> {
+    let count = seed_reactions(repos, user_ids).await?;
+    info!("Step 4: {count} reactions");
+    Ok(())
+}
 
-    // Seed adapted insights
-    info!("Step 5: Creating adapted insights...");
-    let adapted_count = seed_adapted_insights(&repos, &user_ids).await?;
-    let admin_adapted_count = if let Some(ref id) = admin_id {
-        seed_admin_adapted_insights(&repos, id).await?
+async fn step_adapted_insights(repos: &RepositoryRegistry, ctx: &SocialContext) -> AppResult<()> {
+    let adapted = seed_adapted_insights(repos, &ctx.user_ids).await?;
+    let admin_adapted = if let Some(id) = ctx.admin_id {
+        seed_admin_adapted_insights(repos, &id).await?
     } else {
         0
     };
-    info!(
-        "  Created {} adapted insights (+ {} for admin)",
-        adapted_count, admin_adapted_count
-    );
-
-    info!("");
-    info!("=== Seeding Complete ===");
-    info!("Done! Social data is ready for testing.");
-
+    info!("Step 5: {adapted} adapted insights (+ {admin_adapted} for admin)");
     Ok(())
 }
 

@@ -12,23 +12,18 @@
 //! Usage:
 //! ```bash
 //! # Seed with default settings (assigns data to first admin user)
-//! cargo run --bin seed-demo-data
+//! pierre-cli seed demo-data
 //!
 //! # Seed with specific admin email
-//! cargo run --bin seed-demo-data -- --admin-email admin@example.com
+//! pierre-cli seed demo-data --admin-email admin@example.com
 //!
 //! # Reset database before seeding
-//! cargo run --bin seed-demo-data -- --reset
-//!
-//! # Verbose output
-//! cargo run --bin seed-demo-data -- -v
+//! pierre-cli seed demo-data --reset
 //! ```
 
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc, Weekday};
-use clap::Parser;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant,
@@ -36,7 +31,6 @@ use pierre_database::seed_models::{
 use pierre_database::RepositoryRegistry;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
-use std::env;
 use tracing::info;
 use uuid::Uuid;
 
@@ -44,32 +38,20 @@ use uuid::Uuid;
 /// Password: `DemoUser123!`
 const DEMO_USER_PASSWORD: &str = "DemoUser123!";
 
-#[derive(Parser)]
-#[command(
-    name = "seed-demo-data",
-    about = "Pierre MCP Server Demo Data Seeder",
-    long_about = "Populate the database with realistic demo data for dashboard testing"
-)]
-struct SeedArgs {
+/// CLI arguments for the demo data seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// Admin email to assign primary data to (uses first admin if not specified)
     #[arg(long)]
-    admin_email: Option<String>,
-
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
+    pub admin_email: Option<String>,
 
     /// Reset usage data before seeding (keeps users and API keys)
     #[arg(long)]
-    reset: bool,
+    pub reset: bool,
 
     /// Number of days of historical data to generate
     #[arg(long, default_value = "30")]
-    days: u32,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub days: u32,
 }
 
 /// Demo user configuration
@@ -540,71 +522,95 @@ fn is_weekend(dt: DateTime<Utc>) -> bool {
     matches!(dt.weekday(), Weekday::Sat | Weekday::Sun)
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
+/// Seed demo users, API keys, A2A clients, and time-series usage data for dashboard analytics.
+///
+/// # Errors
+///
+/// Returns an error if no admin user is found or if any repository operation fails.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
+    let (admin_id, admin_email) = find_admin_user(repos, args.admin_email.as_deref()).await?;
+    info!("=== Pierre MCP Server Demo Data Seeder: admin {admin_email} ({admin_id}) ===");
 
-    // Initialize logging
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
-
-    info!("=== Pierre MCP Server Demo Data Seeder ===");
-
-    // Load database URL
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".into());
-
-    // Initialize database via factory (handles connection pooling and migrations)
-    info!("Connecting to database: {}", database_url);
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
-
-    // Find admin user
-    let (admin_id, admin_email) = find_admin_user(&repos, args.admin_email.as_deref()).await?;
-    info!("Using admin user: {} ({})", admin_email, admin_id);
-
-    // Reset if requested
     if args.reset {
-        info!("Resetting usage data...");
-        repos
-            .seeder
-            .seed_reset_table(SeedTable::ApiKeyUsage)
-            .await?;
-        repos.seeder.seed_reset_table(SeedTable::A2AUsage).await?;
+        reset_usage_tables(repos).await?;
     }
+    seed_demo_pipeline(repos, &admin_id, args.days).await?;
+    print_summary(repos).await
+}
 
-    // Seed demo users with direct DB operations (creates user + tenant)
+/// Clear all time-series usage data while keeping users, API keys, and A2A clients intact.
+async fn reset_usage_tables(repos: &RepositoryRegistry) -> AppResult<()> {
+    info!("Resetting usage data...");
+    repos
+        .seeder
+        .seed_reset_table(SeedTable::ApiKeyUsage)
+        .await?;
+    repos.seeder.seed_reset_table(SeedTable::A2AUsage).await?;
+    Ok(())
+}
+
+/// Run the five-step demo data seeding pipeline: users, API keys, A2A clients, and usage data.
+async fn seed_demo_pipeline(
+    repos: &RepositoryRegistry,
+    admin_id: &Uuid,
+    days: u32,
+) -> AppResult<()> {
+    let user_ids = step_demo_users(repos).await?;
+    let api_key_ids = step_api_keys(repos, admin_id, &user_ids).await?;
+    let a2a_client_ids = step_a2a_clients(repos, admin_id, &user_ids).await?;
+    step_api_usage(repos, &api_key_ids, days).await?;
+    step_a2a_usage(repos, &a2a_client_ids, days).await?;
+    Ok(())
+}
+
+async fn step_demo_users(repos: &RepositoryRegistry) -> AppResult<Vec<Uuid>> {
     info!("Step 1: Creating demo users...");
-    let user_ids = seed_demo_users(&repos).await?;
+    let user_ids = seed_demo_users(repos).await?;
     info!("  Created/found {} demo users", user_ids.len());
+    Ok(user_ids)
+}
 
-    // Seed API keys (assign to admin + demo users)
+async fn step_api_keys(
+    repos: &RepositoryRegistry,
+    admin_id: &Uuid,
+    user_ids: &[Uuid],
+) -> AppResult<Vec<Uuid>> {
     info!("Step 2: Creating API keys...");
-    let api_key_ids = seed_api_keys(&repos, &admin_id, &user_ids).await?;
-    info!("  Created/found {} API keys", api_key_ids.len());
+    let ids = seed_api_keys(repos, admin_id, user_ids).await?;
+    info!("  Created/found {} API keys", ids.len());
+    Ok(ids)
+}
 
-    // Seed A2A clients
+async fn step_a2a_clients(
+    repos: &RepositoryRegistry,
+    admin_id: &Uuid,
+    user_ids: &[Uuid],
+) -> AppResult<Vec<Uuid>> {
     info!("Step 3: Creating A2A clients...");
-    let a2a_client_ids = seed_a2a_clients(&repos, &admin_id, &user_ids).await?;
-    info!("  Created/found {} A2A clients", a2a_client_ids.len());
+    let ids = seed_a2a_clients(repos, admin_id, user_ids).await?;
+    info!("  Created/found {} A2A clients", ids.len());
+    Ok(ids)
+}
 
-    // Generate usage data
-    info!("Step 4: Generating API usage data ({} days)...", args.days);
-    let usage_count = seed_api_usage(&repos, &api_key_ids, args.days).await?;
-    info!("  Generated {} usage records", usage_count);
+async fn step_api_usage(
+    repos: &RepositoryRegistry,
+    api_key_ids: &[Uuid],
+    days: u32,
+) -> AppResult<()> {
+    info!("Step 4: Generating API usage data ({days} days)...");
+    let usage_count = seed_api_usage(repos, api_key_ids, days).await?;
+    info!("  Generated {usage_count} usage records");
+    Ok(())
+}
 
-    // Generate A2A usage data
+async fn step_a2a_usage(
+    repos: &RepositoryRegistry,
+    a2a_client_ids: &[Uuid],
+    days: u32,
+) -> AppResult<()> {
     info!("Step 5: Generating A2A usage data...");
-    let a2a_usage_count = seed_a2a_usage(&repos, &a2a_client_ids, args.days / 2).await?;
-    info!("  Generated {} A2A usage records", a2a_usage_count);
-
-    // Summary
-    info!("");
-    info!("=== Seeding Complete ===");
-    print_summary(&repos).await?;
-
+    let a2a_usage_count = seed_a2a_usage(repos, a2a_client_ids, days / 2).await?;
+    info!("  Generated {a2a_usage_count} A2A usage records");
     Ok(())
 }
 

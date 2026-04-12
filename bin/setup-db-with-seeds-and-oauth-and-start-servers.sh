@@ -158,11 +158,12 @@ fi
 echo "    Database cleared"
 
 # Step 3: Build binaries
+# All seeders are now subcommands under `pierre-cli seed <domain>` — no separate binaries.
 print_step 3 "Building server binaries ($BUILD_MODE mode)..."
 if [ "$BUILD_MODE" = "release" ]; then
-    cargo build --release --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities --bin seed-llm-usage 2>&1 | tail -3
+    cargo build --release --bin pierre-mcp-server --bin pierre-cli 2>&1 | tail -3
 else
-    cargo build --bin pierre-mcp-server --bin pierre-cli --bin seed-coaches --bin seed-demo-data --bin seed-social --bin seed-mobility --bin seed-synthetic-activities --bin seed-llm-usage 2>&1 | tail -3
+    cargo build --bin pierre-mcp-server --bin pierre-cli 2>&1 | tail -3
 fi
 echo "    Build complete"
 
@@ -171,43 +172,45 @@ echo "    Build complete"
 # All seeders use direct DB access (no HTTP API required).
 print_step 4 "Running migrations and seeders..."
 
+PIERRE_CLI="./target/$TARGET_DIR/pierre-cli"
+
 # Create admin user (also runs database migrations)
 echo "    Creating admin user (runs migrations)..."
-./target/$TARGET_DIR/pierre-cli user create \
+"$PIERRE_CLI" user create \
     --email "$ADMIN_EMAIL" \
     --password "$ADMIN_PASSWORD" \
     --force 2>&1 | tail -3
 
 # Seed coaches
 echo "    Seeding AI coaches (9 personas)..."
-./target/$TARGET_DIR/seed-coaches 2>&1 | tail -3
+"$PIERRE_CLI" seed coaches 2>&1 | tail -3
 
 # Seed demo users (direct DB, no server needed)
 echo "    Seeding demo users..."
-./target/$TARGET_DIR/seed-demo-data --days 30 2>&1 | tail -3
+"$PIERRE_CLI" seed demo-data --days 30 2>&1 | tail -3
 
 # Seed social data (includes webtest/mobiletest users)
 echo "    Seeding social test data..."
-./target/$TARGET_DIR/seed-social 2>&1 | tail -3
+"$PIERRE_CLI" seed social 2>&1 | tail -3
 
 # Seed mobility data
 echo "    Seeding mobility data (stretches, yoga)..."
-./target/$TARGET_DIR/seed-mobility 2>&1 | tail -3
+"$PIERRE_CLI" seed mobility 2>&1 | tail -3
 
 # Seed synthetic activities for test users
 if [ "$SKIP_SYNTHETIC" != "true" ]; then
     echo "    Seeding synthetic activities for test users..."
-    ./target/$TARGET_DIR/seed-synthetic-activities --email "$WEB_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    ./target/$TARGET_DIR/seed-synthetic-activities --email "$MOBILE_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    ./target/$TARGET_DIR/seed-synthetic-activities --email "$PHIL_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
-    ./target/$TARGET_DIR/seed-synthetic-activities --email "$JF_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$WEB_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$MOBILE_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$PHIL_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
+    "$PIERRE_CLI" seed synthetic-activities --email "$JF_TEST_EMAIL" --count 30 --days 30 2>&1 | tail -1
 else
     echo "    Skipping synthetic activities (--no-synthetic)"
 fi
 
 # Seed LLM usage data for consumption analytics dashboard
 echo "    Seeding LLM usage data (30 days)..."
-./target/$TARGET_DIR/seed-llm-usage --admin-email "$ADMIN_EMAIL" --days 30 2>&1 | tail -3
+"$PIERRE_CLI" seed llm-usage --admin-email "$ADMIN_EMAIL" --days 30 2>&1 | tail -3
 
 echo "    All seeders complete"
 

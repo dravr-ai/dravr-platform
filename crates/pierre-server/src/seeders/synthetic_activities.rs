@@ -12,72 +12,55 @@
 //! Usage:
 //! ```bash
 //! # Seed activities for the default test user (user@example.com)
-//! cargo run --bin seed-synthetic-activities
+//! pierre-cli seed synthetic-activities
 //!
 //! # Seed for a specific user
-//! cargo run --bin seed-synthetic-activities -- --email alice@example.com
+//! pierre-cli seed synthetic-activities --email alice@example.com
 //!
 //! # Generate more activities (default: 100)
-//! cargo run --bin seed-synthetic-activities -- --count 200
+//! pierre-cli seed synthetic-activities --count 200
 //!
 //! # Spread over more days (default: 90)
-//! cargo run --bin seed-synthetic-activities -- --days 180
+//! pierre-cli seed synthetic-activities --days 180
 //!
 //! # Reset activities before seeding
-//! cargo run --bin seed-synthetic-activities -- --reset
-//!
-//! # Verbose output
-//! cargo run --bin seed-synthetic-activities -- -v
+//! pierre-cli seed synthetic-activities --reset
 //! ```
 
-use chrono::{Duration, Utc};
-use clap::Parser;
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::factory::Database;
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
+use pierre_database::RepositoryRegistry;
 use rand::prelude::SliceRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
-use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use uuid::Uuid;
 
-#[derive(Parser)]
-#[command(
-    name = "seed-synthetic-activities",
-    about = "Pierre MCP Server Synthetic Activity Seeder",
-    long_about = "Populate the database with diverse synthetic activities for testing without OAuth"
-)]
-struct SeedArgs {
+/// CLI arguments for the synthetic activities seeder.
+#[derive(clap::Args)]
+pub struct SeedArgs {
     /// User email to seed activities for (default: user@example.com)
     #[arg(long, default_value = "user@example.com")]
-    email: String,
-
-    /// Database URL override
-    #[arg(long)]
-    database_url: Option<String>,
+    pub email: String,
 
     /// Number of activities to generate
     #[arg(long, default_value = "100")]
-    count: u32,
+    pub count: u32,
 
     /// Number of days to spread activities over
     #[arg(long, default_value = "90")]
-    days: u32,
+    pub days: u32,
 
     /// Reset synthetic activities before seeding
     #[arg(long)]
-    reset: bool,
-
-    /// Enable verbose logging
-    #[arg(long, short = 'v')]
-    verbose: bool,
+    pub reset: bool,
 
     /// Random seed for reproducible data (optional)
     #[arg(long)]
-    seed: Option<u64>,
+    pub seed: Option<u64>,
 }
 
 /// Sport type configuration for activity generation
@@ -438,155 +421,180 @@ fn build_weighted_sports(configs: &[SportConfig]) -> Vec<usize> {
     weighted
 }
 
-#[tokio::main]
-async fn main() -> AppResult<()> {
-    let args = SeedArgs::parse();
+/// Generate diverse synthetic activities for a user across many sport types without needing OAuth.
+///
+/// # Errors
+///
+/// Returns an error if the target user is not found, if the user has no tenant, or if
+/// any repository operation fails while inserting activities or the provider connection.
+pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
+    log_run_header(&args);
 
-    // Initialize logging
-    let log_level = if args.verbose { "debug" } else { "info" };
-    tracing_subscriber::fmt().with_env_filter(log_level).init();
+    let (user_id, tenant_id) = resolve_user_tenant(repos, &args.email).await?;
+    if args.reset {
+        info!("Resetting synthetic activities...");
+        repos.seeder.seed_delete_synthetic_by_user(user_id).await?;
+    }
 
-    info!("Pierre Synthetic Activity Seeder");
-    info!("   Email: {}", args.email);
-    info!("   Count: {} activities", args.count);
-    info!("   Days: {} days of history", args.days);
+    let mut rng = init_rng(args.seed);
+    let sport_configs = get_sport_configs();
+    let weighted_sports = build_weighted_sports(&sport_configs);
 
-    // Connect to database
-    let database_url = args
-        .database_url
-        .or_else(|| env::var("DATABASE_URL").ok())
-        .unwrap_or_else(|| "sqlite:./data/users.db".to_owned());
+    let counts = generate_activities(
+        repos,
+        &mut rng,
+        &sport_configs,
+        &weighted_sports,
+        user_id,
+        tenant_id,
+        args.count,
+        args.days,
+    )
+    .await?;
 
-    let db = Database::init_for_seeding(&database_url).await?;
-    let repos = db.repositories();
+    register_provider_connection(repos, user_id, tenant_id).await?;
+    log_activity_summary(args.count, &counts);
+    Ok(())
+}
 
-    // Find user
-    let user = repos.seeder.seed_find_user_by_email(&args.email).await?;
-    let Some(user) = user else {
-        return Err(AppError::config(format!(
-            "User not found: {}. Run ./scripts/complete-user-workflow.sh first.",
-            args.email
-        )));
-    };
+fn log_run_header(args: &SeedArgs) {
+    info!(
+        "Pierre Synthetic Activity Seeder: email={}, count={}, days={}",
+        args.email, args.count, args.days
+    );
+}
+
+async fn resolve_user_tenant(repos: &RepositoryRegistry, email: &str) -> AppResult<(Uuid, Uuid)> {
+    let user = repos
+        .seeder
+        .seed_find_user_by_email(email)
+        .await?
+        .ok_or_else(|| {
+            AppError::config(format!(
+                "User not found: {email}. Run ./scripts/complete-user-workflow.sh first."
+            ))
+        })?;
 
     let tenant_id_str = repos
         .seeder
         .seed_get_user_tenant(user.id)
         .await?
-        .ok_or_else(|| AppError::config(format!("User {} has no tenant_id", args.email)))?;
+        .ok_or_else(|| AppError::config(format!("User {email} has no tenant_id")))?;
     let tenant_id = Uuid::parse_str(&tenant_id_str)
         .map_err(|e| AppError::config(format!("Invalid tenant_id UUID: {e}")))?;
 
     info!("   User ID: {}", user.id);
-    info!("   Tenant ID: {}", tenant_id);
+    info!("   Tenant ID: {tenant_id}");
+    Ok((user.id, tenant_id))
+}
 
-    // Reset if requested
-    if args.reset {
-        info!("Resetting synthetic activities...");
-        repos.seeder.seed_delete_synthetic_by_user(user.id).await?;
-    }
-
-    // Initialize RNG
-    let seed = args.seed.unwrap_or_else(|| {
+fn init_rng(seed: Option<u64>) -> StdRng {
+    let resolved = seed.unwrap_or_else(|| {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(12345)
     });
-    let mut rng = StdRng::seed_from_u64(seed);
-    info!("   Random seed: {}", seed);
+    info!("   Random seed: {resolved}");
+    StdRng::seed_from_u64(resolved)
+}
 
-    // Get sport configurations
-    let sport_configs = get_sport_configs();
-    let weighted_sports = build_weighted_sports(&sport_configs);
-
-    // Generate activities
-    info!(
-        "Generating {} activities over {} days...",
-        args.count, args.days
-    );
-
+#[allow(clippy::too_many_arguments)]
+async fn generate_activities(
+    repos: &RepositoryRegistry,
+    rng: &mut StdRng,
+    sport_configs: &[SportConfig],
+    weighted_sports: &[usize],
+    user_id: Uuid,
+    tenant_id: Uuid,
+    count: u32,
+    days: u32,
+) -> AppResult<HashMap<&'static str, u32>> {
+    info!("Generating {count} activities over {days} days...");
     let now = Utc::now();
     let mut activities_by_type: HashMap<&str, u32> = HashMap::new();
 
-    for i in 0..args.count {
-        // Select random sport based on weights
-        let sport_index = *weighted_sports.choose(&mut rng).unwrap_or(&0);
+    for i in 0..count {
+        let sport_index = *weighted_sports.choose(rng).unwrap_or(&0);
         let sport = &sport_configs[sport_index];
-
-        // Random date within the range
-        let days_ago = rng.gen_range(0..args.days);
-        let hour = rng.gen_range(5..21); // 5 AM to 9 PM
-        let minute = rng.gen_range(0..60);
-        let start_date =
-            now - Duration::days(i64::from(days_ago)) - Duration::hours(24 - i64::from(hour))
-                + Duration::minutes(i64::from(minute));
-
-        // Generate activity data
-        let duration = rng.gen_range(sport.duration_range.0..=sport.duration_range.1);
-        let distance = sport
-            .distance_range
-            .map(|(min, max)| rng.gen_range(min..=max));
-        let elevation = sport
-            .elevation_range
-            .map(|(min, max)| rng.gen_range(min..=max));
-        let avg_hr = rng.gen_range(sport.heart_rate_range.0..=sport.heart_rate_range.1);
-        let max_hr = avg_hr + rng.gen_range(10..30);
-        let calories = Some(rng.gen_range(200..1200));
-
-        // Calculate speed from distance and duration
-        let avg_speed = distance.map(|d| d / duration as f64);
-        let max_speed = avg_speed.map(|s| s * rng.gen_range(1.15..1.4));
-
-        // Pick activity name
-        let name = format!(
-            "{} #{}",
-            sport.names.choose(&mut rng).unwrap_or(&sport.display_name),
-            i + 1
-        );
-
-        // Convert types for database (casts are safe: bounded values)
-        #[allow(clippy::cast_possible_wrap)]
-        let duration_i64 = duration as i64; // max ~86400 seconds
-        #[allow(clippy::cast_possible_wrap)]
-        let avg_hr_i32 = avg_hr as i32; // heart rate 50-220 bpm
-        #[allow(clippy::cast_possible_wrap)]
-        let max_hr_i32 = max_hr as i32;
-        let calories_i32 = calories;
-
-        let activity = SeedSyntheticActivity {
-            id: Uuid::new_v4(),
-            user_id: user.id,
-            tenant_id,
-            name,
-            sport_type: sport.sport_type.to_owned(),
-            start_date,
-            duration_seconds: duration_i64,
-            distance_meters: distance,
-            elevation_gain: elevation,
-            average_heart_rate: avg_hr_i32,
-            max_heart_rate: max_hr_i32,
-            average_speed: avg_speed,
-            max_speed,
-            calories: calories_i32,
-            city: "Montreal".to_owned(),
-            region: "Quebec".to_owned(),
-            country: "Canada".to_owned(),
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-
+        let activity = build_activity(rng, sport, now, user_id, tenant_id, i, days);
         repos
             .seeder
             .seed_insert_synthetic_activity(&activity)
             .await?;
         *activities_by_type.entry(sport.sport_type).or_insert(0) += 1;
     }
+    Ok(activities_by_type)
+}
 
-    // Register synthetic provider connection
+#[allow(clippy::cast_possible_wrap)]
+fn build_activity(
+    rng: &mut StdRng,
+    sport: &SportConfig,
+    now: DateTime<Utc>,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    index: u32,
+    days: u32,
+) -> SeedSyntheticActivity {
+    let days_ago = rng.gen_range(0..days);
+    let hour = rng.gen_range(5..21); // 5 AM to 9 PM
+    let minute = rng.gen_range(0..60);
+    let start_date =
+        now - Duration::days(i64::from(days_ago)) - Duration::hours(24 - i64::from(hour))
+            + Duration::minutes(i64::from(minute));
+
+    let duration = rng.gen_range(sport.duration_range.0..=sport.duration_range.1);
+    let distance = sport
+        .distance_range
+        .map(|(min, max)| rng.gen_range(min..=max));
+    let elevation = sport
+        .elevation_range
+        .map(|(min, max)| rng.gen_range(min..=max));
+    let avg_hr = rng.gen_range(sport.heart_rate_range.0..=sport.heart_rate_range.1);
+    let max_hr = avg_hr + rng.gen_range(10..30);
+    let calories = Some(rng.gen_range(200..1200));
+
+    let avg_speed = distance.map(|d| d / duration as f64);
+    let max_speed = avg_speed.map(|s| s * rng.gen_range(1.15..1.4));
+
+    let name = format!(
+        "{} #{}",
+        sport.names.choose(rng).unwrap_or(&sport.display_name),
+        index + 1
+    );
+
+    SeedSyntheticActivity {
+        id: Uuid::new_v4(),
+        user_id,
+        tenant_id,
+        name,
+        sport_type: sport.sport_type.to_owned(),
+        start_date,
+        duration_seconds: duration as i64, // max ~86400 seconds
+        distance_meters: distance,
+        elevation_gain: elevation,
+        average_heart_rate: avg_hr as i32, // heart rate 50-220 bpm
+        max_heart_rate: max_hr as i32,
+        average_speed: avg_speed,
+        max_speed,
+        calories,
+        city: "Montreal".to_owned(),
+        region: "Quebec".to_owned(),
+        country: "Canada".to_owned(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+async fn register_provider_connection(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: Uuid,
+) -> AppResult<()> {
     let connection = SeedProviderConnection {
         id: Uuid::new_v4(),
-        user_id: user.id,
+        user_id,
         tenant_id,
         provider: "synthetic".to_owned(),
         connection_type: "synthetic".to_owned(),
@@ -598,16 +606,14 @@ async fn main() -> AppResult<()> {
         .seed_upsert_provider_connection(&connection)
         .await?;
     info!("Registered synthetic provider connection");
+    Ok(())
+}
 
-    // Print summary
-    info!("Created {} synthetic activities", args.count);
-
+fn log_activity_summary(total: u32, activities_by_type: &HashMap<&str, u32>) {
+    info!("Created {total} synthetic activities");
     let mut sorted_types: Vec<_> = activities_by_type.iter().collect();
     sorted_types.sort_by(|a, b| b.1.cmp(a.1));
-
     for (sport_type, count) in sorted_types {
-        info!("   {}: {}", sport_type, count);
+        info!("   {sport_type}: {count}");
     }
-
-    Ok(())
 }

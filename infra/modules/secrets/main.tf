@@ -135,7 +135,7 @@ resource "google_secret_manager_secret_version" "openweather_api_key_placeholder
 }
 
 # -----------------------------------------------------------------------------
-# Admin Password (to be filled manually for seed-bootstrap)
+# Admin Password (to be filled manually for `pierre-cli seed bootstrap`)
 # -----------------------------------------------------------------------------
 
 resource "google_secret_manager_secret" "admin_password" {

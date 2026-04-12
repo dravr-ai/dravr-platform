@@ -46,8 +46,8 @@ Explanation of why this insight should receive this verdict (for documentation/t
 
 ```bash
 # Run the insight validation seeder to test all samples
-cargo run --bin seed-insight-samples -- --validate
+cargo run --bin pierre-cli -- seed insight-samples --validate
 
 # Test against a specific tier
-cargo run --bin seed-insight-samples -- --validate --tier professional
+cargo run --bin pierre-cli -- seed insight-samples --validate --tier professional
 ```

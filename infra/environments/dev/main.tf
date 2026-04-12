@@ -345,7 +345,7 @@ module "seed_bootstrap" {
   timeout                  = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["seed-bootstrap"]
+  args    = ["bootstrap"]
 
   env_vars = merge(local.seed_env_vars, {
     ADMIN_EMAIL = "admin@dravr.ai"
@@ -376,7 +376,7 @@ module "seed_coaches" {
   timeout                  = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["seed-coaches", "--coaches-dir", "/app/coaches"]
+  args    = ["coaches", "--coaches-dir", "/app/coaches"]
 
   env_vars        = local.seed_env_vars
   secret_env_vars = local.seed_secret_env_vars
@@ -402,7 +402,7 @@ module "seed_mobility" {
   timeout                  = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["seed-mobility"]
+  args    = ["mobility"]
 
   env_vars        = local.seed_env_vars
   secret_env_vars = local.seed_secret_env_vars
@@ -428,7 +428,7 @@ module "seed_synthetic_activities" {
   timeout                  = local.seed_common.timeout
 
   command = ["/app/seed-entrypoint.sh"]
-  args    = ["seed-synthetic-activities", "--email", "alice@demo.pierre.dev", "--count", "100", "--days", "90"]
+  args    = ["synthetic-activities", "--email", "alice@demo.pierre.dev", "--count", "100", "--days", "90"]
 
   env_vars        = local.seed_env_vars
   secret_env_vars = local.seed_secret_env_vars
