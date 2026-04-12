@@ -29,6 +29,8 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use serde_json::Value;
+
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::routes::messaging::linking::generate_link_code;
@@ -64,6 +66,18 @@ enum LinkingAction {
     Normal,
 }
 
+/// Extract forum topic thread ID from incoming message metadata
+///
+/// Telegram groups with Topics enabled include `message_thread_id` in each
+/// message. This ID must be included in outbound replies so they route to
+/// the correct topic thread instead of the main chat.
+fn extract_thread_id(metadata: &Value) -> Option<String> {
+    metadata
+        .get("message_thread_id")
+        .and_then(Value::as_i64)
+        .map(|id| id.to_string())
+}
+
 /// Data needed to dispatch a message through the LLM pipeline after HTTP 200
 pub(crate) struct PendingDispatch {
     /// Server resources for LLM access
@@ -91,6 +105,8 @@ pub(crate) struct PendingDispatch {
     text_content: String,
     /// Channel-native message ID for reply/thread context (Slack ts, Telegram `message_id`)
     channel_message_id: String,
+    /// Forum topic thread ID (Telegram Topics `message_thread_id`)
+    thread_id: Option<String>,
 }
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -224,6 +240,7 @@ async fn handle_linking_command(
         },
         correlation_id: Uuid::new_v4(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -373,6 +390,7 @@ async fn create_link_and_prompt(
             },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
+            thread_id: None,
         };
     }
 
@@ -391,6 +409,7 @@ async fn create_link_and_prompt(
         content: MessageContent::Text { body },
         correlation_id: Uuid::new_v4(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -489,6 +508,7 @@ fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> Outgoi
         content: MessageContent::Text { body },
         correlation_id: Uuid::new_v4(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -1049,6 +1069,7 @@ async fn send_channel_response(
 ///
 /// Commands bypass the LLM entirely for deterministic, fast responses.
 #[cfg(feature = "client-messaging")]
+#[allow(clippy::too_many_arguments)]
 async fn try_handle_slash_command(
     resources: &Arc<ServerResources>,
     channel: &str,
@@ -1057,6 +1078,7 @@ async fn try_handle_slash_command(
     text: &str,
     sender_id: &str,
     conversation_id: Option<&str>,
+    thread_id: Option<String>,
 ) -> Option<OutgoingMessage> {
     use pierre_messaging::commands::CommandMatcher;
 
@@ -1141,6 +1163,7 @@ async fn try_handle_slash_command(
                     content,
                     correlation_id: Uuid::new_v4(),
                     reply_to: None,
+                    thread_id: thread_id.clone(),
                 })
             }
             Err(e) => {
@@ -1164,6 +1187,7 @@ async fn try_handle_slash_command(
                     },
                     correlation_id: Uuid::new_v4(),
                     reply_to: None,
+                    thread_id,
                 })
             }
         }
@@ -1190,6 +1214,7 @@ async fn persist_single_message(
     message: &IncomingMessage,
 ) -> Result<PersistOutcome, ()> {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
+    let thread_id = extract_thread_id(&message.metadata);
 
     let hashed_tenant = hash_id(&tenant_id.to_string());
     let hashed_sender = hash_id(&format!("{channel}:{}", message.sender_id));
@@ -1200,6 +1225,7 @@ async fn persist_single_message(
         analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "link_code");
         let mut response =
             handle_linking_command(resources, tenant_id, channel, &message.sender_id, &code).await;
+        response.thread_id = thread_id;
         apply_conversation_recipient(&mut response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, response).await;
         return Ok(PersistOutcome::HandledNotStored);
@@ -1218,6 +1244,7 @@ async fn persist_single_message(
     {
         analytics().track_intent(channel, &hashed_tenant, &hashed_sender, "otp_flow");
         let mut otp_response = otp_response;
+        otp_response.thread_id = thread_id;
         apply_conversation_recipient(&mut otp_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, otp_response).await;
         return Ok(PersistOutcome::HandledNotStored);
@@ -1235,6 +1262,7 @@ async fn persist_single_message(
         )
         .await;
         let mut logout_response = logout_response;
+        logout_response.thread_id = thread_id;
         apply_conversation_recipient(&mut logout_response, message.conversation_id.as_deref());
         send_channel_response(db, tenant_id, channel, adapter, logout_response).await;
         return Ok(PersistOutcome::HandledNotStored);
@@ -1267,6 +1295,7 @@ async fn persist_single_message(
             &text,
             &message.sender_id,
             message.conversation_id.as_deref(),
+            thread_id.clone(),
         )
         .await
         {
@@ -1315,6 +1344,7 @@ async fn persist_single_message(
                     conversation_id: message.conversation_id.clone(),
                     text_content,
                     channel_message_id: message.channel_message_id.clone(),
+                    thread_id,
                 },
             )))
         },
@@ -1362,6 +1392,7 @@ async fn send_unlinked_user_prompt(
         )
         .await
     };
+    prompt.thread_id = extract_thread_id(&message.metadata);
     apply_conversation_recipient(&mut prompt, message.conversation_id.as_deref());
     send_channel_response(db, tenant_id, channel, adapter, prompt).await;
 }
@@ -1588,6 +1619,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         },
         correlation_id: Uuid::new_v4(),
         reply_to: Some(dispatch.channel_message_id.clone()),
+        thread_id: dispatch.thread_id.clone(),
     };
 
     send_outbound_response(&dispatch, &outgoing).await;
@@ -1614,6 +1646,7 @@ async fn send_error_reply(dispatch: &PendingDispatch, body: &str) {
         },
         correlation_id: Uuid::new_v4(),
         reply_to: Some(dispatch.channel_message_id.clone()),
+        thread_id: dispatch.thread_id.clone(),
     };
 
     send_outbound_response(dispatch, &outgoing).await;

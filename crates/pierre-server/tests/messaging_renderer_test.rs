@@ -32,6 +32,7 @@ fn text_message(channel: ChannelType, text: &str) -> OutgoingMessage {
         },
         correlation_id: Uuid::nil(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -46,6 +47,7 @@ fn media_message(channel: ChannelType) -> OutgoingMessage {
         },
         correlation_id: Uuid::nil(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -59,6 +61,7 @@ fn location_message(channel: ChannelType) -> OutgoingMessage {
         },
         correlation_id: Uuid::nil(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -84,6 +87,7 @@ fn card_message(channel: ChannelType) -> OutgoingMessage {
         },
         correlation_id: Uuid::nil(),
         reply_to: None,
+        thread_id: None,
     }
 }
 
@@ -385,6 +389,7 @@ mod telegram {
             },
             correlation_id: Uuid::nil(),
             reply_to: Some("42".to_owned()),
+            thread_id: None,
         };
         let payload = renderer().render(&msg).unwrap();
         assert_eq!(payload["reply_to_message_id"], 42);
@@ -422,6 +427,7 @@ mod slack_reply_to {
             },
             correlation_id: Uuid::nil(),
             reply_to: Some("1234567890.123456".to_owned()),
+            thread_id: None,
         };
         let payload = renderer().render(&msg).unwrap();
         assert_eq!(payload["thread_ts"], "1234567890.123456");

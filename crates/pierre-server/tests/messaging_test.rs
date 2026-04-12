@@ -658,6 +658,7 @@ mod messaging_tests {
             },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
+            thread_id: None,
         }
     }
 
@@ -683,6 +684,7 @@ mod messaging_tests {
             },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
+            thread_id: None,
         }
     }
 
@@ -697,6 +699,7 @@ mod messaging_tests {
             },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
+            thread_id: None,
         }
     }
 
@@ -813,6 +816,7 @@ mod messaging_tests {
             },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
+            thread_id: None,
         };
         let payload = renderer.render(&msg).unwrap();
 
