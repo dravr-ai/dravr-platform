@@ -173,6 +173,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     ));
 
@@ -224,6 +225,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     ));
 

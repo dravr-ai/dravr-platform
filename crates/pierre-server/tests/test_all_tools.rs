@@ -126,6 +126,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 activity_count: 3,
                 load_trend: TrendDirection::Stable,
             }),
+            seasonal_context: None,
         },
     ));
 

@@ -420,6 +420,7 @@ impl Database {
                                     preferred_duration_minutes: Some(30),
                                 },
                             },
+                            seasonal_context: None,
                         }))
                     },
                     |fitness_profile| Ok(Some(fitness_profile)),

@@ -125,6 +125,7 @@ fn create_profile_from_activities(user_id: &str, activities: &[Activity]) -> Use
                 preferred_duration_minutes: Some(60),
             },
         },
+        seasonal_context: None,
     }
 }
 

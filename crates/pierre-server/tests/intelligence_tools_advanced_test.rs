@@ -49,6 +49,7 @@ fn create_test_user_profile(fitness_level: FitnessLevel) -> UserFitnessProfile {
                 preferred_duration_minutes: Some(60),
             },
         },
+        seasonal_context: None,
     }
 }
 

@@ -359,6 +359,7 @@ impl UserFitnessProfileData {
                     preferred_duration_minutes: None,
                 },
             },
+            seasonal_context: None,
         })
     }
 

@@ -456,6 +456,7 @@ async fn create_test_executor() -> (Arc<UniversalToolExecutor>, Arc<Database>) {
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     ));
 
@@ -523,6 +524,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     ));
 

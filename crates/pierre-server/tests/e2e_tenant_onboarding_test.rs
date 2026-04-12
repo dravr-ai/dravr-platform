@@ -255,6 +255,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     ));
 

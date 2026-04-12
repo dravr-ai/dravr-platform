@@ -35,6 +35,7 @@ fn test_activity_intelligence_creation() {
             time_of_day: TimeOfDay::Morning,
             days_since_last_activity: Some(1),
             weekly_load: None,
+            seasonal_context: None,
         },
     );
 
