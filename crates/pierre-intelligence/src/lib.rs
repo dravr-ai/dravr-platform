@@ -37,6 +37,7 @@ pub use dravr_cageux::physiological_constants;
 pub use dravr_cageux::recipes;
 pub use dravr_cageux::recommendation_engine;
 pub use dravr_cageux::recovery_calculator;
+pub use dravr_cageux::seasonality;
 pub use dravr_cageux::sleep_analysis;
 pub use dravr_cageux::statistical_analysis;
 pub use dravr_cageux::training_load;
