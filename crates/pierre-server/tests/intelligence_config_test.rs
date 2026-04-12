@@ -659,6 +659,7 @@ mod integration_tests {
                     preferred_duration_minutes: Some(60),
                 },
             },
+            seasonal_context: None,
         };
 
         let _activities = [create_test_activity()];

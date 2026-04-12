@@ -60,6 +60,8 @@ fn test_activity_intelligence_creation() {
             trail_name: Some("Charles River Trail".to_owned()),
             terrain_type: Some("paved".to_owned()),
             display_name: "Charles River Trail, Boston, MA".to_owned(),
+            latitude: None,
+            longitude: None,
         }),
         time_of_day: TimeOfDay::Morning,
         days_since_last_activity: Some(2),
@@ -69,6 +71,7 @@ fn test_activity_intelligence_creation() {
             activity_count: 6,
             load_trend: TrendDirection::Stable,
         }),
+        seasonal_context: None,
     };
 
     let intelligence = ActivityIntelligence::new(
@@ -425,6 +428,7 @@ fn test_user_fitness_profile() {
         primary_sports: vec!["running".to_owned(), "cycling".to_owned()],
         training_history_months: 24,
         preferences,
+        seasonal_context: None,
     };
 
     assert_eq!(profile.user_id, "user_789");
@@ -588,6 +592,8 @@ fn test_location_context() {
         trail_name: Some("Golden Gate Park Loop".to_owned()),
         terrain_type: Some("mixed".to_owned()),
         display_name: "Golden Gate Park Loop, San Francisco, CA".to_owned(),
+        latitude: None,
+        longitude: None,
     };
 
     assert_eq!(location.city, Some("San Francisco".to_owned()));
@@ -732,6 +738,8 @@ fn test_complete_contextual_factors() {
             trail_name: Some("Forest Park Trail".to_owned()),
             terrain_type: Some("trail".to_owned()),
             display_name: "Forest Park Trail, Portland, OR".to_owned(),
+            latitude: None,
+            longitude: None,
         }),
         time_of_day: TimeOfDay::Afternoon,
         days_since_last_activity: Some(3),
@@ -741,6 +749,7 @@ fn test_complete_contextual_factors() {
             activity_count: 4,
             load_trend: TrendDirection::Declining,
         }),
+        seasonal_context: None,
     };
 
     // Test all fields are populated correctly

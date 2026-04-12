@@ -916,6 +916,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
                 preferred_duration_minutes: Some(30),
             },
         },
+        seasonal_context: None,
     }
 }
 

@@ -68,6 +68,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 activity_count: 3,
                 load_trend: TrendDirection::Stable,
             }),
+            seasonal_context: None,
         },
     ));
 
@@ -490,6 +491,7 @@ async fn test_set_goal_tool() -> Result<()> {
                 activity_count: 3,
                 load_trend: TrendDirection::Stable,
             }),
+            seasonal_context: None,
         },
     ));
 
@@ -1242,6 +1244,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
                 activity_count: 3,
                 load_trend: TrendDirection::Stable,
             }),
+            seasonal_context: None,
         },
     ));
 

@@ -62,6 +62,7 @@ async fn test_activity_analysis_through_universal_tools() -> Result<()> {
                 preferred_duration_minutes: Some(60),
             },
         },
+        seasonal_context: None,
     };
 
     // Store user fitness profile in database
@@ -229,6 +230,7 @@ async fn test_recommendation_engine_integration() -> Result<()> {
                 preferred_duration_minutes: Some(90),
             },
         },
+        seasonal_context: None,
     };
 
     // Store fitness profile
@@ -392,6 +394,7 @@ async fn test_goal_tracking_integration() -> Result<()> {
                 preferred_duration_minutes: Some(45),
             },
         },
+        seasonal_context: None,
     };
 
     let analyzer = ActivityAnalyzer::new();
