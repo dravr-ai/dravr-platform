@@ -17,7 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use chrono::{Datelike, Duration, Utc};
 use serde_json::{json, Value};
 use tracing::info;
 
@@ -25,6 +25,7 @@ use crate::config::environment::default_provider;
 use crate::errors::AppError;
 use crate::errors::AppResult;
 use crate::intelligence::goal_engine::{AdvancedGoalEngine, GoalDifficulty, GoalEngineTrait};
+use crate::intelligence::seasonality::build_seasonal_context;
 use crate::intelligence::{
     FitnessLevel, Goal, GoalStatus, GoalType, ProgressReport, TimeAvailability, TimeFrame,
     UserFitnessProfile, UserPreferences,
@@ -78,6 +79,16 @@ async fn fetch_activities(
         .map_err(|e| format!("Failed to fetch activities: {e}"))
 }
 
+/// Extract seasonal context from the most recent activity's GPS coordinates.
+/// Falls back to None when no activity has lat/lon data.
+fn seasonal_context_from_activities(
+    activities: &[Activity],
+) -> Option<pierre_intelligence::seasonality::SeasonalContext> {
+    let lat = activities.iter().find_map(|a| a.start_latitude())?;
+    let month = Utc::now().month();
+    Some(build_seasonal_context(lat, month))
+}
+
 /// Create a basic user profile from activities for goal suggestions
 fn create_profile_from_activities(user_id: &str, activities: &[Activity]) -> UserFitnessProfile {
     let fitness_level = if activities.len() >= 50 {
@@ -125,7 +136,7 @@ fn create_profile_from_activities(user_id: &str, activities: &[Activity]) -> Use
                 preferred_duration_minutes: Some(60),
             },
         },
-        seasonal_context: None,
+        seasonal_context: seasonal_context_from_activities(activities),
     }
 }
 

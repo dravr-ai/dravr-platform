@@ -27,13 +27,14 @@ use crate::intelligence::physiological_constants::goal_feasibility::{
     SAFE_RANGE_PENALTY_FACTOR, SIMPLE_PROGRESS_THRESHOLD, UNSAFE_IMPROVEMENT_PENALTY_BASE,
     VERY_LOW_CONFIDENCE_LEVEL, VOLUME_DOUBLING_THRESHOLD,
 };
+use crate::intelligence::seasonality::build_seasonal_context;
 use crate::intelligence::{FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences};
 use crate::models::Activity;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::types::json_schemas::{AnalyzeGoalFeasibilityParams, SetGoalParams};
 use crate::utils::uuid::parse_user_id_for_protocol;
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{Datelike, DateTime, FixedOffset, Utc};
 use num_traits::ToPrimitive;
 use pierre_database::database::repositories::ProfileRepository;
 use serde_json::{from_value, json, Value as JsonValue};
@@ -896,6 +897,10 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
     let training_history_months = calculate_training_history_months(activities);
     let primary_sports = detect_primary_sport(activities);
     let fitness_level = infer_fitness_level(activities);
+    let seasonal_context = activities
+        .iter()
+        .find_map(|a| a.start_latitude())
+        .map(|lat| build_seasonal_context(lat, Utc::now().month()));
 
     UserFitnessProfile {
         user_id,
@@ -916,7 +921,7 @@ fn create_fallback_profile(user_id: String, activities: &[Activity]) -> UserFitn
                 preferred_duration_minutes: Some(30),
             },
         },
-        seasonal_context: None,
+        seasonal_context,
     }
 }
 
