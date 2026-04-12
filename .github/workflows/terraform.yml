@@ -193,7 +193,9 @@ jobs:
   apply-dev:
     name: Apply Dev
     runs-on: ubuntu-latest
-    needs: plan-dev
+    # No `needs: plan-dev` — plan-dev only runs on PR or `action=plan`,
+    # so gating apply on it blocks workflow_dispatch(action=apply) entirely.
+    # Apply-dev runs its own `terraform init` and `terraform apply` below.
     if: >
       github.event_name == 'push' ||
       (github.event_name == 'workflow_dispatch' &&
