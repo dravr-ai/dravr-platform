@@ -25,7 +25,7 @@ use crate::config::environment::default_provider;
 use crate::errors::AppError;
 use crate::errors::AppResult;
 use crate::intelligence::goal_engine::{AdvancedGoalEngine, GoalDifficulty, GoalEngineTrait};
-use crate::intelligence::seasonality::build_seasonal_context;
+use crate::intelligence::seasonality::{build_seasonal_context, SeasonalContext};
 use crate::intelligence::{
     FitnessLevel, Goal, GoalStatus, GoalType, ProgressReport, TimeAvailability, TimeFrame,
     UserFitnessProfile, UserPreferences,
@@ -81,9 +81,7 @@ async fn fetch_activities(
 
 /// Extract seasonal context from the most recent activity's GPS coordinates.
 /// Falls back to None when no activity has lat/lon data.
-fn seasonal_context_from_activities(
-    activities: &[Activity],
-) -> Option<pierre_intelligence::seasonality::SeasonalContext> {
+fn seasonal_context_from_activities(activities: &[Activity]) -> Option<SeasonalContext> {
     let lat = activities.iter().find_map(|a| a.start_latitude())?;
     let month = Utc::now().month();
     Some(build_seasonal_context(lat, month))
