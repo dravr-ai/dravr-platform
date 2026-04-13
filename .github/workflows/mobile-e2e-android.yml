@@ -7,20 +7,8 @@
 name: "CI: Mobile E2E (Android)"
 
 on:
-  push:
-    branches: [ "main", "debug/*", "feature/*", "claude/*", "copilot/*" ]
-    paths:
-      - 'frontend-mobile/**'
-      - 'packages/**'
-      - 'crates/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/mobile-e2e-android.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'frontend-mobile/**'
-      - 'packages/**'
+  schedule:
+    - cron: '0 6 * * *'  # 06:00 UTC nightly (02:00 EDT / 01:00 EST)
   workflow_dispatch:
 
 concurrency:
