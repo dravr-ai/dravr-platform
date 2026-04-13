@@ -262,6 +262,26 @@ resource "google_secret_manager_secret_version" "copilot_github_token_placeholde
   }
 }
 
+resource "google_secret_manager_secret" "posthog_api_key" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-posthog-api-key"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "posthog_api_key_placeholder" {
+  secret      = google_secret_manager_secret.posthog_api_key.id
+  secret_data = "PLACEHOLDER_FILL_MANUALLY"
+
+  lifecycle {
+    ignore_changes = [secret_data]
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Messaging Channel Secrets (Slack, Telegram, WhatsApp)
 # Secret containers only — values are managed via gcloud CLI, not Terraform.
