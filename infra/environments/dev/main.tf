@@ -159,9 +159,9 @@ module "backend" {
   container_image       = var.backend_image
   service_account_email = module.service_accounts.app_service_account_email
 
-  container_port    = 8081
-  cpu               = var.backend_cpu
-  memory            = var.backend_memory
+  container_port = 8081
+  cpu            = var.backend_cpu
+  memory         = var.backend_memory
   # Disable CPU throttling so background tasks (Discord Gateway WebSocket) run between requests
   cpu_idle          = false
   startup_cpu_boost = true
@@ -205,7 +205,7 @@ module "backend" {
       RESEND_FROM_EMAIL = "no-reply@dravr.ai"
 
       # Auto-approve: disabled globally, but dravr.ai emails bypass approval
-      AUTO_APPROVE_USERS  = "false"
+      AUTO_APPROVE_USERS   = "false"
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI)
@@ -225,7 +225,7 @@ module "backend" {
       META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
 
       # Messenger non-secret config (verify token is the App Secret, not sensitive here)
-      META_MESSENGER_VERIFY_TOKEN   = "5aec2c301a90cf03a31e5f5e638f9e38"
+      META_MESSENGER_VERIFY_TOKEN = "5aec2c301a90cf03a31e5f5e638f9e38"
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = "admin@dravr.ai"
@@ -236,12 +236,12 @@ module "backend" {
       SLACK_OPS_USERS_CHANNEL   = var.slack_ops_users_channel
 
       # Error notification layer (dravr-tronc ErrorNotificationLayer)
-      SLACK_ERROR_CHANNEL          = var.slack_error_channel
-      NOTIFY_BATCH_WINDOW_SECS     = tostring(var.notify_batch_window_secs)
-      NOTIFY_MAX_MESSAGES_PER_MIN  = tostring(var.notify_max_messages_per_min)
-      NOTIFY_DEDUP_WINDOW_SECS     = tostring(var.notify_dedup_window_secs)
-      NOTIFY_EMAIL_FROM            = var.notify_email_from
-      NOTIFY_EMAIL_TO              = var.notify_email_to
+      SLACK_ERROR_CHANNEL         = var.slack_error_channel
+      NOTIFY_BATCH_WINDOW_SECS    = tostring(var.notify_batch_window_secs)
+      NOTIFY_MAX_MESSAGES_PER_MIN = tostring(var.notify_max_messages_per_min)
+      NOTIFY_DEDUP_WINDOW_SECS    = tostring(var.notify_dedup_window_secs)
+      NOTIFY_EMAIL_FROM           = var.notify_email_from
+      NOTIFY_EMAIL_TO             = var.notify_email_to
 
       # Contremaitre prompt hot-reload from GitHub
       CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
@@ -271,20 +271,21 @@ module "backend" {
     COPILOT_GITHUB_TOKEN         = module.secrets.secret_ids["copilot_github_token"]
     OPENWEATHER_API_KEY          = module.secrets.secret_ids["openweather_api_key"]
     RESEND_API_KEY               = module.secrets.secret_ids["resend_api_key"]
+    POSTHOG_API_KEY              = module.secrets.secret_ids["posthog_api_key"]
 
     # Messaging channel credentials (seeded into DB on startup)
-    SLACK_BOT_TOKEN              = module.secrets.secret_ids["slack_bot_token"]
-    SLACK_SIGNING_SECRET         = module.secrets.secret_ids["slack_signing_secret"]
-    TELEGRAM_BOT_TOKEN           = module.secrets.secret_ids["telegram_bot_token"]
-    TELEGRAM_WEBHOOK_SECRET      = module.secrets.secret_ids["telegram_webhook_secret"]
-    META_WHATSAPP_APP_SECRET           = module.secrets.secret_ids["meta_whatsapp_app_secret"]
-    META_WHATSAPP_ACCESS_TOKEN         = module.secrets.secret_ids["meta_whatsapp_access_token"]
-    META_MESSENGER_APP_SECRET          = module.secrets.secret_ids["meta_messenger_app_secret"]
-    META_MESSENGER_PAGE_ACCESS_TOKEN   = module.secrets.secret_ids["meta_messenger_page_access_token"]
-    DISCORD_BOT_TOKEN                  = module.secrets.secret_ids["discord_bot_token"]
-    DISCORD_PUBLIC_KEY                 = module.secrets.secret_ids["discord_public_key"]
-    DISCORD_APPLICATION_ID             = module.secrets.secret_ids["discord_application_id"]
-    DISCORD_BOT_PERMISSIONS            = module.secrets.secret_ids["discord_bot_permissions"]
+    SLACK_BOT_TOKEN                  = module.secrets.secret_ids["slack_bot_token"]
+    SLACK_SIGNING_SECRET             = module.secrets.secret_ids["slack_signing_secret"]
+    TELEGRAM_BOT_TOKEN               = module.secrets.secret_ids["telegram_bot_token"]
+    TELEGRAM_WEBHOOK_SECRET          = module.secrets.secret_ids["telegram_webhook_secret"]
+    META_WHATSAPP_APP_SECRET         = module.secrets.secret_ids["meta_whatsapp_app_secret"]
+    META_WHATSAPP_ACCESS_TOKEN       = module.secrets.secret_ids["meta_whatsapp_access_token"]
+    META_MESSENGER_APP_SECRET        = module.secrets.secret_ids["meta_messenger_app_secret"]
+    META_MESSENGER_PAGE_ACCESS_TOKEN = module.secrets.secret_ids["meta_messenger_page_access_token"]
+    DISCORD_BOT_TOKEN                = module.secrets.secret_ids["discord_bot_token"]
+    DISCORD_PUBLIC_KEY               = module.secrets.secret_ids["discord_public_key"]
+    DISCORD_APPLICATION_ID           = module.secrets.secret_ids["discord_application_id"]
+    DISCORD_BOT_PERMISSIONS          = module.secrets.secret_ids["discord_bot_permissions"]
 
     # Contremaitre prompt hot-reload credentials
     CONTREMAITRE_GITHUB_PAT     = module.secrets.secret_ids["contremaitre_github_pat"]
