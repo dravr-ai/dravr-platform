@@ -443,18 +443,55 @@ async fn try_fetch_from_provider(
     Some(activities)
 }
 
+/// Resolve a group member's own tenant for OAuth credential lookup.
+///
+/// Cross-tenant group members need their own tenant to find their provider
+/// connections and OAuth tokens. Falls back to the requester's tenant if
+/// the member has no tenant membership (should not happen in practice).
+async fn resolve_member_tenant(
+    resources: &Arc<ServerResources>,
+    user_id: Uuid,
+    fallback: TenantId,
+) -> TenantId {
+    match resources.repos.tenants.list_for_user(user_id).await {
+        Ok(tenants) if !tenants.is_empty() => {
+            let resolved = tenants[0].id;
+            if resolved != fallback {
+                info!(
+                    user_id = %user_id,
+                    member_tenant = %resolved,
+                    requester_tenant = %fallback,
+                    "Using member's own tenant for snapshot fetch"
+                );
+            }
+            resolved
+        }
+        Ok(_) => {
+            debug!(user_id = %user_id, "Member has no tenant, using fallback");
+            fallback
+        }
+        Err(e) => {
+            debug!(user_id = %user_id, error = %e, "Failed to resolve member tenant");
+            fallback
+        }
+    }
+}
+
 /// Fetch a single member's fitness snapshot.
 ///
-/// Attempts to find a connected provider for the user and compute training
-/// load from their recent activities. Returns a snapshot with `None` metrics
+/// Resolves the member's own tenant for OAuth credential lookup, then
+/// attempts to find connected providers and compute training load from
+/// their recent activities. Returns a snapshot with `None` metrics
 /// if no provider is connected or if the fetch fails.
 async fn fetch_single_member_snapshot(
     resources: &Arc<ServerResources>,
     user_id: Uuid,
-    tenant_id: TenantId,
+    fallback_tenant_id: TenantId,
 ) -> MemberFitnessSnapshot {
     let now = Utc::now();
     let display_name = fetch_user_display_name(resources, user_id).await;
+
+    let tenant_id = resolve_member_tenant(resources, user_id, fallback_tenant_id).await;
 
     let activities = fetch_member_activities(resources, user_id, tenant_id).await;
     if activities.is_empty() {
