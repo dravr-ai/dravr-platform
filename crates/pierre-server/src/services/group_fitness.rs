@@ -456,14 +456,7 @@ async fn resolve_member_tenant(
     match resources.repos.tenants.list_for_user(user_id).await {
         Ok(tenants) if !tenants.is_empty() => {
             let resolved = tenants[0].id;
-            if resolved != fallback {
-                info!(
-                    user_id = %user_id,
-                    member_tenant = %resolved,
-                    requester_tenant = %fallback,
-                    "Using member's own tenant for snapshot fetch"
-                );
-            }
+            log_member_tenant_resolution(user_id, resolved, fallback);
             resolved
         }
         Ok(_) => {
@@ -474,6 +467,17 @@ async fn resolve_member_tenant(
             debug!(user_id = %user_id, error = %e, "Failed to resolve member tenant");
             fallback
         }
+    }
+}
+
+fn log_member_tenant_resolution(user_id: Uuid, resolved: TenantId, fallback: TenantId) {
+    if resolved != fallback {
+        info!(
+            user_id = %user_id,
+            member_tenant = %resolved,
+            requester_tenant = %fallback,
+            "Using member's own tenant for snapshot fetch"
+        );
     }
 }
 
