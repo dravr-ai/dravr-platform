@@ -74,6 +74,9 @@ pub mod admin;
 /// Cache abstraction layer with pluggable backends
 pub mod cache;
 
+/// Hot-reloadable dravr-cageux IntelligenceConfig snapshot registry
+pub mod cageux_config;
+
 /// Coach definition parsing from markdown files
 pub mod coaches;
 

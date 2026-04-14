@@ -19,6 +19,7 @@ use crate::a2a::client::A2AClientManager;
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::admin::FirebaseAuth;
 use crate::cache::factory::Cache;
+use crate::cageux_config::CageuxConfigRegistry;
 use crate::commands;
 use crate::config::admin::AdminConfigService;
 use crate::config::environment::ServerConfig;
@@ -187,6 +188,12 @@ pub struct ServerResources {
     pub admin_jwt_secret: Arc<str>,
     /// Server configuration loaded from environment
     pub config: Arc<ServerConfig>,
+    /// Hot-swappable cageux intelligence config snapshot (compiled-in
+    /// defaults overlaid with env vars at startup, replaced by the
+    /// contremaitre sync's `config/cageux.yaml` overlay when the feature
+    /// is enabled). Every handler that needs an `IntelligenceConfig`
+    /// reads it through this registry.
+    pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// AI-powered fitness activity analysis engine
     pub activity_intelligence: Arc<ActivityIntelligence>,
     /// A2A protocol client manager for agent-to-agent communication
@@ -275,8 +282,15 @@ pub struct ServerResources {
 
 /// Initialize prompt, tool description, and evidence registries and sync
 /// from contremaitre when configured.
+///
+/// The cageux config registry is passed in separately so that the cageux
+/// snapshot exists whether or not the `contremaitre` feature is enabled.
+/// When contremaitre IS enabled, its sync also populates the cageux
+/// registry via the manifest's `config.cageux` entry.
 #[cfg(feature = "contremaitre")]
-async fn init_contremaitre_registries() -> (
+async fn init_contremaitre_registries(
+    cageux_config_registry: &Arc<CageuxConfigRegistry>,
+) -> (
     Arc<PromptRegistry>,
     Arc<ToolDescriptionRegistry>,
     Arc<EvidenceRegistry>,
@@ -291,6 +305,7 @@ async fn init_contremaitre_registries() -> (
             &prompt_registry,
             &tool_desc_registry,
             &evidence_registry,
+            cageux_config_registry,
             &client,
         )
         .await
@@ -337,6 +352,14 @@ impl ServerResources {
             Arc::new(config.oauth.clone()),
         )));
         let provider_registry = Arc::new(ProviderRegistry::new());
+
+        // Seed the cageux config registry with the layered stack of
+        // compiled-in defaults + INTELLIGENCE_* env vars. The contremaitre
+        // sync (when enabled) will replace this snapshot once it fetches
+        // the YAML overlay from `config/cageux.yaml`. The registry falls
+        // back to compiled-in defaults if env parsing fails; startup-time
+        // env validation is handled upstream by `init_all_configs()`.
+        let cageux_config_registry = Arc::new(CageuxConfigRegistry::from_env());
 
         // Create activity intelligence once for shared use
         let activity_intelligence = Self::create_default_intelligence();
@@ -489,13 +512,15 @@ impl ServerResources {
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
 
-        // Initialize contremaitre registries (prompts + tool descriptions)
+        // Initialize contremaitre registries (prompts + tool descriptions +
+        // evidence). The cageux config registry is passed in so the
+        // contremaitre sync can also overlay its snapshot.
         #[cfg(feature = "contremaitre")]
         let (
             contremaitre_prompt_registry,
             contremaitre_tool_desc_registry,
             contremaitre_evidence_registry,
-        ) = init_contremaitre_registries().await;
+        ) = init_contremaitre_registries(&cageux_config_registry).await;
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
@@ -521,6 +546,7 @@ impl ServerResources {
             provider_registry,
             admin_jwt_secret: admin_jwt_secret.into(),
             config,
+            cageux_config_registry,
             activity_intelligence,
             #[cfg(feature = "protocol-a2a")]
             a2a_client_manager,

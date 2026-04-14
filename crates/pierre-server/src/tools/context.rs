@@ -16,6 +16,7 @@
 //! tool execution chains and provides consistent access to resources.
 
 use pierre_core::models::TenantId;
+use pierre_intelligence::IntelligenceConfig;
 use std::fmt;
 use std::sync::Arc;
 
@@ -215,6 +216,20 @@ impl ToolExecutionContext {
     #[must_use]
     pub fn activity_intelligence(&self) -> &ActivityIntelligence {
         &self.resources.activity_intelligence
+    }
+
+    /// Return a cheap clone of the current cageux intelligence config
+    /// snapshot.
+    ///
+    /// The returned `Arc` owns a consistent view of the configuration for
+    /// the duration of the request — callers should clone it once at the
+    /// top of their handler and use the local clone for any sub-config
+    /// reads (`.sleep_recovery`, `.nutrition`, `.algorithms`, etc.) rather
+    /// than calling this method repeatedly, because each call takes a
+    /// read lock on the registry.
+    #[must_use]
+    pub fn cageux_config(&self) -> Arc<IntelligenceConfig<true>> {
+        self.resources.cageux_config_registry.current()
     }
 
     /// Get a reference to the cache

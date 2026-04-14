@@ -151,7 +151,6 @@ use pierre_mcp_server::intelligence::{
     AdvancedGoalEngine, AdvancedPerformanceAnalyzer, AdvancedRecommendationEngine, FitnessLevel,
     TimeAvailability, UserFitnessProfile, UserPreferences,
 };
-use std::ptr;
 
 #[test]
 fn test_default_intelligence_config_validation() {
@@ -293,20 +292,22 @@ fn test_aggressive_strategy() {
 
 #[test]
 fn test_default_strategy() {
-    let strategy = DefaultStrategy;
+    let config = IntelligenceConfig::load().expect("load default");
+    let strategy = DefaultStrategy::new(config);
     let thresholds = strategy.recommendation_thresholds();
 
-    // Default strategy should use global config values
-    assert_eq!(thresholds.low_weekly_distance_km, 20.0);
-    assert_eq!(thresholds.high_weekly_distance_km, 80.0);
+    // Default strategy should use the injected config's default values
+    assert!((thresholds.low_weekly_distance_km - 20.0).abs() < f64::EPSILON);
+    assert!((thresholds.high_weekly_distance_km - 80.0).abs() < f64::EPSILON);
     assert_eq!(thresholds.low_weekly_frequency, 2);
     assert_eq!(thresholds.high_weekly_frequency, 6);
 }
 
 #[test]
 fn test_recommendation_engine_with_conservative_strategy() {
+    let config = IntelligenceConfig::load().expect("load default");
     let conservative_strategy = ConservativeStrategy::new();
-    let _engine = AdvancedRecommendationEngine::with_strategy(conservative_strategy);
+    let _engine = AdvancedRecommendationEngine::with_strategy(conservative_strategy, &config);
 
     // Test that engine can be created with conservative strategy
     // (More detailed testing would require activity data)
@@ -314,36 +315,29 @@ fn test_recommendation_engine_with_conservative_strategy() {
 
 #[test]
 fn test_recommendation_engine_with_aggressive_strategy() {
+    let config = IntelligenceConfig::load().expect("load default");
     let aggressive_strategy = AggressiveStrategy::new();
-    let _engine = AdvancedRecommendationEngine::with_strategy(aggressive_strategy);
+    let _engine = AdvancedRecommendationEngine::with_strategy(aggressive_strategy, &config);
 
     // Test that engine can be created with aggressive strategy
 }
 
 #[test]
 fn test_performance_analyzer_with_custom_strategy() {
+    let config = IntelligenceConfig::load().expect("load default");
     let custom_strategy = ConservativeStrategy::new();
-    let _analyzer = AdvancedPerformanceAnalyzer::with_strategy(custom_strategy);
+    let _analyzer = AdvancedPerformanceAnalyzer::with_strategy(custom_strategy, &config);
 
     // Test that analyzer can be created with custom strategy
 }
 
 #[test]
 fn test_goal_engine_with_custom_strategy() {
+    let config = IntelligenceConfig::load().expect("load default");
     let custom_strategy = AggressiveStrategy::new();
-    let _goal_engine = AdvancedGoalEngine::with_strategy(custom_strategy);
+    let _goal_engine = AdvancedGoalEngine::with_strategy(custom_strategy, &config);
 
     // Test that goal engine can be created with custom strategy
-}
-
-#[test]
-fn test_global_config_singleton() {
-    // Test that global config returns the same instance
-    let config1 = IntelligenceConfig::global();
-    let config2 = IntelligenceConfig::global();
-
-    // Should be the same instance (same pointer)
-    assert!(ptr::eq(config1, config2));
 }
 
 #[test]
@@ -632,8 +626,9 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_recommendation_engine_with_config() {
+        let config = IntelligenceConfig::load().expect("load default intelligence config");
         let conservative_strategy = ConservativeStrategy::new();
-        let _engine = AdvancedRecommendationEngine::with_strategy(conservative_strategy);
+        let _engine = AdvancedRecommendationEngine::with_strategy(conservative_strategy, &config);
 
         // Create test user profile
         let _user_profile = UserFitnessProfile {

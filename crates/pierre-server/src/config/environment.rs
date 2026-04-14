@@ -252,12 +252,16 @@ impl ServerConfig {
     ///
     /// Returns an error if intelligence configuration cannot be loaded or validated
     pub fn init_all_configs(&self) -> AppResult<()> {
-        // Initialize intelligence configuration
-        let intelligence_config = IntelligenceConfig::global();
-
-        // Validate intelligence configuration is properly loaded by accessing a field
+        // Validate the layered intelligence config (compiled-in defaults +
+        // INTELLIGENCE_* env vars) parses and validates. The canonical live
+        // snapshot is owned by `ServerResources::cageux_config_registry`,
+        // which applies the same layered stack plus the contremaitre YAML
+        // overlay on startup; this call exists purely so startup fails fast
+        // if an operator has supplied a bad env override.
+        let intelligence_config = IntelligenceConfig::load()
+            .map_err(|e| AppError::internal(format!("Intelligence config load failed: {e}")))?;
         info!(
-            "Intelligence config initialized successfully (min duration: {}s)",
+            "Intelligence config validated (min duration: {}s)",
             intelligence_config
                 .activity_analyzer
                 .analysis

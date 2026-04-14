@@ -39,7 +39,8 @@ mod common;
 #[test]
 fn test_mifflin_st_jeor_male_typical() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test case: 30-year-old male, 75kg, 180cm
     let bmr = calculate_mifflin_st_jeor(75.0, 180.0, 30, Gender::Male, &config.bmr).unwrap();
@@ -54,7 +55,8 @@ fn test_mifflin_st_jeor_male_typical() {
 #[test]
 fn test_mifflin_st_jeor_female_typical() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test case: 25-year-old female, 60kg, 165cm
     let bmr = calculate_mifflin_st_jeor(60.0, 165.0, 25, Gender::Female, &config.bmr).unwrap();
@@ -69,7 +71,8 @@ fn test_mifflin_st_jeor_female_typical() {
 #[test]
 fn test_mifflin_st_jeor_minimum_bmr_enforced() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test case: Very small person - should enforce minimum BMR
     let bmr = calculate_mifflin_st_jeor(40.0, 140.0, 20, Gender::Female, &config.bmr).unwrap();
@@ -81,7 +84,8 @@ fn test_mifflin_st_jeor_minimum_bmr_enforced() {
 #[test]
 fn test_mifflin_st_jeor_large_athlete() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test case: Large male athlete - 100kg, 195cm, age 25
     let bmr = calculate_mifflin_st_jeor(100.0, 195.0, 25, Gender::Male, &config.bmr).unwrap();
@@ -100,7 +104,8 @@ fn test_mifflin_st_jeor_large_athlete() {
 #[test]
 fn test_tdee_sedentary() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let bmr = 1500.0;
 
     let tdee = calculate_tdee(bmr, ActivityLevel::Sedentary, &config.activity_factors).unwrap();
@@ -115,7 +120,8 @@ fn test_tdee_sedentary() {
 #[test]
 fn test_tdee_lightly_active() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let bmr = 1500.0;
 
     let tdee = calculate_tdee(bmr, ActivityLevel::LightlyActive, &config.activity_factors).unwrap();
@@ -130,7 +136,8 @@ fn test_tdee_lightly_active() {
 #[test]
 fn test_tdee_moderately_active() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let bmr = 1700.0;
 
     let tdee = calculate_tdee(
@@ -150,7 +157,8 @@ fn test_tdee_moderately_active() {
 #[test]
 fn test_tdee_very_active() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let bmr = 1500.0;
 
     let tdee = calculate_tdee(bmr, ActivityLevel::VeryActive, &config.activity_factors).unwrap();
@@ -165,7 +173,8 @@ fn test_tdee_very_active() {
 #[test]
 fn test_tdee_extra_active() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let bmr = 2000.0;
 
     let tdee = calculate_tdee(bmr, ActivityLevel::ExtraActive, &config.activity_factors).unwrap();
@@ -184,7 +193,8 @@ fn test_tdee_extra_active() {
 #[test]
 fn test_protein_needs_maintenance() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let protein = calculate_protein_needs(
         75.0,
@@ -205,7 +215,8 @@ fn test_protein_needs_maintenance() {
 #[test]
 fn test_protein_needs_muscle_gain() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let protein = calculate_protein_needs(
         80.0,
@@ -226,7 +237,8 @@ fn test_protein_needs_muscle_gain() {
 #[test]
 fn test_protein_needs_weight_loss() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let protein = calculate_protein_needs(
         90.0,
@@ -248,7 +260,8 @@ fn test_protein_needs_weight_loss() {
 #[test]
 fn test_protein_needs_endurance() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let protein = calculate_protein_needs(
         70.0,
@@ -269,7 +282,8 @@ fn test_protein_needs_endurance() {
 #[test]
 fn test_protein_needs_consistency_across_weights() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test that protein scales proportionally with weight
     let protein_60kg = calculate_protein_needs(
@@ -302,7 +316,8 @@ fn test_protein_needs_consistency_across_weights() {
 #[test]
 fn test_carb_needs_endurance_high() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let carbs = calculate_carb_needs(
         70.0,
@@ -323,7 +338,8 @@ fn test_carb_needs_endurance_high() {
 #[test]
 fn test_carb_needs_weight_loss_lower() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let carbs = calculate_carb_needs(
         80.0,
@@ -343,7 +359,8 @@ fn test_carb_needs_weight_loss_lower() {
 #[test]
 fn test_carb_needs_muscle_gain() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let carbs = calculate_carb_needs(
         75.0,
@@ -364,7 +381,8 @@ fn test_carb_needs_muscle_gain() {
 #[test]
 fn test_carb_needs_scales_with_activity() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Higher activity should need more carbs
     let carbs_sedentary = calculate_carb_needs(
@@ -395,7 +413,8 @@ fn test_carb_needs_scales_with_activity() {
 #[test]
 fn test_fat_needs_balanced_macros() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let tdee = 2500.0;
     let protein_g = 150.0; // 600 kcal
     let carbs_g = 300.0; // 1200 kcal
@@ -417,7 +436,8 @@ fn test_fat_needs_balanced_macros() {
 #[test]
 fn test_fat_needs_minimum_enforced() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let tdee = 1500.0;
     let protein_g = 200.0; // 800 kcal (high protein)
     let carbs_g = 200.0; // 800 kcal
@@ -439,7 +459,8 @@ fn test_fat_needs_minimum_enforced() {
 #[test]
 fn test_fat_needs_high_tdee() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let tdee = 4000.0;
     let protein_g = 180.0; // 720 kcal
     let carbs_g = 450.0; // 1800 kcal
@@ -469,7 +490,8 @@ fn test_fat_needs_high_tdee() {
 #[test]
 fn test_daily_nutrition_needs_male_maintenance() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let params = DailyNutritionParams {
         weight_kg: 75.0,
@@ -511,7 +533,8 @@ fn test_daily_nutrition_needs_male_maintenance() {
 #[test]
 fn test_daily_nutrition_needs_female_weight_loss() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let params = DailyNutritionParams {
         weight_kg: 65.0,
@@ -545,7 +568,8 @@ fn test_daily_nutrition_needs_female_weight_loss() {
 #[test]
 fn test_daily_nutrition_needs_athlete_endurance() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let params = DailyNutritionParams {
         weight_kg: 70.0,
@@ -588,7 +612,8 @@ fn test_daily_nutrition_needs_athlete_endurance() {
 #[test]
 fn test_nutrient_timing_high_intensity() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let weight_kg = 75.0;
     let daily_protein_g = 150.0;
@@ -627,7 +652,8 @@ fn test_nutrient_timing_high_intensity() {
 #[test]
 fn test_nutrient_timing_low_intensity() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let weight_kg = 65.0;
     let daily_protein_g = 120.0;
@@ -672,7 +698,8 @@ fn test_nutrient_timing_low_intensity() {
 #[test]
 fn test_nutrient_timing_moderate_intensity() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let weight_kg = 70.0;
     let daily_protein_g = 140.0;
@@ -711,7 +738,8 @@ fn test_nutrient_timing_moderate_intensity() {
 #[test]
 fn test_invalid_weight_negative() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(-10.0, 180.0, 30, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject negative weight");
 }
@@ -719,7 +747,8 @@ fn test_invalid_weight_negative() {
 #[test]
 fn test_invalid_weight_zero() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(0.0, 180.0, 30, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject zero weight");
 }
@@ -727,7 +756,8 @@ fn test_invalid_weight_zero() {
 #[test]
 fn test_invalid_height_negative() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(75.0, -180.0, 30, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject negative height");
 }
@@ -735,7 +765,8 @@ fn test_invalid_height_negative() {
 #[test]
 fn test_invalid_height_zero() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(75.0, 0.0, 30, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject zero height");
 }
@@ -743,7 +774,8 @@ fn test_invalid_height_zero() {
 #[test]
 fn test_invalid_age_too_young() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(75.0, 180.0, 5, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject age under minimum");
 }
@@ -751,7 +783,8 @@ fn test_invalid_age_too_young() {
 #[test]
 fn test_invalid_age_too_old() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
     let result = calculate_mifflin_st_jeor(75.0, 180.0, 200, Gender::Male, &config.bmr);
     assert!(result.is_err(), "Should reject unrealistic age");
 }
@@ -759,7 +792,8 @@ fn test_invalid_age_too_old() {
 #[test]
 fn test_extreme_tdee_very_low_bmr() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Very low BMR
     let result = calculate_tdee(1000.0, ActivityLevel::Sedentary, &config.activity_factors);
@@ -773,7 +807,8 @@ fn test_extreme_tdee_very_low_bmr() {
 #[test]
 fn test_extreme_tdee_very_high_bmr() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Very high BMR (large athlete)
     let result = calculate_tdee(3000.0, ActivityLevel::ExtraActive, &config.activity_factors);
@@ -784,7 +819,8 @@ fn test_extreme_tdee_very_high_bmr() {
 #[test]
 fn test_protein_needs_consistency() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Higher activity should generally need more protein for same goal
     let low_activity = calculate_protein_needs(
@@ -811,7 +847,8 @@ fn test_protein_needs_consistency() {
 #[test]
 fn test_macro_percentages_always_sum_to_100() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     // Test multiple scenarios
     let scenarios = vec![
@@ -881,7 +918,8 @@ fn test_macro_percentages_always_sum_to_100() {
 #[test]
 fn test_nutrient_timing_all_intensity_levels() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let weight_kg = 75.0;
     let daily_protein_g = 150.0;
@@ -908,7 +946,8 @@ fn test_nutrient_timing_all_intensity_levels() {
 #[test]
 fn test_nutrient_timing_invalid_weight() {
     common::init_server_config();
-    let config = &IntelligenceConfig::global().nutrition;
+    let loaded_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let config = &loaded_config.nutrition;
 
     let result = calculate_nutrient_timing(
         0.0,

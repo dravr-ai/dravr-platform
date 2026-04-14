@@ -13,7 +13,6 @@ use chrono::{Duration, Utc};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
-use crate::config::intelligence::IntelligenceConfig;
 use crate::intelligence::algorithms::RecoveryAggregationAlgorithm;
 use crate::intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoadCalculator};
 use crate::models::{Activity, SleepSession, SleepStageType};
@@ -418,7 +417,8 @@ pub fn handle_analyze_sleep_quality(
         };
 
         // Get sleep/recovery config
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate sleep quality using foundation module
         let sleep_quality =
@@ -652,7 +652,8 @@ pub fn handle_calculate_recovery_score(
         };
 
         // Get sleep/recovery config
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate recovery score based on available data
         let (recovery_score, sleep_quality_score, hrv_status, sleep_provider_used) =
@@ -985,7 +986,8 @@ pub fn handle_suggest_rest_day(
         };
 
         // Get sleep/recovery config
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate recovery score and generate recommendation based on available data
         let (recovery_score, recommendation, sleep_quality_score, sleep_hours, hrv_status) =
@@ -1290,7 +1292,8 @@ pub fn handle_track_sleep_trends(
         };
 
         // Get sleep/recovery config
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate quality scores for each day
         let mut quality_scores = Vec::new();
@@ -1491,7 +1494,8 @@ pub fn handle_optimize_sleep_schedule(
             })?;
 
         // Get sleep/recovery config
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Get upcoming workout info (optional)
         let upcoming_workout_intensity = request

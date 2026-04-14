@@ -11,6 +11,7 @@
 //! - Recipe scaling and validation
 
 use chrono::Utc;
+use pierre_mcp_server::config::intelligence::IntelligenceConfig;
 use pierre_mcp_server::intelligence::recipes::{
     convert_to_grams, ConversionError, IngredientUnit, MacroTargets, MacroTargetsExt, MealTiming,
     Recipe, RecipeIngredient, ValidatedNutrition,
@@ -41,7 +42,9 @@ fn test_meal_timing_macro_distribution() {
 
 #[test]
 fn test_macro_targets_from_calories() {
-    let targets = MacroTargets::from_calories_and_timing(500.0, MealTiming::PostTraining);
+    let config = IntelligenceConfig::load().expect("load default intelligence config");
+    let targets =
+        MacroTargets::from_calories_and_timing(500.0, MealTiming::PostTraining, &config.nutrition);
 
     // Post-training: 30% protein, 45% carbs, 25% fat
     // 500 * 0.30 / 4 = 37.5g protein

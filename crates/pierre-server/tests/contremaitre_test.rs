@@ -13,8 +13,8 @@ use std::collections::{HashMap, HashSet};
 
 use pierre_mcp_server::contremaitre::errors::ContremaitreError;
 use pierre_mcp_server::contremaitre::manifest::{
-    compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestEvidence, ManifestPrompts,
-    ManifestTools,
+    compute_sha256, parse_manifest, Manifest, ManifestConfig, ManifestEntry, ManifestEvidence,
+    ManifestPrompts, ManifestTools,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_mcp_server::contremaitre::tool_descriptions::{
@@ -123,6 +123,7 @@ fn test_manifest_round_trip() {
         },
         tools: ManifestTools::default(),
         evidence: ManifestEvidence::default(),
+        config: ManifestConfig::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");

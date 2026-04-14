@@ -724,7 +724,9 @@ impl McpTool for AnalyzeWeatherImpactTool {
             })));
         }
 
-        let mut weather_service = WeatherService::with_default_config();
+        let cageux_config = context.cageux_config();
+        let mut weather_service =
+            WeatherService::with_default_config(cageux_config.weather_analysis.clone());
 
         let weather = match weather_service
             .get_weather_for_activity(

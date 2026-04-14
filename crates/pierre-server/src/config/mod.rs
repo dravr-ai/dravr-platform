@@ -29,7 +29,7 @@
 
 use tracing::{debug, info};
 
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 
 // Core configuration type modules (extracted from environment.rs)
 /// External API provider configuration (Strava, Fitbit, Garmin APIs)
@@ -180,12 +180,15 @@ pub use social::{
 ///
 /// Returns an error if configuration initialization fails
 pub fn init_configs() -> AppResult<()> {
-    // Initialize global intelligence config
-    let intelligence_config = IntelligenceConfig::global();
+    // Validate the layered intelligence config fails fast for bad env
+    // overrides. The canonical live snapshot is owned by
+    // `ServerResources::cageux_config_registry`; this call is a
+    // start-of-process sanity check, not a storage seed.
+    let intelligence_config = IntelligenceConfig::load()
+        .map_err(|e| AppError::internal(format!("Intelligence config load failed: {e}")))?;
 
-    // Validate configuration is properly loaded by accessing a field
     debug!(
-        "Intelligence config initialized successfully (min duration: {}s)",
+        "Intelligence config validated (min duration: {}s)",
         intelligence_config
             .activity_analyzer
             .analysis

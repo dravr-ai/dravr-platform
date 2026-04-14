@@ -24,7 +24,6 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use crate::config::intelligence::SleepRecoveryConfig;
-use crate::config::IntelligenceConfig;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::algorithms::RecoveryAggregationAlgorithm;
 use crate::intelligence::{RecoveryCalculator, SleepAnalyzer, SleepData, TrainingLoad};
@@ -151,13 +150,14 @@ impl McpTool for AnalyzeSleepQualityTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
-    async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let sleep_data_json = args
             .get("sleep_data")
             .ok_or_else(|| AppError::invalid_input("sleep_data is required"))?;
 
         let sleep_data = parse_sleep_data(sleep_data_json)?;
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = ctx.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate sleep quality using intelligence module
         let sleep_quality = SleepAnalyzer::calculate_sleep_quality(&sleep_data, config)
@@ -277,7 +277,8 @@ impl McpTool for CalculateRecoveryScoreTool {
             .ok_or_else(|| AppError::invalid_input("sleep_data is required"))?;
 
         let sleep_data = parse_sleep_data(sleep_data_json)?;
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = ctx.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate sleep quality
         let sleep_quality = SleepAnalyzer::calculate_sleep_quality(&sleep_data, config)
@@ -420,7 +421,8 @@ impl McpTool for SuggestRestDayTool {
             .ok_or_else(|| AppError::invalid_input("sleep_data is required"))?;
 
         let sleep_data = parse_sleep_data(sleep_data_json)?;
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = ctx.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Calculate sleep quality
         let sleep_quality = SleepAnalyzer::calculate_sleep_quality(&sleep_data, config)
@@ -673,7 +675,8 @@ impl McpTool for TrackSleepTrendsTool {
             .ok_or_else(|| AppError::invalid_input("sleep_history is required"))?;
 
         let sleep_history = parse_sleep_history(sleep_history_json)?;
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = ctx.cageux_config();
+        let config = &cageux_config.sleep_recovery;
         let sleep_params = &ctx.resources.config.sleep_tool_params;
 
         if sleep_history.len() < sleep_params.trend_min_days {
@@ -790,7 +793,8 @@ impl McpTool for OptimizeSleepScheduleTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let config = &IntelligenceConfig::global().sleep_recovery;
+        let cageux_config = ctx.cageux_config();
+        let config = &cageux_config.sleep_recovery;
 
         // Get training load
         let training_load = parse_training_load(&args);

@@ -36,6 +36,8 @@ use super::handlers::{
     handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
     handle_list_data_sources,
 };
+use pierre_intelligence::IntelligenceConfig;
+
 use super::tool_registry::{ToolId, ToolInfo, ToolRegistry};
 use crate::constants::time_constants::SECONDS_PER_HOUR_F64;
 use crate::intelligence::physiological_constants::business_thresholds::{
@@ -174,6 +176,18 @@ impl UniversalExecutor {
             resources,
             registry,
         }
+    }
+
+    /// Return a cheap clone of the current cageux intelligence config
+    /// snapshot from the server's hot-reloadable registry.
+    ///
+    /// Handlers should call this once at the top of the request, bind the
+    /// result to a local, and then borrow sub-configs (`.sleep_recovery`,
+    /// `.nutrition`, `.algorithms`, etc.) from the local to keep the
+    /// snapshot consistent for the duration of the call.
+    #[must_use]
+    pub fn cageux_config(&self) -> Arc<IntelligenceConfig<true>> {
+        self.resources.cageux_config_registry.current()
     }
 
     /// Register all tools with type-safe handlers

@@ -649,22 +649,18 @@ fn test_weekly_load() {
 
 #[tokio::test]
 async fn test_advanced_activity_analyzer_creation() {
-    let analyzer = AdvancedActivityAnalyzer::new();
+    let config = IntelligenceConfig::load().expect("load default intelligence config");
+    let analyzer = AdvancedActivityAnalyzer::new(&config);
     let _ = analyzer; // Just test creation
-
-    let default_analyzer = AdvancedActivityAnalyzer::default();
-    let _ = default_analyzer; // Test default creation
 }
 
 // === Performance Analyzer Tests ===
 
 #[tokio::test]
 async fn test_advanced_performance_analyzer_creation() {
-    let analyzer = AdvancedPerformanceAnalyzer::new();
+    let config = IntelligenceConfig::load().expect("load default intelligence config");
+    let analyzer = AdvancedPerformanceAnalyzer::new(&config);
     let _ = analyzer; // Just test creation
-
-    let default_analyzer = AdvancedPerformanceAnalyzer::default();
-    let _ = default_analyzer; // Test default creation
 }
 
 // === Integration Tests ===

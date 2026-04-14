@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::intelligence::IntelligenceConfig;
 use crate::external::{FoodDetails, UsdaClient, UsdaClientConfig};
 use crate::intelligence::{
     calculate_daily_nutrition_needs, calculate_nutrient_timing, ActivityLevel,
@@ -252,9 +251,10 @@ fn parse_nutrition_params(
 /// Returns `ProtocolError` if required parameters are missing or invalid
 #[must_use]
 pub fn handle_calculate_daily_nutrition(
-    _executor: &UniversalToolExecutor,
+    executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    let cageux_config = executor.cageux_config();
     Box::pin(async move {
         // Check cancellation at start
         if let Some(token) = &request.cancellation_token {
@@ -265,8 +265,6 @@ pub fn handle_calculate_daily_nutrition(
             }
         }
 
-        // Executor parameter required by trait signature but unused (config accessed via global singleton)
-
         // Parse user parameters
         let params = match parse_nutrition_params(&request) {
             Ok(p) => p,
@@ -274,7 +272,7 @@ pub fn handle_calculate_daily_nutrition(
         };
 
         // Get nutrition config
-        let nutrition_config = &IntelligenceConfig::global().nutrition;
+        let nutrition_config = &cageux_config.nutrition;
 
         // Calculate daily nutrition needs
         let nutrition_result = calculate_daily_nutrition_needs(
@@ -404,7 +402,8 @@ pub fn handle_get_nutrient_timing(
             (parse_workout_intensity(intensity_str)?, "explicit")
         };
 
-        let config = &IntelligenceConfig::global().nutrition;
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.nutrition;
 
         let timing_result = calculate_nutrient_timing(
             weight_kg,
