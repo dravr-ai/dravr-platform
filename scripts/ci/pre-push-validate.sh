@@ -214,6 +214,7 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
         while IFS= read -r file; do
             case "$file" in
                 crates/pierre-server/src/database/*) add_tests database_test database_plugins_test tenant_data_isolation ;;
+                crates/pierre-database/*) add_tests database_test database_plugins_test tenant_data_isolation ;;
                 crates/pierre-server/src/auth/*|crates/pierre-server/src/routes/auth.rs) add_tests auth_test api_keys_test jwt_secret_persistence_test oauth2_security_test ;;
                 crates/pierre-server/src/routes/*) add_tests routes_health_http_test security_headers_test rate_limiting_middleware_test ;;
                 crates/pierre-server/src/protocols/*|crates/pierre-server/src/mcp/*) add_tests mcp_compliance_test jsonrpc_test mcp_tools_unit ;;
