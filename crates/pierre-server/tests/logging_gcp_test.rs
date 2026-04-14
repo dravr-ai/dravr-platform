@@ -4,18 +4,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 //! Shape tests for `GcpFormatter`: verify severity mapping, label placement,
 //! structured-field flattening, and RFC 3339 timestamps.
 
-use std::io::Write;
+use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 
 use chrono::DateTime;
 use pierre_mcp_server::logging::gcp::GcpFormatter;
 use serde_json::Value;
 use tracing::subscriber::with_default;
-use tracing::{error, info, warn};
-use tracing_subscriber::fmt::MakeWriter;
+use tracing::{error, info, warn, Subscriber};
+use tracing_subscriber::fmt::{self, MakeWriter};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::registry::Registry;
 
 #[derive(Clone, Default)]
 struct Buffer(Arc<Mutex<Vec<u8>>>);
@@ -33,28 +37,23 @@ impl Buffer {
 }
 
 impl Write for Buffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0.lock().expect("buffer lock").extend_from_slice(buf);
         Ok(buf.len())
     }
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
 
 impl<'a> MakeWriter<'a> for Buffer {
-    type Writer = Buffer;
+    type Writer = Self;
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
     }
 }
 
-fn make_subscriber(
-    buffer: Buffer,
-    include_source_location: bool,
-) -> impl tracing::Subscriber + Send + Sync {
-    use tracing_subscriber::{fmt, layer::SubscriberExt, Registry};
-
+fn make_subscriber(buffer: Buffer, include_source_location: bool) -> impl Subscriber + Send + Sync {
     let layer = fmt::layer()
         .with_writer(buffer)
         .event_format(GcpFormatter::new(
@@ -160,7 +159,7 @@ fn source_location_omitted_when_disabled() {
 }
 
 #[test]
-fn single_event_emits_exactly_one_line() {
+fn multiple_events_emit_one_line_each() {
     let buf = Buffer::default();
     let subscriber = make_subscriber(buf.clone(), false);
 
