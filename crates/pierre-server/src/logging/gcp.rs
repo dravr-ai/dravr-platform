@@ -4,11 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Structured JSON formatter matching Google Cloud Logging's special-fields spec
-//! (<https://cloud.google.com/logging/docs/structured-logging>). Emits one JSON
-//! object per tracing event to stdout; Cloud Run's log agent promotes the
-//! `severity`, `message`, `time`, and `logging.googleapis.com/*` fields onto
-//! the `LogEntry` so alert policies keyed on severity can fire.
+//! Cloud Logging-compliant structured JSON formatter.
+//!
+//! Emits one JSON object per tracing event to stdout, matching Google Cloud
+//! Logging's special-fields spec
+//! (<https://cloud.google.com/logging/docs/structured-logging>). Cloud Run's
+//! log agent promotes the `severity`, `message`, `time`, and
+//! `logging.googleapis.com/*` fields onto the `LogEntry` so alert policies
+//! keyed on severity can fire.
 
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
@@ -41,6 +44,7 @@ pub struct GcpFormatter {
 impl GcpFormatter {
     /// Build a formatter with the given service labels. Labels are emitted on
     /// every event under `logging.googleapis.com/labels`.
+    #[must_use]
     pub fn new(
         service_name: &str,
         service_version: &str,
