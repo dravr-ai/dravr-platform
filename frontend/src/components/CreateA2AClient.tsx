@@ -138,8 +138,8 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
       <Card variant="dark">
         <div className="text-center">
           <div className="text-6xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-white mb-2">A2A Client Created!</h2>
-          <p className="text-zinc-400 mb-6">
+          <h2 className="text-2xl font-bold text-on-surface mb-2">A2A Client Created!</h2>
+          <p className="text-on-surface-variant mb-6">
             Your A2A client has been successfully registered. Save these credentials securely - they won't be shown again.
           </p>
         </div>
@@ -149,7 +149,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             <span className="text-pierre-nutrition mr-2">⚠️</span>
             <h3 className="text-sm font-medium text-pierre-nutrition">Important Security Notice</h3>
           </div>
-          <p className="text-sm text-zinc-300">
+          <p className="text-sm text-on-surface">
             Store these credentials securely. The client secret and API key will not be displayed again for security reasons.
           </p>
         </div>
@@ -157,11 +157,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         <div className="space-y-4">
           {/* Client ID */}
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-on-surface mb-2">
               Client ID
             </label>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-white/10 p-3 rounded font-mono text-sm break-all text-zinc-300 border border-white/10">
+              <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
                 {credentials.client_id}
               </code>
               <Button
@@ -176,11 +176,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
           {/* Client Secret */}
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-on-surface mb-2">
               Client Secret
             </label>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-white/10 p-3 rounded font-mono text-sm break-all text-zinc-300 border border-white/10">
+              <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
                 {credentials.client_secret}
               </code>
               <Button
@@ -195,11 +195,11 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
           {/* API Key */}
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-on-surface mb-2">
               API Key
             </label>
             <div className="flex items-center gap-2">
-              <code className="flex-1 bg-white/10 p-3 rounded font-mono text-sm break-all text-zinc-300 border border-white/10">
+              <code className="flex-1 bg-surface-container-high p-3 rounded font-mono text-sm break-all text-on-surface border ghost-border">
                 {credentials.api_key}
               </code>
               <Button
@@ -226,8 +226,8 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
     <Card variant="dark">
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold text-white mb-2">Register A2A Client</h2>
-          <p className="text-zinc-400">
+          <h2 className="text-xl font-semibold text-on-surface mb-2">Register A2A Client</h2>
+          <p className="text-on-surface-variant">
             Create a new Agent-to-Agent protocol client for AI agent communication.
           </p>
         </div>
@@ -235,7 +235,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         {/* Basic Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-on-surface mb-2">
               Client Name *
             </label>
             <input
@@ -250,7 +250,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           </div>
 
           <div>
-            <label htmlFor="contact_email" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="contact_email" className="block text-sm font-medium text-on-surface mb-2">
               Contact Email *
             </label>
             <input
@@ -266,7 +266,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-zinc-300 mb-2">
+          <label htmlFor="description" className="block text-sm font-medium text-on-surface mb-2">
             Description *
           </label>
           <textarea
@@ -283,7 +283,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
         {/* Optional Fields */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="agent_version" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="agent_version" className="block text-sm font-medium text-on-surface mb-2">
               Agent Version
             </label>
             <input
@@ -297,7 +297,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
           </div>
 
           <div>
-            <label htmlFor="documentation_url" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="documentation_url" className="block text-sm font-medium text-on-surface mb-2">
               Documentation URL
             </label>
             <input
@@ -313,7 +313,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Capabilities */}
         <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-2">
+          <label className="block text-sm font-medium text-on-surface mb-2">
             Capabilities * (Select at least one)
           </label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -323,7 +323,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                 className={`border rounded-lg p-3 cursor-pointer transition-colors ${
                   formData.capabilities.includes(capability.id)
                     ? 'border-pierre-violet bg-pierre-violet/10'
-                    : 'border-white/10 hover:border-white/20'
+                    : 'ghost-border hover:ghost-border'
                 }`}
                 onClick={() => handleCapabilityToggle(capability.id)}
               >
@@ -332,12 +332,12 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
                     type="checkbox"
                     checked={formData.capabilities.includes(capability.id)}
                     onChange={() => handleCapabilityToggle(capability.id)}
-                    className="mr-3 rounded border-white/20 bg-white/10 text-pierre-violet focus:ring-pierre-violet"
+                    className="mr-3 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
                     onClick={(e) => e.stopPropagation()}
                   />
                   <div>
-                    <h4 className="font-medium text-white">{capability.name}</h4>
-                    <p className="text-sm text-zinc-400">{capability.description}</p>
+                    <h4 className="font-medium text-on-surface">{capability.name}</h4>
+                    <p className="text-sm text-on-surface-variant">{capability.description}</p>
                   </div>
                 </div>
               </div>
@@ -347,7 +347,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
 
         {/* Redirect URIs */}
         <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-2">
+          <label className="block text-sm font-medium text-on-surface mb-2">
             Redirect URIs (Optional)
           </label>
           <div className="space-y-2">
@@ -371,8 +371,8 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
             {formData.redirect_uris && formData.redirect_uris.length > 0 && (
               <div className="space-y-1">
                 {formData.redirect_uris.map((uri) => (
-                  <div key={uri} className="flex items-center justify-between bg-white/5 p-2 rounded border border-white/10">
-                    <code className="text-sm text-zinc-300">{uri}</code>
+                  <div key={uri} className="flex items-center justify-between bg-surface-container-low p-2 rounded border ghost-border">
+                    <code className="text-sm text-on-surface">{uri}</code>
                     <Button
                       type="button"
                       variant="danger"
@@ -395,7 +395,7 @@ export default function CreateA2AClient({ onSuccess, onCancel }: CreateA2AClient
               <span className="text-pierre-red-400 mr-2">❌</span>
               <div>
                 <h3 className="text-sm font-medium text-pierre-red-400">Registration Failed</h3>
-                <p className="text-sm text-zinc-300 mt-1">
+                <p className="text-sm text-on-surface mt-1">
                   {createMutation.error instanceof Error
                     ? createMutation.error.message
                     : 'An error occurred while registering the A2A client.'}

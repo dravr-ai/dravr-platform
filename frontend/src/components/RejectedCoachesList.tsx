@@ -71,8 +71,8 @@ export default function RejectedCoachesList() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white mb-2">Failed to Load Rejected Coaches</h3>
-        <p className="text-zinc-400">Unable to fetch rejected coaches. Please try again.</p>
+        <h3 className="text-lg font-medium text-on-surface mb-2">Failed to Load Rejected Coaches</h3>
+        <p className="text-on-surface-variant">Unable to fetch rejected coaches. Please try again.</p>
       </Card>
     );
   }
@@ -82,13 +82,13 @@ export default function RejectedCoachesList() {
   if (coaches.length === 0) {
     return (
       <Card variant="dark" className="text-center py-12">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 flex items-center justify-center">
-          <svg className="w-8 h-8 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-container-high flex items-center justify-center">
+          <svg className="w-8 h-8 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white mb-2">No Rejected Coaches</h3>
-        <p className="text-zinc-400">Rejected coach submissions will appear here.</p>
+        <h3 className="text-lg font-medium text-on-surface mb-2">No Rejected Coaches</h3>
+        <p className="text-on-surface-variant">Rejected coach submissions will appear here.</p>
       </Card>
     );
   }
@@ -96,7 +96,7 @@ export default function RejectedCoachesList() {
   return (
     <div className="space-y-4">
       {/* Count */}
-      <p className="text-sm text-zinc-400">
+      <p className="text-sm text-on-surface-variant">
         {data?.total ?? coaches.length} rejected submission{coaches.length !== 1 ? 's' : ''}
       </p>
 
@@ -105,7 +105,7 @@ export default function RejectedCoachesList() {
         {coaches.map((coach) => (
           <div
             key={coach.id}
-            className="bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border border-white/10 rounded-xl p-4"
+            className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4"
           >
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
@@ -115,17 +115,17 @@ export default function RejectedCoachesList() {
                     <img
                       src={coach.icon_url}
                       alt={coach.title}
-                      className="w-10 h-10 rounded-lg object-cover border border-white/10 flex-shrink-0"
+                      className="w-10 h-10 rounded-lg object-cover border ghost-border flex-shrink-0"
                     />
                   ) : (
                     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-pierre-violet/50 to-pierre-cyan/50 flex items-center justify-center flex-shrink-0 opacity-60">
-                      <span className="text-sm font-bold text-white">
+                      <span className="text-sm font-bold text-on-surface">
                         {coach.title.charAt(0).toUpperCase()}
                       </span>
                     </div>
                   )}
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-white truncate">{coach.title}</h3>
+                    <h3 className="font-semibold text-on-surface truncate">{coach.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={clsx(
                         'px-2 py-0.5 text-xs font-medium rounded-full border',
@@ -133,7 +133,7 @@ export default function RejectedCoachesList() {
                       )}>
                         {coach.category}
                       </span>
-                      <span className="text-xs text-zinc-500">
+                      <span className="text-xs text-outline">
                         by {coach.author_email || 'Unknown'}
                       </span>
                     </div>
@@ -151,12 +151,12 @@ export default function RejectedCoachesList() {
                         <span className="text-sm font-medium text-pierre-red-300">
                           {getReasonLabel(coach.rejection_reason)}
                         </span>
-                        <span className="text-xs text-zinc-500 flex-shrink-0">
+                        <span className="text-xs text-outline flex-shrink-0">
                           {formatDate(coach.rejected_at)}
                         </span>
                       </div>
                       {coach.rejection_notes && (
-                        <p className="text-xs text-zinc-400 mt-1">
+                        <p className="text-xs text-on-surface-variant mt-1">
                           {coach.rejection_notes}
                         </p>
                       )}
@@ -168,12 +168,12 @@ export default function RejectedCoachesList() {
                 {coach.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-3">
                     {coach.tags.slice(0, 4).map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 text-xs bg-white/10 text-zinc-400 rounded">
+                      <span key={tag} className="px-2 py-0.5 text-xs bg-surface-container-high text-on-surface-variant rounded">
                         {tag}
                       </span>
                     ))}
                     {coach.tags.length > 4 && (
-                      <span className="px-2 py-0.5 text-xs bg-white/10 text-zinc-500 rounded">
+                      <span className="px-2 py-0.5 text-xs bg-surface-container-high text-outline rounded">
                         +{coach.tags.length - 4}
                       </span>
                     )}
@@ -183,7 +183,7 @@ export default function RejectedCoachesList() {
 
               {/* Metadata */}
               <div className="flex-shrink-0 text-right">
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-outline">
                   {coach.token_count.toLocaleString()} tokens
                 </span>
               </div>

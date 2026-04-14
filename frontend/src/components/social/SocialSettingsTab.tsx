@@ -37,8 +37,8 @@ function SettingRow({ icon, title, description, value, onChange, disabled }: Set
           {icon}
         </div>
         <div>
-          <p className="font-medium text-white">{title}</p>
-          <p className="text-sm text-zinc-500 mt-0.5">{description}</p>
+          <p className="font-medium text-on-surface">{title}</p>
+          <p className="text-sm text-outline mt-0.5">{description}</p>
         </div>
       </div>
       <button
@@ -46,7 +46,7 @@ function SettingRow({ icon, title, description, value, onChange, disabled }: Set
         disabled={disabled}
         className={clsx(
           'relative w-11 h-6 rounded-full transition-colors',
-          value ? 'bg-pierre-violet' : 'bg-white/20',
+          value ? 'bg-pierre-violet' : 'bg-surface-container-highest',
           disabled && 'opacity-50 cursor-not-allowed'
         )}
       >
@@ -140,8 +140,8 @@ export default function SocialSettingsTab() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Social Settings</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-xl font-bold text-on-surface">Social Settings</h2>
+          <p className="text-sm text-on-surface-variant mt-1">
             Manage your privacy and notification preferences
           </p>
         </div>
@@ -167,7 +167,7 @@ export default function SocialSettingsTab() {
 
       {/* Privacy Section */}
       <Card variant="dark" className="!p-5">
-        <h3 className="text-sm font-semibold text-zinc-400 mb-4 uppercase tracking-wide">Privacy</h3>
+        <h3 className="text-sm font-semibold text-on-surface-variant mb-4 uppercase tracking-wide">Privacy</h3>
         <SettingRow
           icon={
             <svg className="w-5 h-5 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -184,8 +184,8 @@ export default function SocialSettingsTab() {
 
       {/* Default Sharing Section */}
       <Card variant="dark" className="!p-5">
-        <h3 className="text-sm font-semibold text-zinc-400 mb-4 uppercase tracking-wide">Default Sharing</h3>
-        <p className="text-sm text-zinc-500 mb-4">Default visibility for new insights</p>
+        <h3 className="text-sm font-semibold text-on-surface-variant mb-4 uppercase tracking-wide">Default Sharing</h3>
+        <p className="text-sm text-outline mb-4">Default visibility for new insights</p>
         <div className="flex gap-3">
           <button
             onClick={() => updateSetting('default_visibility', 'friends_only')}
@@ -193,7 +193,7 @@ export default function SocialSettingsTab() {
               'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
               settings.default_visibility === 'friends_only'
                 ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
-                : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
             )}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -207,7 +207,7 @@ export default function SocialSettingsTab() {
               'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
               settings.default_visibility === 'public'
                 ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
-                : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
             )}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,7 +220,7 @@ export default function SocialSettingsTab() {
 
       {/* Notifications Section */}
       <Card variant="dark" className="!p-5">
-        <h3 className="text-sm font-semibold text-zinc-400 mb-4 uppercase tracking-wide">Notifications</h3>
+        <h3 className="text-sm font-semibold text-on-surface-variant mb-4 uppercase tracking-wide">Notifications</h3>
         <div className="divide-y divide-white/10">
           <SettingRow
             icon={
@@ -265,8 +265,8 @@ export default function SocialSettingsTab() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
           </svg>
         </div>
-        <h3 className="text-lg font-semibold text-white mb-2">Your Privacy is Protected</h3>
-        <p className="text-sm text-zinc-400 max-w-md mx-auto">
+        <h3 className="text-lg font-semibold text-on-surface mb-2">Your Privacy is Protected</h3>
+        <p className="text-sm text-on-surface-variant max-w-md mx-auto">
           When you share insights, your private data is automatically sanitized. GPS coordinates,
           exact pace, recovery scores, and other sensitive information is never shared with friends.
         </p>

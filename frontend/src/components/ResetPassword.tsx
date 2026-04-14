@@ -72,7 +72,7 @@ export default function ResetPassword({
     <button
       type="button"
       aria-label={showPassword ? 'Hide password' : 'Show password'}
-      className="text-zinc-400 hover:text-white transition-colors"
+      className="text-on-surface-variant hover:text-on-surface transition-colors"
       onClick={() => setShowPassword(!showPassword)}
     >
       {showPassword ? (
@@ -99,16 +99,16 @@ export default function ResetPassword({
   );
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-pierre-dark">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         <div
-          className="rounded-xl border border-white/10 overflow-hidden relative"
+          className="rounded-xl border ghost-border overflow-hidden relative"
           style={{
-            background: 'rgba(30, 30, 46, 0.8)',
+            background: 'rgba(244, 244, 241, 0.8)',
             backdropFilter: 'blur(12px)',
           }}
         >
-          <div className="h-1 w-full bg-gradient-pierre-horizontal" />
+          <div className="h-1 w-full boreal-hero-gradient" />
 
           <div className="px-8 py-10 space-y-6">
             <div className="flex flex-col items-center">
@@ -126,11 +126,11 @@ export default function ResetPassword({
                   d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
                 />
               </svg>
-              <h1 className="mt-4 text-xl font-bold text-white tracking-tight">
+              <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
                 Enter Reset Code
               </h1>
-              <p className="mt-1 text-sm text-zinc-400 text-center">
-                We sent a 6-digit code to <span className="text-zinc-300">{email}</span>
+              <p className="mt-1 text-sm text-on-surface-variant text-center">
+                We sent a 6-digit code to <span className="text-on-surface">{email}</span>
               </p>
             </div>
 
@@ -193,7 +193,7 @@ export default function ResetPassword({
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
-                className="w-full shadow-glow-sm"
+                className="w-full shadow-ambient"
               >
                 {isLoading ? 'Resetting password...' : 'Reset password'}
               </Button>
@@ -202,7 +202,7 @@ export default function ResetPassword({
                 <button
                   type="button"
                   onClick={onResendCode}
-                  className="text-zinc-400 hover:text-pierre-violet-light transition-colors"
+                  className="text-on-surface-variant hover:text-pierre-violet-light transition-colors"
                 >
                   Resend code
                 </button>

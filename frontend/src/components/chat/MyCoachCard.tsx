@@ -28,11 +28,11 @@ const MyCoachCard = memo(function MyCoachCard({
 }: MyCoachCardProps) {
   return (
     <div
-      className="relative text-left text-sm rounded-xl border border-white/10 bg-white/5 hover:border-pierre-violet/50 hover:bg-white/10 px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-pierre-violet focus-within:ring-opacity-50 group hover:shadow-glow-sm cursor-pointer"
+      className="relative text-left text-sm rounded-xl border ghost-border bg-surface-container-low hover:border-pierre-violet/50 hover:bg-surface-container px-4 py-3 transition-all focus-within:outline-none focus-within:ring-2 focus-within:ring-pierre-violet focus-within:ring-opacity-50 group hover:shadow-ambient cursor-pointer"
       onClick={onSelect}
     >
       {/* Action buttons container */}
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-pierre-slate/90 backdrop-blur-sm rounded-lg px-1 py-0.5 shadow-sm border border-white/10">
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 bg-surface-container-low/90 backdrop-blur-sm rounded-lg px-1 py-0.5 shadow-sm border ghost-border">
         {/* Edit/Delete for user-created coaches */}
         {!coach.is_system && (
           <>
@@ -42,7 +42,7 @@ const MyCoachCard = memo(function MyCoachCard({
                 e.stopPropagation();
                 onEdit();
               }}
-              className="p-1 text-zinc-400 hover:text-pierre-violet hover:bg-pierre-violet/10 rounded transition-colors"
+              className="p-1 text-on-surface-variant hover:text-pierre-violet hover:bg-pierre-violet/10 rounded transition-colors"
               title="Edit coach"
               aria-label="Edit coach"
             >
@@ -54,7 +54,7 @@ const MyCoachCard = memo(function MyCoachCard({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="p-1 text-zinc-400 hover:text-pierre-red-500 hover:bg-pierre-red-500/10 rounded transition-colors"
+              className="p-1 text-on-surface-variant hover:text-pierre-red-500 hover:bg-pierre-red-500/10 rounded transition-colors"
               title="Delete coach"
               aria-label="Delete coach"
             >
@@ -71,7 +71,7 @@ const MyCoachCard = memo(function MyCoachCard({
               onHide();
             }}
             disabled={isHiding}
-            className="p-1 text-zinc-400 hover:text-zinc-200 hover:bg-white/10 rounded transition-colors disabled:opacity-50"
+            className="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded transition-colors disabled:opacity-50"
             title="Hide coach"
             aria-label="Hide coach"
           >
@@ -83,7 +83,7 @@ const MyCoachCard = memo(function MyCoachCard({
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="font-medium text-zinc-200 group-hover:text-pierre-violet">
+        <span className="font-medium text-on-surface group-hover:text-pierre-violet">
           {coach.title}
         </span>
         <div className="flex items-center gap-1">
@@ -96,11 +96,11 @@ const MyCoachCard = memo(function MyCoachCard({
         </div>
       </div>
       {coach.description && (
-        <p className="text-zinc-400 text-xs mt-0.5 line-clamp-2">
+        <p className="text-on-surface-variant text-xs mt-0.5 line-clamp-2">
           {coach.description}
         </p>
       )}
-      <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+      <div className="flex items-center gap-2 mt-1 text-xs text-outline">
         {coach.is_system && (
           <span className="bg-pierre-violet/20 text-pierre-violet-light px-1.5 py-0.5 rounded">
             System

@@ -171,7 +171,7 @@ export function CoachVersionHistory({
         <div className="space-y-4">
           {/* Stats bar */}
           {versionsData && (
-            <div className="flex items-center justify-between px-4 py-2 bg-pierre-gray-50 rounded-lg">
+            <div className="flex items-center justify-between px-4 py-2 bg-surface-container-low rounded-lg">
               <span className="text-sm text-pierre-gray-600">
                 {versionsData.total} version{versionsData.total !== 1 ? 's' : ''} saved
               </span>
@@ -300,7 +300,7 @@ export function CoachVersionHistory({
                     {/* Expanded content */}
                     {selectedVersion?.version === version.version && (
                       <div className="px-4 pb-4 border-t border-pierre-gray-100">
-                        <div className="mt-3 bg-pierre-gray-50 rounded-lg p-4">
+                        <div className="mt-3 bg-surface-container-low rounded-lg p-4">
                           <h4 className="text-xs font-semibold text-pierre-gray-700 uppercase tracking-wide mb-2">
                             Snapshot Content
                           </h4>

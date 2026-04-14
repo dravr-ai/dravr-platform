@@ -746,7 +746,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   };
 
   return (
-    <div className="h-full flex bg-pierre-dark relative">
+    <div className="h-full flex bg-surface relative">
       {/* Main Content Area - conversations are now in Dashboard sidebar */}
       <div className="flex-1 flex flex-col min-w-0">
         {!selectedConversation ? (
@@ -754,7 +754,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           <div className="flex-1 flex flex-col overflow-hidden">
             <TabHeader
               icon={<MessageCircle className="w-5 h-5" />}
-              gradient="from-pierre-violet to-pierre-cyan"
+              gradient="boreal-hero-gradient"
               description={
                 hasConnectedProvider
                   ? providersData?.providers?.filter(p => p.connected).map(p =>
@@ -766,7 +766,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 <button
                   onClick={() => createConversation.mutate()}
                   disabled={createConversation.isPending}
-                  className="p-2 rounded-lg text-white bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-glow-sm hover:shadow-glow disabled:opacity-50 min-w-[36px] min-h-[36px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[36px] min-h-[36px] flex items-center justify-center"
                   title="New Chat"
                   aria-label="New Chat"
                 >
@@ -778,8 +778,8 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
             <div className="flex-1 overflow-y-auto">
               <div className="w-full max-w-5xl mx-auto px-6 py-8">
                 <div className="text-center mb-8">
-                  <h2 className="text-2xl font-semibold text-white mb-2">Ready to analyze your fitness</h2>
-                  <p className="text-zinc-400 text-sm">
+                  <h2 className="text-2xl font-semibold text-on-surface mb-2">Ready to analyze your fitness</h2>
+                  <p className="text-on-surface-variant text-sm">
                     {hasConnectedProvider
                       ? 'Get personalized insights from your activity data'
                     : 'Or ask a question to Pierre'}
@@ -800,13 +800,13 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder="Message Dravr..."
-                    className="w-full rounded-xl border border-white/10 bg-[#151520] text-white placeholder-zinc-500 pl-4 pr-24 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
+                    className="w-full rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-24 py-3.5 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors"
                     disabled={createConversation.isPending}
                   />
                   <button
                     type="submit"
                     disabled={!newMessage.trim() || createConversation.isPending}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-pierre-violet text-white text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-pierre-violet text-on-surface text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
                     {createConversation.isPending ? (
                       <div className="pierre-spinner w-4 h-4 border-white border-t-transparent" />
@@ -838,7 +838,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
           {/* Conversation Header with Create Coach button */}
           {(messagesData?.messages?.length ?? 0) >= 2 && (
-            <div className="border-b border-white/5 px-6 py-3 flex items-center justify-end">
+            <div className="border-b ghost-border px-6 py-3 flex items-center justify-end">
               <button
                 onClick={() => setShowCreateCoachFromConversation(true)}
                 disabled={isStreaming}

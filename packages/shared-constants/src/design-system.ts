@@ -1,82 +1,237 @@
-// ABOUTME: Pierre Design System tokens shared across web and mobile
-// ABOUTME: Brand colors, semantic colors, provider colors, and typography scales
+// ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile
+// ABOUTME: Sourced from docs/design/boreal-design-system.md — dravr.ai canonical brand
 
-// ========== PIERRE BRAND COLORS ==========
+// ========== BOREAL LIGHT — MD3 TOKEN TREE ==========
 
-/** Pierre primary brand colors (Stitch UX Refresh) */
+/**
+ * Canonical MD3 light token set vendored from the dravr-website global.css.
+ * Web reads this directly; mobile reads it via its theme context when the
+ * system color scheme is light. Values mirror docs/design/boreal-tokens.reference.css.
+ */
+export const BOREAL_LIGHT = {
+  primary: '#00241a',
+  onPrimary: '#ffffff',
+  primaryContainer: '#0d3b2e',
+  onPrimaryContainer: '#79a694',
+  primaryFixed: '#beedd9',
+  primaryFixedDim: '#a3d0be',
+  onPrimaryFixed: '#002117',
+  onPrimaryFixedVariant: '#234e40',
+  inversePrimary: '#a3d0be',
+
+  secondary: '#5e5e64',
+  onSecondary: '#ffffff',
+  secondaryContainer: '#e3e2e9',
+  onSecondaryContainer: '#64646a',
+
+  tertiary: '#03231d',
+  onTertiary: '#ffffff',
+  tertiaryContainer: '#1b3932',
+  onTertiaryContainer: '#83a399',
+  tertiaryFixedDim: '#adcdc3',
+
+  error: '#ba1a1a',
+  onError: '#ffffff',
+  errorContainer: '#ffdad6',
+  onErrorContainer: '#93000a',
+
+  surface: '#f9f9f6',
+  surfaceDim: '#dadad7',
+  surfaceBright: '#f9f9f6',
+  surfaceContainerLowest: '#ffffff',
+  surfaceContainerLow: '#f4f4f1',
+  surfaceContainer: '#eeeeeb',
+  surfaceContainerHigh: '#e8e8e5',
+  surfaceContainerHighest: '#e2e3e0',
+  surfaceVariant: '#e2e3e0',
+  surfaceTint: '#3c6658',
+  onSurface: '#1a1c1b',
+  onSurfaceVariant: '#414845',
+  inverseSurface: '#2f312f',
+  inverseOnSurface: '#f1f1ee',
+
+  background: '#f9f9f6',
+  onBackground: '#1a1c1b',
+
+  outline: '#717974',
+  outlineVariant: '#c0c8c3',
+} as const;
+
+// ========== BOREAL DARK — tuned variant for mobile OLED night use ==========
+
+/**
+ * Dark counterpart derived via MD3 "dark-on-dark" inversion rules. Not shipped
+ * to web (the website is light-only); mobile selects this when the system
+ * color scheme is dark. Ambient shadow darkens from 6% on_surface to 50% pure
+ * black to preserve elevation on near-black surfaces.
+ */
+export const BOREAL_DARK = {
+  primary: '#a3d0be',
+  onPrimary: '#002117',
+  primaryContainer: '#234e40',
+  onPrimaryContainer: '#beedd9',
+  primaryFixed: '#beedd9',
+  primaryFixedDim: '#a3d0be',
+  onPrimaryFixed: '#002117',
+  onPrimaryFixedVariant: '#234e40',
+  inversePrimary: '#00241a',
+
+  secondary: '#c7c6cd',
+  onSecondary: '#2f2f35',
+  secondaryContainer: '#46464c',
+  onSecondaryContainer: '#e3e2e9',
+
+  tertiary: '#adcdc3',
+  onTertiary: '#01201a',
+  tertiaryContainer: '#2f4c45',
+  onTertiaryContainer: '#c8eadf',
+  tertiaryFixedDim: '#adcdc3',
+
+  error: '#ffb4ab',
+  onError: '#690005',
+  errorContainer: '#93000a',
+  onErrorContainer: '#ffdad6',
+
+  surface: '#11130f',
+  surfaceDim: '#11130f',
+  surfaceBright: '#363a35',
+  surfaceContainerLowest: '#0b0e0b',
+  surfaceContainerLow: '#191c19',
+  surfaceContainer: '#1d201d',
+  surfaceContainerHigh: '#272b27',
+  surfaceContainerHighest: '#323532',
+  surfaceVariant: '#414845',
+  surfaceTint: '#a3d0be',
+  onSurface: '#e1e3de',
+  onSurfaceVariant: '#c0c8c3',
+  inverseSurface: '#e1e3de',
+  inverseOnSurface: '#2f312f',
+
+  background: '#11130f',
+  onBackground: '#e1e3de',
+
+  outline: '#8a9389',
+  outlineVariant: '#414845',
+} as const;
+
+/** Color scheme identifier for runtime theme selection. */
+export type ColorScheme = 'light' | 'dark';
+
+/**
+ * Shape of a Boreal token tree. Values widen to `string` so both light and
+ * dark trees (with their distinct literal types) satisfy the same interface.
+ */
+export type BorealTokens = { readonly [K in keyof typeof BOREAL_LIGHT]: string };
+
+/** Runtime token lookup by scheme. */
+export const BOREAL: Record<ColorScheme, BorealTokens> = {
+  light: BOREAL_LIGHT,
+  dark: BOREAL_DARK,
+};
+
+// ========== BRAND COLORS (stable export name, boreal semantics) ==========
+
+/**
+ * Top-level brand anchors. Export name is preserved for consumer stability;
+ * the fields now carry Boreal semantics. Web and mobile both read from here.
+ */
 export const PIERRE_COLORS = {
-  violet: '#8B5CF6',     // Primary, AI indicators, CTAs
-  cyan: '#22D3EE',       // Data viz, progress indicators
-  dark: '#0F0F1A',       // Page backgrounds
-  slate: '#1E1E2E',      // Card backgrounds
+  /** Deep forest green — primary brand, filled CTAs, wordmark ink. */
+  violet: BOREAL_LIGHT.primary,
+  /** primary_container — hero gradient endpoint, boreal overlay base. */
+  cyan: BOREAL_LIGHT.primaryContainer,
+  /** on_surface ink tone — never pure black. */
+  dark: BOREAL_LIGHT.onSurface,
+  /** surface_container — neutral section fills. */
+  slate: BOREAL_LIGHT.surfaceContainer,
 } as const;
 
-/** Three pillars semantic accent colors (Stitch UX Refresh) */
+// ========== PILLAR COLORS (re-tuned to harmonize with Boreal) ==========
+
+/**
+ * The four fitness pillars retain their semantic identity (activity / nutrition
+ * / recovery / mobility) but are reshaded to sit naturally on the surface (#F9F9F6)
+ * palette. Values were chosen to meet WCAG AA 4.5:1 contrast against surface.
+ */
 export const PILLAR_COLORS = {
-  activity: '#4ADE80',   // Success, health metrics, green
-  nutrition: '#F59E0B',  // Warnings, nutrition data, amber
-  recovery: '#818CF8',   // Indigo - Brightened for dark mode contrast
+  activity: '#3c6658',   // surface_tint — deep sage, matches primary family
+  nutrition: '#8f6a2e',  // warm bronze — sits next to primary without clashing
+  recovery: '#5e7a82',   // muted slate — cool complement for rest/sleep data
+  mobility: '#7a4d5e',   // aged rose — calmer than the Pierre fuchsia
 } as const;
 
-// ========== PRIMARY COLOR PALETTE ==========
+// ========== PRIMARY PALETTE (forest tonal scale) ==========
 
-/** Primary brand color palette (sky blue) */
+/**
+ * A 50-950 tonal scale around the boreal primary for chart gradients and
+ * data-density ramps. Derived by desaturating/brightening #00241A.
+ */
 export const PRIMARY_PALETTE = {
-  50: '#f0f9ff',
-  100: '#e0f2fe',
-  200: '#bae6fd',
-  300: '#7dd3fc',
-  400: '#38bdf8',
-  500: '#0ea5e9',
-  600: '#0284c7',
-  700: '#0369a1',
-  800: '#075985',
-  900: '#0c4a6e',
-  950: '#082f49',
+  50: '#eef4f1',
+  100: '#d6e3dc',
+  200: '#a3d0be',
+  300: '#79a694',
+  400: '#5e8a78',
+  500: '#3c6658',
+  600: '#234e40',
+  700: '#0d3b2e',
+  800: '#002117',
+  900: '#00241a',
+  950: '#001812',
 } as const;
 
-// ========== DARK THEME BACKGROUNDS ==========
+// ========== SURFACE HIERARCHY ==========
 
-/** Dark theme background colors */
+/**
+ * Maps the MD3 layering principle to the three surfaces DESIGN.md §4 calls
+ * out. Components should select from here instead of hardcoding surface tokens.
+ */
+export const SURFACE_HIERARCHY = {
+  base: BOREAL_LIGHT.surface,
+  section: BOREAL_LIGHT.surfaceContainerLow,
+  card: BOREAL_LIGHT.surfaceContainerLowest,
+} as const;
+
+// ========== BACKGROUND / TEXT / BORDER (stable export names) ==========
+
+/** Surface stack — web body background is `primary` (light canvas). */
 export const BACKGROUND_COLORS = {
-  primary: '#0F0F1A',    // pierre-dark - deepest background
-  secondary: '#1E1E2E',  // pierre-slate - cards, elevated surfaces
-  tertiary: '#2A2A3E',   // slightly lighter for hover states
-  elevated: '#363650',   // elevated components like modals
+  primary: BOREAL_LIGHT.surface,              // #F9F9F6 — base canvas
+  secondary: BOREAL_LIGHT.surfaceContainerLow,// #F4F4F1 — sections
+  tertiary: BOREAL_LIGHT.surfaceContainer,    // #EEEEEB — elevated surfaces
+  elevated: BOREAL_LIGHT.surfaceContainerLowest, // #FFFFFF — floating cards
 } as const;
 
-// ========== TEXT COLORS ==========
-
-/** Text colors for dark theme */
+/** Ink-style text palette. Never pure black (DESIGN.md §6). */
 export const TEXT_COLORS = {
-  primary: '#ffffff',
-  secondary: '#a1a1aa',  // zinc-400
-  tertiary: '#71717a',   // zinc-500
-  accent: '#8B5CF6',     // pierre-violet for accent (Stitch UX)
+  primary: BOREAL_LIGHT.onSurface,         // #1A1C1B — default body copy
+  secondary: BOREAL_LIGHT.onSurfaceVariant,// #414845 — muted body copy
+  tertiary: BOREAL_LIGHT.outline,          // #717974 — helper / label
+  accent: BOREAL_LIGHT.primary,            // #00241A — links, active state
 } as const;
 
-// ========== BORDER COLORS ==========
-
-/** Border colors with subtle white opacity */
+/**
+ * Ghost border tokens. DESIGN.md §4 "Ghost Border Fallback" sets the baseline
+ * at 15% opacity; we also expose subtle (10%) and strong (25%) steps for rare
+ * cases where a stronger separator is unavoidable. No 1px solid borders.
+ */
 export const BORDER_COLORS = {
-  subtle: 'rgba(255, 255, 255, 0.05)',   // white/5
-  default: 'rgba(255, 255, 255, 0.1)',   // white/10
-  strong: 'rgba(255, 255, 255, 0.15)',   // white/15
+  subtle: 'rgba(192, 200, 195, 0.10)',
+  default: 'rgba(192, 200, 195, 0.15)',
+  strong: 'rgba(192, 200, 195, 0.25)',
 } as const;
 
-// ========== SEMANTIC COLORS ==========
+// ========== SEMANTIC / PROVIDER COLORS ==========
 
-/** Semantic colors for feedback states */
+/** Feedback states, tuned to read correctly on the light surface. */
 export const SEMANTIC_COLORS = {
-  success: '#22c55e',  // pierre-green-500
-  warning: '#f59e0b',  // pierre-yellow-500
-  error: '#ef4444',    // pierre-red-500
-  info: '#3b82f6',     // pierre-blue-500
+  success: '#2e7d5b',  // forest-leaning green (on light)
+  warning: '#8f6a2e',  // warm bronze — matches nutrition pillar
+  error: BOREAL_LIGHT.error,  // #BA1A1A from MD3 token set
+  info: '#3c6658',     // surface_tint sage
 } as const;
 
-// ========== PROVIDER BRAND COLORS ==========
-
-/** OAuth provider brand colors */
+/** OAuth provider brand colors — unchanged, they belong to third parties. */
 export const PROVIDER_COLORS = {
   strava: '#FC4C02',
   garmin: '#007CC3',
@@ -86,81 +241,123 @@ export const PROVIDER_COLORS = {
   google: '#4285F4',
 } as const;
 
-// ========== GRADIENT DEFINITIONS ==========
+// ========== GRADIENTS ==========
 
-/** Gradient color stops for premium effects (Stitch UX) */
+/**
+ * The signature hero gradient from DESIGN.md §2 — 145° primary → primary_container.
+ * Older export names are preserved but repointed at Boreal semantics.
+ */
 export const GRADIENT_COLORS = {
-  violetIndigo: {
-    start: 'rgba(139, 92, 246, 0.15)',
-    end: 'rgba(79, 70, 229, 0.05)',
+  /** 145° primary → primary_container. The canonical hero gradient. */
+  borealHero: {
+    start: BOREAL_LIGHT.primary,
+    end: BOREAL_LIGHT.primaryContainer,
+    angle: 145,
   },
+  /** Back-compat alias. Use borealHero for new code. */
   violetCyan: {
-    start: '#8B5CF6',
-    end: '#22D3EE',
+    start: BOREAL_LIGHT.primary,
+    end: BOREAL_LIGHT.primaryContainer,
   },
+  /** Subtle tonal fade used under data visualizations. */
+  violetIndigo: {
+    start: 'rgba(0, 36, 26, 0.15)',
+    end: 'rgba(13, 59, 46, 0.05)',
+  },
+  /** Bottom-to-top vignette over forest imagery. */
   darkOverlay: {
-    start: 'rgba(15, 15, 26, 0)',
-    end: 'rgba(15, 15, 26, 0.8)',
+    start: 'rgba(0, 36, 26, 0)',
+    end: 'rgba(0, 36, 26, 0.85)',
   },
+  /** Ambient wash behind AI chat panels. */
   aiGradient: {
-    start: 'rgba(139, 92, 246, 0.08)',
-    end: 'rgba(30, 30, 46, 0.6)',
+    start: 'rgba(163, 208, 190, 0.08)',
+    end: 'rgba(13, 59, 46, 0.6)',
   },
 } as const;
 
 // ========== GLASSMORPHISM ==========
 
-/** Glassmorphism card style values (Stitch UX) */
+/**
+ * Light glassmorphism card from DESIGN.md §2 "Glass & Gradient Rule". Used for
+ * floating panels over forest imagery or hero gradients. Export name is
+ * preserved for consumer stability.
+ */
 export const GLASS_CARD = {
-  background: 'rgba(139, 92, 246, 0.08)',
-  borderColor: 'rgba(255, 255, 255, 0.1)',
+  background: 'rgba(249, 249, 246, 0.85)',   // boreal-glass from website
+  borderColor: 'rgba(192, 200, 195, 0.15)',  // ghost border
   borderWidth: 1,
-  shadowColor: '#8B5CF6',
-  shadowOpacity: 0.15,
-  shadowRadius: 12,
+  shadowColor: BOREAL_LIGHT.onSurface,
+  shadowOpacity: 0.06,
+  shadowRadius: 24,
 } as const;
 
-// ========== AI GLOW EFFECTS ==========
+// ========== AMBIENT SHADOW / AI GLOW ==========
 
-/** AI glow effect values for various intensities (Stitch UX) */
-export const AI_GLOW = {
+/**
+ * DESIGN.md §4: ambient shadow uses 6% on_surface alpha at 24px blur, -4px
+ * spread. Replaces the old violet glow stack. We expose the single spec plus
+ * a `card` variant with larger offset for modals/FABs.
+ */
+export const AMBIENT_SHADOW = {
+  /** Subtle ambient — for popovers, FABs. */
   ambient: {
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
+    shadowColor: BOREAL_LIGHT.onSurface,
+    shadowOpacity: 0.06,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 24 },
   },
-  strong: {
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.25,
-    shadowRadius: 30,
-  },
-  avatar: {
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-  },
-  thinking: {
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.5,
-    shadowRadius: 25,
-  },
-  response: {
-    shadowColor: '#8B5CF6',
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
+  /** Card elevation — matches --shadow-card from the website. */
+  card: {
+    shadowColor: BOREAL_LIGHT.onSurface,
+    shadowOpacity: 0.06,
+    shadowRadius: 48,
+    shadowOffset: { width: 0, height: 24 },
   },
 } as const;
 
-/** Button glow effect values (Stitch UX) */
+/**
+ * Legacy export name retained for drop-in compatibility. All entries now point
+ * at the ambient-shadow spec (no violet glow). Consumers should migrate to
+ * AMBIENT_SHADOW over time.
+ */
+export const AI_GLOW = {
+  ambient: AMBIENT_SHADOW.ambient,
+  strong: AMBIENT_SHADOW.card,
+  avatar: AMBIENT_SHADOW.ambient,
+  thinking: AMBIENT_SHADOW.ambient,
+  response: AMBIENT_SHADOW.ambient,
+} as const;
+
+/** Button elevation — flat by default, ambient shadow only on floating CTAs. */
 export const BUTTON_GLOW = {
-  shadowColor: '#8B5CF6',
-  shadowOpacity: 0.4,
-  shadowRadius: 20,
+  shadowColor: BOREAL_LIGHT.onSurface,
+  shadowOpacity: 0.06,
+  shadowRadius: 24,
 } as const;
 
-// ========== SPACING SCALE ==========
+// ========== TYPOGRAPHY ==========
 
-/** Spacing scale (platform-agnostic values) */
+/**
+ * Typography roles from DESIGN.md §3. Space Grotesk carries display/headline
+ * + the DRAVR wordmark; Plus Jakarta Sans handles body; Inter serves labels;
+ * Newsreader is reserved for editorial serif accents.
+ */
+export const TYPOGRAPHY = {
+  display: 'Space Grotesk',
+  headline: 'Space Grotesk',
+  body: 'Plus Jakarta Sans',
+  label: 'Inter',
+  serif: 'Newsreader',
+  mono: 'JetBrains Mono',
+} as const;
+
+/** Letter-spacing for the DRAVR wordmark (DESIGN.md §3). */
+export const BRAND_TRACKING = '0.15em' as const;
+
+// ========== SPACING / RADIUS / TYPE SCALE ==========
+
+/** Platform-agnostic spacing scale (unchanged). */
 export const SPACING = {
   xs: 4,
   sm: 8,
@@ -170,20 +367,19 @@ export const SPACING = {
   xxl: 48,
 } as const;
 
-// ========== BORDER RADIUS SCALE ==========
-
-/** Border radius scale */
+/**
+ * Boreal radii — matches the website scale. `full` is kept for chips/tags
+ * (DESIGN.md §6 "don't use 9999 except for small tags").
+ */
 export const BORDER_RADIUS = {
-  sm: 4,
-  md: 8,
-  lg: 12,
-  xl: 16,
+  sm: 2,
+  md: 4,
+  lg: 8,
+  xl: 12,
   full: 9999,
 } as const;
 
-// ========== FONT SIZE SCALE ==========
-
-/** Font size scale */
+/** Font size scale (unchanged). */
 export const FONT_SIZE = {
   xs: 12,
   sm: 14,
@@ -194,9 +390,7 @@ export const FONT_SIZE = {
   xxxl: 32,
 } as const;
 
-// ========== FONT WEIGHT ==========
-
-/** Font weight values */
+/** Font weight values (unchanged). */
 export const FONT_WEIGHT = {
   normal: '400',
   medium: '500',
@@ -206,7 +400,7 @@ export const FONT_WEIGHT = {
 
 // ========== COMBINED THEME EXPORT ==========
 
-/** Complete design system theme */
+/** Complete design system theme (resolves to Boreal light by default). */
 export const DESIGN_SYSTEM = {
   colors: {
     pierre: PIERRE_COLORS,
@@ -217,19 +411,23 @@ export const DESIGN_SYSTEM = {
     border: BORDER_COLORS,
     semantic: SEMANTIC_COLORS,
     providers: PROVIDER_COLORS,
+    boreal: BOREAL_LIGHT,
   },
+  surfaceHierarchy: SURFACE_HIERARCHY,
   gradients: GRADIENT_COLORS,
   effects: {
     glassCard: GLASS_CARD,
+    ambientShadow: AMBIENT_SHADOW,
     aiGlow: AI_GLOW,
     buttonGlow: BUTTON_GLOW,
   },
+  typography: TYPOGRAPHY,
+  brandTracking: BRAND_TRACKING,
   spacing: SPACING,
   borderRadius: BORDER_RADIUS,
   fontSize: FONT_SIZE,
   fontWeight: FONT_WEIGHT,
 } as const;
 
-/** Type for the complete design system */
+/** Type for the complete design system. */
 export type DesignSystem = typeof DESIGN_SYSTEM;
-

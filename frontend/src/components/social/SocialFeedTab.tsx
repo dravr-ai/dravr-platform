@@ -264,7 +264,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
   };
 
   return (
-    <div className="h-full flex flex-col bg-pierre-dark">
+    <div className="h-full flex flex-col bg-surface">
       <TabHeader
         icon={<TrendingUp className="w-5 h-5" />}
         gradient="from-pierre-violet to-purple-600"
@@ -274,7 +274,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             {onNavigateToFriends && (
               <button
                 onClick={onNavigateToFriends}
-                className="p-2 rounded-lg text-zinc-300 bg-white/5 border border-white/10 hover:bg-white/10 transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+                className="p-2 rounded-lg text-on-surface bg-surface-container-low border ghost-border hover:bg-surface-container transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
                 title="Friends"
                 aria-label="Friends"
               >
@@ -283,7 +283,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             )}
             <button
               onClick={() => shareModal.open()}
-              className="p-2 rounded-lg text-white bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-glow-sm hover:shadow-glow min-w-[36px] min-h-[36px] flex items-center justify-center"
+              className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
               title="Share Insight"
               aria-label="Share Insight"
             >
@@ -305,11 +305,11 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
               <svg className="w-5 h-5 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              <span className="font-semibold text-white">Coach noticed something!</span>
+              <span className="font-semibold text-on-surface">Coach noticed something!</span>
             </div>
             <button
               onClick={() => setShowSuggestionsBanner(false)}
-              className="p-1 text-zinc-400 hover:text-white transition-colors"
+              className="p-1 text-on-surface-variant hover:text-on-surface transition-colors"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -318,7 +318,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
           </div>
 
           {/* Preview of top suggestion */}
-          <p className="text-zinc-300 text-sm mb-3 line-clamp-2">
+          <p className="text-on-surface text-sm mb-3 line-clamp-2">
             {suggestions[0].suggested_content}
           </p>
 
@@ -346,8 +346,8 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">Your feed is empty</h3>
-          <p className="text-zinc-400 mb-4">
+          <h3 className="text-lg font-semibold text-on-surface mb-2">Your feed is empty</h3>
+          <p className="text-on-surface-variant mb-4">
             Add friends or share your first insight to get started
           </p>
           <Button variant="primary" onClick={() => shareModal.open()}>
@@ -365,16 +365,16 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
                       style={{ backgroundColor: getAvatarColor(item.author.email) }}
                     >
                       {getInitials(item.author.display_name, item.author.email)}
                     </div>
                     <div>
-                      <p className="font-medium text-white">
+                      <p className="font-medium text-on-surface">
                         {item.author.display_name || item.author.email.split('@')[0]}
                       </p>
-                      <p className="text-sm text-zinc-500">
+                      <p className="text-sm text-outline">
                         {formatRelativeTime(item.insight.created_at)}
                       </p>
                     </div>
@@ -390,9 +390,9 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
 
                 {/* Content */}
                 {item.insight.title && (
-                  <h3 className="text-lg font-semibold text-white mb-2">{item.insight.title}</h3>
+                  <h3 className="text-lg font-semibold text-on-surface mb-2">{item.insight.title}</h3>
                 )}
-                <div className="text-zinc-300 mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-white prose-headings:font-semibold prose-strong:text-white prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
+                <div className="text-on-surface mb-4 prose prose-sm prose-invert max-w-none prose-headings:text-on-surface prose-headings:font-semibold prose-strong:text-on-surface prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -411,12 +411,12 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 {(item.insight.sport_type || item.insight.training_phase) && (
                   <div className="flex gap-2 mb-4">
                     {item.insight.sport_type && (
-                      <span className="px-2 py-1 text-xs bg-white/10 text-zinc-400 rounded-full">
+                      <span className="px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant rounded-full">
                         {item.insight.sport_type}
                       </span>
                     )}
                     {item.insight.training_phase && (
-                      <span className="px-2 py-1 text-xs bg-white/10 text-zinc-400 rounded-full capitalize">
+                      <span className="px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant rounded-full capitalize">
                         {item.insight.training_phase} phase
                       </span>
                     )}
@@ -424,7 +424,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                 )}
 
                 {/* Reactions */}
-                <div className="flex items-center justify-between pt-4 border-t border-white/10">
+                <div className="flex items-center justify-between pt-4 border-t ghost-border">
                   <div className="flex gap-2">
                     {(Object.keys(REACTION_CONFIG) as ReactionType[]).map((type) => {
                       const config = REACTION_CONFIG[type];
@@ -439,8 +439,8 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
                           className={clsx(
                             'flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm transition-colors',
                             isActive
-                              ? 'bg-white/20 text-white'
-                              : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'
+                              ? 'bg-surface-container-highest text-on-surface'
+                              : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
                           )}
                           title={config.label}
                         >

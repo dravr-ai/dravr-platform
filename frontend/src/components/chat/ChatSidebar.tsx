@@ -53,19 +53,19 @@ export default function ChatSidebar({
   isCreatingConversation,
 }: ChatSidebarProps) {
   return (
-    <div className="flex flex-col h-full bg-pierre-dark relative overflow-hidden">
+    <div className="flex flex-col h-full bg-surface relative overflow-hidden">
       {/* Header - Logo + New Chat button */}
       <div className="p-4 flex items-center justify-between flex-shrink-0">
         {/* Logo */}
         <div className="flex items-center gap-2">
           <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8" />
-          <span className="text-lg font-semibold text-white">Dravr</span>
+          <span className="text-lg font-semibold text-on-surface">Dravr</span>
         </div>
         {/* New Chat Button */}
         <button
           onClick={onNewChat}
           disabled={isCreatingConversation}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-pierre-violet text-white hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-glow-sm"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-pierre-violet text-on-surface hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
           title="New chat"
           aria-label="New chat"
         >
@@ -86,13 +86,13 @@ export default function ChatSidebar({
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             !selectedConversation && !showMyCoachesPanel && !showStorePanel
               ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
-              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <MessageCircle className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">Chat</span>
           {!selectedConversation && !showMyCoachesPanel && !showStorePanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-glow" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
           )}
         </button>
 
@@ -105,13 +105,13 @@ export default function ChatSidebar({
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showMyCoachesPanel
               ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
-              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <Users className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">My Coaches</span>
           {showMyCoachesPanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-glow" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
           )}
         </button>
 
@@ -124,13 +124,13 @@ export default function ChatSidebar({
             'group flex items-center gap-3 px-3 py-2.5 rounded-full transition-all duration-200 w-full',
             showStorePanel
               ? 'bg-pierre-violet/10 border border-pierre-violet/20 text-pierre-violet shadow-[inset_0_0_12px_rgba(124,59,237,0.1)]'
-              : 'text-zinc-400 hover:text-white hover:bg-white/5'
+              : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'
           )}
         >
           <Compass className="w-5 h-5" aria-hidden="true" />
           <span className="text-sm font-medium">Discover</span>
           {showStorePanel && (
-            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-glow" />
+            <div className="ml-auto w-1.5 h-1.5 rounded-full bg-pierre-violet shadow-ambient" />
           )}
         </button>
       </nav>
@@ -142,15 +142,15 @@ export default function ChatSidebar({
 
       {/* Recent Conversations Header */}
       <div className="px-6 pb-2">
-        <h3 className="text-[11px] font-bold text-zinc-300 tracking-[0.15em] uppercase">Recent Conversations</h3>
+        <h3 className="text-[11px] font-bold text-on-surface tracking-[0.15em] uppercase">Recent Conversations</h3>
       </div>
 
       {/* Conversation List - Scrollable */}
       <div className="flex-1 overflow-y-auto pb-44 px-3 space-y-0.5 sidebar-scroll">
         {conversationsLoading ? (
-          <div className="p-4 text-center text-zinc-500 text-sm">Loading...</div>
+          <div className="p-4 text-center text-outline text-sm">Loading...</div>
         ) : conversations.length === 0 ? (
-          <div className="p-4 text-center text-zinc-500 text-sm">No conversations yet</div>
+          <div className="p-4 text-center text-outline text-sm">No conversations yet</div>
         ) : (
           conversations.map((conv) => (
             <ConversationItem
@@ -175,26 +175,26 @@ export default function ChatSidebar({
         {/* User Profile Pill */}
         <button
           onClick={onOpenSettings}
-          className="w-full flex items-center gap-3 p-1.5 pr-3 bg-white/5 border border-white/5 rounded-full hover:bg-white/10 transition-colors cursor-pointer group"
+          className="w-full flex items-center gap-3 p-1.5 pr-3 bg-surface-container-low border ghost-border rounded-full hover:bg-surface-container transition-colors cursor-pointer group"
           title="Open settings"
         >
           {/* Avatar */}
-          <div className="relative w-9 h-9 rounded-full overflow-hidden border border-white/10 flex-shrink-0 bg-gradient-to-br from-pierre-violet to-pierre-cyan flex items-center justify-center">
-            <span className="text-sm font-bold text-white">
+          <div className="relative w-9 h-9 rounded-full overflow-hidden border ghost-border flex-shrink-0 boreal-hero-gradient flex items-center justify-center">
+            <span className="text-sm font-bold text-on-primary">
               {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
             </span>
           </div>
           {/* Text */}
           <div className="flex flex-col flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate group-hover:text-pierre-violet transition-colors">
+            <p className="text-sm font-medium text-on-surface truncate group-hover:text-pierre-violet transition-colors">
               {user?.display_name || 'User'}
             </p>
-            <p className="text-[11px] text-zinc-400 truncate">
+            <p className="text-[11px] text-on-surface-variant truncate">
               {user?.email || 'Settings'}
             </p>
           </div>
           {/* Settings Icon */}
-          <Settings className="w-5 h-5 text-zinc-400 group-hover:text-white transition-all group-hover:rotate-90 duration-500" aria-hidden="true" />
+          <Settings className="w-5 h-5 text-on-surface-variant group-hover:text-on-surface transition-all group-hover:rotate-90 duration-500" aria-hidden="true" />
         </button>
       </div>
     </div>

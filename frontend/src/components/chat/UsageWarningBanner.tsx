@@ -57,7 +57,7 @@ export default function UsageWarningBanner({ level, message }: UsageWarningBanne
       {level !== 'blocked' && (
         <button
           onClick={() => setDismissed(true)}
-          className="flex-shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors"
+          className="flex-shrink-0 p-0.5 rounded hover:bg-surface-container transition-colors"
           aria-label="Dismiss warning"
         >
           <X className="w-3.5 h-3.5" />

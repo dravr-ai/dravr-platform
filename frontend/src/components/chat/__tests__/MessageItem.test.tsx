@@ -225,8 +225,8 @@ describe('MessageItem', () => {
       const thumbsUpButton = screen.getByTitle('Good response');
       const thumbsDownButton = screen.getByTitle('Poor response');
 
-      expect(thumbsUpButton).toHaveClass('text-zinc-500');
-      expect(thumbsDownButton).toHaveClass('text-zinc-500');
+      expect(thumbsUpButton).toHaveClass('text-outline');
+      expect(thumbsDownButton).toHaveClass('text-outline');
     });
   });
 

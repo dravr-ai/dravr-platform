@@ -152,7 +152,7 @@ export default function UserManagement() {
   if (activeTab === 'pending') {
     return (
       <div className="space-y-6">
-        <div className="border-b border-white/10">
+        <div className="border-b ghost-border">
           <nav className="-mb-px flex space-x-8">
             {tabs.map((tab) => (
               <button
@@ -161,7 +161,7 @@ export default function UserManagement() {
                 className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                   activeTab === tab.id
                     ? 'border-pierre-violet text-pierre-violet-light'
-                    : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                    : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
                 }`}
               >
                 {tab.icon}
@@ -190,7 +190,7 @@ export default function UserManagement() {
   return (
     <div className="space-y-6">
       {/* Tabs - Dark Theme */}
-      <div className="border-b border-white/10">
+      <div className="border-b ghost-border">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -199,7 +199,7 @@ export default function UserManagement() {
               className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                 activeTab === tab.id
                   ? 'border-pierre-violet text-pierre-violet-light'
-                  : 'border-transparent text-zinc-400 hover:text-zinc-200 hover:border-zinc-600'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
               }`}
             >
               {tab.icon}
@@ -222,7 +222,7 @@ export default function UserManagement() {
         <div className="flex-1 max-w-lg">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <svg className="h-5 w-5 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <svg className="h-5 w-5 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
@@ -236,7 +236,7 @@ export default function UserManagement() {
             />
           </div>
         </div>
-        <div className="ml-4 text-sm text-zinc-500">
+        <div className="ml-4 text-sm text-outline">
           {filteredUsers.length} users
         </div>
       </div>
@@ -248,13 +248,13 @@ export default function UserManagement() {
             <Card key={i} variant="dark" className="p-4 animate-pulse">
               <div className="flex justify-between items-start">
                 <div className="space-y-2">
-                  <div className="h-4 bg-white/10 rounded w-48"></div>
-                  <div className="h-3 bg-white/10 rounded w-32"></div>
-                  <div className="h-3 bg-white/10 rounded w-24"></div>
+                  <div className="h-4 bg-surface-container-high rounded w-48"></div>
+                  <div className="h-3 bg-surface-container-high rounded w-32"></div>
+                  <div className="h-3 bg-surface-container-high rounded w-24"></div>
                 </div>
                 <div className="space-y-2">
-                  <div className="h-6 bg-white/10 rounded w-16"></div>
-                  <div className="h-8 bg-white/10 rounded w-20"></div>
+                  <div className="h-6 bg-surface-container-high rounded w-16"></div>
+                  <div className="h-8 bg-surface-container-high rounded w-20"></div>
                 </div>
               </div>
             </Card>
@@ -262,14 +262,14 @@ export default function UserManagement() {
         </div>
       ) : filteredUsers.length === 0 ? (
         <Card variant="dark" className="p-6 text-center">
-          <div className="text-zinc-500 mb-4">
+          <div className="text-outline mb-4">
             <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
             </svg>
-            <p className="text-lg font-medium text-white">
+            <p className="text-lg font-medium text-on-surface">
               {searchQuery ? 'No users found' : `No ${activeTab} users`}
             </p>
-            <p className="text-zinc-400">
+            <p className="text-on-surface-variant">
               {searchQuery ? 'Try adjusting your search terms' : `No users with ${activeTab} status`}
             </p>
           </div>
@@ -280,24 +280,24 @@ export default function UserManagement() {
             <Card
               key={user.id}
               variant="dark"
-              className="p-4 hover:border-white/20 transition-all cursor-pointer"
+              className="p-4 hover:ghost-border transition-all cursor-pointer"
               onClick={() => handleOpenDrawer(user)}
             >
               <div className="flex justify-between items-start">
                 <div className="flex-1">
                   <div className="flex items-center space-x-2 mb-1">
-                    <h4 className="font-medium text-white">
+                    <h4 className="font-medium text-on-surface">
                       {user.display_name || 'Unnamed User'}
                     </h4>
                     <Badge variant={getStatusBadgeVariant(user.user_status || user.status || 'pending')} className="text-xs">
                       {user.user_status || user.status || 'pending'}
                     </Badge>
-                    <span className="text-xs text-zinc-400 capitalize bg-white/10 px-2 py-1 rounded">
+                    <span className="text-xs text-on-surface-variant capitalize bg-surface-container-high px-2 py-1 rounded">
                       {user.tier}
                     </span>
                   </div>
-                  <p className="text-sm text-zinc-400 mb-2">{user.email}</p>
-                  <div className="flex items-center space-x-4 text-xs text-zinc-500">
+                  <p className="text-sm text-on-surface-variant mb-2">{user.email}</p>
+                  <div className="flex items-center space-x-4 text-xs text-outline">
                     <span>Registered: {formatDate(user.created_at)}</span>
                     <span>Last active: {user.last_active ? formatDate(user.last_active) : 'Never'}</span>
                     {user.approved_by && (
@@ -311,7 +311,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-white"
+                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-surface"
                     >
                       Approve
                     </Button>
@@ -330,7 +330,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-white"
+                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-surface"
                     >
                       Reactivate
                     </Button>

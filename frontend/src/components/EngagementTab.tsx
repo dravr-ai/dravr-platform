@@ -95,11 +95,11 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       <div className="space-y-6">
         <TimeRangeSelector timeRange={timeRange} onChange={setTimeRange} />
         <Card variant="dark">
-          <div className="text-center py-12 text-zinc-400">
-            <svg className="w-12 h-12 mx-auto mb-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-12 text-on-surface-variant">
+            <svg className="w-12 h-12 mx-auto mb-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <p className="text-lg mb-2 text-white">No coach activity yet</p>
+            <p className="text-lg mb-2 text-on-surface">No coach activity yet</p>
             <p className="mb-6">Create system coaches to get started. Engagement data will appear as users interact with coaches.</p>
             <button
               onClick={() => onNavigate?.('coaches')}
@@ -122,22 +122,22 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-activity">{dailyActive}</div>
-          <div className="text-sm text-zinc-400">Daily Active</div>
-          <div className="text-[10px] text-zinc-600">Last 24h</div>
+          <div className="text-sm text-on-surface-variant">Daily Active</div>
+          <div className="text-[10px] text-on-surface-variant">Last 24h</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-cyan">{weeklyActive}</div>
-          <div className="text-sm text-zinc-400">Weekly Active</div>
-          <div className="text-[10px] text-zinc-600">Last 7d</div>
+          <div className="text-sm text-on-surface-variant">Weekly Active</div>
+          <div className="text-[10px] text-on-surface-variant">Last 7d</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-violet-light">{monthlyActive}</div>
-          <div className="text-sm text-zinc-400">Monthly Active</div>
-          <div className="text-[10px] text-zinc-600">Last 30d</div>
+          <div className="text-sm text-on-surface-variant">Monthly Active</div>
+          <div className="text-[10px] text-on-surface-variant">Last 30d</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-zinc-500">{dormant}</div>
-          <div className="text-sm text-zinc-400">Dormant</div>
+          <div className="text-2xl font-bold text-outline">{dormant}</div>
+          <div className="text-sm text-on-surface-variant">Dormant</div>
         </div>
       </div>
 
@@ -145,37 +145,37 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Coach Leaderboard — 2/3 width */}
         <div className="lg:col-span-2 card-dark">
-          <h3 className="text-lg font-medium mb-4 text-white">Coach Leaderboard</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Coach Leaderboard</h3>
           {sortedCoaches.length === 0 ? (
-            <div className="text-center py-6 text-zinc-500">
+            <div className="text-center py-6 text-outline">
               <p>No coaches created yet.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-white/10">
-                <thead className="bg-white/5">
+                <thead className="bg-surface-container-low">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">#</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">Coach</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">Tokens Used</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">#</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Coach</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">Category</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">Tokens Used</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
                   {sortedCoaches.map((coach, index) => (
-                    <tr key={coach.id} className="hover:bg-white/5">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-zinc-500">
+                    <tr key={coach.id} className="hover:bg-surface-container-low">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-outline">
                         {index + 1}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <p className="text-sm font-medium text-white">{coach.title}</p>
+                        <p className="text-sm font-medium text-on-surface">{coach.title}</p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className="text-xs px-2 py-1 rounded bg-pierre-violet/20 text-pierre-violet-light">
                           {coach.category || 'general'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-white text-right">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-on-surface text-right">
                         {(coach.token_count ?? 0).toLocaleString()}
                       </td>
                     </tr>
@@ -189,7 +189,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
         {/* Platform Stats — 1/3 width */}
         <div className="space-y-4">
           <Card variant="dark">
-            <h3 className="text-lg font-medium mb-4 text-white">Platform Stats</h3>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">Platform Stats</h3>
             <div className="space-y-4">
               <StatRow label="Total Users" value={users.length} />
               <StatRow label="Total Coaches" value={totalCoaches} />
@@ -210,7 +210,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
 function TimeRangeSelector({ timeRange, onChange }: { timeRange: AdminTimeRange; onChange: (v: AdminTimeRange) => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm text-zinc-400">Time Range:</span>
+      <span className="text-sm text-on-surface-variant">Time Range:</span>
       <div className="flex gap-1">
         {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
           const numValue = Number(value) as AdminTimeRange;
@@ -221,7 +221,7 @@ function TimeRangeSelector({ timeRange, onChange }: { timeRange: AdminTimeRange;
               className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
                 timeRange === numValue
                   ? 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30'
-                  : 'text-zinc-400 hover:bg-white/5 hover:text-white border border-transparent'
+                  : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent'
               }`}
             >
               {label}
@@ -237,8 +237,8 @@ function TimeRangeSelector({ timeRange, onChange }: { timeRange: AdminTimeRange;
 function StatRow({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-sm text-zinc-400">{label}</span>
-      <span className="text-sm font-medium text-white">{value.toLocaleString()}</span>
+      <span className="text-sm text-on-surface-variant">{label}</span>
+      <span className="text-sm font-medium text-on-surface">{value.toLocaleString()}</span>
     </div>
   );
 }

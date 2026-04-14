@@ -49,7 +49,7 @@ export default function ConnectionBanner() {
   }
 
   return (
-    <div className="bg-pierre-red-500 text-white px-4 py-2 sticky top-0 z-50 shadow-lg animate-pulse">
+    <div className="bg-pierre-red-500 text-on-surface px-4 py-2 sticky top-0 z-50 shadow-lg animate-pulse">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3">
           <svg

@@ -100,7 +100,7 @@ export const TableSkeleton: React.FC<TableSkeletonProps> = ({ rows = 5, columns 
   return (
     <div className={`bg-white rounded-lg border border-pierre-gray-200 overflow-hidden ${className}`}>
       {/* Header */}
-      <div className="flex items-center gap-4 p-4 bg-pierre-gray-50 border-b border-pierre-gray-200">
+      <div className="flex items-center gap-4 p-4 bg-surface-container-low border-b border-pierre-gray-200">
         {Array.from({ length: columns }).map((_, index) => (
           <Skeleton key={index} className="h-4 flex-1" />
         ))}
@@ -164,7 +164,7 @@ export const ListSkeleton: React.FC<ListSkeletonProps> = ({
   return (
     <div className={`space-y-4 ${className}`}>
       {Array.from({ length: items }).map((_, index) => (
-        <div key={index} className="flex items-center gap-3 p-3 bg-pierre-gray-50 rounded-lg">
+        <div key={index} className="flex items-center gap-3 p-3 bg-surface-container-low rounded-lg">
           {showAvatar && <AvatarSkeleton size="md" />}
           <div className="flex-1">
             <Skeleton className="h-4 w-32 mb-2" />

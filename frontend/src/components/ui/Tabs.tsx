@@ -58,15 +58,15 @@ export const Tabs: React.FC<TabsProps> = ({
       case 'pills':
         return `${baseClasses} rounded-lg ${
           isActive
-            ? 'bg-pierre-violet text-white'
-            : 'text-zinc-400 hover:bg-white/10 hover:text-white'
+            ? 'bg-pierre-violet text-on-surface'
+            : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
         }`;
 
       case 'bordered':
         return `${baseClasses} border-2 rounded-lg ${
           isActive
             ? 'border-pierre-violet text-pierre-violet bg-pierre-violet/5'
-            : 'border-transparent text-zinc-400 hover:border-white/10 hover:text-white'
+            : 'border-transparent text-on-surface-variant hover:ghost-border hover:text-on-surface'
         }`;
 
       case 'underline':
@@ -74,14 +74,14 @@ export const Tabs: React.FC<TabsProps> = ({
         return `${baseClasses} border-b-2 ${
           isActive
             ? 'border-pierre-violet text-pierre-violet'
-            : 'border-transparent text-zinc-400 hover:text-white hover:border-zinc-600'
+            : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-zinc-600'
         }`;
     }
   };
 
   const containerClasses = {
-    underline: 'flex border-b border-white/10',
-    pills: 'flex gap-2 p-1 bg-pierre-slate/60 rounded-lg',
+    underline: 'flex border-b ghost-border',
+    pills: 'flex gap-2 p-1 bg-surface-container-low/60 rounded-lg',
     bordered: 'flex gap-2',
   };
 
@@ -106,9 +106,9 @@ export const Tabs: React.FC<TabsProps> = ({
                 ${
                   tab.id === activeTab
                     ? variant === 'pills'
-                      ? 'bg-white/20 text-white'
+                      ? 'bg-surface-container-highest text-on-surface'
                       : 'bg-pierre-violet/10 text-pierre-violet-light'
-                    : 'bg-white/10 text-zinc-400'
+                    : 'bg-surface-container-high text-on-surface-variant'
                 }
               `}
             >

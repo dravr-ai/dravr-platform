@@ -498,7 +498,7 @@ export default function UserSettings() {
   };
 
   const getProviderInfo = (providerId: string) => {
-    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId, color: 'bg-pierre-gray-500' };
+    return PROVIDERS.find((p) => p.id === providerId) || { id: providerId, name: providerId, color: 'bg-surface-container-low0' };
   };
 
   const configuredProviders = oauthApps.map((app) => app.provider);
@@ -507,7 +507,7 @@ export default function UserSettings() {
   return (
     <div className="space-y-6">
       {/* Horizontal Tab Navigation */}
-      <div className="border-b border-white/10">
+      <div className="border-b ghost-border">
         <nav className="flex gap-1 -mb-px overflow-x-auto" aria-label="Settings tabs">
           {visibleTabs.map((tab) => (
             <button
@@ -516,8 +516,8 @@ export default function UserSettings() {
               className={clsx(
                 'flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap transition-all duration-200 border-b-2',
                 activeTab === tab.id
-                  ? 'border-pierre-violet text-white'
-                  : 'border-transparent text-zinc-400 hover:text-white hover:border-white/20'
+                  ? 'border-pierre-violet text-on-surface'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:ghost-border'
               )}
             >
               <span className={clsx('flex-shrink-0', activeTab === tab.id ? 'text-pierre-violet' : '')}>{tab.icon}</span>
@@ -533,22 +533,22 @@ export default function UserSettings() {
         {activeTab === 'profile' && (
           <>
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-white mb-4">Profile Information</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">Profile Information</h2>
               <div className="space-y-4">
                 {/* Gradient ring avatar */}
-                <div className="flex items-center gap-4 pb-4 border-b border-white/10">
+                <div className="flex items-center gap-4 pb-4 border-b ghost-border">
                   <div className="relative flex-shrink-0">
-                    <div className="w-24 h-24 rounded-full p-[3px] bg-gradient-to-br from-pierre-violet to-pierre-cyan">
-                      <div className="w-full h-full bg-pierre-slate rounded-full flex items-center justify-center">
-                        <span className="text-3xl font-bold text-white">
+                    <div className="w-24 h-24 rounded-full p-[3px] bg-gradient-to-br boreal-hero-gradient">
+                      <div className="w-full h-full bg-surface-container-low rounded-full flex items-center justify-center">
+                        <span className="text-3xl font-bold text-on-surface">
                           {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
                         </span>
                       </div>
                     </div>
                   </div>
                   <div>
-                    <p className="text-xl font-semibold text-white">{user?.display_name || 'No name set'}</p>
-                    <p className="text-sm text-zinc-400">{user?.email}</p>
+                    <p className="text-xl font-semibold text-on-surface">{user?.display_name || 'No name set'}</p>
+                    <p className="text-sm text-on-surface-variant">{user?.email}</p>
                     <Badge variant={user?.user_status === 'active' ? 'success' : 'warning'} className="mt-1">
                       {user?.user_status?.charAt(0).toUpperCase()}{user?.user_status?.slice(1)}
                     </Badge>
@@ -565,9 +565,9 @@ export default function UserSettings() {
                 />
 
                 <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">Email</label>
-                  <p className="text-zinc-400 bg-[#151520]/50 px-4 py-3 rounded-xl border border-white/10">{user?.email}</p>
-                  <p className="text-xs text-zinc-500 mt-1">Email cannot be changed</p>
+                  <label className="block text-sm font-medium text-on-surface mb-2">Email</label>
+                  <p className="text-on-surface-variant bg-surface-container-low px-4 py-3 rounded-md border ghost-border">{user?.email}</p>
+                  <p className="text-xs text-outline mt-1">Email cannot be changed</p>
                 </div>
 
                 {message && (
@@ -587,7 +587,7 @@ export default function UserSettings() {
                   onClick={handleSaveProfile}
                   loading={isSaving}
                   disabled={displayName === user?.display_name}
-                  className="shadow-glow hover:shadow-glow-lg"
+                  className="shadow-ambient hover:shadow-ambient"
                 >
                   Save Changes
                 </Button>
@@ -596,20 +596,20 @@ export default function UserSettings() {
 
             {/* Quick Stats with gradient accent */}
             <div className="grid grid-cols-2 gap-4">
-              <div className="stat-card-dark rounded-xl border border-white/10 p-6">
+              <div className="stat-card-dark rounded-xl border ghost-border p-6">
                 <div className="text-center">
-                  <div className="text-3xl font-bold bg-gradient-to-r from-pierre-violet to-pierre-cyan bg-clip-text text-transparent">
+                  <div className="text-3xl font-bold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
                     {statsLoading ? '...' : (stats?.connected_providers ?? 0)}
                   </div>
-                  <div className="text-sm text-zinc-400 mt-1">Connected Providers</div>
+                  <div className="text-sm text-on-surface-variant mt-1">Connected Providers</div>
                 </div>
               </div>
-              <div className="stat-card-dark rounded-xl border border-white/10 p-6">
+              <div className="stat-card-dark rounded-xl border ghost-border p-6">
                 <div className="text-center">
                   <div className="text-3xl font-bold bg-gradient-to-r from-pierre-nutrition to-pierre-activity bg-clip-text text-transparent">
                     {statsLoading ? '...' : (stats?.days_active ?? 0)}
                   </div>
-                  <div className="text-sm text-zinc-400 mt-1">Days Active</div>
+                  <div className="text-sm text-on-surface-variant mt-1">Days Active</div>
                 </div>
               </div>
             </div>
@@ -621,8 +621,8 @@ export default function UserSettings() {
           <>
             {/* Fitness Providers - Connection Status */}
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-white mb-1">Fitness Providers</h2>
-              <p className="text-sm text-zinc-400 mb-4">
+              <h2 className="text-lg font-semibold text-on-surface mb-1">Fitness Providers</h2>
+              <p className="text-sm text-on-surface-variant mb-4">
                 Connect your fitness accounts to sync activities, health metrics, and more.
               </p>
 
@@ -644,7 +644,7 @@ export default function UserSettings() {
                   <div className="pierre-spinner w-6 h-6"></div>
                 </div>
               ) : fitnessProviders.length === 0 ? (
-                <div className="text-center py-8 text-zinc-400">
+                <div className="text-center py-8 text-on-surface-variant">
                   <p>No providers available</p>
                 </div>
               ) : (
@@ -663,7 +663,7 @@ export default function UserSettings() {
                           'p-4 rounded-xl border transition-all',
                           provider.connected
                             ? 'border-pierre-activity/30 bg-pierre-activity-light/10'
-                            : 'border-white/10 bg-[#151520]'
+                            : 'ghost-border bg-surface-container-low'
                         )}
                       >
                         <div className="flex items-center gap-3">
@@ -671,20 +671,20 @@ export default function UserSettings() {
                             className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: display.color }}
                           >
-                            <span className="text-white font-bold text-sm">
+                            <span className="text-on-surface font-bold text-sm">
                               {provider.display_name.charAt(0)}
                             </span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <p className="font-medium text-white">{provider.display_name}</p>
+                              <p className="font-medium text-on-surface">{provider.display_name}</p>
                               {provider.connected && (
                                 <Badge variant="success">Connected</Badge>
                               )}
                             </div>
-                            <p className="text-sm text-zinc-400 truncate">{display.description}</p>
+                            <p className="text-sm text-on-surface-variant truncate">{display.description}</p>
                             {provider.capabilities.length > 0 && (
-                              <p className="text-xs text-zinc-500 mt-0.5">
+                              <p className="text-xs text-outline mt-0.5">
                                 {provider.capabilities.join(', ')}
                               </p>
                             )}
@@ -735,8 +735,8 @@ export default function UserSettings() {
               )}
 
               {/* Privacy note */}
-              <div className="mt-4 p-3 bg-white/5 border border-white/10 rounded-lg">
-                <p className="text-xs text-zinc-400">
+              <div className="mt-4 p-3 bg-surface-container-low border ghost-border rounded-lg">
+                <p className="text-xs text-on-surface-variant">
                   Pierre only accesses the data you authorize. We never share your fitness data with third parties.
                   You can disconnect any provider at any time.
                 </p>
@@ -747,8 +747,8 @@ export default function UserSettings() {
             <Card variant="dark">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-white">Custom API Credentials</h2>
-                <p className="text-sm text-zinc-400 mt-1">
+                <h2 className="text-lg font-semibold text-on-surface">Custom API Credentials</h2>
+                <p className="text-sm text-on-surface-variant mt-1">
                   Use your own OAuth app credentials to avoid shared rate limits
                 </p>
               </div>
@@ -776,9 +776,9 @@ export default function UserSettings() {
                 <div className="pierre-spinner w-6 h-6"></div>
               </div>
             ) : oauthApps.length === 0 ? (
-              <div className="text-center py-8 bg-[#151520] rounded-xl border border-white/10">
+              <div className="text-center py-8 bg-surface-container-low rounded-xl border ghost-border">
                 <svg
-                  className="w-12 h-12 text-zinc-600 mx-auto mb-3"
+                  className="w-12 h-12 text-on-surface-variant mx-auto mb-3"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -790,8 +790,8 @@ export default function UserSettings() {
                     d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
                   />
                 </svg>
-                <p className="text-white font-medium">No custom credentials configured</p>
-                <p className="text-sm text-zinc-500 mt-1">
+                <p className="text-on-surface font-medium">No custom credentials configured</p>
+                <p className="text-sm text-outline mt-1">
                   Add your own OAuth app credentials to use your personal API quotas
                 </p>
               </div>
@@ -800,14 +800,14 @@ export default function UserSettings() {
                 {oauthApps.map((app) => {
                   const provider = getProviderInfo(app.provider);
                   return (
-                    <div key={app.provider} className="flex items-center justify-between p-4 bg-[#151520] rounded-xl border border-white/10">
+                    <div key={app.provider} className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl border ghost-border">
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 ${provider.color} rounded-lg flex items-center justify-center`}>
-                          <span className="text-white font-bold text-sm">{provider.name.charAt(0)}</span>
+                          <span className="text-on-surface font-bold text-sm">{provider.name.charAt(0)}</span>
                         </div>
                         <div>
-                          <p className="font-medium text-white">{provider.name}</p>
-                          <p className="text-xs text-zinc-500">Client ID: {app.client_id.substring(0, 8)}...</p>
+                          <p className="font-medium text-on-surface">{provider.name}</p>
+                          <p className="text-xs text-outline">Client ID: {app.client_id.substring(0, 8)}...</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -859,7 +859,7 @@ export default function UserSettings() {
                 </div>
               }
             >
-              <p className="text-sm text-zinc-400 mb-5">Use your own OAuth app to connect fitness providers</p>
+              <p className="text-sm text-on-surface-variant mb-5">Use your own OAuth app to connect fitness providers</p>
 
               {credentialMessage && (
                 <div className={`p-3 rounded-lg text-sm mb-4 ${
@@ -873,11 +873,11 @@ export default function UserSettings() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">Provider</label>
+                  <label className="block text-sm font-medium text-on-surface mb-2">Provider</label>
                   <select
                     value={selectedProvider}
                     onChange={(e) => setSelectedProvider(e.target.value)}
-                    className="select-dark w-full px-4 py-3 bg-[#0F0F1A] border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                    className="select-dark w-full px-4 py-3 bg-[#f9f9f6] border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
                   >
                     <option value="">Select a provider</option>
                     {availableProviders.map((provider) => (
@@ -906,9 +906,9 @@ export default function UserSettings() {
                 />
 
                 {selectedProvider && (
-                  <div className="text-xs text-zinc-500 space-y-1">
+                  <div className="text-xs text-outline space-y-1">
                     <p>In your {selectedProvider} app settings, set:</p>
-                    <p>Authorization Callback Domain: <code className="text-zinc-400">{window.location.host}</code></p>
+                    <p>Authorization Callback Domain: <code className="text-on-surface-variant">{window.location.host}</code></p>
                   </div>
                 )}
               </div>
@@ -936,7 +936,7 @@ export default function UserSettings() {
                     <h3 className="text-lg font-medium text-emerald-400">Token Created: {createdToken.name}</h3>
                     <p className="text-emerald-400/80 mt-1 mb-3">Copy this token now. You won&apos;t be able to see it again!</p>
                     <div className="flex items-center gap-2">
-                      <code className="flex-1 px-3 py-2 bg-[#151520] border border-emerald-500/30 rounded font-mono text-sm break-all text-white">
+                      <code className="flex-1 px-3 py-2 bg-surface-container-low border border-emerald-500/30 rounded font-mono text-sm break-all text-on-surface">
                         {createdToken.token_value}
                       </code>
                       <Button onClick={() => copyToClipboard(createdToken.token_value)} variant="secondary" size="sm">
@@ -954,8 +954,8 @@ export default function UserSettings() {
             <Card variant="dark">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">API Tokens</h2>
-                  <p className="text-sm text-zinc-400 mt-1">
+                  <h2 className="text-lg font-semibold text-on-surface">API Tokens</h2>
+                  <p className="text-sm text-on-surface-variant mt-1">
                     {activeTokens.length} active tokens for AI client connections
                   </p>
                 </div>
@@ -968,8 +968,8 @@ export default function UserSettings() {
                     Create New Token
                   </Button>
                 ) : (
-                  <div className="bg-white/5 border border-white/10 rounded-lg p-4 space-y-4">
-                    <h4 className="font-medium text-white">Create Token</h4>
+                  <div className="bg-surface-container-low border ghost-border rounded-lg p-4 space-y-4">
+                    <h4 className="font-medium text-on-surface">Create Token</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <Input
                         variant="dark"
@@ -979,11 +979,11 @@ export default function UserSettings() {
                         placeholder="e.g., Claude Desktop, Cursor IDE"
                       />
                       <div>
-                        <label className="block text-sm font-medium text-zinc-300 mb-1.5">Expires In (days)</label>
+                        <label className="block text-sm font-medium text-on-surface mb-1.5">Expires In (days)</label>
                         <select
                           value={expiresInDays || ''}
                           onChange={(e) => setExpiresInDays(e.target.value ? Number(e.target.value) : undefined)}
-                          className="select-dark w-full px-4 py-2.5 bg-[#151520] border border-white/10 rounded-lg text-white text-sm focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
+                          className="select-dark w-full px-4 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-on-surface text-sm focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet transition-all"
                         >
                           <option value="">Never expires</option>
                           <option value="30">30 days</option>
@@ -1015,46 +1015,46 @@ export default function UserSettings() {
                   <div className="pierre-spinner w-8 h-8"></div>
                 </div>
               ) : tokens.length === 0 ? (
-                <div className="text-center py-8 text-zinc-400">
-                  <svg className="w-12 h-12 text-zinc-600 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="text-center py-8 text-on-surface-variant">
+                  <svg className="w-12 h-12 text-on-surface-variant mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                   </svg>
-                  <p className="text-lg mb-2 text-white">No tokens yet</p>
+                  <p className="text-lg mb-2 text-on-surface">No tokens yet</p>
                   <p>Create a token to connect AI clients like Claude Desktop or Cursor to Pierre</p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {tokens.map((token) => (
-                    <div key={token.id} className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                    <div key={token.id} className="p-4 bg-surface-container-low border ghost-border rounded-lg">
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-medium text-white">{token.name}</h3>
+                            <h3 className="text-lg font-medium text-on-surface">{token.name}</h3>
                             <Badge variant={token.is_revoked ? 'info' : 'success'}>
                               {token.is_revoked ? 'Revoked' : 'Active'}
                             </Badge>
                           </div>
-                          <code className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-white/10 text-zinc-300 text-xs font-mono rounded border border-white/10">
+                          <code className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-surface-container-high text-on-surface text-xs font-mono rounded border ghost-border">
                             {token.token_prefix}...
                           </code>
                           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div>
-                              <span className="text-zinc-500">Created:</span>
-                              <p className="font-medium text-white">{format(new Date(token.created_at), 'MMM d, yyyy')}</p>
+                              <span className="text-outline">Created:</span>
+                              <p className="font-medium text-on-surface">{format(new Date(token.created_at), 'MMM d, yyyy')}</p>
                             </div>
                             <div>
-                              <span className="text-zinc-500">Expires:</span>
-                              <p className="font-medium text-white">
+                              <span className="text-outline">Expires:</span>
+                              <p className="font-medium text-on-surface">
                                 {token.expires_at ? format(new Date(token.expires_at), 'MMM d, yyyy') : 'Never'}
                               </p>
                             </div>
                             <div>
-                              <span className="text-zinc-500">Usage:</span>
-                              <p className="font-medium text-white">{token.usage_count} requests</p>
+                              <span className="text-outline">Usage:</span>
+                              <p className="font-medium text-on-surface">{token.usage_count} requests</p>
                             </div>
                             <div>
-                              <span className="text-zinc-500">Last Used:</span>
-                              <p className="font-medium text-white">
+                              <span className="text-outline">Last Used:</span>
+                              <p className="font-medium text-on-surface">
                                 {token.last_used_at ? format(new Date(token.last_used_at), 'MMM d, yyyy') : 'Never'}
                               </p>
                             </div>
@@ -1078,13 +1078,13 @@ export default function UserSettings() {
               )}
 
               {/* Setup Instructions - Collapsible */}
-              <div className="border-t border-white/10 mt-6 pt-4">
+              <div className="border-t ghost-border mt-6 pt-4">
                 <button
                   onClick={() => setShowSetupInstructions(!showSetupInstructions)}
                   className="flex items-center justify-between w-full text-left"
                 >
                   <div className="flex items-center gap-2">
-                    <svg className="w-5 h-5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -1092,11 +1092,11 @@ export default function UserSettings() {
                         d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                       />
                     </svg>
-                    <span className="font-medium text-white">Setup Instructions</span>
-                    <span className="text-sm text-zinc-400">for Claude & ChatGPT</span>
+                    <span className="font-medium text-on-surface">Setup Instructions</span>
+                    <span className="text-sm text-on-surface-variant">for Claude & ChatGPT</span>
                   </div>
                   <svg
-                    className={`w-5 h-5 text-zinc-500 transition-transform ${showSetupInstructions ? 'rotate-180' : ''}`}
+                    className={`w-5 h-5 text-outline transition-transform ${showSetupInstructions ? 'rotate-180' : ''}`}
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1107,12 +1107,12 @@ export default function UserSettings() {
 
                 {showSetupInstructions && (
                   <div className="mt-4 space-y-4">
-                    <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                      <h4 className="font-medium text-white mb-2">Claude Desktop</h4>
-                      <p className="text-sm text-zinc-400 mb-3">
+                    <div className="bg-surface-container-low border ghost-border rounded-lg p-4">
+                      <h4 className="font-medium text-on-surface mb-2">Claude Desktop</h4>
+                      <p className="text-sm text-on-surface-variant mb-3">
                         Add the following to your Claude Desktop config file:
                       </p>
-                      <pre className="text-xs bg-[#151520] text-zinc-300 p-3 rounded overflow-x-auto border border-white/10">
+                      <pre className="text-xs bg-surface-container-low text-on-surface p-3 rounded overflow-x-auto border ghost-border">
                         {`{
   "mcpServers": {
     "pierre": {
@@ -1128,10 +1128,10 @@ export default function UserSettings() {
                       </pre>
                     </div>
 
-                    <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                      <h4 className="font-medium text-white mb-2">ChatGPT</h4>
-                      <p className="text-sm text-zinc-400 mb-3">Configure in ChatGPT MCP settings:</p>
-                      <pre className="text-xs bg-[#151520] text-zinc-300 p-3 rounded overflow-x-auto border border-white/10">
+                    <div className="bg-surface-container-low border ghost-border rounded-lg p-4">
+                      <h4 className="font-medium text-on-surface mb-2">ChatGPT</h4>
+                      <p className="text-sm text-on-surface-variant mb-3">Configure in ChatGPT MCP settings:</p>
+                      <pre className="text-xs bg-surface-container-low text-on-surface p-3 rounded overflow-x-auto border ghost-border">
                         {`Server URL: ${window.location.origin}/mcp
 Authorization: Bearer <your-token-here>`}
                       </pre>
@@ -1145,8 +1145,8 @@ Authorization: Bearer <your-token-here>`}
             <Card variant="dark">
               <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Connected Apps</h2>
-                  <p className="text-sm text-zinc-400 mt-1">
+                  <h2 className="text-lg font-semibold text-on-surface">Connected Apps</h2>
+                  <p className="text-sm text-on-surface-variant mt-1">
                     Third-party applications authorized to access your fitness data via OAuth
                   </p>
                 </div>
@@ -1175,18 +1175,18 @@ Authorization: Bearer <your-token-here>`}
         {/* About Tab */}
         {activeTab === 'about' && (
           <Card variant="dark">
-            <h2 className="text-lg font-semibold text-white mb-6">About Pierre</h2>
+            <h2 className="text-lg font-semibold text-on-surface mb-6">About Pierre</h2>
             <div className="space-y-3">
               {/* Version */}
-              <div className="flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
+              <div className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
                 <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm text-zinc-400">Version</p>
-                  <p className="text-white font-medium">1.0.0</p>
+                  <p className="text-sm text-on-surface-variant">Version</p>
+                  <p className="text-on-surface font-medium">1.0.0</p>
                 </div>
               </div>
 
@@ -1195,7 +1195,7 @@ Authorization: Bearer <your-token-here>`}
                 href="https://pierre.fitness/help"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors group"
+                className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
               >
                 <div className="w-10 h-10 rounded-xl bg-pierre-cyan/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-pierre-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1203,10 +1203,10 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-white font-medium">Help Center</p>
-                  <p className="text-sm text-zinc-400">Documentation and support</p>
+                  <p className="text-on-surface font-medium">Help Center</p>
+                  <p className="text-sm text-on-surface-variant">Documentation and support</p>
                 </div>
-                <svg className="w-5 h-5 text-zinc-500 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </a>
@@ -1216,7 +1216,7 @@ Authorization: Bearer <your-token-here>`}
                 href="https://pierre.fitness/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-4 p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition-colors group"
+                className="flex items-center gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border hover:bg-surface-container transition-colors group"
               >
                 <div className="w-10 h-10 rounded-xl bg-pierre-activity/15 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1224,10 +1224,10 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <p className="text-white font-medium">Terms & Privacy</p>
-                  <p className="text-sm text-zinc-400">Legal information and data policy</p>
+                  <p className="text-on-surface font-medium">Terms & Privacy</p>
+                  <p className="text-sm text-on-surface-variant">Legal information and data policy</p>
                 </div>
-                <svg className="w-5 h-5 text-zinc-500 group-hover:text-white transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-outline group-hover:text-on-surface transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </a>
@@ -1239,10 +1239,10 @@ Authorization: Bearer <your-token-here>`}
         {activeTab === 'account' && (
           <>
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-white mb-4">Account Status</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">Account Status</h2>
               <div className="space-y-3">
-                <div className="flex justify-between items-center py-2 border-b border-white/10">
-                  <span className="text-zinc-400">Status</span>
+                <div className="flex justify-between items-center py-2 border-b ghost-border">
+                  <span className="text-on-surface-variant">Status</span>
                   <span
                     className={`px-2 py-1 rounded-full text-xs font-medium ${
                       user?.user_status === 'active'
@@ -1254,13 +1254,13 @@ Authorization: Bearer <your-token-here>`}
                     {user?.user_status?.slice(1)}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-white/10">
-                  <span className="text-zinc-400">Role</span>
-                  <span className="text-white capitalize">{user?.role}</span>
+                <div className="flex justify-between items-center py-2 border-b ghost-border">
+                  <span className="text-on-surface-variant">Role</span>
+                  <span className="text-on-surface capitalize">{user?.role}</span>
                 </div>
                 <div className="flex justify-between items-center py-2">
-                  <span className="text-zinc-400">Member Since</span>
-                  <span className="text-white">
+                  <span className="text-on-surface-variant">Member Since</span>
+                  <span className="text-on-surface">
                     {user?.created_at
                       ? format(new Date(user.created_at), 'MMM d, yyyy')
                       : 'Unknown'}
@@ -1280,8 +1280,8 @@ Authorization: Bearer <your-token-here>`}
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Usage</h2>
-                  <p className="text-sm text-zinc-400">Your current quota consumption</p>
+                  <h2 className="text-lg font-semibold text-on-surface">Usage</h2>
+                  <p className="text-sm text-on-surface-variant">Your current quota consumption</p>
                 </div>
               </div>
 
@@ -1290,7 +1290,7 @@ Authorization: Bearer <your-token-here>`}
                   <div className="pierre-spinner w-6 h-6"></div>
                 </div>
               ) : !usageData ? (
-                <p className="text-sm text-zinc-500 text-center py-4">Usage data unavailable</p>
+                <p className="text-sm text-outline text-center py-4">Usage data unavailable</p>
               ) : (
                 <div className="space-y-5">
                   {/* Progress bars */}
@@ -1304,14 +1304,14 @@ Authorization: Bearer <your-token-here>`}
                       return (
                         <div key={label}>
                           <div className="flex justify-between items-center mb-1.5">
-                            <span className="text-sm font-medium text-zinc-300">{label}</span>
-                            <span className="text-sm text-zinc-400">
+                            <span className="text-sm font-medium text-on-surface">{label}</span>
+                            <span className="text-sm text-on-surface-variant">
                               {compact ? formatCompactNumber(counter.current) : counter.current.toLocaleString()}
                               {' / '}
                               {compact ? formatCompactNumber(counter.limit) : counter.limit.toLocaleString()}
                             </span>
                           </div>
-                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                          <div className="h-2 bg-surface-container-high rounded-full overflow-hidden">
                             <div
                               className={clsx(
                                 'h-full rounded-full transition-all duration-300',
@@ -1326,23 +1326,23 @@ Authorization: Bearer <your-token-here>`}
                   </div>
 
                   {/* Reset time */}
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-outline">
                     Daily limits reset at {formatResetTime(usageData.daily.messages.resets_at)}
                   </p>
 
                   {/* Resource counts (user-facing only, not shown for admin) */}
                   {!user?.is_admin && (
-                  <div className="border-t border-white/10 pt-4">
+                  <div className="border-t ghost-border pt-4">
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="p-3 bg-white/5 rounded-lg">
-                        <p className="text-xs text-zinc-500 mb-1">Coaches</p>
-                        <p className="text-sm font-medium text-white">
+                      <div className="p-3 bg-surface-container-low rounded-lg">
+                        <p className="text-xs text-outline mb-1">Coaches</p>
+                        <p className="text-sm font-medium text-on-surface">
                           {usageData.resources.coaches} / {usageData.resources.max_coaches}
                         </p>
                       </div>
-                      <div className="p-3 bg-white/5 rounded-lg">
-                        <p className="text-xs text-zinc-500 mb-1">Conversations</p>
-                        <p className="text-sm font-medium text-white">
+                      <div className="p-3 bg-surface-container-low rounded-lg">
+                        <p className="text-xs text-outline mb-1">Conversations</p>
+                        <p className="text-sm font-medium text-on-surface">
                           {usageData.resources.conversations} / {usageData.resources.max_conversations}
                         </p>
                       </div>
@@ -1355,11 +1355,11 @@ Authorization: Bearer <your-token-here>`}
             )}
 
             <Card variant="dark">
-              <h2 className="text-lg font-semibold text-white mb-4">Security</h2>
+              <h2 className="text-lg font-semibold text-on-surface mb-4">Security</h2>
               <div className="space-y-4">
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
-                  <h3 className="font-medium text-white mb-2">Password</h3>
-                  <p className="text-sm text-zinc-400 mb-3">Change your password to keep your account secure.</p>
+                <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
+                  <h3 className="font-medium text-on-surface mb-2">Password</h3>
+                  <p className="text-sm text-on-surface-variant mb-3">Change your password to keep your account secure.</p>
                   <Button variant="outline" size="sm" onClick={() => setShowChangePassword(true)}>
                     Change Password
                   </Button>
@@ -1371,8 +1371,8 @@ Authorization: Bearer <your-token-here>`}
               <h2 className="text-lg font-semibold text-red-400 mb-4">Danger Zone</h2>
               <div className="space-y-4">
                 <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                  <h3 className="font-medium text-white mb-2">Sign Out</h3>
-                  <p className="text-sm text-zinc-400 mb-3">Sign out of your account on this device.</p>
+                  <h3 className="font-medium text-on-surface mb-2">Sign Out</h3>
+                  <p className="text-sm text-on-surface-variant mb-3">Sign out of your account on this device.</p>
                   <Button variant="secondary" size="sm" onClick={logout}>
                     Sign Out
                   </Button>

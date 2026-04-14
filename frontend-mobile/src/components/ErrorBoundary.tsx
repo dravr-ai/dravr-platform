@@ -68,7 +68,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             onPress={this.handleReload}
             className="bg-primary-500 rounded-lg px-8 py-3"
           >
-            <Text className="text-base font-semibold text-white">Reload App</Text>
+            <Text className="text-base font-semibold text-on-surface">Reload App</Text>
           </TouchableOpacity>
         </View>
       );

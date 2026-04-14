@@ -102,7 +102,7 @@ export function GroupListScreen() {
           testID="create-group-empty-button"
         >
           <Feather name="plus" size={18} color="#FFFFFF" />
-          <Text className="text-white text-base font-semibold">Create</Text>
+          <Text className="text-on-surface text-base font-semibold">Create</Text>
         </TouchableOpacity>
       </View>
     </View>

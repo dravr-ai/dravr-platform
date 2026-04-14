@@ -27,7 +27,7 @@ const ROLE_CONFIG: Record<GroupRole, { label: string; color: string; Icon: typeo
   },
   member: {
     label: 'Member',
-    color: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+    color: 'bg-zinc-500/20 text-on-surface-variant border-zinc-500/30',
     Icon: User,
   },
 };
@@ -40,7 +40,7 @@ export default function GroupCard({ group, onClick }: GroupCardProps) {
     <Card
       variant="dark"
       className={clsx(
-        '!p-5 cursor-pointer transition-all hover:bg-white/10',
+        '!p-5 cursor-pointer transition-all hover:bg-surface-container',
         !group.is_active && 'opacity-60'
       )}
       onClick={() => onClick(group.id)}
@@ -49,19 +49,19 @@ export default function GroupCard({ group, onClick }: GroupCardProps) {
         {/* Left section: group info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-2">
-            <h3 className="text-lg font-semibold text-white truncate">{group.name}</h3>
+            <h3 className="text-lg font-semibold text-on-surface truncate">{group.name}</h3>
             {!group.is_active && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-zinc-400 rounded-full">
+              <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-on-surface-variant rounded-full">
                 Inactive
               </span>
             )}
           </div>
 
           {group.description && (
-            <p className="text-sm text-zinc-400 mb-3 line-clamp-2">{group.description}</p>
+            <p className="text-sm text-on-surface-variant mb-3 line-clamp-2">{group.description}</p>
           )}
 
-          <div className="flex items-center gap-4 text-sm text-zinc-500">
+          <div className="flex items-center gap-4 text-sm text-outline">
             <span className="flex items-center gap-1.5">
               <Users className="w-4 h-4" />
               {group.member_count} {group.member_count === 1 ? 'member' : 'members'}

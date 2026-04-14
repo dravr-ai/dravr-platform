@@ -14,20 +14,20 @@ function PierreLogo() {
     <svg width="80" height="80" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#8B5CF6' }} />
-          <stop offset="100%" style={{ stopColor: '#22D3EE' }} />
+          <stop offset="0%" style={{ stopColor: '#00241a' }} />
+          <stop offset="100%" style={{ stopColor: '#0d3b2e' }} />
         </linearGradient>
         <linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#4ADE80' }} />
-          <stop offset="100%" style={{ stopColor: '#059669' }} />
+          <stop offset="0%" style={{ stopColor: '#3c6658' }} />
+          <stop offset="100%" style={{ stopColor: '#234e40' }} />
         </linearGradient>
         <linearGradient id="ng" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#F59E0B' }} />
-          <stop offset="100%" style={{ stopColor: '#D97706' }} />
+          <stop offset="0%" style={{ stopColor: '#8f6a2e' }} />
+          <stop offset="100%" style={{ stopColor: '#6e5020' }} />
         </linearGradient>
         <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#6366F1' }} />
-          <stop offset="100%" style={{ stopColor: '#4F46E5' }} />
+          <stop offset="0%" style={{ stopColor: '#5e7a82' }} />
+          <stop offset="100%" style={{ stopColor: '#425962' }} />
         </linearGradient>
       </defs>
       <g strokeWidth="2" opacity="0.5" strokeLinecap="round">
@@ -97,27 +97,27 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-pierre-dark">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         {/* Card with glassmorphism and gradient accent bar */}
         <div
-          className="rounded-xl border border-white/10 overflow-hidden relative"
+          className="rounded-xl border ghost-border overflow-hidden relative"
           style={{
-            background: 'rgba(30, 30, 46, 0.8)',
+            background: 'rgba(244, 244, 241, 0.8)',
             backdropFilter: 'blur(12px)',
           }}
         >
           {/* Gradient accent bar at top */}
-          <div className="h-1 w-full bg-gradient-pierre-horizontal" />
+          <div className="h-1 w-full boreal-hero-gradient" />
 
           <div className="px-8 py-10 space-y-6">
             {/* Logo and brand */}
             <div className="flex flex-col items-center">
               <PierreLogo />
-              <h1 className="mt-4 text-xl font-bold text-white tracking-tight">
+              <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
                 Create Your Account
               </h1>
-              <p className="mt-1 text-sm text-zinc-400">
+              <p className="mt-1 text-sm text-on-surface-variant">
                 Join Dravr
               </p>
             </div>
@@ -171,7 +171,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                     <button
                       type="button"
                       aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="text-zinc-400 hover:text-white transition-colors"
+                      className="text-on-surface-variant hover:text-on-surface transition-colors"
                       onClick={() => setShowPassword(!showPassword)}
                     >
                       {showPassword ? (
@@ -206,7 +206,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess }: R
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
-                className="w-full shadow-glow-sm"
+                className="w-full shadow-ambient"
               >
                 {isLoading ? 'Creating account...' : 'Create Account'}
               </Button>

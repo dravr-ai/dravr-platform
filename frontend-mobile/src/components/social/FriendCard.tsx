@@ -219,7 +219,7 @@ export function SearchUserCard({ user, onAddFriend, isAdding }: SearchUserCardPr
           ) : (
             <>
               <Feather name="user-plus" size={16} color="#FFFFFF" />
-              <Text className="text-sm font-semibold text-white">Add</Text>
+              <Text className="text-sm font-semibold text-on-surface">Add</Text>
             </>
           )}
         </TouchableOpacity>

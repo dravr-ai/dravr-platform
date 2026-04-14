@@ -120,7 +120,7 @@ export function RegisterScreen() {
                   end={{ x: 1, y: 1 }}
                   className="w-14 h-14 rounded-xl items-center justify-center mb-3"
                 >
-                  <Text className="text-[28px] font-bold text-white">P</Text>
+                  <Text className="text-[28px] font-bold text-on-surface">P</Text>
                 </LinearGradient>
                 <Text className="text-xl font-bold text-text-primary mb-1">Create Account</Text>
                 <Text className="text-sm text-text-secondary text-center leading-[20px]">

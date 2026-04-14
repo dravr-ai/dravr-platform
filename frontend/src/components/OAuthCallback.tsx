@@ -34,7 +34,7 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
 
 
   return (
-    <div className="min-h-screen bg-pierre-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-surface-container-low flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-white rounded-xl shadow-lg overflow-hidden">
         {/* Top gradient bar */}
         <div
@@ -57,20 +57,20 @@ export default function OAuthCallback({ provider, success, error, onClose }: OAu
             >
               <defs>
                 <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: '#8B5CF6' }} />
-                  <stop offset="100%" style={{ stopColor: '#22D3EE' }} />
+                  <stop offset="0%" style={{ stopColor: '#00241a' }} />
+                  <stop offset="100%" style={{ stopColor: '#0d3b2e' }} />
                 </linearGradient>
                 <linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: '#4ADE80' }} />
-                  <stop offset="100%" style={{ stopColor: '#059669' }} />
+                  <stop offset="0%" style={{ stopColor: '#3c6658' }} />
+                  <stop offset="100%" style={{ stopColor: '#234e40' }} />
                 </linearGradient>
                 <linearGradient id="ng" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: '#F59E0B' }} />
-                  <stop offset="100%" style={{ stopColor: '#D97706' }} />
+                  <stop offset="0%" style={{ stopColor: '#8f6a2e' }} />
+                  <stop offset="100%" style={{ stopColor: '#6e5020' }} />
                 </linearGradient>
                 <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: '#6366F1' }} />
-                  <stop offset="100%" style={{ stopColor: '#4F46E5' }} />
+                  <stop offset="0%" style={{ stopColor: '#5e7a82' }} />
+                  <stop offset="100%" style={{ stopColor: '#425962' }} />
                 </linearGradient>
               </defs>
               <g strokeWidth="2" opacity="0.5" strokeLinecap="round">

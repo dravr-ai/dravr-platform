@@ -97,14 +97,14 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+      <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center">
-            <Bell className="w-5 h-5 text-white" />
+            <Bell className="w-5 h-5 text-on-surface" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-white">Notifications</h1>
-            <p className="text-xs text-zinc-400">
+            <h1 className="text-lg font-semibold text-on-surface">Notifications</h1>
+            <p className="text-xs text-on-surface-variant">
               {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
               {total > 0 && ` · ${total} total`}
             </p>
@@ -124,7 +124,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
       </div>
 
       {/* Category filters */}
-      <div className="flex items-center gap-2 px-6 py-3 border-b border-white/5 overflow-x-auto">
+      <div className="flex items-center gap-2 px-6 py-3 border-b ghost-border overflow-x-auto">
         {categoryFilters.map(({ key, label }) => {
           const isActive = selectedCategory === key;
           const Icon = CATEGORY_ICONS[key];
@@ -136,7 +136,7 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors',
                 isActive
                   ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                  : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300 border border-transparent',
+                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface border border-transparent',
               )}
             >
               <Icon className="w-3 h-3" />
@@ -153,9 +153,9 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
             <div className="pierre-spinner" />
           </div>
         ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
+          <div className="flex flex-col items-center justify-center py-20 text-outline">
             <Bell className="w-12 h-12 mb-3 opacity-30" />
-            <p className="text-base font-medium text-zinc-400">No notifications</p>
+            <p className="text-base font-medium text-on-surface-variant">No notifications</p>
             <p className="text-sm mt-1">
               {selectedCategory === 'all'
                 ? "You're all caught up!"
@@ -208,16 +208,16 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
                   {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className={clsx('text-sm', isUnread ? 'text-white font-medium' : 'text-zinc-300')}>
+                      <p className={clsx('text-sm', isUnread ? 'text-on-surface font-medium' : 'text-on-surface')}>
                         {item.title}
                       </p>
                       {collapsedLabel && (
-                        <span className="text-[10px] text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded whitespace-nowrap">
+                        <span className="text-[10px] text-outline bg-surface-container-low px-1.5 py-0.5 rounded whitespace-nowrap">
                           {collapsedLabel}
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-zinc-500 mt-0.5 line-clamp-2">{item.body}</p>
+                    <p className="text-xs text-outline mt-0.5 line-clamp-2">{item.body}</p>
 
                     {/* Action buttons */}
                     {item.actions && item.actions.length > 0 && (
@@ -240,13 +240,13 @@ export default function NotificationsPanel({ onNavigate }: NotificationsPanelPro
 
                   {/* Time and actions */}
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[11px] text-zinc-500">{formatNotificationTime(item.created_at)}</span>
+                    <span className="text-[11px] text-outline">{formatNotificationTime(item.created_at)}</span>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         deleteNotification(item.id);
                       }}
-                      className="text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/5"
+                      className="text-on-surface-variant hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-surface-container-low"
                       title="Delete"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

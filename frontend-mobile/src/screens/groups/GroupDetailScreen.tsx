@@ -324,7 +324,7 @@ export function GroupDetailScreen() {
             testID="chat-with-coach-button"
           >
             <Feather name="message-circle" size={18} color="#FFFFFF" />
-            <Text className="text-white text-sm font-semibold">Chat with Coach</Text>
+            <Text className="text-on-surface text-sm font-semibold">Chat with Coach</Text>
           </TouchableOpacity>
 
           {isAdmin && (

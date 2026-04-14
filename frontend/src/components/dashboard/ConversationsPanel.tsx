@@ -205,15 +205,15 @@ export default function ConversationsPanel({
 
   return (
     <>
-      <div className="border-t border-white/10 pt-4">
-        <h3 className="text-[11px] font-bold text-zinc-400 tracking-wider uppercase px-3 mb-2">
+      <div className="border-t ghost-border pt-4">
+        <h3 className="text-[11px] font-bold text-on-surface-variant tracking-wider uppercase px-3 mb-2">
           Coaching sessions
         </h3>
         <div className="space-y-1 max-h-96 overflow-y-auto">
           {isLoading ? (
-            <div className="px-3 py-2 text-zinc-500 text-sm">Loading...</div>
+            <div className="px-3 py-2 text-outline text-sm">Loading...</div>
           ) : sessionGroups.length === 0 ? (
-            <div className="px-3 py-2 text-zinc-500 text-sm">No conversations yet</div>
+            <div className="px-3 py-2 text-outline text-sm">No conversations yet</div>
           ) : (
             sessionGroups.map((group) => {
               const isCollapsed = collapsedGroups.has(group.key);
@@ -226,32 +226,32 @@ export default function ConversationsPanel({
                   <button
                     type="button"
                     onClick={() => toggleGroup(group.key)}
-                    className="group flex items-center gap-2 w-full px-3 py-1.5 rounded hover:bg-white/5 transition-colors"
+                    className="group flex items-center gap-2 w-full px-3 py-1.5 rounded hover:bg-surface-container-low transition-colors"
                     aria-expanded={!isCollapsed}
                     aria-label={`Toggle ${group.label} session`}
                   >
                     {isCollapsed ? (
-                      <ChevronRight className="w-3 h-3 text-zinc-500 group-hover:text-zinc-300" />
+                      <ChevronRight className="w-3 h-3 text-outline group-hover:text-on-surface" />
                     ) : (
-                      <ChevronDown className="w-3 h-3 text-zinc-500 group-hover:text-zinc-300" />
+                      <ChevronDown className="w-3 h-3 text-outline group-hover:text-on-surface" />
                     )}
                     <MessageSquare
                       className={
                         group.isNoCoach
-                          ? 'w-3 h-3 text-zinc-500'
+                          ? 'w-3 h-3 text-outline'
                           : 'w-3 h-3 text-pierre-violet'
                       }
                     />
                     <span
                       className={
                         group.isNoCoach
-                          ? 'flex-1 text-left text-xs text-zinc-500 truncate'
-                          : 'flex-1 text-left text-xs font-medium text-zinc-300 truncate'
+                          ? 'flex-1 text-left text-xs text-outline truncate'
+                          : 'flex-1 text-left text-xs font-medium text-on-surface truncate'
                       }
                     >
                       {group.label}
                     </span>
-                    <span className="text-[10px] text-zinc-600">
+                    <span className="text-[10px] text-on-surface-variant">
                       {group.conversations.length}
                     </span>
                   </button>

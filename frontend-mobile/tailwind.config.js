@@ -1,105 +1,153 @@
-// ABOUTME: Tailwind CSS configuration for NativeWind v4
-// ABOUTME: Defines theme colors matching Pierre design system and content paths
+// ABOUTME: NativeWind v4 Tailwind config — Dravr Boreal Editorial tokens
+// ABOUTME: Matches frontend/tailwind.config.cjs and packages/shared-constants/src/design-system.ts
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
     "./App.{js,jsx,ts,tsx}",
+    "./app/**/*.{js,jsx,ts,tsx}",
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
   presets: [require('nativewind/preset')],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // Pierre Design System - Brand Colors (Stitch UX Refresh)
+        // ── Boreal MD3 canonical tokens (light) ──
+        primary: {
+          DEFAULT: '#00241a',
+          container: '#0d3b2e',
+          fixed: '#beedd9',
+          'fixed-dim': '#a3d0be',
+        },
+        'on-primary': '#ffffff',
+        'on-primary-container': '#79a694',
+
+        tertiary: {
+          DEFAULT: '#03231d',
+          container: '#1b3932',
+          'fixed-dim': '#adcdc3',
+        },
+        'on-tertiary': '#ffffff',
+        'on-tertiary-container': '#83a399',
+
+        error: {
+          DEFAULT: '#ba1a1a',
+          container: '#ffdad6',
+        },
+        'on-error': '#ffffff',
+        'on-error-container': '#93000a',
+
+        surface: {
+          DEFAULT: '#f9f9f6',
+          dim: '#dadad7',
+          bright: '#f9f9f6',
+          tint: '#3c6658',
+          variant: '#e2e3e0',
+          container: {
+            DEFAULT: '#eeeeeb',
+            lowest: '#ffffff',
+            low: '#f4f4f1',
+            high: '#e8e8e5',
+            highest: '#e2e3e0',
+          },
+        },
+        'on-surface': {
+          DEFAULT: '#1a1c1b',
+          variant: '#414845',
+        },
+        outline: {
+          DEFAULT: '#717974',
+          variant: '#c0c8c3',
+        },
+
+        // ── Legacy `pierre.*` namespace — repointed at Boreal semantics ──
+        // Keeps in-tree bg-pierre-* class references rendering in boreal tones
+        // during the sweep phase. Migrate call sites over time, then drop.
         pierre: {
-          violet: '#8B5CF6',    // Primary, AI indicators, CTAs
-          cyan: '#22D3EE',      // Data viz, progress indicators
-          // Three Pillars (dark-mode optimized)
-          activity: '#4ADE80',  // Success, health metrics, green
-          nutrition: '#F59E0B', // Warnings, nutrition data, amber
-          recovery: '#818CF8',  // Brightened for dark mode contrast
-          red: '#FF6B6B',       // Errors, destructive actions
-          // Dark theme
-          dark: '#0F0F1A',      // Page backgrounds
-          slate: '#1E1E2E',     // Card backgrounds
-          // Extended palettes
+          violet: '#00241a',
+          cyan: '#0d3b2e',
+          activity: '#3c6658',
+          nutrition: '#8f6a2e',
+          recovery: '#5e7a82',
+          mobility: '#7a4d5e',
+          red: '#ba1a1a',
+          dark: '#1a1c1b',
+          slate: '#eeeeeb',
           gray: {
-            50: '#f9fafb',
-            100: '#f3f4f6',
-            200: '#e5e7eb',
-            300: '#d1d5db',
-            400: '#9ca3af',
-            500: '#6b7280',
-            600: '#4b5563',
-            700: '#374151',
-            800: '#1f2937',
-            900: '#111827',
+            50: '#f9f9f6',
+            100: '#f4f4f1',
+            200: '#eeeeeb',
+            300: '#e8e8e5',
+            400: '#c0c8c3',
+            500: '#717974',
+            600: '#414845',
+            700: '#2f312f',
+            800: '#1a1c1b',
+            900: '#11130f',
           },
           green: {
-            50: '#f0fdf4',
-            100: '#dcfce7',
-            500: '#22c55e',
-            600: '#16a34a',
-            700: '#15803d',
+            50: '#eef4f1',
+            100: '#d6e3dc',
+            500: '#3c6658',
+            600: '#234e40',
+            700: '#0d3b2e',
           },
           yellow: {
-            50: '#fefce8',
-            100: '#fef3c7',
-            500: '#eab308',
-            600: '#ca8a04',
-            700: '#a16207',
-          },
-          red: {
-            50: '#fef2f2',
-            100: '#fee2e2',
-            500: '#ef4444',
-            600: '#dc2626',
-            700: '#b91c1c',
+            50: '#f5efdf',
+            100: '#e9dcb0',
+            500: '#8f6a2e',
+            600: '#6e5020',
+            700: '#4c3716',
           },
           blue: {
-            50: '#eff6ff',
-            100: '#dbeafe',
-            500: '#3b82f6',
-            600: '#2563eb',
-            700: '#1d4ed8',
+            50: '#eef4f1',
+            100: '#d6e3dc',
+            500: '#3c6658',
+            600: '#234e40',
+            700: '#0d3b2e',
           },
         },
-        // Primary brand color (sky blue palette)
-        primary: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-          950: '#082f49',
+
+        // Legacy aliases still used in theme.ts + app components.
+        primary_scale: {
+          50: '#eef4f1',
+          100: '#d6e3dc',
+          200: '#a3d0be',
+          300: '#79a694',
+          400: '#5e8a78',
+          500: '#3c6658',
+          600: '#234e40',
+          700: '#0d3b2e',
+          800: '#002117',
+          900: '#00241a',
+          950: '#001812',
         },
+
         background: {
-          primary: '#0F0F1A',    // pierre-dark - deepest background
-          secondary: '#1E1E2E',  // pierre-slate - cards, elevated surfaces
-          tertiary: '#2A2A3E',   // slightly lighter for hover states
-          elevated: '#363650',   // elevated components like modals
+          primary: '#f9f9f6',           // surface — base canvas
+          secondary: '#f4f4f1',         // surface-container-low — sections
+          tertiary: '#eeeeeb',          // surface-container — elevated
+          elevated: '#ffffff',          // surface-container-lowest — floating cards
         },
+
         text: {
-          primary: '#ffffff',
-          secondary: '#a1a1aa',  // zinc-400
-          tertiary: '#71717a',   // zinc-500
-          accent: '#8B5CF6',     // pierre-violet
+          primary: '#1a1c1b',           // on-surface — body copy
+          secondary: '#414845',         // on-surface-variant
+          tertiary: '#717974',          // outline — helper / label
+          accent: '#00241a',            // primary — links, active state
         },
+
         border: {
-          subtle: 'rgba(255, 255, 255, 0.05)',   // white/5
-          default: 'rgba(255, 255, 255, 0.1)',   // white/10
-          strong: 'rgba(255, 255, 255, 0.15)',   // white/15
+          subtle: 'rgba(192, 200, 195, 0.10)',
+          DEFAULT: 'rgba(192, 200, 195, 0.15)',  // ghost border baseline
+          strong: 'rgba(192, 200, 195, 0.25)',
         },
-        success: '#22c55e',
-        warning: '#f59e0b',
-        error: '#ef4444',
-        // Provider brand colors
+
+        success: '#2e7d5b',
+        warning: '#8f6a2e',
+
+        // Provider brand colors — belong to third parties, unchanged
         providers: {
           strava: '#FC4C02',
           garmin: '#007CC3',
@@ -109,18 +157,42 @@ module.exports = {
         },
       },
       fontFamily: {
-        // For React Native, use custom fonts loaded via expo-font
-        // Plus Jakarta Sans or Satoshi recommended for premium feel
+        // Space Grotesk for display/headlines, Plus Jakarta Sans for body,
+        // Inter for labels, Newsreader for editorial serif accents.
+        // Loaded at runtime via expo-font in app/_layout.tsx.
+        display: ['SpaceGrotesk', 'System', 'sans-serif'],
+        headline: ['SpaceGrotesk', 'System', 'sans-serif'],
         sans: ['PlusJakartaSans', 'System', 'sans-serif'],
+        label: ['Inter', 'System', 'sans-serif'],
+        serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrainsMono', 'Menlo', 'monospace'],
       },
+      letterSpacing: {
+        brand: '0.15em',      // DRAVR wordmark
+        label: '0.05em',      // small-caps buttons
+      },
+      borderRadius: {
+        none: '0',
+        sm: '2px',
+        DEFAULT: '4px',
+        md: '4px',
+        lg: '8px',
+        xl: '12px',
+        '2xl': '12px',
+        full: '9999px',
+      },
       boxShadow: {
-        // Glow effects for premium interactions
-        'glow-violet': '0 0 20px rgba(124, 58, 237, 0.3)',
-        'glow-cyan': '0 0 20px rgba(6, 182, 212, 0.3)',
-        'glow-activity': '0 0 20px rgba(16, 185, 129, 0.3)',
-        'glow-nutrition': '0 0 20px rgba(251, 191, 36, 0.3)',
-        'glow-recovery': '0 0 20px rgba(129, 140, 248, 0.3)',
+        // Ambient boreal shadow (6% on_surface, blur 24, spread -4).
+        // RN note: most shadows are applied via style props, not NativeWind
+        // classes; keep the utilities available for compatibility with web
+        // components that still reference them during the sweep.
+        ambient: '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        card: '0 24px 48px -12px rgba(26, 28, 27, 0.06)',
+        'glow-violet': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-cyan': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-activity': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-nutrition': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-recovery': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
       },
     },
   },

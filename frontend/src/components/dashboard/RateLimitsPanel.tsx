@@ -12,7 +12,7 @@ import { Card, CircularProgress } from '../ui';
 import { clsx } from 'clsx';
 
 const tierConfig: Record<string, { color: string; bg: string; icon: string }> = {
-  trial: { color: 'text-zinc-400', bg: 'bg-white/5', icon: 'T' },
+  trial: { color: 'text-on-surface-variant', bg: 'bg-surface-container-low', icon: 'T' },
   starter: { color: 'text-pierre-activity', bg: 'bg-pierre-activity/10', icon: 'S' },
   professional: { color: 'text-pierre-violet-light', bg: 'bg-pierre-violet/15', icon: 'P' },
   enterprise: { color: 'text-pierre-cyan', bg: 'bg-pierre-cyan/15', icon: 'E' },
@@ -45,8 +45,8 @@ export default function RateLimitsPanel() {
     <Card variant="dark" className="!p-5">
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h3 className="text-base font-semibold text-white">Rate Limits</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">
+          <h3 className="text-base font-semibold text-on-surface">Rate Limits</h3>
+          <p className="text-xs text-outline mt-0.5">
             {totalCapacity > 0 ? `${Math.round((totalUsed / totalCapacity) * 100)}% of capacity used` : 'Monitoring usage'}
           </p>
         </div>
@@ -59,15 +59,15 @@ export default function RateLimitsPanel() {
           <div key={item.api_key_id} className="flex items-center gap-3">
             <div className={clsx(
               'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-              tierConfig[item.tier]?.bg || 'bg-white/5',
-              tierConfig[item.tier]?.color || 'text-zinc-400'
+              tierConfig[item.tier]?.bg || 'bg-surface-container-low',
+              tierConfig[item.tier]?.color || 'text-on-surface-variant'
             )}>
               {tierConfig[item.tier]?.icon || 'T'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{item.api_key_name}</p>
+              <p className="text-sm font-medium text-on-surface truncate">{item.api_key_name}</p>
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div className="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
                   <div
                     className={clsx(
                       'h-full rounded-full transition-all duration-300',
@@ -77,7 +77,7 @@ export default function RateLimitsPanel() {
                     style={{ width: `${Math.min(item.usage_percentage, 100)}%` }}
                   />
                 </div>
-                <span className="text-xs text-zinc-500 w-12 text-right">
+                <span className="text-xs text-outline w-12 text-right">
                   {item.limit ? `${Math.round(item.usage_percentage)}%` : '-'}
                 </span>
               </div>

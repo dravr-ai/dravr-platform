@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Theme constants for Pierre Web app
-// ABOUTME: Re-exports shared design system and adds platform-specific styles
+// ABOUTME: Theme constants for the Dravr web app
+// ABOUTME: Re-exports Boreal Editorial design tokens with web-specific CSS shapes
 
 import {
+  BOREAL_LIGHT,
   PIERRE_COLORS,
   PILLAR_COLORS,
   PRIMARY_PALETTE,
@@ -15,8 +16,12 @@ import {
   PROVIDER_COLORS,
   GRADIENT_COLORS,
   GLASS_CARD,
+  AMBIENT_SHADOW,
   AI_GLOW,
   BUTTON_GLOW,
+  TYPOGRAPHY,
+  BRAND_TRACKING,
+  SURFACE_HIERARCHY,
   SPACING,
   BORDER_RADIUS,
   FONT_SIZE,
@@ -65,63 +70,61 @@ export const colors = {
   google: PROVIDER_COLORS.google,
 } as const;
 
-// Glassmorphism card styles for premium look (web CSS)
+// Boreal light glassmorphism card (DESIGN.md §2 "Glass & Gradient Rule")
 export const glassCard = {
   background: GLASS_CARD.background,
   borderColor: GLASS_CARD.borderColor,
   borderWidth: `${GLASS_CARD.borderWidth}px`,
-  boxShadow: `0 4px ${GLASS_CARD.shadowRadius}px ${GLASS_CARD.shadowColor}`,
-  backdropFilter: 'blur(12px)',
+  boxShadow: `0 ${GLASS_CARD.shadowRadius / 2}px ${GLASS_CARD.shadowRadius}px rgba(26, 28, 27, ${GLASS_CARD.shadowOpacity})`,
+  backdropFilter: 'blur(16px)',
 } as const;
 
-// Glow effect for primary buttons (web CSS)
+// Flat button baseline — no glow. Ambient shadow only on floating CTAs.
 export const buttonGlow = {
-  boxShadow: `0 0 ${BUTTON_GLOW.shadowRadius}px ${BUTTON_GLOW.shadowColor}`,
+  boxShadow: `0 ${BUTTON_GLOW.shadowRadius}px ${BUTTON_GLOW.shadowRadius * 2}px rgba(26, 28, 27, ${BUTTON_GLOW.shadowOpacity})`,
 } as const;
 
-// Gradient colors for premium effects (as CSS strings)
-export const gradients = {
-  violetIndigo: `linear-gradient(135deg, ${GRADIENT_COLORS.violetIndigo.start}, ${GRADIENT_COLORS.violetIndigo.end})`,
-  violetCyan: `linear-gradient(135deg, ${GRADIENT_COLORS.violetCyan.start}, ${GRADIENT_COLORS.violetCyan.end})`,
-  darkOverlay: `linear-gradient(180deg, ${GRADIENT_COLORS.darkOverlay.start}, ${GRADIENT_COLORS.darkOverlay.end})`,
-  aiGradient: `linear-gradient(135deg, ${GRADIENT_COLORS.aiGradient.start}, ${GRADIENT_COLORS.aiGradient.end})`,
-} as const;
-
-// AI Intelligence Glow Effects - Reinforces Pierre's AI-first brand identity
-// Use with CSS animations or @keyframes for animated effects
-export const aiGlow = {
-  // Subtle ambient glow for AI elements
+// Ambient shadow recipes mirroring --shadow-ambient / --shadow-card
+export const ambientShadow = {
   ambient: {
-    boxShadow: `0 0 ${AI_GLOW.ambient.shadowRadius}px ${AI_GLOW.ambient.shadowColor}`,
+    boxShadow: '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
   },
-  // Strong glow for prominent AI elements
-  strong: {
-    boxShadow: `0 0 ${AI_GLOW.strong.shadowRadius}px ${AI_GLOW.strong.shadowColor}`,
-  },
-  // Avatar/icon glow
-  avatar: {
-    boxShadow: `0 0 ${AI_GLOW.avatar.shadowRadius}px ${AI_GLOW.avatar.shadowColor}`,
-  },
-  // Thinking/processing state glow
-  thinking: {
-    boxShadow: `0 0 ${AI_GLOW.thinking.shadowRadius}px ${AI_GLOW.thinking.shadowColor}`,
-  },
-  // Response glow for new AI messages
-  response: {
-    boxShadow: `0 0 ${AI_GLOW.response.shadowRadius}px ${AI_GLOW.response.shadowColor}`,
+  card: {
+    boxShadow: '0 24px 48px -12px rgba(26, 28, 27, 0.06)',
   },
 } as const;
 
-// AI card style with gradient background and glow (web CSS)
+// Canonical boreal gradients as CSS strings
+export const gradients = {
+  borealHero: `linear-gradient(145deg, ${GRADIENT_COLORS.borealHero.start} 0%, ${GRADIENT_COLORS.borealHero.end} 100%)`,
+  // Back-compat aliases — still point at the boreal hero gradient.
+  violetCyan: `linear-gradient(145deg, ${GRADIENT_COLORS.violetCyan.start} 0%, ${GRADIENT_COLORS.violetCyan.end} 100%)`,
+  violetIndigo: `linear-gradient(145deg, ${GRADIENT_COLORS.violetIndigo.start}, ${GRADIENT_COLORS.violetIndigo.end})`,
+  darkOverlay: `linear-gradient(180deg, ${GRADIENT_COLORS.darkOverlay.start}, ${GRADIENT_COLORS.darkOverlay.end})`,
+  aiGradient: `linear-gradient(145deg, ${GRADIENT_COLORS.aiGradient.start}, ${GRADIENT_COLORS.aiGradient.end})`,
+} as const;
+
+// Legacy AI glow export — every entry now resolves to the same ambient spec.
+// Callers that still import `aiGlow` render quietly during the sweep.
+export const aiGlow = {
+  ambient: ambientShadow.ambient,
+  strong: ambientShadow.card,
+  avatar: ambientShadow.ambient,
+  thinking: ambientShadow.ambient,
+  response: ambientShadow.ambient,
+} as const;
+
+// AI card style — subtle tonal wash instead of violet glow
 export const aiCard = {
   background: gradients.aiGradient,
-  border: '1px solid rgba(139, 92, 246, 0.2)',
+  border: '1px solid rgba(192, 200, 195, 0.15)',
   borderRadius: `${borderRadius.xl}px`,
-  ...aiGlow.ambient,
+  ...ambientShadow.ambient,
 } as const;
 
 // Re-export raw shared constants for direct access
 export {
+  BOREAL_LIGHT,
   PIERRE_COLORS,
   PILLAR_COLORS,
   PRIMARY_PALETTE,
@@ -132,6 +135,10 @@ export {
   PROVIDER_COLORS,
   GRADIENT_COLORS,
   GLASS_CARD,
+  AMBIENT_SHADOW,
   AI_GLOW,
   BUTTON_GLOW,
+  TYPOGRAPHY,
+  BRAND_TRACKING,
+  SURFACE_HIERARCHY,
 };

@@ -59,7 +59,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
               </svg>
               <div>
                 <h4 className="font-medium text-pierre-nutrition">Important Security Notice</h4>
-                <p className="text-sm text-zinc-300 mt-1">
+                <p className="text-sm text-on-surface mt-1">
                   This is the only time the full API token will be displayed. Please copy it now and store it securely.
                   The old token has been invalidated and will no longer work.
                 </p>
@@ -68,7 +68,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">New API Key</label>
+            <label className="block text-sm font-medium text-on-surface mb-2">New API Key</label>
             <div className="relative">
               <textarea
                 className="input-dark font-mono text-xs resize-none"
@@ -104,16 +104,16 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-zinc-400">Service:</span>
-              <span className="ml-2 font-medium text-white">{tokenInfo.service_name}</span>
+              <span className="text-on-surface-variant">Service:</span>
+              <span className="ml-2 font-medium text-on-surface">{tokenInfo.service_name}</span>
             </div>
             <div>
-              <span className="text-zinc-400">Prefix:</span>
-              <span className="ml-2 font-mono text-white">{tokenInfo.token_prefix}...</span>
+              <span className="text-on-surface-variant">Prefix:</span>
+              <span className="ml-2 font-mono text-on-surface">{tokenInfo.token_prefix}...</span>
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4 border-t border-white/10">
+          <div className="flex gap-3 pt-4 border-t ghost-border">
             <Button onClick={onClose} className="flex-1">
               I've Saved the API Token Securely
             </Button>
@@ -259,24 +259,24 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div>
-            <span className="text-sm text-zinc-400">Status</span>
+            <span className="text-sm text-on-surface-variant">Status</span>
             <div className="mt-1">{getStatusBadge()}</div>
           </div>
           <div>
-            <span className="text-sm text-zinc-400">Usage Count</span>
-            <div className="text-xl font-semibold text-white mt-1">
+            <span className="text-sm text-on-surface-variant">Usage Count</span>
+            <div className="text-xl font-semibold text-on-surface mt-1">
               {token.usage_count.toLocaleString()}
             </div>
           </div>
           <div>
-            <span className="text-sm text-zinc-400">Created</span>
-            <div className="text-sm text-white mt-1">
+            <span className="text-sm text-on-surface-variant">Created</span>
+            <div className="text-sm text-on-surface mt-1">
               {format(new Date(token.created_at), 'MMM d, yyyy')}
             </div>
           </div>
           <div>
-            <span className="text-sm text-zinc-400">Last Used</span>
-            <div className="text-sm text-white mt-1">
+            <span className="text-sm text-on-surface-variant">Last Used</span>
+            <div className="text-sm text-on-surface mt-1">
               {token.last_used_at
                 ? format(new Date(token.last_used_at), 'MMM d, yyyy')
                 : 'Never'
@@ -292,24 +292,24 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
           <CardHeader title="API Token Information" />
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Service Name</label>
-              <div className="text-sm text-white">{token.service_name}</div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">Service Name</label>
+              <div className="text-sm text-on-surface">{token.service_name}</div>
             </div>
 
             {token.service_description && (
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">Description</label>
-                <div className="text-sm text-white">{token.service_description}</div>
+                <label className="block text-sm font-medium text-on-surface-variant mb-1">Description</label>
+                <div className="text-sm text-on-surface">{token.service_description}</div>
               </div>
             )}
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Key Prefix</label>
-              <div className="text-sm font-mono text-white">{token.token_prefix}...</div>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">Key Prefix</label>
+              <div className="text-sm font-mono text-on-surface">{token.token_prefix}...</div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">Permissions</label>
+              <label className="block text-sm font-medium text-on-surface-variant mb-1">Permissions</label>
               <div className="flex flex-wrap gap-2">
                 {token.is_super_admin ? (
                   <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
@@ -325,8 +325,8 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
 
             {token.expires_at && (
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">Expires</label>
-                <div className="text-sm text-white">
+                <label className="block text-sm font-medium text-on-surface-variant mb-1">Expires</label>
+                <div className="text-sm text-on-surface">
                   {format(new Date(token.expires_at), 'MMM d, yyyy \'at\' h:mm a')}
                 </div>
               </div>
@@ -348,30 +348,30 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                   <div className="text-2xl font-semibold text-pierre-cyan">
                     {stats.total_actions.toLocaleString()}
                   </div>
-                  <div className="text-xs text-zinc-400">Total Actions</div>
+                  <div className="text-xs text-on-surface-variant">Total Actions</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-semibold text-pierre-activity">
                     {stats.actions_last_24h.toLocaleString()}
                   </div>
-                  <div className="text-xs text-zinc-400">Last 24h</div>
+                  <div className="text-xs text-on-surface-variant">Last 24h</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-semibold text-pierre-violet">
                     {stats.actions_last_7d.toLocaleString()}
                   </div>
-                  <div className="text-xs text-zinc-400">Last 7 days</div>
+                  <div className="text-xs text-on-surface-variant">Last 7 days</div>
                 </div>
               </div>
 
               {stats.most_common_actions.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-2">Most Common Actions</label>
+                  <label className="block text-sm font-medium text-on-surface-variant mb-2">Most Common Actions</label>
                   <div className="space-y-2">
                     {stats.most_common_actions.slice(0, 5).map((action, index) => (
                       <div key={index} className="flex justify-between text-sm">
-                        <span className="text-white">{action.action}</span>
-                        <span className="text-zinc-400">{action.count.toLocaleString()}</span>
+                        <span className="text-on-surface">{action.action}</span>
+                        <span className="text-on-surface-variant">{action.count.toLocaleString()}</span>
                       </div>
                     ))}
                   </div>
@@ -379,7 +379,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
               )}
             </div>
           ) : (
-            <div className="text-center py-8 text-zinc-400">
+            <div className="text-center py-8 text-on-surface-variant">
               No usage statistics available
             </div>
           )}
@@ -390,24 +390,24 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
       <Card variant="dark">
         <CardHeader title={`Provisioned API Keys (${provisionedKeysData.length})`} />
         {provisionedKeysData.length === 0 ? (
-          <div className="text-center py-8 text-zinc-400">
+          <div className="text-center py-8 text-on-surface-variant">
             No user keys have been provisioned using this API token yet.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-white/10">
-                  <th className="text-left py-3 px-4 font-medium text-zinc-400">User Email</th>
-                  <th className="text-left py-3 px-4 font-medium text-zinc-400">Tier</th>
-                  <th className="text-left py-3 px-4 font-medium text-zinc-400">Status</th>
-                  <th className="text-left py-3 px-4 font-medium text-zinc-400">Provisioned</th>
+                <tr className="border-b ghost-border">
+                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">User Email</th>
+                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Tier</th>
+                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-on-surface-variant">Provisioned</th>
                 </tr>
               </thead>
               <tbody>
                 {provisionedKeysData.slice(0, 10).map((key: ProvisionedKey) => (
-                  <tr key={key.api_key_id} className="border-b border-white/5">
-                    <td className="py-3 px-4 text-sm text-white">{key.user_email}</td>
+                  <tr key={key.api_key_id} className="border-b ghost-border">
+                    <td className="py-3 px-4 text-sm text-on-surface">{key.user_email}</td>
                     <td className="py-3 px-4">
                       <Badge variant={key.requested_tier as 'trial' | 'starter' | 'professional' | 'enterprise' | 'info'}>{key.requested_tier}</Badge>
                     </td>
@@ -416,7 +416,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                         {key.key_status}
                       </Badge>
                     </td>
-                    <td className="py-3 px-4 text-sm text-zinc-400">
+                    <td className="py-3 px-4 text-sm text-on-surface-variant">
                       {format(new Date(key.created_at), 'MMM d, yyyy')}
                     </td>
                   </tr>
@@ -435,25 +435,25 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
             <div className="pierre-spinner w-6 h-6" />
           </div>
         ) : auditEntries.length === 0 ? (
-          <div className="text-center py-8 text-zinc-400">
+          <div className="text-center py-8 text-on-surface-variant">
             No recent activity found for this API token.
           </div>
         ) : (
           <div className="space-y-3">
             {auditEntries.slice(0, 20).map((entry: AdminTokenAudit) => (
-              <div key={entry.id} className="flex items-start gap-3 p-3 rounded-lg bg-white/5">
+              <div key={entry.id} className="flex items-start gap-3 p-3 rounded-lg bg-surface-container-low">
                 <div className={`w-2 h-2 rounded-full mt-2 ${
                   entry.success ? 'bg-pierre-activity' : 'bg-pierre-red-400'
                 }`} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="font-medium text-white">{entry.action}</span>
-                    <span className="text-zinc-400">
+                    <span className="font-medium text-on-surface">{entry.action}</span>
+                    <span className="text-on-surface-variant">
                       {format(new Date(entry.timestamp), 'MMM d, h:mm a')}
                     </span>
                   </div>
                   {entry.target_resource && (
-                    <div className="text-xs text-zinc-400 mt-1">
+                    <div className="text-xs text-on-surface-variant mt-1">
                       Target: {entry.target_resource}
                     </div>
                   )}
@@ -463,7 +463,7 @@ export default function ApiKeyDetails({ token, onBack, onTokenUpdated }: ApiKeyD
                     </div>
                   )}
                   {entry.ip_address && (
-                    <div className="text-xs text-zinc-500 mt-1">
+                    <div className="text-xs text-outline mt-1">
                       IP: {entry.ip_address}
                     </div>
                   )}

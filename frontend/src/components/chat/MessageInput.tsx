@@ -46,20 +46,20 @@ export default function MessageInput({
   };
 
   return (
-    <div className="border-t border-white/10 p-4 bg-pierre-slate">
+    <div className="border-t ghost-border p-4 bg-surface-container-low">
       <div className="max-w-3xl mx-auto">
         {/* Ideas popover */}
         {showIdeas && (
-          <div className="mb-4 p-4 bg-white/5 rounded-xl border border-white/10 relative">
+          <div className="mb-4 p-4 bg-surface-container-low rounded-xl border ghost-border relative">
             <button
               onClick={onToggleIdeas}
-              className="absolute top-2 right-2 text-zinc-500 hover:text-white transition-colors"
+              className="absolute top-2 right-2 text-outline hover:text-on-surface transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            <p className="text-xs text-zinc-400 mb-3">Click a suggestion to fill the input:</p>
+            <p className="text-xs text-on-surface-variant mb-3">Click a suggestion to fill the input:</p>
             <PromptSuggestions onSelectPrompt={onSelectPrompt} />
           </div>
         )}
@@ -70,7 +70,7 @@ export default function MessageInput({
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Message Dravr..."
-            className="w-full resize-none rounded-xl border border-white/10 bg-[#151520] text-white placeholder-zinc-500 pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors overflow-hidden"
+            className="w-full resize-none rounded-xl border ghost-border bg-surface-container-low text-on-surface placeholder:text-outline pl-4 pr-14 py-3 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet text-sm transition-colors overflow-hidden"
             rows={1}
             disabled={isStreaming || disabled}
           />
@@ -81,8 +81,8 @@ export default function MessageInput({
             className={clsx(
               'absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
               value.trim() && !isStreaming && !disabled
-                ? 'bg-pierre-violet text-white hover:bg-pierre-violet/90 shadow-glow-sm'
-                : 'text-zinc-600 cursor-not-allowed'
+                ? 'bg-pierre-violet text-on-surface hover:bg-pierre-violet/90 shadow-ambient'
+                : 'text-on-surface-variant cursor-not-allowed'
             )}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -91,10 +91,10 @@ export default function MessageInput({
           </button>
         </div>
         <div className="flex items-center justify-center gap-2 mt-2">
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-outline">
             Press Enter to send, Shift+Enter for new line
           </p>
-          <span className="text-zinc-600">|</span>
+          <span className="text-on-surface-variant">|</span>
           <button
             onClick={onToggleIdeas}
             className="text-xs text-pierre-violet-light hover:text-pierre-cyan-light flex items-center gap-1 transition-colors"

@@ -77,7 +77,7 @@ export default function MessageList({
 
   if (isLoading) {
     return (
-      <div className="text-center text-zinc-400 py-8 text-sm">Loading messages...</div>
+      <div className="text-center text-on-surface-variant py-8 text-sm">Loading messages...</div>
     );
   }
 
@@ -137,18 +137,18 @@ export default function MessageList({
             <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
-            <div className="font-medium text-white text-sm mb-1 flex items-center gap-2">
+            <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
               Dravr
               <button
                 onClick={onDismissOAuthNotification}
-                className="text-zinc-500 hover:text-white transition-colors"
+                className="text-outline hover:text-on-surface transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="text-zinc-300 text-sm leading-relaxed">
+            <div className="text-on-surface text-sm leading-relaxed">
               {oauthNotification.provider} connected successfully. You can now access your {oauthNotification.provider} data.
             </div>
           </div>
@@ -162,11 +162,11 @@ export default function MessageList({
             <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 min-w-0 pt-1">
-            <div className="font-medium text-white text-sm mb-1 flex items-center gap-2">
+            <div className="font-medium text-on-surface text-sm mb-1 flex items-center gap-2">
               Dravr
               <span className="w-1.5 h-1.5 bg-pierre-violet rounded-full animate-pulse" />
             </div>
-            <div className="text-zinc-300 text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
+            <div className="text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80">
               <Markdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -191,10 +191,10 @@ export default function MessageList({
             <img src="/dravr-icon.svg" alt="Dravr" className="w-8 h-8 rounded-xl" />
           </div>
           <div className="flex-1 pt-1">
-            <div className="font-medium text-white text-sm mb-2 flex items-center gap-2">
+            <div className="font-medium text-on-surface text-sm mb-2 flex items-center gap-2">
               Dravr
             </div>
-            <div className="flex items-center gap-2 text-zinc-400 text-sm">
+            <div className="flex items-center gap-2 text-on-surface-variant text-sm">
               <div className="pierre-spinner w-4 h-4"></div>
               <span>Thinking...</span>
             </div>

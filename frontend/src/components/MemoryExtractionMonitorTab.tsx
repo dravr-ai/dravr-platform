@@ -142,7 +142,7 @@ export default function MemoryExtractionMonitorTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Memory extraction worker
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -207,7 +207,7 @@ export default function MemoryExtractionMonitorTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 Total facts
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
                 {metrics.total_facts.toLocaleString()}
               </div>
             </Card>
@@ -215,7 +215,7 @@ export default function MemoryExtractionMonitorTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 Last 24 hours
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
                 {metrics.facts_last_24h.toLocaleString()}
               </div>
             </Card>
@@ -223,7 +223,7 @@ export default function MemoryExtractionMonitorTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 Last 7 days
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
                 {metrics.facts_last_7d.toLocaleString()}
               </div>
             </Card>
@@ -231,7 +231,7 @@ export default function MemoryExtractionMonitorTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 Distinct users
               </div>
-              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-3xl font-semibold text-gray-900 dark:text-on-surface">
                 {metrics.distinct_users.toLocaleString()}
               </div>
             </Card>
@@ -239,7 +239,7 @@ export default function MemoryExtractionMonitorTab() {
 
           <Card className="overflow-hidden">
             <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                 Breakdown by fact kind
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">

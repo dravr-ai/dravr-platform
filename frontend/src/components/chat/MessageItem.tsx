@@ -94,7 +94,7 @@ function chipClassForTone(tone: WorstStrengthTone): string {
       return 'bg-sky-500/15 text-sky-300 hover:bg-sky-500/25';
     case 'secondary':
     default:
-      return 'bg-zinc-500/15 text-zinc-300 hover:bg-zinc-500/25';
+      return 'bg-zinc-500/15 text-on-surface hover:bg-zinc-500/25';
   }
 }
 
@@ -136,8 +136,8 @@ const MessageItem = memo(function MessageItem({
       {/* Avatar */}
       <div className="flex-shrink-0">
         {isUser ? (
-          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center">
-            <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center">
+            <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
             </svg>
           </div>
@@ -147,21 +147,21 @@ const MessageItem = memo(function MessageItem({
       </div>
       {/* Message Content */}
       <div className="flex-1 min-w-0 pt-1">
-        <div className="font-medium text-white text-sm mb-1">
+        <div className="font-medium text-on-surface text-sm mb-1">
           {isUser ? 'You' : 'Dravr'}
         </div>
         {/* Collapsible activity list (collapsed by default) */}
         {activityList && (
           <details className="mb-3">
-            <summary className="cursor-pointer text-sm text-zinc-400 hover:text-zinc-300 transition-colors select-none">
+            <summary className="cursor-pointer text-sm text-on-surface-variant hover:text-on-surface transition-colors select-none">
               Your Activities ({countActivities(activityList)})
             </summary>
-            <div className="mt-2 ml-4 text-zinc-300 text-sm prose prose-sm prose-invert max-w-none">
+            <div className="mt-2 ml-4 text-on-surface text-sm prose prose-sm prose-invert max-w-none">
               <Markdown remarkPlugins={[remarkGfm]}>{activityList}</Markdown>
             </div>
           </details>
         )}
-        <div className={`text-zinc-300 text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
+        <div className={`text-on-surface text-sm leading-relaxed prose prose-sm prose-invert max-w-none prose-a:text-pierre-violet prose-a:underline hover:prose-a:text-pierre-violet/80 ${isError ? 'text-red-400' : ''}`}>
           <Markdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -191,7 +191,7 @@ const MessageItem = memo(function MessageItem({
               </span>
             </button>
             {messageVerdicts.length > 1 ? (
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-outline">
                 Click for details
               </span>
             ) : null}
@@ -213,7 +213,7 @@ const MessageItem = memo(function MessageItem({
               /* For error messages, show only Retry button with label */
               <button
                 onClick={onRetry}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-white font-medium bg-white/10 rounded hover:bg-white/15 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-xs text-on-surface font-medium bg-surface-container-high rounded hover:bg-white/15 transition-colors"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
                 <span>Retry</span>
@@ -225,7 +225,7 @@ const MessageItem = memo(function MessageItem({
                 {onCopy && (
                   <button
                     onClick={onCopy}
-                    className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
                     title="Copy message"
                   >
                     <Copy className="w-3.5 h-3.5" />
@@ -235,7 +235,7 @@ const MessageItem = memo(function MessageItem({
                 {onShare && (
                   <button
                     onClick={onShare}
-                    className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
                     title="Share"
                   >
                     <Share2 className="w-3.5 h-3.5" />
@@ -245,7 +245,7 @@ const MessageItem = memo(function MessageItem({
                 {onCreateInsight && !hasInsight && (
                   <button
                     onClick={onCreateInsight}
-                    className="p-0.5 text-zinc-500 hover:text-pierre-cyan transition-colors"
+                    className="p-0.5 text-outline hover:text-pierre-cyan transition-colors"
                     title="Create shareable insight"
                   >
                     <Lightbulb className="w-3.5 h-3.5" />
@@ -255,7 +255,7 @@ const MessageItem = memo(function MessageItem({
                 {onShareToFeed && hasInsight && (
                   <button
                     onClick={onShareToFeed}
-                    className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
                     title="Share insight"
                   >
                     <Users className="w-3.5 h-3.5" />
@@ -266,7 +266,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onThumbsUp}
                     className={`p-0.5 transition-colors ${
-                      feedback === 'up' ? 'text-pierre-violet' : 'text-zinc-500 hover:text-zinc-300'
+                      feedback === 'up' ? 'text-pierre-violet' : 'text-outline hover:text-on-surface'
                     }`}
                     title="Good response"
                   >
@@ -278,7 +278,7 @@ const MessageItem = memo(function MessageItem({
                   <button
                     onClick={onThumbsDown}
                     className={`p-0.5 transition-colors ${
-                      feedback === 'down' ? 'text-red-500' : 'text-zinc-500 hover:text-zinc-300'
+                      feedback === 'down' ? 'text-red-500' : 'text-outline hover:text-on-surface'
                     }`}
                     title="Poor response"
                   >
@@ -289,7 +289,7 @@ const MessageItem = memo(function MessageItem({
                 {onRetry && (
                   <button
                     onClick={onRetry}
-                    className="p-0.5 text-zinc-500 hover:text-zinc-300 transition-colors"
+                    className="p-0.5 text-outline hover:text-on-surface transition-colors"
                     title="Regenerate response"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -297,7 +297,7 @@ const MessageItem = memo(function MessageItem({
                 )}
                 {/* Model and response time - to the right of icons */}
                 {metadata && (
-                  <span className="text-xs text-zinc-500 ml-2">
+                  <span className="text-xs text-outline ml-2">
                     {metadata.model}{metadata.executionTimeMs ? ` · ${(metadata.executionTimeMs / 1000).toFixed(1)}s` : ''}
                   </span>
                 )}

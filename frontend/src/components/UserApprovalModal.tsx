@@ -69,16 +69,16 @@ export default function UserApprovalModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-pierre-slate rounded-lg shadow-xl max-w-md w-full m-4 border border-white/10">
+      <div className="bg-surface-container-low rounded-lg shadow-xl max-w-md w-full m-4 border ghost-border">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-on-surface">
               {actionTitle}
             </h2>
             <button
               onClick={handleClose}
               aria-label="Close modal"
-              className="text-zinc-400 hover:text-white"
+              className="text-on-surface-variant hover:text-on-surface"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -86,12 +86,12 @@ export default function UserApprovalModal({
             </button>
           </div>
 
-          <Card variant="dark" className="mb-4 p-4 bg-white/5">
+          <Card variant="dark" className="mb-4 p-4 bg-surface-container-low">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-medium text-white">{user.display_name || 'Unnamed User'}</h3>
-                <p className="text-sm text-zinc-400">{user.email}</p>
-                <p className="text-sm text-zinc-500 mt-1">
+                <h3 className="font-medium text-on-surface">{user.display_name || 'Unnamed User'}</h3>
+                <p className="text-sm text-on-surface-variant">{user.email}</p>
+                <p className="text-sm text-outline mt-1">
                   Registered: {new Date(user.created_at).toLocaleDateString()}
                 </p>
               </div>
@@ -105,13 +105,13 @@ export default function UserApprovalModal({
                 >
                   {user.user_status}
                 </Badge>
-                <span className="text-xs text-zinc-400 capitalize">{user.tier}</span>
+                <span className="text-xs text-on-surface-variant capitalize">{user.tier}</span>
               </div>
             </div>
           </Card>
 
           <div className="mb-4">
-            <label htmlFor="reason" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="reason" className="block text-sm font-medium text-on-surface mb-2">
               Reason {action === 'approve' ? '(optional)' : '(recommended)'}
             </label>
             <textarea
@@ -136,7 +136,7 @@ export default function UserApprovalModal({
             <Button
               onClick={handleSubmit}
               disabled={approvalMutation.isPending}
-              className={`flex-1 text-white ${actionColor}`}
+              className={`flex-1 text-on-surface ${actionColor}`}
             >
               {approvalMutation.isPending ? (
                 <div className="flex items-center justify-center">

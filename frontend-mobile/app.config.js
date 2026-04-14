@@ -10,15 +10,20 @@ module.exports = {
   },
   orientation: 'portrait',
   icon: './assets/icon.png',
-  userInterfaceStyle: 'dark',
+  // Boreal Editorial is a light-first system; follow the OS so mobile falls
+  // back to the tuned dark variant on OLED night use. See ThemeProvider in
+  // app/_layout.tsx for the runtime switch.
+  userInterfaceStyle: 'automatic',
   scheme: 'pierre',
   splash: {
     image: './assets/splash-icon.png',
     resizeMode: 'contain',
-    backgroundColor: '#0f0f0f',
+    backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
   },
   ios: {
     supportsTablet: true,
+    // Keep the legacy bundle id — renaming breaks OAuth deep links, Keychain
+    // storage, and push tokens. Flag for a separate migration.
     bundleIdentifier: 'com.pierre.fitness',
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
@@ -31,7 +36,7 @@ module.exports = {
   android: {
     adaptiveIcon: {
       foregroundImage: './assets/adaptive-icon.png',
-      backgroundColor: '#0f0f0f',
+      backgroundColor: '#f9f9f6', // surface — DESIGN.md §2
     },
     edgeToEdgeEnabled: true,
     package: 'com.pierre.fitness',

@@ -174,7 +174,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           {onBack && (
             <button
               onClick={onBack}
-              className="flex items-center gap-1 text-zinc-400 hover:text-pierre-violet transition-colors"
+              className="flex items-center gap-1 text-on-surface-variant hover:text-pierre-violet transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -182,7 +182,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
               Insights
             </button>
           )}
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-on-surface-variant">
             Connect with other athletes and share coach insights
           </p>
         </div>
@@ -200,8 +200,8 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'friends'
-              ? 'bg-pierre-violet text-white'
-              : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'
+              ? 'bg-pierre-violet text-on-surface'
+              : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
           <span className="flex items-center gap-2">
@@ -216,8 +216,8 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'search'
-              ? 'bg-pierre-violet text-white'
-              : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'
+              ? 'bg-pierre-violet text-on-surface'
+              : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
           <span className="flex items-center gap-2">
@@ -232,8 +232,8 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors relative',
             activeTab === 'pending'
-              ? 'bg-pierre-violet text-white'
-              : 'bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10'
+              ? 'bg-pierre-violet text-on-surface'
+              : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
           <span className="flex items-center gap-2">
@@ -242,7 +242,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             </svg>
             Pending
             {pendingReceived.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-pierre-nutrition text-white text-xs font-bold rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-pierre-nutrition text-on-surface text-xs font-bold rounded-full flex items-center justify-center">
                 {pendingReceived.length}
               </span>
             )}
@@ -264,8 +264,8 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-white mb-2">No friends yet</h3>
-              <p className="text-zinc-400 mb-4">Find and connect with other athletes</p>
+              <h3 className="text-lg font-semibold text-on-surface mb-2">No friends yet</h3>
+              <p className="text-on-surface-variant mb-4">Find and connect with other athletes</p>
               <Button variant="primary" onClick={() => setActiveTab('search')}>
                 Find Friends
               </Button>
@@ -275,20 +275,20 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
               {friends.map((friend) => (
                 <div
                   key={friend.id}
-                  className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                  className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
                       style={{ backgroundColor: getAvatarColor(friend.friend_email) }}
                     >
                       {getInitials(friend.friend_display_name, friend.friend_email)}
                     </div>
                     <div>
-                      <p className="font-medium text-white">
+                      <p className="font-medium text-on-surface">
                         {friend.friend_display_name || friend.friend_email.split('@')[0]}
                       </p>
-                      <p className="text-sm text-zinc-500">
+                      <p className="text-sm text-outline">
                         Friends since {formatRelativeTime(friend.accepted_at || friend.created_at)}
                       </p>
                     </div>
@@ -320,7 +320,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
                 placeholder="Search by name or email..."
                 aria-label="Search friends by name or email"
-                className="flex-1 px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-pierre-violet/50"
+                className="flex-1 px-4 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:border-pierre-violet/50"
               />
               <Button variant="primary" onClick={handleSearch} loading={isSearching}>
                 Search
@@ -330,22 +330,22 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
 
           {searchResults.length > 0 && (
             <Card variant="dark" className="!p-5">
-              <h3 className="text-sm font-semibold text-zinc-400 mb-4">Search Results</h3>
+              <h3 className="text-sm font-semibold text-on-surface-variant mb-4">Search Results</h3>
               <div className="space-y-3">
                 {searchResults.map((user) => (
                   <div
                     key={user.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-white/5"
+                    className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low"
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
                         style={{ backgroundColor: getAvatarColor(user.email ?? user.id) }}
                       >
                         {getInitials(user.display_name, user.email)}
                       </div>
                       <div>
-                        <p className="font-medium text-white">
+                        <p className="font-medium text-on-surface">
                           {user.display_name || user.email?.split('@')[0] || 'Unknown User'}
                         </p>
                       </div>
@@ -381,7 +381,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
         <div className="space-y-4">
           {/* Received Requests */}
           <Card variant="dark" className="!p-5">
-            <h3 className="text-sm font-semibold text-zinc-400 mb-4">
+            <h3 className="text-sm font-semibold text-on-surface-variant mb-4">
               Received Requests ({pendingReceived.length})
             </h3>
             {isLoading ? (
@@ -389,7 +389,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                 <div className="pierre-spinner"></div>
               </div>
             ) : pendingReceived.length === 0 ? (
-              <p className="text-center py-8 text-zinc-500">No pending requests</p>
+              <p className="text-center py-8 text-outline">No pending requests</p>
             ) : (
               <div className="space-y-3">
                 {pendingReceived.map((request) => {
@@ -398,18 +398,18 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                   return (
                   <div
                     key={request.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-white/5"
+                    className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low"
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
                         style={{ backgroundColor: getAvatarColor(request.user_id) }}
                       >
                         {initials}
                       </div>
                       <div>
-                        <p className="font-medium text-white">{displayName}</p>
-                        <p className="text-sm text-zinc-500">
+                        <p className="font-medium text-on-surface">{displayName}</p>
+                        <p className="text-sm text-outline">
                           Sent {formatRelativeTime(request.created_at)}
                         </p>
                       </div>
@@ -441,11 +441,11 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
 
           {/* Sent Requests */}
           <Card variant="dark" className="!p-5">
-            <h3 className="text-sm font-semibold text-zinc-400 mb-4">
+            <h3 className="text-sm font-semibold text-on-surface-variant mb-4">
               Sent Requests ({pendingSent.length})
             </h3>
             {pendingSent.length === 0 ? (
-              <p className="text-center py-8 text-zinc-500">No sent requests</p>
+              <p className="text-center py-8 text-outline">No sent requests</p>
             ) : (
               <div className="space-y-3">
                 {pendingSent.map((request) => {
@@ -454,18 +454,18 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
                   return (
                   <div
                     key={request.id}
-                    className="flex items-center justify-between p-4 rounded-lg bg-white/5"
+                    className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low"
                   >
                     <div className="flex items-center gap-3">
                       <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-white"
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold text-on-surface"
                         style={{ backgroundColor: getAvatarColor(request.user_id) }}
                       >
                         {initials}
                       </div>
                       <div>
-                        <p className="font-medium text-white">{displayName}</p>
-                        <p className="text-sm text-zinc-500">
+                        <p className="font-medium text-on-surface">{displayName}</p>
+                        <p className="text-sm text-outline">
                           Sent {formatRelativeTime(request.created_at)}
                         </p>
                       </div>

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Reusable Input component with Pierre design system styling
-// ABOUTME: Supports error states, help text, icons, and consistent focus rings
+// ABOUTME: Boreal Editorial Input — bottom-stroke underline, DESIGN.md §5
+// ABOUTME: Supports label, error/help text, left/right icons
 
 import React, { forwardRef, useId } from 'react';
 
@@ -13,86 +13,74 @@ export interface InputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg';
+  /**
+   * Variant is retained for API stability but the Boreal system only ships
+   * one editorial underline style. All three values render identically.
+   */
   variant?: 'light' | 'dark' | 'glass';
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, helpText, leftIcon, rightIcon, size = 'md', variant = 'light', className = '', id, ...props }, ref) => {
+  ({ label, error, helpText, leftIcon, rightIcon, size = 'md', className = '', id, ...props }, ref) => {
     const reactId = useId();
     const inputId = id || reactId;
 
     const sizeClasses = {
-      sm: 'px-3 py-2 text-sm',
-      md: 'px-4 py-2.5 text-sm',
-      lg: 'px-4 py-3 text-base',
+      sm: 'py-1.5 text-sm',
+      md: 'py-2 text-sm',
+      lg: 'py-3 text-base',
     };
 
-    const variantClasses = {
-      light: `
-        bg-white text-pierre-gray-900 placeholder-pierre-gray-400
-        disabled:bg-pierre-gray-100 disabled:text-pierre-gray-500
-      `,
-      dark: `
-        bg-[#151520] text-white placeholder-zinc-500
-        disabled:bg-zinc-900 disabled:text-zinc-600
-      `,
-      glass: `
-        input-glass
-      `,
+    const baseInputClasses =
+      'w-full bg-transparent text-on-surface placeholder:text-outline font-sans ' +
+      'focus:outline-none transition-colors duration-base disabled:cursor-not-allowed disabled:opacity-50';
+
+    // Neutralize @tailwindcss/forms' full-border reset. The editorial input
+    // has a single bottom stroke; focus state grows it to 2px primary.
+    const inputStyle: React.CSSProperties = {
+      border: 'none',
+      borderRadius: 0,
+      borderBottom: error
+        ? '1px solid var(--color-error)'
+        : '1px solid rgba(192, 200, 195, 0.45)',
+      boxShadow: 'none',
+      paddingLeft: leftIcon ? '1.5rem' : 0,
+      paddingRight: rightIcon ? '1.5rem' : 0,
     };
-
-    const baseInputClasses = `
-      w-full border rounded-lg transition-all duration-base
-      focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet
-      disabled:cursor-not-allowed
-      ${variantClasses[variant]}
-    `;
-
-    const errorClasses = error
-      ? 'border-red-500/50 focus:ring-red-500 focus:ring-opacity-20 focus:border-red-500'
-      : variant === 'dark' || variant === 'glass'
-        ? 'border-white/10'
-        : 'border-pierre-gray-300';
-
-    const iconPaddingLeft = leftIcon ? 'pl-10' : '';
-    const iconPaddingRight = rightIcon ? 'pr-10' : '';
-
-    const labelClasses = variant === 'dark' || variant === 'glass'
-      ? 'block text-sm font-medium text-zinc-300 mb-1.5'
-      : 'block text-sm font-medium text-pierre-gray-700 mb-1.5';
-
-    const iconClasses = variant === 'dark' || variant === 'glass' ? 'text-zinc-500' : 'text-pierre-gray-400';
 
     return (
       <div className="w-full">
         {label && (
-          <label htmlFor={inputId} className={labelClasses}>
+          <label
+            htmlFor={inputId}
+            className="block text-[11px] font-medium font-label uppercase text-on-surface-variant mb-2"
+            style={{ letterSpacing: '0.08em' }}
+          >
             {label}
           </label>
         )}
         <div className="relative">
           {leftIcon && (
-            <div className={`absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none ${iconClasses}`}>
+            <div className="absolute inset-y-0 left-0 flex items-center text-outline pointer-events-none">
               {leftIcon}
             </div>
           )}
           <input
             ref={ref}
             id={inputId}
-            className={`${baseInputClasses} ${sizeClasses[size]} ${errorClasses} ${iconPaddingLeft} ${iconPaddingRight} ${className}`}
+            className={`${baseInputClasses} ${sizeClasses[size]} ${className} boreal-underline-input`}
+            style={inputStyle}
             {...props}
           />
           {rightIcon && (
-            <div className={`absolute inset-y-0 right-0 flex items-center pr-3 ${iconClasses}`}>
+            <div className="absolute inset-y-0 right-0 flex items-center text-outline">
               {rightIcon}
             </div>
           )}
         </div>
-        {error && (
-          <p className={`mt-1.5 text-sm ${variant === 'dark' || variant === 'glass' ? 'text-red-400' : 'text-pierre-red-500'}`}>{error}</p>
-        )}
+        {error && <p className="mt-1.5 text-xs text-error font-label">{error}</p>}
         {helpText && !error && (
-          <p className={`mt-1.5 text-sm ${variant === 'dark' || variant === 'glass' ? 'text-zinc-500' : 'text-pierre-gray-500'}`}>{helpText}</p>
+          <p className="mt-1.5 text-xs text-outline font-label">{helpText}</p>
         )}
       </div>
     );

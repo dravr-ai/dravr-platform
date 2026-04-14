@@ -9,7 +9,7 @@ import { clsx } from 'clsx';
 export interface TabHeaderProps {
   /** Icon element (e.g. lucide-react component) rendered inside the gradient circle */
   icon: React.ReactNode;
-  /** Tailwind gradient classes for the icon circle (e.g. "from-pierre-violet to-pierre-cyan") */
+  /** Tailwind gradient classes for the icon circle (e.g. "boreal-hero-gradient") */
   gradient: string;
   /** Description text shown next to the icon */
   description: React.ReactNode;
@@ -19,17 +19,17 @@ export interface TabHeaderProps {
 
 export function TabHeader({ icon, gradient, description, actions }: TabHeaderProps) {
   return (
-    <div className="p-6 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+    <div className="p-6 border-b ghost-border flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-3">
         <div
           className={clsx(
-            'w-10 h-10 flex items-center justify-center rounded-xl text-white shadow-glow-sm bg-gradient-to-br',
+            'w-10 h-10 flex items-center justify-center rounded-xl text-on-surface shadow-ambient bg-gradient-to-br',
             gradient
           )}
         >
           {icon}
         </div>
-        <p className="text-sm text-zinc-400">{description}</p>
+        <p className="text-sm text-on-surface-variant">{description}</p>
       </div>
       {actions && (
         <div className="flex items-center gap-2">

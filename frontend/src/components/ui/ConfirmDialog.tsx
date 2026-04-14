@@ -93,12 +93,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {displayIcon}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-white">
+            <h3 className="text-lg font-semibold text-on-surface">
               {title}
             </h3>
           </div>
         </div>
-        <p className="mt-3 text-sm text-zinc-300 sm:pl-16">
+        <p className="mt-3 text-sm text-on-surface sm:pl-16">
           {message}
         </p>
       </div>

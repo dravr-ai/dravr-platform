@@ -13,19 +13,19 @@ type FeatherIconName = ComponentProps<typeof Feather>['name'];
 // Reaction emoji mapping
 const REACTION_ICONS: Record<ReactionType, { icon: FeatherIconName; color: string }> = {
   like: { icon: 'thumbs-up', color: '#3B82F6' },
-  celebrate: { icon: 'award', color: '#F59E0B' },
-  inspire: { icon: 'star', color: '#8B5CF6' },
+  celebrate: { icon: 'award', color: '#8f6a2e' },
+  inspire: { icon: 'star', color: '#00241a' },
   support: { icon: 'heart', color: '#EF4444' },
 };
 
 // Insight type styling
 const INSIGHT_TYPE_STYLES: Record<string, { icon: FeatherIconName; color: string; label: string }> = {
-  achievement: { icon: 'award', color: '#10B981', label: 'Achievement' },
-  milestone: { icon: 'flag', color: '#F59E0B', label: 'Milestone' },
-  training_tip: { icon: 'zap', color: '#6366F1', label: 'Training Tip' },
-  recovery: { icon: 'moon', color: '#8B5CF6', label: 'Recovery' },
+  achievement: { icon: 'award', color: '#3c6658', label: 'Achievement' },
+  milestone: { icon: 'flag', color: '#8f6a2e', label: 'Milestone' },
+  training_tip: { icon: 'zap', color: '#5e7a82', label: 'Training Tip' },
+  recovery: { icon: 'moon', color: '#00241a', label: 'Recovery' },
   motivation: { icon: 'sun', color: '#F97316', label: 'Motivation' },
-  coaching_insight: { icon: 'message-circle', color: '#7C3AED', label: 'Coach Chat' },
+  coaching_insight: { icon: 'message-circle', color: '#00241a', label: 'Coach Chat' },
 };
 
 // Generate avatar initials from name or email

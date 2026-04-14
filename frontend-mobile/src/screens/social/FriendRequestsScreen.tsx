@@ -228,7 +228,7 @@ export function FriendRequestsScreen() {
           }}
           onPress={() => setActiveTab('incoming')}
         >
-          <Text className={`text-base font-semibold ${activeTab === 'incoming' ? 'text-white' : 'text-text-secondary'}`}>
+          <Text className={`text-base font-semibold ${activeTab === 'incoming' ? 'text-on-surface' : 'text-text-secondary'}`}>
             Incoming
           </Text>
           {incomingRequests.length > 0 && (
@@ -236,7 +236,7 @@ export function FriendRequestsScreen() {
               className="rounded-full min-w-[20px] h-5 justify-center items-center px-1.5"
               style={{ backgroundColor: activeTab === 'incoming' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 92, 246, 0.2)' }}
             >
-              <Text className={`text-xs font-bold ${activeTab === 'incoming' ? 'text-white' : ''}`} style={activeTab !== 'incoming' ? { color: colors.pierre.violet } : undefined}>
+              <Text className={`text-xs font-bold ${activeTab === 'incoming' ? 'text-on-surface' : ''}`} style={activeTab !== 'incoming' ? { color: colors.pierre.violet } : undefined}>
                 {incomingRequests.length}
               </Text>
             </View>
@@ -257,7 +257,7 @@ export function FriendRequestsScreen() {
           }}
           onPress={() => setActiveTab('outgoing')}
         >
-          <Text className={`text-base font-semibold ${activeTab === 'outgoing' ? 'text-white' : 'text-text-secondary'}`}>
+          <Text className={`text-base font-semibold ${activeTab === 'outgoing' ? 'text-on-surface' : 'text-text-secondary'}`}>
             Outgoing
           </Text>
           {outgoingRequests.length > 0 && (
@@ -265,7 +265,7 @@ export function FriendRequestsScreen() {
               className="rounded-full min-w-[20px] h-5 justify-center items-center px-1.5"
               style={{ backgroundColor: activeTab === 'outgoing' ? 'rgba(255, 255, 255, 0.25)' : 'rgba(139, 92, 246, 0.2)' }}
             >
-              <Text className={`text-xs font-bold ${activeTab === 'outgoing' ? 'text-white' : ''}`} style={activeTab !== 'outgoing' ? { color: colors.pierre.violet } : undefined}>
+              <Text className={`text-xs font-bold ${activeTab === 'outgoing' ? 'text-on-surface' : ''}`} style={activeTab !== 'outgoing' ? { color: colors.pierre.violet } : undefined}>
                 {outgoingRequests.length}
               </Text>
             </View>

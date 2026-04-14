@@ -26,7 +26,7 @@ interface OverviewTabProps {
 
 // Tier colors for visual hierarchy - Dark theme
 const tierConfig: Record<string, { color: string; bg: string; border: string; icon: string }> = {
-  trial: { color: 'text-zinc-400', bg: 'bg-white/5', border: 'border-white/10', icon: 'T' },
+  trial: { color: 'text-on-surface-variant', bg: 'bg-surface-container-low', border: 'ghost-border', icon: 'T' },
   starter: { color: 'text-pierre-activity', bg: 'bg-pierre-activity/10', border: 'border-pierre-activity/30', icon: 'S' },
   professional: { color: 'text-pierre-violet-light', bg: 'bg-pierre-violet/15', border: 'border-pierre-violet/30', icon: 'P' },
   enterprise: { color: 'text-pierre-cyan', bg: 'bg-pierre-cyan/15', border: 'border-pierre-cyan/30', icon: 'E' },
@@ -47,7 +47,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         label: 'Requests',
         data: weeklyUsage?.time_series?.slice(-7).map((point: TimeSeriesPoint) => point.request_count) || [],
         borderColor: 'rgb(139, 92, 246)',
-        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+        backgroundColor: 'rgba(0, 36, 26, 0.1)',
         tension: 0.4,
         fill: true,
         pointRadius: 3,
@@ -85,11 +85,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
       <div className="space-y-6">
         <Card variant="dark" className="!p-8">
           <div className="text-center py-8">
-            <svg className="w-16 h-16 mx-auto mb-6 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-16 h-16 mx-auto mb-6 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <h2 className="text-2xl font-bold text-white mb-3">Your platform is ready!</h2>
-            <p className="text-zinc-400 mb-6 max-w-md mx-auto">
+            <h2 className="text-2xl font-bold text-on-surface mb-3">Your platform is ready!</h2>
+            <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
               Invite users to get started. Once they connect and start chatting, you will see activity, engagement, and analytics here.
             </p>
             <button
@@ -112,11 +112,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         <div className="stat-card-dark">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-400 mb-1">Total Connections</p>
-              <p className="text-3xl font-bold bg-gradient-to-r from-pierre-violet to-pierre-cyan bg-clip-text text-transparent">
+              <p className="text-sm font-medium text-on-surface-variant mb-1">Total Connections</p>
+              <p className="text-3xl font-bold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
                 {(overview?.total_api_keys || 0) + (a2aOverview?.total_clients || 0)}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-outline mt-1">
                 {overview?.total_api_keys || 0} Keys + {a2aOverview?.total_clients || 0} Apps
               </p>
             </div>
@@ -132,11 +132,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         <div className="stat-card-dark">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-400 mb-1">Active</p>
+              <p className="text-sm font-medium text-on-surface-variant mb-1">Active</p>
               <p className="text-3xl font-bold text-pierre-activity">
                 {(overview?.active_api_keys || 0) + (a2aOverview?.active_clients || 0)}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-outline mt-1">
                 {overview?.active_api_keys || 0} Keys + {a2aOverview?.active_clients || 0} Apps
               </p>
             </div>
@@ -154,11 +154,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         <div className="stat-card-dark">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-400 mb-1">Today</p>
+              <p className="text-sm font-medium text-on-surface-variant mb-1">Today</p>
               <p className="text-3xl font-bold text-pierre-nutrition">
                 {((overview?.total_requests_today || 0) + (a2aOverview?.requests_today || 0)).toLocaleString()}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">requests</p>
+              <p className="text-xs text-outline mt-1">requests</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-pierre-nutrition/20 flex items-center justify-center">
               <svg className="w-6 h-6 text-pierre-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,11 +172,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
         <div className="stat-card-dark">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-zinc-400 mb-1">This Month</p>
+              <p className="text-sm font-medium text-on-surface-variant mb-1">This Month</p>
               <p className="text-3xl font-bold text-pierre-recovery">
                 {((overview?.total_requests_this_month || 0) + (a2aOverview?.requests_this_month || 0)).toLocaleString()}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">requests</p>
+              <p className="text-xs text-outline mt-1">requests</p>
             </div>
             <div className="w-12 h-12 rounded-lg bg-pierre-recovery/20 flex items-center justify-center">
               <svg className="w-6 h-6 text-pierre-recovery" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -207,8 +207,8 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
             <Card variant="dark" className="!p-5">
               <div className="flex justify-between items-center mb-3">
                 <div>
-                  <h3 className="text-base font-semibold text-white">7-Day Activity</h3>
-                  <p className="text-xs text-zinc-500 mt-0.5">
+                  <h3 className="text-base font-semibold text-on-surface">7-Day Activity</h3>
+                  <p className="text-xs text-outline mt-0.5">
                     Avg {avgPerDay.toLocaleString()}/day{peakDayName && ` · Peak ${peakDayName}`}
                   </p>
                 </div>
@@ -230,8 +230,8 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
           <Card variant="dark" className="!p-5">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h3 className="text-base font-semibold text-white">Rate Limits</h3>
-                <p className="text-xs text-zinc-500 mt-0.5">
+                <h3 className="text-base font-semibold text-on-surface">Rate Limits</h3>
+                <p className="text-xs text-outline mt-0.5">
                   {totalCapacity > 0 ? `${Math.round((totalUsed / totalCapacity) * 100)}% of capacity used` : 'Monitoring usage'}
                 </p>
               </div>
@@ -244,15 +244,15 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                 <div key={item.api_key_id} className="flex items-center gap-3">
                   <div className={clsx(
                     'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-                    tierConfig[item.tier]?.bg || 'bg-white/5',
-                    tierConfig[item.tier]?.color || 'text-zinc-400'
+                    tierConfig[item.tier]?.bg || 'bg-surface-container-low',
+                    tierConfig[item.tier]?.color || 'text-on-surface-variant'
                   )}>
                     {tierConfig[item.tier]?.icon || 'T'}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{item.api_key_name}</p>
+                    <p className="text-sm font-medium text-on-surface truncate">{item.api_key_name}</p>
                     <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div className="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
                         <div
                           className={clsx(
                             'h-full rounded-full transition-all duration-300',
@@ -262,7 +262,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                           style={{ width: `${Math.min(item.usage_percentage, 100)}%` }}
                         />
                       </div>
-                      <span className="text-xs text-zinc-500 w-12 text-right">
+                      <span className="text-xs text-outline w-12 text-right">
                         {item.limit ? `${Math.round(item.usage_percentage)}%` : '-'}
                       </span>
                     </div>
@@ -277,7 +277,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
       {/* Tier Usage Breakdown */}
       {overview?.current_month_usage_by_tier && overview.current_month_usage_by_tier.length > 0 && (
         <Card variant="dark" className="!p-5">
-          <h3 className="text-base font-semibold text-white mb-4">Usage by Tier</h3>
+          <h3 className="text-base font-semibold text-on-surface mb-4">Usage by Tier</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {overview.current_month_usage_by_tier.map((tier: TierUsage) => {
               const config = tierConfig[tier.tier] || tierConfig.trial;
@@ -293,7 +293,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <div className={clsx(
-                      'w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold bg-white/10',
+                      'w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold bg-surface-container-high',
                       config.color
                     )}>
                       {config.icon}
@@ -302,16 +302,16 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">Keys</span>
-                      <span className="font-medium text-white">{tier.key_count}</span>
+                      <span className="text-outline">Keys</span>
+                      <span className="font-medium text-on-surface">{tier.key_count}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">Requests</span>
-                      <span className="font-medium text-white">{tier.total_requests.toLocaleString()}</span>
+                      <span className="text-outline">Requests</span>
+                      <span className="font-medium text-on-surface">{tier.total_requests.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">Avg/Key</span>
-                      <span className="font-medium text-white">{avgPerKey.toLocaleString()}</span>
+                      <span className="text-outline">Avg/Key</span>
+                      <span className="font-medium text-on-surface">{avgPerKey.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -325,7 +325,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
       {user?.is_admin && (
         <div>
           <Card variant="dark" className="!p-4">
-            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-on-surface mb-3 flex items-center gap-2">
               <svg className="w-4 h-4 text-pierre-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
@@ -340,11 +340,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-pierre-nutrition animate-pulse" />
-                    <span className="text-sm font-medium text-white">
+                    <span className="text-sm font-medium text-on-surface">
                       {pendingUsersCount} user{pendingUsersCount !== 1 ? 's' : ''} awaiting approval
                     </span>
                   </div>
-                  <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
@@ -358,11 +358,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-pierre-violet animate-pulse" />
-                    <span className="text-sm font-medium text-white">
+                    <span className="text-sm font-medium text-on-surface">
                       {pendingCoachReviews} coach{pendingCoachReviews !== 1 ? 'es' : ''} pending review
                     </span>
                   </div>
-                  <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
@@ -376,11 +376,11 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                 >
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-pierre-red-500 animate-pulse" />
-                    <span className="text-sm font-medium text-white">
+                    <span className="text-sm font-medium text-on-surface">
                       {rateLimits.filter((rl: RateLimitOverview) => rl.usage_percentage > 90).length} key{rateLimits.filter((rl: RateLimitOverview) => rl.usage_percentage > 90).length !== 1 ? 's' : ''} near limit
                     </span>
                   </div>
-                  <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
@@ -392,7 +392,7 @@ export default function OverviewTab({ overview, overviewLoading, rateLimits, wee
                   <svg className="w-4 h-4 text-pierre-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  <span className="text-sm text-zinc-300">All systems normal</span>
+                  <span className="text-sm text-on-surface">All systems normal</span>
                 </div>
               )}
             </div>

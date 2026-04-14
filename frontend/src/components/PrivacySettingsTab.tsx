@@ -42,11 +42,11 @@ export default function PrivacySettingsTab() {
 
   return (
     <Card variant="dark">
-      <h2 className="text-lg font-semibold text-white mb-6">Privacy & Data</h2>
+      <h2 className="text-lg font-semibold text-on-surface mb-6">Privacy & Data</h2>
 
       <div className="space-y-6">
         {/* Analytics Consent Toggle */}
-        <div className="flex items-start justify-between gap-4 p-4 bg-white/5 rounded-xl border border-white/10">
+        <div className="flex items-start justify-between gap-4 p-4 bg-surface-container-low rounded-xl border ghost-border">
           <div className="flex-1">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 rounded-xl bg-pierre-violet/15 flex items-center justify-center flex-shrink-0">
@@ -54,9 +54,9 @@ export default function PrivacySettingsTab() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
               </div>
-              <h3 className="text-sm font-medium text-white">Usage Analytics</h3>
+              <h3 className="text-sm font-medium text-on-surface">Usage Analytics</h3>
             </div>
-            <p className="text-sm text-zinc-400 leading-relaxed">
+            <p className="text-sm text-on-surface-variant leading-relaxed">
               Help improve Pierre by sharing anonymized usage data. We track general usage
               patterns like which features you use and how often — never your personal data,
               messages, or fitness information. All identifiers are cryptographically hashed
@@ -84,9 +84,9 @@ export default function PrivacySettingsTab() {
         </div>
 
         {/* What We Track */}
-        <div className="p-4 bg-white/5 rounded-xl border border-white/10">
-          <h3 className="text-sm font-medium text-white mb-3">What we collect when enabled</h3>
-          <ul className="space-y-2 text-sm text-zinc-400">
+        <div className="p-4 bg-surface-container-low rounded-xl border ghost-border">
+          <h3 className="text-sm font-medium text-on-surface mb-3">What we collect when enabled</h3>
+          <ul className="space-y-2 text-sm text-on-surface-variant">
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -107,8 +107,8 @@ export default function PrivacySettingsTab() {
             </li>
           </ul>
 
-          <h3 className="text-sm font-medium text-white mt-4 mb-3">What we never collect</h3>
-          <ul className="space-y-2 text-sm text-zinc-400">
+          <h3 className="text-sm font-medium text-on-surface mt-4 mb-3">What we never collect</h3>
+          <ul className="space-y-2 text-sm text-on-surface-variant">
             <li className="flex items-start gap-2">
               <svg className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

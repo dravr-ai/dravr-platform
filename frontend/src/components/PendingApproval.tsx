@@ -27,20 +27,20 @@ function PierreLogo() {
     <svg width="64" height="64" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <linearGradient id="pg-pending" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#8B5CF6' }} />
-          <stop offset="100%" style={{ stopColor: '#22D3EE' }} />
+          <stop offset="0%" style={{ stopColor: '#00241a' }} />
+          <stop offset="100%" style={{ stopColor: '#0d3b2e' }} />
         </linearGradient>
         <linearGradient id="ag-pending" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#4ADE80' }} />
-          <stop offset="100%" style={{ stopColor: '#059669' }} />
+          <stop offset="0%" style={{ stopColor: '#3c6658' }} />
+          <stop offset="100%" style={{ stopColor: '#234e40' }} />
         </linearGradient>
         <linearGradient id="ng-pending" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#F59E0B' }} />
-          <stop offset="100%" style={{ stopColor: '#D97706' }} />
+          <stop offset="0%" style={{ stopColor: '#8f6a2e' }} />
+          <stop offset="100%" style={{ stopColor: '#6e5020' }} />
         </linearGradient>
         <linearGradient id="rg-pending" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style={{ stopColor: '#6366F1' }} />
-          <stop offset="100%" style={{ stopColor: '#4F46E5' }} />
+          <stop offset="0%" style={{ stopColor: '#5e7a82' }} />
+          <stop offset="100%" style={{ stopColor: '#425962' }} />
         </linearGradient>
       </defs>
       <g strokeWidth="2" opacity="0.5" strokeLinecap="round">
@@ -70,11 +70,11 @@ export default function PendingApproval() {
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-pierre-gray-50">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface-container-low">
       <div className="max-w-md w-full">
         <Card className="overflow-hidden">
           {/* Gradient accent bar at top */}
-          <div className="h-1 w-full bg-gradient-pierre-horizontal" />
+          <div className="h-1 w-full boreal-hero-gradient" />
 
           <div className="px-8 py-10">
             {/* Logo and icon */}
@@ -97,7 +97,7 @@ export default function PendingApproval() {
             </div>
 
             {/* Status card */}
-            <div className="mt-8 bg-pierre-gray-50 rounded-lg p-4 space-y-3">
+            <div className="mt-8 bg-surface-container-low rounded-lg p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-pierre-gray-700">Status</span>
                 <Badge variant="warning">Pending</Badge>

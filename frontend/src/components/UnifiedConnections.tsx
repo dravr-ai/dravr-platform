@@ -37,12 +37,12 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-pierre-slate rounded-lg shadow-xl max-w-2xl mx-4 w-full p-6 border border-white/10">
+      <div className="bg-surface-container-low rounded-lg shadow-xl max-w-2xl mx-4 w-full p-6 border ghost-border">
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-white">
+          <h3 className="text-lg font-semibold text-on-surface">
             API Token Generated Successfully
           </h3>
-          <p className="text-zinc-400 mt-1">
+          <p className="text-on-surface-variant mt-1">
             Your new API token is ready for use
           </p>
         </div>
@@ -55,7 +55,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
               </svg>
               <div>
                 <h4 className="font-medium text-pierre-nutrition">Important Security Notice</h4>
-                <p className="text-sm text-zinc-300 mt-1">
+                <p className="text-sm text-on-surface mt-1">
                   This is the only time the full token will be displayed. Please copy it now and store it securely.
                 </p>
               </div>
@@ -63,7 +63,7 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-300 mb-2">
+            <label className="block text-sm font-medium text-on-surface mb-2">
               JWT Token
             </label>
             <div className="relative">
@@ -87,16 +87,16 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-zinc-500">Service:</span>
-              <span className="ml-2 font-medium text-white">{response.service_name}</span>
+              <span className="text-outline">Service:</span>
+              <span className="ml-2 font-medium text-on-surface">{response.service_name}</span>
             </div>
             <div>
-              <span className="text-zinc-500">Prefix:</span>
-              <span className="ml-2 font-mono text-white">{response.token_prefix}...</span>
+              <span className="text-outline">Prefix:</span>
+              <span className="ml-2 font-mono text-on-surface">{response.token_prefix}...</span>
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4 border-t border-white/10">
+          <div className="flex gap-3 pt-4 border-t ghost-border">
             <Button onClick={onClose} className="flex-1">
               I've Saved the Token Securely
             </Button>
@@ -129,7 +129,7 @@ export default function UnifiedConnections() {
   };
 
   const renderTabs = () => (
-    <div className="border-b border-white/10 mb-6">
+    <div className="border-b ghost-border mb-6">
       <nav className="-mb-px flex space-x-8">
         {user?.is_admin && (
           <button
@@ -158,7 +158,7 @@ export default function UnifiedConnections() {
           <span>Connected Apps</span>
         </button>
       </nav>
-      <p className="text-sm text-zinc-400 mt-3 mb-2">{getTabDescription()}</p>
+      <p className="text-sm text-on-surface-variant mt-3 mb-2">{getTabDescription()}</p>
     </div>
   );
 
@@ -278,7 +278,7 @@ export default function UnifiedConnections() {
             </svg>
             <div className="flex-1">
               <h4 className="font-medium text-pierre-red-400">Error</h4>
-              <p className="text-sm text-zinc-300 mt-1">{errorMessage}</p>
+              <p className="text-sm text-on-surface mt-1">{errorMessage}</p>
             </div>
             <button
               onClick={() => setErrorMessage(null)}

@@ -10,11 +10,15 @@ export {
   REACTION_TYPE_LABELS,
 } from './social';
 
-// Design system (colors, typography, spacing, effects)
+// Design system (Boreal Editorial colors, typography, spacing, effects)
 export {
+  BOREAL_LIGHT,
+  BOREAL_DARK,
+  BOREAL,
   PIERRE_COLORS,
   PILLAR_COLORS,
   PRIMARY_PALETTE,
+  SURFACE_HIERARCHY,
   BACKGROUND_COLORS,
   TEXT_COLORS,
   BORDER_COLORS,
@@ -22,8 +26,11 @@ export {
   PROVIDER_COLORS,
   GRADIENT_COLORS,
   GLASS_CARD,
+  AMBIENT_SHADOW,
   AI_GLOW,
   BUTTON_GLOW,
+  TYPOGRAPHY,
+  BRAND_TRACKING,
   SPACING,
   BORDER_RADIUS,
   FONT_SIZE,
@@ -31,7 +38,7 @@ export {
   DESIGN_SYSTEM,
 } from './design-system';
 
-export type { DesignSystem } from './design-system';
+export type { DesignSystem, BorealTokens, ColorScheme } from './design-system';
 
 // Notification constants (category metadata, time formatting)
 export {

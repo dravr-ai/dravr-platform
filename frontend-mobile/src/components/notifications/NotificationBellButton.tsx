@@ -37,7 +37,7 @@ export function NotificationBellButton({
         <View
           className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] rounded-full bg-violet-600 items-center justify-center px-1"
         >
-          <Text className="text-[10px] font-bold text-white">
+          <Text className="text-[10px] font-bold text-on-surface">
             {unreadCount > 99 ? '99+' : unreadCount}
           </Text>
         </View>

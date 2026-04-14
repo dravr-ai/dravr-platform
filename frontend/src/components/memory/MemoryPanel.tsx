@@ -90,7 +90,7 @@ export default function MemoryPanel() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               What the coach remembers about you
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -113,7 +113,7 @@ export default function MemoryPanel() {
             onChange={(e) =>
               setKindFilter((e.target.value || '') as MemoryFactRow['kind'] | '')
             }
-            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
           >
             {KIND_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>

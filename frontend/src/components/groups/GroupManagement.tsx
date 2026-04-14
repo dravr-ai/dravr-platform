@@ -109,8 +109,8 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-white">Coaching Groups</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-xl font-semibold text-on-surface">Coaching Groups</h2>
+          <p className="text-sm text-on-surface-variant mt-1">
             Train together with shared AI coaching
           </p>
         </div>
@@ -143,8 +143,8 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-pierre-violet/20 flex items-center justify-center">
               <Users className="w-8 h-8 text-pierre-violet-light" />
             </div>
-            <h3 className="text-lg font-semibold text-white mb-2">No groups yet</h3>
-            <p className="text-zinc-400 mb-6 max-w-md mx-auto">
+            <h3 className="text-lg font-semibold text-on-surface mb-2">No groups yet</h3>
+            <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
               Create a coaching group to train with others, or join an existing group with an invite code.
             </p>
             <div className="flex items-center justify-center gap-3">
@@ -199,11 +199,11 @@ export default function GroupManagement({ onSelectGroup, pendingInviteCode, onIn
             maxLength={100}
           />
           <div className="w-full">
-            <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+            <label className="block text-sm font-medium text-on-surface mb-1.5">
               Description
             </label>
             <textarea
-              className="w-full px-4 py-2.5 text-sm bg-[#151520] text-white placeholder-zinc-500 border border-white/10 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
+              className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
               placeholder="What is this group about?"
               rows={3}
               value={formDescription}

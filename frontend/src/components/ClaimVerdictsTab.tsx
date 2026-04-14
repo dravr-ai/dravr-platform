@@ -124,7 +124,7 @@ export default function ClaimVerdictsTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Tier 5.5 — Claim verdicts
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -147,7 +147,7 @@ export default function ClaimVerdictsTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 {key}
               </div>
-              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
                 {count}
               </div>
             </div>
@@ -162,7 +162,7 @@ export default function ClaimVerdictsTab() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -176,7 +176,7 @@ export default function ClaimVerdictsTab() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               {CATEGORY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -192,7 +192,7 @@ export default function ClaimVerdictsTab() {
               value={coachFilter}
               onChange={(e) => setCoachFilter(e.target.value.trim())}
               placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -200,7 +200,7 @@ export default function ClaimVerdictsTab() {
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               {LIMIT_OPTIONS.map((n) => (
                 <option key={n} value={n}>

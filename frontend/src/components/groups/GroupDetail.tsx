@@ -43,7 +43,7 @@ const DETAIL_TABS = [
 
 const TREND_DISPLAY: Record<GroupTrend, { label: string; color: string }> = {
   improving: { label: 'Improving', color: 'text-emerald-400' },
-  stable: { label: 'Stable', color: 'text-zinc-400' },
+  stable: { label: 'Stable', color: 'text-on-surface-variant' },
   declining: { label: 'Declining', color: 'text-amber-400' },
 };
 
@@ -130,7 +130,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
   if (!group) {
     return (
       <Card variant="dark" className="!p-10 text-center">
-        <p className="text-zinc-400">Group not found.</p>
+        <p className="text-on-surface-variant">Group not found.</p>
         <Button variant="secondary" onClick={onBack} className="mt-4">
           Back to Groups
         </Button>
@@ -144,7 +144,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
       <div>
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-zinc-400 hover:text-pierre-violet transition-colors mb-4"
+          className="flex items-center gap-1.5 text-on-surface-variant hover:text-pierre-violet transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
           <span className="text-sm">All Groups</span>
@@ -153,17 +153,17 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
-              <h2 className="text-2xl font-bold text-white truncate">{group.name}</h2>
+              <h2 className="text-2xl font-bold text-on-surface truncate">{group.name}</h2>
               {!group.is_active && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-zinc-400 rounded-full">
+                <span className="px-2 py-0.5 text-xs font-medium bg-zinc-700/50 text-on-surface-variant rounded-full">
                   Inactive
                 </span>
               )}
             </div>
             {group.description && (
-              <p className="text-zinc-400 text-sm mt-1">{group.description}</p>
+              <p className="text-on-surface-variant text-sm mt-1">{group.description}</p>
             )}
-            <div className="flex items-center gap-4 text-sm text-zinc-500 mt-3">
+            <div className="flex items-center gap-4 text-sm text-outline mt-3">
               <span className="flex items-center gap-1.5">
                 <Users className="w-4 h-4" />
                 {members.length} {members.length === 1 ? 'member' : 'members'}
@@ -209,26 +209,26 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
         ) : stats ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-zinc-400 mb-1">Active Members</p>
-              <p className="text-2xl font-bold text-white">{stats.active_members}</p>
-              <p className="text-xs text-zinc-500 mt-1">of {stats.total_members} total</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">Active Members</p>
+              <p className="text-2xl font-bold text-on-surface">{stats.active_members}</p>
+              <p className="text-xs text-outline mt-1">of {stats.total_members} total</p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-zinc-400 mb-1">Avg Weekly Volume</p>
-              <p className="text-2xl font-bold text-white">
+              <p className="text-xs font-medium text-on-surface-variant mb-1">Avg Weekly Volume</p>
+              <p className="text-2xl font-bold text-on-surface">
                 {stats.avg_weekly_volume_km.toFixed(1)}
-                <span className="text-sm text-zinc-400 ml-1">km</span>
+                <span className="text-sm text-on-surface-variant ml-1">km</span>
               </p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-zinc-400 mb-1">Avg CTL</p>
-              <p className="text-2xl font-bold text-white">
+              <p className="text-xs font-medium text-on-surface-variant mb-1">Avg CTL</p>
+              <p className="text-2xl font-bold text-on-surface">
                 {stats.avg_ctl !== null ? stats.avg_ctl.toFixed(1) : '--'}
               </p>
             </div>
             <div className="stat-card-dark">
-              <p className="text-xs font-medium text-zinc-400 mb-1">Flagged</p>
-              <p className="text-2xl font-bold text-white">{stats.flagged_members}</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-1">Flagged</p>
+              <p className="text-2xl font-bold text-on-surface">{stats.flagged_members}</p>
               <p className="text-xs mt-1">
                 <span className={TREND_DISPLAY[stats.weekly_trend].color}>
                   {TREND_DISPLAY[stats.weekly_trend].label}
@@ -238,8 +238,8 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
           </div>
         ) : (
           <Card variant="dark" className="!p-8 text-center">
-            <BarChart3 className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-            <p className="text-zinc-500">No stats available yet.</p>
+            <BarChart3 className="w-8 h-8 text-on-surface-variant mx-auto mb-3" />
+            <p className="text-outline">No stats available yet.</p>
           </Card>
         )}
       </TabPanel>
@@ -257,7 +257,7 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
           {/* Edit group settings (admin/owner) */}
           {isAdmin && (
             <Card variant="dark" className="!p-5">
-              <h4 className="text-sm font-semibold text-white mb-4">Group Settings</h4>
+              <h4 className="text-sm font-semibold text-on-surface mb-4">Group Settings</h4>
               <div className="space-y-4">
                 <Input
                   label="Group Name"
@@ -267,11 +267,11 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                   maxLength={100}
                 />
                 <div className="w-full">
-                  <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  <label className="block text-sm font-medium text-on-surface mb-1.5">
                     Description
                   </label>
                   <textarea
-                    className="w-full px-4 py-2.5 text-sm bg-[#151520] text-white placeholder-zinc-500 border border-white/10 rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
+                    className="w-full px-4 py-2.5 text-sm bg-surface-container-low text-on-surface placeholder:text-outline border ghost-border rounded-lg transition-all focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-30 focus:border-pierre-violet resize-none"
                     rows={3}
                     value={editDescription}
                     onChange={(e) => setEditDescription(e.target.value)}
@@ -283,13 +283,13 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
                     type="checkbox"
                     checked={editPeerSharing}
                     onChange={(e) => setEditPeerSharing(e.target.checked)}
-                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
+                    className="w-4 h-4 rounded ghost-border bg-surface-container-low text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
                   />
                   <div>
-                    <span className="text-sm text-zinc-300 group-hover:text-white transition-colors">
+                    <span className="text-sm text-on-surface group-hover:text-on-surface transition-colors">
                       Enable peer data sharing
                     </span>
-                    <p className="text-xs text-zinc-500 mt-0.5">
+                    <p className="text-xs text-outline mt-0.5">
                       Allows members who consent to see each other's aggregated training data.
                     </p>
                   </div>
@@ -311,8 +311,8 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
               {!isOwner && (
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-white">Leave Group</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">
+                    <p className="text-sm text-on-surface">Leave Group</p>
+                    <p className="text-xs text-outline mt-0.5">
                       You will lose access to this group and its data.
                     </p>
                   </div>
@@ -326,8 +326,8 @@ export default function GroupDetail({ groupId, onBack }: GroupDetailProps) {
               {isOwner && (
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-white">Delete Group</p>
-                    <p className="text-xs text-zinc-500 mt-0.5">
+                    <p className="text-sm text-on-surface">Delete Group</p>
+                    <p className="text-xs text-outline mt-0.5">
                       Permanently archive this group. All members will be removed.
                     </p>
                   </div>

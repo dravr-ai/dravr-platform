@@ -56,7 +56,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
     if (status >= 200 && status < 300) return 'text-pierre-green-400';
     if (status >= 400 && status < 500) return 'text-pierre-yellow-400';
     if (status >= 500) return 'text-pierre-red-400';
-    return 'text-zinc-400';
+    return 'text-on-surface-variant';
   };
 
   const formatDuration = (ms: number) => {
@@ -91,7 +91,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
             <div className="text-2xl font-bold text-pierre-violet-light">
               {requestStats.total_requests}
             </div>
-            <div className="text-sm text-zinc-400">Total Requests</div>
+            <div className="text-sm text-on-surface-variant">Total Requests</div>
           </div>
           <div className="stat-card-dark">
             <div className="text-2xl font-bold text-pierre-activity">
@@ -99,19 +99,19 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
                 ? ((requestStats.successful_requests / requestStats.total_requests) * 100).toFixed(1)
                 : '0.0'}%
             </div>
-            <div className="text-sm text-zinc-400">Success Rate</div>
+            <div className="text-sm text-on-surface-variant">Success Rate</div>
           </div>
           <div className="stat-card-dark">
             <div className="text-2xl font-bold text-pierre-nutrition">
               {formatDuration(requestStats.average_response_time)}
             </div>
-            <div className="text-sm text-zinc-400">Avg Response Time</div>
+            <div className="text-sm text-on-surface-variant">Avg Response Time</div>
           </div>
           <div className="stat-card-dark">
-            <div className="text-2xl font-bold text-white">
+            <div className="text-2xl font-bold text-on-surface">
               {requestStats.requests_per_minute.toFixed(1)}
             </div>
-            <div className="text-sm text-zinc-400">Requests/min</div>
+            <div className="text-sm text-on-surface-variant">Requests/min</div>
           </div>
         </div>
       )}
@@ -120,7 +120,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
       <div className="card-admin">
         <div className="flex flex-wrap gap-4 items-center">
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">
               Time Range
             </label>
             <select
@@ -136,7 +136,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">
               Status
             </label>
             <select
@@ -151,7 +151,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-1">
+            <label className="block text-sm font-medium text-on-surface-variant mb-1">
               Tool
             </label>
             <select
@@ -175,14 +175,14 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
       {/* Request Log */}
       <div className="card-admin">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-white">Request Log</h3>
-          <span className="text-sm text-zinc-500">
+          <h3 className="text-lg font-medium text-on-surface">Request Log</h3>
+          <span className="text-sm text-outline">
             Showing {uniqueRequests.length} requests
           </span>
         </div>
 
         {uniqueRequests.length === 0 ? (
-          <div className="text-center py-8 text-zinc-500">
+          <div className="text-center py-8 text-outline">
             <div className="text-4xl mb-4">📊</div>
             <p className="text-lg mb-2">No requests yet</p>
             <p>Start making API calls to see request logs here</p>
@@ -192,7 +192,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
             {uniqueRequests.map((request) => (
               <div
                 key={request.id}
-                className="flex items-center justify-between p-3 border border-white/10 rounded-lg hover:bg-white/5 transition-colors"
+                className="flex items-center justify-between p-3 border ghost-border rounded-lg hover:bg-surface-container-low transition-colors"
               >
                 <div className="flex items-center space-x-4 flex-1">
                   <div className="text-lg">
@@ -201,7 +201,7 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
 
                   <div className="flex-1">
                     <div className="flex items-center space-x-2">
-                      <span className="font-medium text-sm text-white">{request.tool_name}</span>
+                      <span className="font-medium text-sm text-on-surface">{request.tool_name}</span>
                       <span className={`text-sm font-mono ${getStatusColor(request.status_code)}`}>
                         {request.status_code}
                       </span>
@@ -211,18 +211,18 @@ export default function RequestMonitor({ apiKeyId, showAllKeys = false }: Reques
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-outline">
                       {new Date(request.timestamp).toLocaleString()}
                     </div>
                   </div>
                 </div>
 
                 <div className="text-right text-sm">
-                  <div className="font-medium text-white">
+                  <div className="font-medium text-on-surface">
                     {request.response_time_ms ? formatDuration(request.response_time_ms) : 'N/A'}
                   </div>
                   {showAllKeys && (
-                    <div className="text-xs text-zinc-500 font-mono">
+                    <div className="text-xs text-outline font-mono">
                       {request.api_key_name}
                     </div>
                   )}

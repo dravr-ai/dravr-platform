@@ -48,7 +48,7 @@ export default function MythBustingTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Myth-busting — recurring unsupported claims
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -69,7 +69,7 @@ export default function MythBustingTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Verdicts scanned
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.verdicts_scanned ?? 0}
             </div>
           </div>
@@ -77,7 +77,7 @@ export default function MythBustingTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Flagged total
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.flagged_total ?? 0}
             </div>
           </div>
@@ -85,7 +85,7 @@ export default function MythBustingTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Distinct claims
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.top_claims.length ?? 0}
             </div>
           </div>
@@ -119,7 +119,7 @@ export default function MythBustingTab() {
         <>
           <Card className="overflow-hidden">
             <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                 Top recurring claims
               </h3>
             </div>
@@ -141,7 +141,7 @@ export default function MythBustingTab() {
 
           <Card className="overflow-hidden">
             <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                 Top offending coaches
               </h3>
             </div>
@@ -152,7 +152,7 @@ export default function MythBustingTab() {
                     <div className="font-mono text-sm text-gray-900 dark:text-gray-100">
                       {coach.coach_id}
                     </div>
-                    <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                       {coach.unsupported_total} flagged
                     </div>
                   </div>
@@ -166,7 +166,7 @@ export default function MythBustingTab() {
 
           <Card className="overflow-hidden">
             <div className="border-b border-gray-200 px-6 py-3 dark:border-gray-700">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                 Top categories
               </h3>
             </div>

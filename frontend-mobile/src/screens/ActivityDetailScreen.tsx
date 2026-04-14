@@ -85,7 +85,7 @@ export function ActivityDetailScreen() {
     });
 
   return (
-    <View className="flex-1 bg-pierre-dark">
+    <View className="flex-1 bg-surface">
       <GestureDetector gesture={swipeGesture}>
       <ScrollView
         className="flex-1"
@@ -106,7 +106,7 @@ export function ActivityDetailScreen() {
           >
             <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
           </TouchableOpacity>
-          <Text className="flex-1 text-lg font-semibold text-white text-center">
+          <Text className="flex-1 text-lg font-semibold text-on-surface text-center">
             Activity Details
           </Text>
           <View className="w-10" />
@@ -126,11 +126,11 @@ export function ActivityDetailScreen() {
               </View>
               {/* Activity Info */}
               <View className="flex-1">
-                <Text className="text-lg font-semibold text-white mb-1">
+                <Text className="text-lg font-semibold text-on-surface mb-1">
                   {activityTitle}
                 </Text>
                 {activityDate && (
-                  <Text className="text-sm text-zinc-400 mb-2">{activityDate}</Text>
+                  <Text className="text-sm text-on-surface-variant mb-2">{activityDate}</Text>
                 )}
                 <View className="self-start px-2 py-1 rounded-full bg-pierre-cyan/20">
                   <Text className="text-xs font-medium text-pierre-cyan capitalize">
@@ -155,7 +155,7 @@ export function ActivityDetailScreen() {
                   <Text className="text-xs font-medium text-pierre-violet mb-1">
                     AI Insight
                   </Text>
-                  <Text className="text-sm text-white leading-5">
+                  <Text className="text-sm text-on-surface leading-5">
                     {insightContent}
                   </Text>
                 </View>
@@ -176,7 +176,7 @@ export function ActivityDetailScreen() {
                 testID="ask-pierre-button"
               >
                 <Feather name="message-circle" size={18} color="white" />
-                <Text className="text-sm font-semibold text-white ml-2">
+                <Text className="text-sm font-semibold text-on-surface ml-2">
                   Ask Dravr for More
                 </Text>
               </TouchableOpacity>
@@ -193,10 +193,10 @@ export function ActivityDetailScreen() {
             style={[glassCardStyle, { overflow: 'hidden' }]}
           >
             <View className="p-5 items-center">
-              <Text className="text-base font-medium text-white mb-2 text-center">
+              <Text className="text-base font-medium text-on-surface mb-2 text-center">
                 Share this activity with friends
               </Text>
-              <Text className="text-sm text-zinc-400 mb-4 text-center leading-5">
+              <Text className="text-sm text-on-surface-variant mb-4 text-center leading-5">
                 Let Dravr create a coach-generated insight to share with your training partners.
                 Your private data stays private - only the insight is shared.
               </Text>
@@ -214,7 +214,7 @@ export function ActivityDetailScreen() {
                 testID="share-with-friends-button"
               >
                 <Feather name="users" size={18} color="white" />
-                <Text className="text-sm font-semibold text-white ml-2">
+                <Text className="text-sm font-semibold text-on-surface ml-2">
                   Share with Friends
                 </Text>
               </TouchableOpacity>
@@ -229,10 +229,10 @@ export function ActivityDetailScreen() {
               <View className="w-12 h-12 rounded-full bg-pierre-violet/20 items-center justify-center mb-3">
                 <Feather name="zap" size={24} color={colors.pierre.violet} />
               </View>
-              <Text className="text-base font-medium text-white mb-2 text-center">
+              <Text className="text-base font-medium text-on-surface mb-2 text-center">
                 Get AI Insights
               </Text>
-              <Text className="text-sm text-zinc-400 mb-4 text-center leading-5">
+              <Text className="text-sm text-on-surface-variant mb-4 text-center leading-5">
                 Ask Dravr to analyze this activity and provide personalized coaching insights.
               </Text>
               <TouchableOpacity
@@ -249,7 +249,7 @@ export function ActivityDetailScreen() {
                 testID="get-insights-button"
               >
                 <Feather name="message-circle" size={18} color="white" />
-                <Text className="text-sm font-semibold text-white ml-2">
+                <Text className="text-sm font-semibold text-on-surface ml-2">
                   Ask Dravr
                 </Text>
               </TouchableOpacity>

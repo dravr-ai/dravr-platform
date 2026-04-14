@@ -88,7 +88,7 @@ export function PendingApprovalScreen() {
                   colors={gradients.violetCyan as [string, string]}
                   style={stepBadgeStyle}
                 >
-                  <Text className="text-white text-xs font-bold">1</Text>
+                  <Text className="text-on-surface text-xs font-bold">1</Text>
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
                   Our team reviews your registration
@@ -99,7 +99,7 @@ export function PendingApprovalScreen() {
                   colors={gradients.violetCyan as [string, string]}
                   style={stepBadgeStyle}
                 >
-                  <Text className="text-white text-xs font-bold">2</Text>
+                  <Text className="text-on-surface text-xs font-bold">2</Text>
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
                   You'll receive an approval email
@@ -110,7 +110,7 @@ export function PendingApprovalScreen() {
                   colors={gradients.violetCyan as [string, string]}
                   style={stepBadgeStyle}
                 >
-                  <Text className="text-white text-xs font-bold">3</Text>
+                  <Text className="text-on-surface text-xs font-bold">3</Text>
                 </LinearGradient>
                 <Text className="flex-1 text-sm text-text-secondary">
                   Sign in and connect your fitness accounts

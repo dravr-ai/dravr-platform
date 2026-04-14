@@ -45,16 +45,16 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-pierre-dark">
+    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface">
       <div className="max-w-md w-full">
         <div
-          className="rounded-xl border border-white/10 overflow-hidden relative"
+          className="rounded-xl border ghost-border overflow-hidden relative"
           style={{
-            background: 'rgba(30, 30, 46, 0.8)',
+            background: 'rgba(244, 244, 241, 0.8)',
             backdropFilter: 'blur(12px)',
           }}
         >
-          <div className="h-1 w-full bg-gradient-pierre-horizontal" />
+          <div className="h-1 w-full boreal-hero-gradient" />
 
           <div className="px-8 py-10 space-y-6">
             <div className="flex flex-col items-center">
@@ -72,10 +72,10 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                   d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
                 />
               </svg>
-              <h1 className="mt-4 text-xl font-bold text-white tracking-tight">
+              <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
                 Reset Your Password
               </h1>
-              <p className="mt-1 text-sm text-zinc-400 text-center">
+              <p className="mt-1 text-sm text-on-surface-variant text-center">
                 Enter your email and we&apos;ll send you a 6-digit code
               </p>
             </div>
@@ -108,7 +108,7 @@ export default function ForgotPassword({ onNavigateToLogin, onCodeSent }: Forgot
                 type="submit"
                 variant="gradient"
                 loading={isLoading}
-                className="w-full shadow-glow-sm"
+                className="w-full shadow-ambient"
               >
                 {isLoading ? 'Sending code...' : 'Send reset code'}
               </Button>
