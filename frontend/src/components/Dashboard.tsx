@@ -38,6 +38,7 @@ const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
 const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
 const MythBustingTab = lazy(() => import('./MythBustingTab'));
 const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
+const EvalHarnessTab = lazy(() => import('./EvalHarnessTab'));
 const CoachStoreManagement = lazy(() => import('./CoachStoreManagement'));
 const CoachLibraryTab = lazy(() => import('./CoachLibraryTab'));
 const StoreScreen = lazy(() => import('./StoreScreen'));
@@ -199,6 +200,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
     { id: 'coach-grading', name: 'Coach Grades', section: 'Configuration', icon: (
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+      </svg>
+    ) },
+    { id: 'eval-harness', name: 'Eval Harness', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
       </svg>
     ) },
     { id: 'activity', name: 'Activity', section: 'Platform', icon: (
@@ -587,6 +593,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'coach-grading' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <CoachGradingTab />
+          </Suspense>
+        )}
+        {activeTab === 'eval-harness' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <EvalHarnessTab />
           </Suspense>
         )}
         {activeTab === 'prompts' && (

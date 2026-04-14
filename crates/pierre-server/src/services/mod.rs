@@ -46,6 +46,14 @@ pub mod myth_busting;
 /// Phase D Sprint C14: per-coach content grading derived from Tier 5.5 verdict history
 pub mod coach_grading;
 
+/// Phase B Sprint C16: admin browser over pierre-evals golden fixtures
+#[cfg(feature = "tools-verification")]
+pub mod eval_harness;
+
+/// Phase D Sprint C17: ClaimVerdict backfill over historical chat_messages
+#[cfg(feature = "tools-verification")]
+pub mod claim_verdict_backfill;
+
 /// Claim verification: Tier 5.5 bullshit detector pipeline + evidence corpus singleton
 #[cfg(feature = "tools-verification")]
 pub mod claim_verification;

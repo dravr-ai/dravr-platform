@@ -16,6 +16,8 @@ mod coach_followups;
 mod coach_grading;
 mod coach_notes;
 mod diagnostics;
+#[cfg(feature = "tools-verification")]
+mod eval_harness;
 pub mod harness_config;
 mod memory_worker;
 mod myth_busting;
@@ -190,13 +192,21 @@ impl AdminRoutes {
 
         // Coach grading routes (Phase D)
         let coach_grading_routes = Self::coach_grading_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Eval harness fixture browser routes (Phase B C16, gated on tools-verification)
+        #[cfg(feature = "tools-verification")]
+        let eval_harness_routes = Self::eval_harness_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
+        #[cfg(not(feature = "tools-verification"))]
+        let _ = auth_service;
 
         // Setup routes are public (no auth required for initial setup)
         let setup_routes = Self::setup_routes(context);
 
-        Router::new()
+        let merged = Router::new()
             .merge(api_key_routes)
             .merge(user_routes)
             .merge(settings_routes)
@@ -210,7 +220,23 @@ impl AdminRoutes {
             .merge(coach_note_routes)
             .merge(myth_busting_routes)
             .merge(coach_grading_routes)
-            .merge(setup_routes)
+            .merge(setup_routes);
+
+        #[cfg(feature = "tools-verification")]
+        let merged = merged.merge(eval_harness_routes);
+
+        merged
+    }
+
+    /// Eval harness fixture browser routes (Axum, gated on tools-verification)
+    #[cfg(feature = "tools-verification")]
+    fn eval_harness_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/evals/fixtures",
+                get(eval_harness::handle_list_fixtures),
+            )
+            .with_state(context)
     }
 
     /// Coach grading routes (Axum)
