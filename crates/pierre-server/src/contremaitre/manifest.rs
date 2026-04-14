@@ -17,7 +17,7 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence)
+    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence + config)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
@@ -28,6 +28,15 @@ pub struct Manifest {
     /// Empty on v1/v2 manifests.
     #[serde(default)]
     pub evidence: ManifestEvidence,
+    /// Hot-reloadable configuration overlays for downstream crates.
+    ///
+    /// Version 3+ — contains at minimum a `cageux` entry pointing to
+    /// `config/cageux.yaml`, which feeds into
+    /// `IntelligenceConfig::with_overlay` on the server side. Empty on
+    /// manifests that pre-date the config section; new fields can be added
+    /// without a schema bump because every entry is optional.
+    #[serde(default)]
+    pub config: ManifestConfig,
 }
 
 /// Prompt entries grouped by type: system prompts and coach personas.
@@ -52,6 +61,20 @@ pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
 /// slug)` the same way [`ManifestTools`] dedupes by tool name.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestEvidence(pub HashMap<String, HashMap<String, HashMap<String, ManifestEntry>>>);
+
+/// Configuration overlay entries keyed by consumer name (version 3+).
+///
+/// Currently holds a single well-known entry: `cageux`, pointing at
+/// `config/cageux.yaml`, which the server applies via
+/// [`dravr_cageux::config::intelligence::IntelligenceConfig::with_overlay`]
+/// on startup and on every webhook push. Future entries can be added as
+/// additional downstream crates grow their own overlay sinks.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestConfig {
+    /// Overlay for the dravr-cageux intelligence configuration, if present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cageux: Option<ManifestEntry>,
+}
 
 /// A single prompt entry in the manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]

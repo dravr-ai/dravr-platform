@@ -229,26 +229,26 @@ fn bench_metrics_calculation(c: &mut Criterion) {
     let activities = generate_activities(ActivityBatchSize::Medium);
 
     group.bench_function("single_activity_metrics", |b| {
-        let calculator = MetricsCalculator {
-            ftp: Some(250.0),
-            lthr: Some(165.0),
-            max_hr: Some(185.0),
-            resting_hr: Some(50.0),
-            weight_kg: Some(70.0),
-        };
+        let calculator = MetricsCalculator::new().with_user_data(
+            Some(250.0),
+            Some(165.0),
+            Some(185.0),
+            Some(50.0),
+            Some(70.0),
+        );
         let activity = &activities[0];
         b.iter(|| calculator.calculate_metrics(black_box(activity)));
     });
 
     group.throughput(Throughput::Elements(activities.len() as u64));
     group.bench_function("batch_metrics_100_activities", |b| {
-        let calculator = MetricsCalculator {
-            ftp: Some(250.0),
-            lthr: Some(165.0),
-            max_hr: Some(185.0),
-            resting_hr: Some(50.0),
-            weight_kg: Some(70.0),
-        };
+        let calculator = MetricsCalculator::new().with_user_data(
+            Some(250.0),
+            Some(165.0),
+            Some(185.0),
+            Some(50.0),
+            Some(70.0),
+        );
         b.iter(|| {
             for activity in black_box(&activities) {
                 let _ = calculator.calculate_metrics(activity);
@@ -327,13 +327,13 @@ fn bench_training_pipeline(c: &mut Criterion) {
             );
 
             // 2. Calculate metrics for each activity
-            let metrics_calc = MetricsCalculator {
-                ftp: Some(250.0),
-                lthr: Some(165.0),
-                max_hr: Some(185.0),
-                resting_hr: Some(50.0),
-                weight_kg: Some(70.0),
-            };
+            let metrics_calc = MetricsCalculator::new().with_user_data(
+                Some(250.0),
+                Some(165.0),
+                Some(185.0),
+                Some(50.0),
+                Some(70.0),
+            );
             let _metrics: Vec<_> = activities
                 .iter()
                 .map(|a| metrics_calc.calculate_metrics(a))

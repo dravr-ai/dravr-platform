@@ -22,7 +22,6 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::config::IntelligenceConfig;
 use crate::errors::{AppError, AppResult};
 use crate::external::{UsdaClient, UsdaClientConfig};
 use crate::intelligence::recipes::{
@@ -197,15 +196,15 @@ impl McpTool for GetRecipeConstraintsTool {
         ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
-    async fn execute(&self, args: Value, _ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
         let meal_timing = args
             .get("meal_timing")
             .and_then(Value::as_str)
             .map_or(MealTiming::General, parse_meal_timing);
 
         let tdee = args.get("tdee").and_then(Value::as_f64);
-        let config = IntelligenceConfig::global();
-        let tdee_proportions = &config.nutrition.meal_tdee_proportions;
+        let cageux_config = ctx.cageux_config();
+        let tdee_proportions = &cageux_config.nutrition.meal_tdee_proportions;
 
         let (calories, tdee_based) = args.get("calories").and_then(Value::as_f64).map_or_else(
             || {
@@ -217,7 +216,8 @@ impl McpTool for GetRecipeConstraintsTool {
             |explicit_cals| (explicit_cals, false),
         );
 
-        let macro_targets = MacroTargets::from_calories_and_timing(calories, meal_timing);
+        let macro_targets =
+            MacroTargets::from_calories_and_timing(calories, meal_timing, &cageux_config.nutrition);
         let (protein_pct, carbs_pct, fat_pct) = meal_timing.macro_distribution();
 
         let tdee_info = if tdee_based {

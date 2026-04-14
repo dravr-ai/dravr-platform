@@ -340,6 +340,7 @@ async fn handle_manual_sync(
         &resources.prompt_registry,
         &resources.tool_description_registry,
         &resources.evidence_registry,
+        &resources.cageux_config_registry,
         &client,
     )
     .await?;

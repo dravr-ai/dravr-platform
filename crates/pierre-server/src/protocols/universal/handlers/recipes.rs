@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::config::{IntelligenceConfig, MealTdeeProportionsConfig};
+use crate::config::MealTdeeProportionsConfig;
 use crate::external::{UsdaClient, UsdaClientConfig};
 use crate::intelligence::recipes::{
     convert_to_grams, DietaryRestriction, IngredientUnit, MacroTargets, MacroTargetsExt,
@@ -77,9 +77,10 @@ struct IngredientInput {
 /// Returns `ProtocolError` if parameters are invalid
 #[must_use]
 pub fn handle_get_recipe_constraints(
-    _executor: &UniversalToolExecutor,
+    executor: &UniversalToolExecutor,
     request: UniversalRequest,
 ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    let cageux_config = executor.cageux_config();
     Box::pin(async move {
         if let Some(token) = &request.cancellation_token {
             if token.is_cancelled().await {
@@ -96,8 +97,7 @@ pub fn handle_get_recipe_constraints(
             .map_or(MealTiming::General, parse_meal_timing);
 
         let tdee = request.parameters.get("tdee").and_then(Value::as_f64);
-        let config = IntelligenceConfig::global();
-        let tdee_proportions = &config.nutrition.meal_tdee_proportions;
+        let tdee_proportions = &cageux_config.nutrition.meal_tdee_proportions;
 
         // Get calories: explicit > TDEE-based > defaults
         let (calories, tdee_based) = request
@@ -114,7 +114,8 @@ pub fn handle_get_recipe_constraints(
                 |explicit_cals| (explicit_cals, false),
             );
 
-        let macro_targets = MacroTargets::from_calories_and_timing(calories, meal_timing);
+        let macro_targets =
+            MacroTargets::from_calories_and_timing(calories, meal_timing, &cageux_config.nutrition);
         let (protein_pct, carbs_pct, fat_pct) = meal_timing.macro_distribution();
 
         let tdee_ctx = TdeeContext {

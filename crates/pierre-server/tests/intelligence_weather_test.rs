@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_intelligence::config::intelligence::WeatherAnalysisConfig;
 use pierre_mcp_server::config::fitness::WeatherApiConfig;
 use pierre_mcp_server::intelligence::weather::{WeatherDifficulty, WeatherService};
 use pierre_mcp_server::intelligence::WeatherConditions;
@@ -15,7 +16,7 @@ use pierre_mcp_server::intelligence::WeatherConditions;
 #[test]
 fn test_weather_service_creation() {
     let config = WeatherApiConfig::default();
-    let service = WeatherService::new(config, None);
+    let service = WeatherService::new(config, WeatherAnalysisConfig::default(), None);
     // Verify service is created with correct configuration
     assert!(service.get_config().enabled);
 }
@@ -23,7 +24,7 @@ fn test_weather_service_creation() {
 #[test]
 fn test_analyze_weather_impact_cold() {
     let config = WeatherApiConfig::default();
-    let service = WeatherService::new(config, None);
+    let service = WeatherService::new(config, WeatherAnalysisConfig::default(), None);
     let cold_weather = WeatherConditions {
         temperature_celsius: -10.0,
         humidity_percentage: Some(50.0),
@@ -43,7 +44,7 @@ fn test_analyze_weather_impact_cold() {
 #[test]
 fn test_analyze_weather_impact_ideal() {
     let config = WeatherApiConfig::default();
-    let service = WeatherService::new(config, None);
+    let service = WeatherService::new(config, WeatherAnalysisConfig::default(), None);
     let ideal_weather = WeatherConditions {
         temperature_celsius: 15.0,
         humidity_percentage: Some(50.0),
@@ -58,7 +59,7 @@ fn test_analyze_weather_impact_ideal() {
 #[test]
 fn test_analyze_weather_impact_hot_humid() {
     let config = WeatherApiConfig::default();
-    let service = WeatherService::new(config, None);
+    let service = WeatherService::new(config, WeatherAnalysisConfig::default(), None);
     let hot_humid_weather = WeatherConditions {
         temperature_celsius: 32.0,
         humidity_percentage: Some(85.0),
@@ -80,7 +81,7 @@ async fn test_get_weather_at_time_disabled() {
         enabled: false,
         ..Default::default()
     };
-    let mut service = WeatherService::new(config, None);
+    let mut service = WeatherService::new(config, WeatherAnalysisConfig::default(), None);
     let result = service
         .get_weather_at_time(45.5017, -73.5673, Utc::now())
         .await; // Montreal coords

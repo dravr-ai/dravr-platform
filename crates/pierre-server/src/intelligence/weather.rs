@@ -115,24 +115,36 @@ struct OpenWeatherCondition {
 }
 
 impl WeatherService {
-    /// Create a new weather service with configuration and API key
+    /// Create a new weather service with configuration, weather analysis
+    /// config, and API key.
+    ///
+    /// The `weather_config` should come from the caller's cageux config
+    /// snapshot (`ctx.cageux_config().weather_analysis.clone()`) so weather
+    /// analysis stays consistent with the rest of the request and picks up
+    /// contremaitre hot-reloads on the next call.
     #[must_use]
-    pub fn new(api_config: WeatherApiConfig, api_key: Option<String>) -> Self {
-        let intelligence_config = IntelligenceConfig::global();
+    pub fn new(
+        api_config: WeatherApiConfig,
+        weather_config: WeatherAnalysisConfig,
+        api_key: Option<String>,
+    ) -> Self {
         Self {
             client: create_client_with_timeout(api_config.request_timeout_seconds, 10),
             api_config,
-            weather_config: intelligence_config.weather_analysis.clone(),
+            weather_config,
             cache: HashMap::new(),
             api_key,
         }
     }
 
-    /// Create weather service with default configuration
+    /// Create weather service with an explicit weather analysis config,
+    /// defaulting the API config and pulling the API key from the server
+    /// config file.
     #[must_use]
-    pub fn with_default_config() -> Self {
+    pub fn with_default_config(weather_config: WeatherAnalysisConfig) -> Self {
         Self::new(
             WeatherApiConfig::default(),
+            weather_config,
             get_server_config().and_then(|c| c.external_services.weather.api_key.clone()),
         )
     }
@@ -414,8 +426,19 @@ impl WeatherService {
 }
 
 impl Default for WeatherService {
+    /// Default weather service built from a freshly loaded cageux weather
+    /// analysis config.
+    ///
+    /// Used by tests and call sites that have no easy access to a live
+    /// [`crate::cageux_config::CageuxConfigRegistry`] snapshot. Production
+    /// code paths that already hold a `ToolExecutionContext` should go
+    /// through [`Self::with_default_config`] with a snapshot from
+    /// `ctx.cageux_config().weather_analysis.clone()` instead.
     fn default() -> Self {
-        Self::with_default_config()
+        let weather_config = IntelligenceConfig::load()
+            .map(|c| c.weather_analysis)
+            .unwrap_or_default();
+        Self::with_default_config(weather_config)
     }
 }
 

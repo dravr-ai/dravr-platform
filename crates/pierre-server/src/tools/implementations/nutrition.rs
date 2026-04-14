@@ -21,7 +21,6 @@ use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};
 
-use crate::config::IntelligenceConfig;
 use crate::errors::{AppError, AppResult};
 use crate::external::{FoodNutrient, UsdaClient, UsdaClientConfig};
 use crate::intelligence::{
@@ -244,7 +243,8 @@ impl McpTool for CalculateDailyNutritionTool {
             training_goal,
         };
 
-        let nutrition_config = &IntelligenceConfig::global().nutrition;
+        let cageux_config = ctx.cageux_config();
+        let nutrition_config = &cageux_config.nutrition;
 
         let nutrition = calculate_daily_nutrition_needs(
             &params,
@@ -356,7 +356,8 @@ impl McpTool for GetNutrientTimingTool {
             .and_then(Value::as_f64)
             .ok_or_else(|| AppError::invalid_input("daily_protein_g is required"))?;
 
-        let nutrition_config = &IntelligenceConfig::global().nutrition;
+        let cageux_config = ctx.cageux_config();
+        let nutrition_config = &cageux_config.nutrition;
 
         let timing = calculate_nutrient_timing(
             weight_kg,

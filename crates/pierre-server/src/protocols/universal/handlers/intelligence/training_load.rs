@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::config::environment::default_provider;
-use crate::config::intelligence::IntelligenceConfig;
 use crate::intelligence::{SleepAnalyzer, TrainingLoadCalculator, TssDataPoint};
 use crate::models::Activity;
 use crate::protocols::universal::handlers::{apply_format_to_response, extract_output_format};
@@ -114,7 +113,8 @@ async fn fetch_recovery_context_for_training_load(
             .map_err(|e| e.error.unwrap_or_else(|| "Unknown error".to_owned()))?;
 
     // Calculate sleep quality score
-    let config = &IntelligenceConfig::global().sleep_recovery;
+    let cageux_config = executor.cageux_config();
+    let config = &cageux_config.sleep_recovery;
     let sleep_quality = SleepAnalyzer::calculate_sleep_quality(&sleep_data, config)
         .map_err(|e| format!("Sleep quality calculation failed: {e}"))?;
 

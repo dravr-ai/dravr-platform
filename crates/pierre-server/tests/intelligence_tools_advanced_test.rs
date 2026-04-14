@@ -11,7 +11,7 @@ mod helpers;
 
 use chrono::Utc;
 use helpers::test_utils::{create_synthetic_provider_with_scenario, TestScenario};
-use pierre_mcp_server::config::intelligence::DefaultStrategy;
+use pierre_mcp_server::config::intelligence::{DefaultStrategy, IntelligenceConfig};
 use pierre_mcp_server::intelligence::{
     ActivityGoal, AdvancedGoalEngine, FitnessLevel, Goal, GoalDifficulty, GoalEngineTrait,
     GoalStatus, GoalType, PerformanceAnalyzerV2, TimeAvailability, TimeFrame, UserFitnessProfile,
@@ -96,7 +96,9 @@ async fn test_fitness_score_calculation() {
     );
 
     // Create performance analyzer
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -136,7 +138,9 @@ async fn test_fitness_score_with_improving_pattern() {
         .await
         .expect("Should get activities");
 
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -161,7 +165,9 @@ async fn test_training_load_analysis() {
         .await
         .expect("Should get activities");
 
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -214,7 +220,9 @@ async fn test_training_load_overtraining_detection() {
         .await
         .expect("Should get activities");
 
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -265,7 +273,9 @@ async fn test_performance_prediction() {
         "Should have running activities"
     );
 
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -305,7 +315,9 @@ async fn test_performance_prediction_insufficient_data() {
         .await
         .expect("Should get activities");
 
-    let strategy = Box::new(DefaultStrategy);
+    let strategy = Box::new(DefaultStrategy::new(
+        IntelligenceConfig::load().expect("load default intelligence config"),
+    ));
     let analyzer =
         PerformanceAnalyzerV2::new(strategy).expect("Should create performance analyzer");
 
@@ -340,7 +352,8 @@ async fn test_suggest_goals_for_beginner() {
         .expect("Should get activities");
 
     let user_profile = create_test_user_profile(FitnessLevel::Beginner);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let suggestions = goal_engine
         .suggest_goals(&user_profile, &activities)
@@ -383,7 +396,8 @@ async fn test_suggest_goals_for_intermediate() {
         .expect("Should get activities");
 
     let user_profile = create_test_user_profile(FitnessLevel::Intermediate);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let suggestions = goal_engine
         .suggest_goals(&user_profile, &activities)
@@ -413,7 +427,8 @@ async fn test_suggest_goals_for_advanced() {
         .expect("Should get activities");
 
     let user_profile = create_test_user_profile(FitnessLevel::Advanced);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let suggestions = goal_engine
         .suggest_goals(&user_profile, &activities)
@@ -448,7 +463,8 @@ async fn test_track_goal_progress() {
         .expect("Should get activities");
 
     let goal = create_test_distance_goal("Run", 50.0);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let progress = goal_engine
         .track_progress(&goal, &activities)
@@ -492,7 +508,8 @@ async fn test_track_progress_with_no_activities() {
     let activities = vec![];
 
     let goal = create_test_distance_goal("Run", 50.0);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let progress = goal_engine
         .track_progress(&goal, &activities)
@@ -518,7 +535,8 @@ async fn test_track_progress_milestones() {
         .expect("Should get activities");
 
     let goal = create_test_distance_goal("Run", 50.0);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let progress = goal_engine
         .track_progress(&goal, &activities)
@@ -562,7 +580,8 @@ async fn test_track_progress_recommendations() {
         .expect("Should get activities");
 
     let goal = create_test_distance_goal("Run", 50.0);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let progress = goal_engine
         .track_progress(&goal, &activities)
@@ -596,7 +615,8 @@ async fn test_goal_progress_insights() {
         .expect("Should get activities");
 
     let goal = create_test_distance_goal("Run", 50.0);
-    let goal_engine = AdvancedGoalEngine::new();
+    let cageux_config = IntelligenceConfig::load().expect("load default intelligence config");
+    let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
     let progress = goal_engine
         .track_progress(&goal, &activities)

@@ -523,7 +523,8 @@ impl McpTool for SuggestGoalsTool {
 
         let user_profile =
             create_profile_from_activities(&context.user_id.to_string(), &activities);
-        let goal_engine = AdvancedGoalEngine::new();
+        let cageux_config = context.cageux_config();
+        let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
         match goal_engine.suggest_goals(&user_profile, &activities).await {
             Ok(suggestions) => {
@@ -662,7 +663,8 @@ impl McpTool for TrackProgressTool {
             .unwrap_or_default();
 
         // Track progress using goal engine
-        let goal_engine = AdvancedGoalEngine::new();
+        let cageux_config = context.cageux_config();
+        let goal_engine = AdvancedGoalEngine::new(&cageux_config);
 
         match goal_engine.track_progress(&goal, &activities).await {
             Ok(progress) => {

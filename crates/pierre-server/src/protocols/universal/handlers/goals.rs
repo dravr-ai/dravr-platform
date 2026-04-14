@@ -483,7 +483,8 @@ pub fn handle_suggest_goals(
         .await;
 
         // Generate goal suggestions
-        let goal_engine = AdvancedGoalEngine::new();
+        let cageux_config = executor.cageux_config();
+        let goal_engine = AdvancedGoalEngine::new(&cageux_config);
         let user_profile = load_user_profile(
             executor.resources.repos.profiles.as_ref(),
             user_uuid,

@@ -86,7 +86,12 @@ fn collect_changed_paths(event: &PushEvent) -> Vec<String> {
 
     changed_paths
         .into_iter()
-        .filter(|p| p.starts_with("prompts/") || p.starts_with("tools/"))
+        .filter(|p| {
+            p.starts_with("prompts/")
+                || p.starts_with("tools/")
+                || p.starts_with("evidence/")
+                || p.starts_with("config/")
+        })
         .collect()
 }
 
@@ -117,7 +122,7 @@ fn check_branch_match(event: &PushEvent, expected_branch: &str) -> Result<(), St
     }
 }
 
-/// Spawn a background selective sync for the changed prompt/tool/evidence files.
+/// Spawn a background selective sync for the changed prompt/tool/evidence/config files.
 fn spawn_selective_sync(
     resources: &Arc<ServerResources>,
     config: &super::config::ContremaitreConfig,
@@ -126,6 +131,7 @@ fn spawn_selective_sync(
     let registry = Arc::clone(&resources.prompt_registry);
     let tool_desc_registry = Arc::clone(&resources.tool_description_registry);
     let evidence_registry = Arc::clone(&resources.evidence_registry);
+    let cageux_config_registry = Arc::clone(&resources.cageux_config_registry);
     let client = config.github_client();
 
     tokio::spawn(async move {
@@ -133,6 +139,7 @@ fn spawn_selective_sync(
             &registry,
             &tool_desc_registry,
             &evidence_registry,
+            &cageux_config_registry,
             &client,
             &filtered_paths,
         )

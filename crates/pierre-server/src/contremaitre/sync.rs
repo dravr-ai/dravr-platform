@@ -12,9 +12,10 @@ use tracing::{debug, info, warn};
 use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
 use super::github::GitHubContentsClient;
-use super::manifest::{compute_sha256, ManifestEntry};
+use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
 use super::registry::PromptRegistry;
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
+use crate::cageux_config::CageuxConfigRegistry;
 
 /// Nested `domain → category → slug → entry` shape used by the manifest's
 /// evidence tree. Aliased to keep [`sync_all_evidence`] and
@@ -193,10 +194,12 @@ async fn sync_all_coach_prompts(
 /// # Errors
 ///
 /// Returns an error if manifest fetch or file operations fail.
+#[allow(clippy::too_many_arguments)]
 pub async fn full_sync(
     registry: &PromptRegistry,
     tool_desc_registry: &ToolDescriptionRegistry,
     evidence_registry: &EvidenceRegistry,
+    cageux_config_registry: &CageuxConfigRegistry,
     client: &GitHubContentsClient,
 ) -> Result<SyncResult, ContremaitreError> {
     info!("Starting contremaitre full sync");
@@ -209,20 +212,24 @@ pub async fn full_sync(
         sync_all_tool_descriptions(tool_desc_registry, client, &manifest.tools.0).await?;
     let evidence_result =
         sync_all_evidence(evidence_registry, client, &manifest.evidence.0).await?;
+    let cageux_result = sync_cageux_config(cageux_config_registry, client, &manifest.config).await;
 
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
             + tool_result.synced
-            + evidence_result.synced,
+            + evidence_result.synced
+            + cageux_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + tool_result.skipped
-            + evidence_result.skipped,
+            + evidence_result.skipped
+            + cageux_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + tool_result.failed
-            + evidence_result.failed,
+            + evidence_result.failed
+            + cageux_result.failed,
     };
 
     info!(
@@ -231,6 +238,7 @@ pub async fn full_sync(
         failed = result.failed,
         tools_synced = tool_result.synced,
         evidence_synced = evidence_result.synced,
+        cageux_synced = cageux_result.synced,
         "Contremaitre full sync complete"
     );
 
@@ -335,10 +343,12 @@ async fn sync_changed_coach_prompts(
 /// # Errors
 ///
 /// Returns an error if manifest fetch or file operations fail.
+#[allow(clippy::too_many_arguments)]
 pub async fn selective_sync(
     registry: &PromptRegistry,
     tool_desc_registry: &ToolDescriptionRegistry,
     evidence_registry: &EvidenceRegistry,
+    cageux_config_registry: &CageuxConfigRegistry,
     client: &GitHubContentsClient,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
@@ -371,19 +381,30 @@ pub async fn selective_sync(
     )
     .await?;
 
+    let cageux_result = sync_changed_cageux_config(
+        cageux_config_registry,
+        client,
+        &manifest.config,
+        &changed_set,
+    )
+    .await;
+
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
             + tool_result.synced
-            + evidence_result.synced,
+            + evidence_result.synced
+            + cageux_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + tool_result.skipped
-            + evidence_result.skipped,
+            + evidence_result.skipped
+            + cageux_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + tool_result.failed
-            + evidence_result.failed,
+            + evidence_result.failed
+            + cageux_result.failed,
     };
 
     info!(
@@ -567,6 +588,133 @@ async fn fetch_and_apply_evidence(
         }
         Err(e) => {
             warn!(category, slug, error = %e, "failed to download evidence proposition");
+            SyncOutcome::Failed
+        }
+    }
+}
+
+// =============================================================================
+// Cageux config sync (hot-reloadable IntelligenceConfig overlay)
+// =============================================================================
+
+/// Sync the cageux intelligence config overlay from the manifest's `config`
+/// section (full sync path).
+///
+/// Returns an already-aggregated [`SyncResult`] so the caller can fold it
+/// into the overall full-sync totals. Propagates network and parse failures
+/// as `Failed` rather than returning `Err`, matching the existing
+/// `sync_all_*` helpers — the previous snapshot in the registry stays live
+/// on failure.
+async fn sync_cageux_config(
+    registry: &CageuxConfigRegistry,
+    client: &GitHubContentsClient,
+    manifest_config: &ManifestConfig,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.cageux.as_ref() else {
+        debug!("No cageux config entry in manifest, keeping bootstrap snapshot");
+        return result;
+    };
+
+    if registry.current_overlay_sha256().as_deref() == Some(&entry.sha256) {
+        debug!("cageux config overlay unchanged, skipping");
+        result.skipped += 1;
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_cageux_config(registry, client, entry).await,
+    );
+    result
+}
+
+/// Sync the cageux intelligence config overlay if its path appears in
+/// `changed_set` (selective/webhook sync path).
+async fn sync_changed_cageux_config(
+    registry: &CageuxConfigRegistry,
+    client: &GitHubContentsClient,
+    manifest_config: &ManifestConfig,
+    changed_set: &HashSet<&str>,
+) -> SyncResult {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    let Some(entry) = manifest_config.cageux.as_ref() else {
+        return result;
+    };
+
+    if !changed_set.contains(entry.path.as_str()) {
+        return result;
+    }
+
+    accumulate_outcome(
+        &mut result,
+        fetch_and_apply_cageux_config(registry, client, entry).await,
+    );
+    result
+}
+
+/// Apply a downloaded cageux overlay YAML to the registry, logging the
+/// outcome.
+fn apply_cageux_overlay(
+    registry: &CageuxConfigRegistry,
+    entry: &ManifestEntry,
+    file: &super::github::GitHubFile,
+) -> SyncOutcome {
+    let actual_sha = compute_sha256(file.content.as_bytes());
+    if actual_sha != entry.sha256 {
+        warn!(
+            expected = entry.sha256,
+            actual = actual_sha,
+            "manifest hash mismatch for cageux config, using downloaded content"
+        );
+    }
+    match registry.apply_overlay(&file.content) {
+        Ok(()) => {
+            info!(
+                path = %entry.path,
+                sha256 = actual_sha,
+                "synced cageux intelligence config overlay"
+            );
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to apply cageux config overlay — keeping previous snapshot"
+            );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+/// Download the cageux overlay YAML and install the resulting snapshot
+/// through [`CageuxConfigRegistry::apply_overlay`], which runs the layered
+/// `defaults → env → overlay → validate` pipeline. On failure (network,
+/// parse, or validation) the previous snapshot stays live.
+async fn fetch_and_apply_cageux_config(
+    registry: &CageuxConfigRegistry,
+    client: &GitHubContentsClient,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match client.read_file(&entry.path).await {
+        Ok(file) => apply_cageux_overlay(registry, entry, &file),
+        Err(e) => {
+            warn!(
+                path = %entry.path,
+                error = %e,
+                "failed to download cageux config overlay"
+            );
             SyncOutcome::Failed
         }
     }
