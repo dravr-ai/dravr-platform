@@ -178,3 +178,11 @@ resource "google_storage_bucket_iam_member" "terraform_runner_state_admin" {
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.terraform_runner.email}"
 }
+
+# Allow terraform-runner to act as app service account
+# Required when Terraform sets service_account on Cloud Run services/jobs
+resource "google_service_account_iam_member" "terraform_runner_can_act_as_app" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.terraform_runner.email}"
+}
