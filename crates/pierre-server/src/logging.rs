@@ -9,11 +9,16 @@
 /// Tenant-aware logging utilities and context management
 pub mod tenant;
 
+/// Google Cloud Logging structured-JSON formatter
+pub mod gcp;
+
 /// Re-export tenant logging utilities
 pub use tenant::{
     record_performance_metrics, record_request_context, record_tenant_context, ProviderApiContext,
     TenantLogger,
 };
+
+use gcp::GcpFormatter;
 
 use crate::constants::service_names;
 use crate::errors::AppResult;
@@ -49,8 +54,6 @@ pub struct LogOutputOptions {
 pub struct LogFeatures {
     /// Enable OpenTelemetry tracing
     pub telemetry: bool,
-    /// Enable GCP Cloud Logging format
-    pub gcp_format: bool,
     /// Truncate long MCP request/response logs for readability
     pub truncate_mcp: bool,
 }
@@ -85,6 +88,8 @@ pub enum LogFormat {
     Pretty,
     /// Compact format for space-constrained environments
     Compact,
+    /// Google Cloud Logging structured JSON (Cloud Run / Stackdriver)
+    Gcp,
 }
 
 impl Default for LoggingConfig {
@@ -102,7 +107,6 @@ impl Default for LoggingConfig {
             environment: "development".into(),
             features: LogFeatures {
                 telemetry: false,
-                gcp_format: false,
                 truncate_mcp: true, // Default to readable logs
             },
             request_id_header: "x-request-id".into(),
@@ -116,9 +120,17 @@ impl LoggingConfig {
     pub fn from_env() -> Self {
         let level = env::var("RUST_LOG").unwrap_or_else(|_| "info".into());
 
+        // Cloud Run sets `K_SERVICE` on every revision; this is the canonical
+        // signal that we are running in the managed environment, so default
+        // to the GCP-structured log format there unless overridden.
+        let on_cloud_run = env::var("K_SERVICE").is_ok();
+
         let format = match env::var("LOG_FORMAT").as_deref() {
             Ok("json") => LogFormat::Json,
             Ok("compact") => LogFormat::Compact,
+            Ok("gcp") => LogFormat::Gcp,
+            Ok("pretty") => LogFormat::Pretty,
+            _ if on_cloud_run => LogFormat::Gcp,
             _ => LogFormat::Pretty,
         };
 
@@ -127,7 +139,7 @@ impl LoggingConfig {
             .unwrap_or_else(|_| "development".into());
 
         // In production, use more detailed logging
-        let is_production = environment == "production";
+        let is_production = environment == "production" || on_cloud_run;
 
         Self {
             level,
@@ -141,10 +153,9 @@ impl LoggingConfig {
                 .unwrap_or_else(|_| service_names::PIERRE_MCP_SERVER.into()),
             service_version: env::var("SERVICE_VERSION")
                 .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_owned()),
-            environment: environment.clone(), // Safe: String ownership for logging config
+            environment,
             features: LogFeatures {
                 telemetry: is_production || env::var("ENABLE_TELEMETRY").is_ok(),
-                gcp_format: environment == "production" && env::var("GCP_PROJECT_ID").is_ok(),
                 truncate_mcp: env::var("MCP_LOG_TRUNCATE")
                     .map(|v| v != "false" && v != "0")
                     .unwrap_or(true), // Default to true (truncated) unless explicitly disabled
@@ -208,6 +219,13 @@ impl LoggingConfig {
                     .parse()
                     .unwrap_or_else(|_| tracing::Level::INFO.into()),
             )
+            // Headless-Chrome WebSocket handler emits non-actionable WARNs
+            // for every malformed frame from the browser side; silence below ERROR.
+            .add_directive(
+                "chromiumoxide=error"
+                    .parse()
+                    .unwrap_or_else(|_| tracing::Level::ERROR.into()),
+            )
             // Keep our application logs at desired level
             .add_directive(
                 format!("pierre_mcp_server={}", self.level)
@@ -268,6 +286,19 @@ impl LoggingConfig {
                     .with_span_events(FmtSpan::NONE);
 
                 registry.with(compact_layer).with(error_layer).init();
+            }
+            LogFormat::Gcp => {
+                let gcp_layer =
+                    fmt::layer()
+                        .with_writer(io::stdout)
+                        .event_format(GcpFormatter::new(
+                            &self.service_name,
+                            &self.service_version,
+                            &self.environment,
+                            self.output.location,
+                        ));
+
+                registry.with(gcp_layer).with(error_layer).init();
             }
         }
 
@@ -359,9 +390,9 @@ impl LoggingConfig {
     pub fn for_gcp_cloud_run() -> Self {
         Self {
             level: "info".into(),
-            format: LogFormat::Json,
+            format: LogFormat::Gcp,
             output: LogOutputOptions {
-                location: false,
+                location: true,
                 thread: false,
                 spans: true,
             },
@@ -370,7 +401,6 @@ impl LoggingConfig {
             environment: "production".into(),
             features: LogFeatures {
                 telemetry: true,
-                gcp_format: true,
                 truncate_mcp: false, // Production wants full logs
             },
             request_id_header: "x-request-id".into(),

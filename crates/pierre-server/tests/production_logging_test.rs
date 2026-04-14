@@ -293,7 +293,10 @@ fn test_gcp_logging_configuration() {
 
     assert_eq!(gcp_config.level, "info");
     assert_eq!(gcp_config.environment, "production");
-    assert!(gcp_config.features.gcp_format);
+    assert!(matches!(
+        gcp_config.format,
+        pierre_mcp_server::logging::LogFormat::Gcp
+    ));
     assert!(gcp_config.features.telemetry);
     assert!(
         !gcp_config.features.truncate_mcp,
