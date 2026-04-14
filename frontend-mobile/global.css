@@ -1,73 +1,81 @@
-/* ABOUTME: Global CSS file for NativeWind v4 Tailwind integration */
-/* ABOUTME: Contains Tailwind directives for utility class generation */
+/* ABOUTME: NativeWind v4 global stylesheet — Dravr Boreal Editorial components */
+/* ABOUTME: Class names preserved from the prior Pierre system; styles resolve to Boreal tokens */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Pierre Design System - Glassmorphism Components */
 @layer components {
-  /* Dark theme glassmorphism card */
+  /* ==========================================================================
+     Cards — DESIGN.md §4 tonal layering
+     ========================================================================== */
+
+  /* Light glass panel (boreal-glass from the website) */
   .card-glass {
-    @apply bg-background-secondary/60 border border-white/10 rounded-2xl;
+    @apply bg-surface-container-lowest rounded-lg;
   }
 
-  /* Featured card with glow */
+  /* Featured floating card */
   .card-glow {
-    @apply bg-background-secondary/80 border border-pierre-violet/30 rounded-2xl;
+    @apply bg-surface-container-lowest rounded-lg;
   }
 
-  /* Primary gradient button */
-  .btn-gradient {
-    @apply bg-gradient-to-r from-pierre-violet to-pierre-cyan rounded-xl px-6 py-3 font-semibold;
+  /* Dark signature panel — for hero callouts over imagery */
+  .card-boreal-overlay {
+    @apply bg-primary-container rounded-lg;
   }
 
-  /* Pillar-specific cards */
+  /* Pillar cards — subtle tonal washes, no hard borders */
   .card-activity {
-    @apply bg-pierre-activity/10 border border-pierre-activity/20 rounded-2xl;
+    @apply bg-surface-container-low rounded-lg;
   }
 
   .card-nutrition {
-    @apply bg-pierre-nutrition/10 border border-pierre-nutrition/20 rounded-2xl;
+    @apply bg-surface-container-low rounded-lg;
   }
 
   .card-recovery {
-    @apply bg-pierre-recovery/10 border border-pierre-recovery/20 rounded-2xl;
+    @apply bg-surface-container-low rounded-lg;
   }
 
-  /* ============================================
-     AI Intelligence Styling
-     Reinforces Pierre's AI-first brand identity
-     Note: Shadow/glow effects require StyleSheet
-     ============================================ */
+  /* ==========================================================================
+     Buttons — DESIGN.md §5
+     ========================================================================== */
 
-  /* AI Card - for AI-specific content */
-  .card-ai {
-    @apply bg-pierre-violet/10 border border-pierre-violet/20 rounded-2xl;
+  .btn-gradient,
+  .btn-primary {
+    @apply bg-primary rounded-md px-6 py-3 font-semibold;
   }
 
-  /* AI Avatar container */
-  .ai-avatar {
-    @apply bg-pierre-violet/20 rounded-full items-center justify-center;
-  }
+  /* ==========================================================================
+     Chat bubbles — tonal layering on light surface
+     ========================================================================== */
 
-  /* AI Chat bubble */
   .chat-bubble-ai {
-    @apply bg-white/5 border border-white/10 rounded-2xl p-4;
+    @apply bg-surface-container-lowest rounded-lg p-4;
   }
 
-  /* User chat bubble */
   .chat-bubble-user {
-    @apply bg-pierre-violet/90 border border-white/10 rounded-2xl p-4;
+    @apply bg-primary rounded-lg p-4;
   }
 
-  /* AI typing indicator container */
+  /* ==========================================================================
+     AI legacy classes — flattened to tonal washes, no violet glow
+     ========================================================================== */
+
+  .card-ai {
+    @apply bg-surface-container-lowest rounded-lg;
+  }
+
+  .ai-avatar {
+    @apply bg-surface-container rounded-full items-center justify-center;
+  }
+
   .ai-typing-container {
     @apply flex-row gap-1 items-center px-4 py-2;
   }
 
-  /* AI gradient border effect */
   .ai-gradient-border {
-    @apply border border-pierre-violet/30 rounded-2xl;
+    @apply rounded-lg;
   }
 }

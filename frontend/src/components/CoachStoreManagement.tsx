@@ -81,10 +81,10 @@ export default function CoachStoreManagement() {
         <button
           onClick={() => setActiveTab('review')}
           className={clsx(
-            'bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'review'
               ? 'border-pierre-violet/50 ring-1 ring-pierre-violet/30'
-              : 'border-white/10 hover:border-pierre-violet/30'
+              : 'ghost-border hover:border-pierre-violet/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
@@ -94,29 +94,29 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
             {(stats?.pending_count ?? 0) > 0 && (
-              <span className="bg-pierre-violet text-white text-xs font-bold px-2 py-1 rounded-full">
+              <span className="bg-pierre-violet text-on-surface text-xs font-bold px-2 py-1 rounded-full">
                 {stats?.pending_count}
               </span>
             )}
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-on-surface">
             {statsLoading ? (
-              <div className="h-8 w-12 bg-white/10 rounded animate-pulse" />
+              <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
               formatNumber(stats?.pending_count)
             )}
           </div>
-          <div className="text-sm text-zinc-400">Pending Reviews</div>
+          <div className="text-sm text-on-surface-variant">Pending Reviews</div>
         </button>
 
         {/* Published Coaches */}
         <button
           onClick={() => setActiveTab('published')}
           className={clsx(
-            'bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'published'
               ? 'border-pierre-activity/50 ring-1 ring-pierre-activity/30'
-              : 'border-white/10 hover:border-pierre-activity/30'
+              : 'ghost-border hover:border-pierre-activity/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
@@ -126,18 +126,18 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-on-surface">
             {statsLoading ? (
-              <div className="h-8 w-12 bg-white/10 rounded animate-pulse" />
+              <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
               formatNumber(stats?.published_count)
             )}
           </div>
-          <div className="text-sm text-zinc-400">Published Coaches</div>
+          <div className="text-sm text-on-surface-variant">Published Coaches</div>
         </button>
 
         {/* Total Installs */}
-        <div className="bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border border-white/10 rounded-xl p-5">
+        <div className="bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="w-10 h-10 rounded-lg bg-pierre-cyan/20 flex items-center justify-center">
               <svg className="w-5 h-5 text-pierre-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,24 +145,24 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-on-surface">
             {statsLoading ? (
-              <div className="h-8 w-12 bg-white/10 rounded animate-pulse" />
+              <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
               formatNumber(stats?.total_installs)
             )}
           </div>
-          <div className="text-sm text-zinc-400">Total Installs</div>
+          <div className="text-sm text-on-surface-variant">Total Installs</div>
         </div>
 
         {/* Rejection Rate */}
         <button
           onClick={() => setActiveTab('rejected')}
           className={clsx(
-            'bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border rounded-xl p-5 text-left transition-all',
+            'bg-surface-container-lowest shadow-ambient border rounded-xl p-5 text-left transition-all',
             activeTab === 'rejected'
               ? 'border-pierre-nutrition/50 ring-1 ring-pierre-nutrition/30'
-              : 'border-white/10 hover:border-pierre-nutrition/30'
+              : 'ghost-border hover:border-pierre-nutrition/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
@@ -172,19 +172,19 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
           </div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-on-surface">
             {statsLoading ? (
-              <div className="h-8 w-12 bg-white/10 rounded animate-pulse" />
+              <div className="h-8 w-12 bg-surface-container-high rounded animate-pulse" />
             ) : (
               formatPercentage(stats?.rejection_rate)
             )}
           </div>
-          <div className="text-sm text-zinc-400">Rejection Rate</div>
+          <div className="text-sm text-on-surface-variant">Rejection Rate</div>
         </button>
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-white/10">
+      <div className="border-b ghost-border">
         <nav className="flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -194,7 +194,7 @@ export default function CoachStoreManagement() {
                 'flex items-center gap-2 px-1 py-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === tab.id
                   ? 'border-pierre-violet text-pierre-violet-light'
-                  : 'border-transparent text-zinc-400 hover:text-white hover:border-white/30'
+                  : 'border-transparent text-on-surface-variant hover:text-on-surface hover:border-white/30'
               )}
             >
               {tab.icon}

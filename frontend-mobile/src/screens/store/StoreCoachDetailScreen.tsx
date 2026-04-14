@@ -22,12 +22,12 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { StoreCoachDetail } from '../../types';
 // Coach category colors
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#10B981',
-  nutrition: '#F59E0B',
-  recovery: '#6366F1',
+  training: '#3c6658',
+  nutrition: '#8f6a2e',
+  recovery: '#5e7a82',
   recipes: '#F97316',
-  mobility: '#EC4899',
-  custom: '#7C3AED',
+  mobility: '#7a4d5e',
+  custom: '#00241a',
 };
 
 export function StoreCoachDetailScreen() {
@@ -227,7 +227,7 @@ export function StoreCoachDetailScreen() {
                 style={{
                   ...glassCard,
                   borderRadius: 12,
-                  borderColor: 'rgba(139, 92, 246, 0.15)',
+                  borderColor: 'rgba(0, 36, 26, 0.15)',
                 }}
               >
                 <Text className="text-base text-text-primary leading-5">{prompt}</Text>
@@ -274,7 +274,7 @@ export function StoreCoachDetailScreen() {
             style={{
               ...glassCard,
               borderRadius: 12,
-              borderColor: 'rgba(139, 92, 246, 0.15)',
+              borderColor: 'rgba(0, 36, 26, 0.15)',
             }}
           >
             <View className="flex-row justify-between items-center px-4 py-3 border-b border-border-subtle">
@@ -307,7 +307,7 @@ export function StoreCoachDetailScreen() {
             style={{
               ...glassCard,
               borderRadius: 12,
-              borderColor: 'rgba(139, 92, 246, 0.2)',
+              borderColor: 'rgba(0, 36, 26, 0.2)',
             }}
             onPress={handleUninstall}
             disabled={isInstalling}
@@ -336,7 +336,7 @@ export function StoreCoachDetailScreen() {
             ) : (
               <>
                 <Feather name="download" size={18} color="#FFFFFF" />
-                <Text className="text-white text-base font-semibold ml-2">Install Coach</Text>
+                <Text className="text-on-surface text-base font-semibold ml-2">Install Coach</Text>
               </>
             )}
           </TouchableOpacity>

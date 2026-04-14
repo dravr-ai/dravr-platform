@@ -27,12 +27,12 @@ export function InsightPreview({
   return (
     <div className={className}>
       {label && (
-        <label className="block text-sm font-medium text-zinc-300 mb-2">
+        <label className="block text-sm font-medium text-on-surface mb-2">
           {label}
         </label>
       )}
       <div
-        className={`bg-white/5 rounded-lg p-4 text-zinc-100 text-sm ${maxHeight} overflow-y-auto prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5 prose-p:my-2`}
+        className={`bg-surface-container-low rounded-lg p-4 text-zinc-100 text-sm ${maxHeight} overflow-y-auto prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:mt-4 prose-headings:mb-2 prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5 prose-p:my-2`}
       >
         <Markdown
           remarkPlugins={[remarkGfm]}
@@ -68,11 +68,11 @@ export function InsightPreview({
             code: ({ children, className }) => {
               const isInline = !className;
               return isInline ? (
-                <code className="bg-white/10 px-1.5 py-0.5 rounded text-pierre-cyan text-xs">
+                <code className="bg-surface-container-high px-1.5 py-0.5 rounded text-pierre-cyan text-xs">
                   {children}
                 </code>
               ) : (
-                <code className="block bg-white/10 p-3 rounded-lg text-xs overflow-x-auto">
+                <code className="block bg-surface-container-high p-3 rounded-lg text-xs overflow-x-auto">
                   {children}
                 </code>
               );

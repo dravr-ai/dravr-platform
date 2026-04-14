@@ -45,7 +45,7 @@ export default function EvalHarnessTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Eval harness — golden fixtures
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -66,7 +66,7 @@ export default function EvalHarnessTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Fixture files
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.fixture_count ?? 0}
             </div>
           </div>
@@ -74,7 +74,7 @@ export default function EvalHarnessTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Total cases
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.case_total ?? 0}
             </div>
           </div>
@@ -82,7 +82,7 @@ export default function EvalHarnessTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Distinct personas
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {personaCounts.size}
             </div>
           </div>
@@ -90,7 +90,7 @@ export default function EvalHarnessTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Assertions
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.fixtures.reduce((acc, f) => acc + totalAssertions(f), 0) ?? 0}
             </div>
           </div>
@@ -152,7 +152,7 @@ export default function EvalHarnessTab() {
                 aria-label={`Toggle ${fixture.name} fixture`}
               >
                 <div>
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-on-surface">
                     {fixture.name}
                   </h3>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -189,7 +189,7 @@ export default function EvalHarnessTab() {
                       <div className="flex items-center gap-3 text-right text-xs">
                         <div>
                           <div className="text-gray-500 dark:text-gray-400">Turns</div>
-                          <div className="font-semibold text-gray-900 dark:text-white">
+                          <div className="font-semibold text-gray-900 dark:text-on-surface">
                             {c.turn_count}
                           </div>
                         </div>

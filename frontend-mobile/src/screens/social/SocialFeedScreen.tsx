@@ -263,7 +263,7 @@ export function SocialFeedScreen() {
         onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
         <Feather name="user-plus" size={18} color="#FFFFFF" />
-        <Text className="text-white text-base font-semibold">Find Friends</Text>
+        <Text className="text-on-surface text-base font-semibold">Find Friends</Text>
       </TouchableOpacity>
     </View>
   );
@@ -326,7 +326,7 @@ export function SocialFeedScreen() {
             testID="share-suggestion-button"
           >
             <Feather name="share-2" size={16} color="#FFFFFF" />
-            <Text className="text-white font-semibold">
+            <Text className="text-on-surface font-semibold">
               Share with Friends ({suggestions.length} available)
             </Text>
           </TouchableOpacity>

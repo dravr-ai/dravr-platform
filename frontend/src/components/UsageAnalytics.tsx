@@ -48,11 +48,11 @@ export default function UsageAnalytics() {
 
   // Pierre Design System colors for charts
   const pierreColors = {
-    violet: '#8B5CF6',
-    cyan: '#22D3EE',
-    activity: '#4ADE80',
-    nutrition: '#F59E0B',
-    recovery: '#6366F1',
+    violet: '#00241a',
+    cyan: '#0d3b2e',
+    activity: '#3c6658',
+    nutrition: '#8f6a2e',
+    recovery: '#5e7a82',
     red: '#EF4444',
   };
 
@@ -170,8 +170,8 @@ export default function UsageAnalytics() {
     <div className="space-y-6">
       <div className="card-admin">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-white">Usage Analytics</h2>
-          <div className="flex rounded-lg bg-white/10 p-1">
+          <h2 className="text-xl font-semibold text-on-surface">Usage Analytics</h2>
+          <div className="flex rounded-lg bg-surface-container-high p-1">
             {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
               const numValue = Number(value) as AdminTimeRange;
               return (
@@ -180,8 +180,8 @@ export default function UsageAnalytics() {
                   onClick={() => setTimeRange(numValue)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                     timeRange === numValue
-                      ? 'bg-pierre-violet text-white shadow-sm'
-                      : 'text-zinc-400 hover:text-white'
+                      ? 'bg-pierre-violet text-on-surface shadow-sm'
+                      : 'text-on-surface-variant hover:text-on-surface'
                   }`}
                 >
                   {label}
@@ -196,30 +196,30 @@ export default function UsageAnalytics() {
             <div className="text-2xl font-bold text-pierre-violet-light">
               {analytics?.time_series?.reduce((sum: number, point: TimeSeriesPoint) => sum + point.request_count, 0) || 0}
             </div>
-            <div className="text-sm text-zinc-400">Total Requests</div>
+            <div className="text-sm text-on-surface-variant">Total Requests</div>
           </div>
           <div className="stat-card-dark">
             <div className="text-2xl font-bold text-pierre-red-500">
               {analytics?.error_rate?.toFixed(1) || 0}%
             </div>
-            <div className="text-sm text-zinc-400">Error Rate</div>
+            <div className="text-sm text-on-surface-variant">Error Rate</div>
           </div>
           <div className="stat-card-dark">
             <div className="text-2xl font-bold text-pierre-activity">
               {analytics?.average_response_time?.toFixed(0) || 0}ms
             </div>
-            <div className="text-sm text-zinc-400">Avg Response Time</div>
+            <div className="text-sm text-on-surface-variant">Avg Response Time</div>
           </div>
         </div>
 
         {/* Time Series Chart */}
         <div className="mb-8">
-          <h3 className="text-lg font-medium mb-4 text-white">Request Volume Over Time</h3>
-          <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Request Volume Over Time</h3>
+          <div className="bg-surface-container-low rounded-lg p-4 border ghost-border">
             {analytics?.time_series && analytics.time_series.length > 0 ? (
               <Line data={timeSeriesData} options={chartOptions} />
             ) : (
-              <div className="bg-white/5 rounded-lg p-8 text-center text-zinc-500">
+              <div className="bg-surface-container-low rounded-lg p-8 text-center text-outline">
                 No time series data available yet
                 <br />
                 <small>Make some API calls to see request patterns</small>
@@ -232,8 +232,8 @@ export default function UsageAnalytics() {
         {analytics?.top_tools && analytics.top_tools.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
             <div>
-              <h3 className="text-lg font-medium mb-4 text-white">Tool Usage Distribution</h3>
-              <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+              <h3 className="text-lg font-medium mb-4 text-on-surface">Tool Usage Distribution</h3>
+              <div className="bg-surface-container-low rounded-lg p-4 border ghost-border">
                 <Doughnut
                   data={toolUsageData}
                   options={{
@@ -249,8 +249,8 @@ export default function UsageAnalytics() {
               </div>
             </div>
             <div>
-              <h3 className="text-lg font-medium mb-4 text-white">Response Time by Tool</h3>
-              <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+              <h3 className="text-lg font-medium mb-4 text-on-surface">Response Time by Tool</h3>
+              <div className="bg-surface-container-low rounded-lg p-4 border ghost-border">
                 <Bar data={responseTimeData} options={chartOptions} />
               </div>
             </div>
@@ -260,19 +260,19 @@ export default function UsageAnalytics() {
         {/* Top Tools Table */}
         {analytics?.top_tools && analytics.top_tools.length > 0 && (
           <div>
-            <h3 className="text-lg font-medium mb-4 text-white">Most Used Tools</h3>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">Most Used Tools</h3>
             <div className="space-y-3">
               {analytics.top_tools.map((tool: TopTool) => (
-                <div key={tool.tool_name} className="flex justify-between items-center p-3 bg-white/5 rounded-lg hover:bg-white/10 transition-colors border border-white/5">
+                <div key={tool.tool_name} className="flex justify-between items-center p-3 bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors border ghost-border">
                   <div>
-                    <span className="font-medium text-white">{tool.tool_name}</span>
-                    <span className="text-zinc-500 ml-2">
+                    <span className="font-medium text-on-surface">{tool.tool_name}</span>
+                    <span className="text-outline ml-2">
                       {(tool.success_rate || 0).toFixed(1)}% success rate
                     </span>
                   </div>
                   <div className="text-right">
                     <div className="font-bold text-pierre-violet-light">{tool.request_count.toLocaleString()}</div>
-                    <div className="text-sm text-zinc-500">
+                    <div className="text-sm text-outline">
                       {(tool.average_response_time || 0).toFixed(0)}ms avg
                     </div>
                   </div>
@@ -283,11 +283,11 @@ export default function UsageAnalytics() {
         )}
 
         {(!analytics?.time_series?.length && !analytics?.top_tools?.length) && (
-          <div className="text-center py-12 text-zinc-400">
-            <svg className="w-12 h-12 mx-auto mb-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-12 text-on-surface-variant">
+            <svg className="w-12 h-12 mx-auto mb-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
             </svg>
-            <p className="text-lg mb-2 text-white">No conversations yet</p>
+            <p className="text-lg mb-2 text-on-surface">No conversations yet</p>
             <p>Users will see analytics here once they start chatting.</p>
           </div>
         )}

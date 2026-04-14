@@ -35,7 +35,7 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
     hoverColor: 'hover:border-[#22C55E]',
   },
   synthetic: {
-    brandColor: 'bg-gradient-to-br from-pierre-violet to-pierre-cyan',
+    brandColor: 'bg-gradient-to-br boreal-hero-gradient',
     hoverColor: 'hover:border-pierre-violet',
   },
   sciotte: {
@@ -50,7 +50,7 @@ const PROVIDER_STYLES: Record<string, { brandColor: string; hoverColor: string }
 
 // Default style for unknown providers
 const DEFAULT_STYLE = {
-  brandColor: 'bg-pierre-gray-500',
+  brandColor: 'bg-surface-container-low0',
   hoverColor: 'hover:border-pierre-gray-500',
 };
 
@@ -204,10 +204,10 @@ export default function ProviderConnectionCards({
           {[1, 2, 3, 4, 5].map((i) => (
             <Card key={i} variant="dark" className="p-5 animate-pulse">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-white/10" />
+                <div className="w-12 h-12 rounded-xl bg-surface-container-high" />
                 <div className="flex-1">
-                  <div className="h-4 w-24 bg-white/10 rounded mb-2" />
-                  <div className="h-3 w-32 bg-white/5 rounded" />
+                  <div className="h-4 w-24 bg-surface-container-high rounded mb-2" />
+                  <div className="h-3 w-32 bg-surface-container-low rounded" />
                 </div>
               </div>
             </Card>
@@ -256,7 +256,7 @@ export default function ProviderConnectionCards({
               >
                 <div className="flex items-center gap-4">
                   <div
-                    className={`w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-white shadow-sm`}
+                    className={`w-12 h-12 rounded-xl ${style.brandColor} flex items-center justify-center text-on-surface shadow-sm`}
                   >
                     {isConnecting ? (
                       <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
@@ -266,7 +266,7 @@ export default function ProviderConnectionCards({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white text-sm">{provider.display_name}</span>
+                      <span className="font-semibold text-on-surface text-sm">{provider.display_name}</span>
                       {provider.connected && (
                         <Badge variant="success">
                           Connected
@@ -278,11 +278,11 @@ export default function ProviderConnectionCards({
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-zinc-400 mt-0.5">{getProviderDescription(provider)}</p>
+                    <p className="text-xs text-on-surface-variant mt-0.5">{getProviderDescription(provider)}</p>
                   </div>
                   {!provider.connected && (provider.requires_oauth || provider.provider.startsWith('sciotte')) && (
                     <svg
-                      className="w-4 h-4 text-zinc-500 group-hover:text-zinc-300 transition-colors"
+                      className="w-4 h-4 text-outline group-hover:text-on-surface transition-colors"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -310,7 +310,7 @@ export default function ProviderConnectionCards({
               className="p-5 transition-all duration-200 h-full border-2 border-transparent hover:border-pierre-violet hover:shadow-lg hover:-translate-y-0.5"
             >
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pierre-violet to-pierre-cyan flex items-center justify-center text-white shadow-sm">
+                <div className="w-12 h-12 rounded-xl boreal-hero-gradient flex items-center justify-center text-on-primary shadow-sm">
                   {isSkipPending ? (
                     <div className="pierre-spinner w-6 h-6 border-white border-t-transparent"></div>
                   ) : (
@@ -320,13 +320,13 @@ export default function ProviderConnectionCards({
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="font-semibold text-white text-sm">
+                  <span className="font-semibold text-on-surface text-sm">
                     {isSkipPending ? 'Starting...' : 'Start chatting'}
                   </span>
-                  <p className="text-xs text-zinc-400 mt-0.5">Connect providers later</p>
+                  <p className="text-xs text-on-surface-variant mt-0.5">Connect providers later</p>
                 </div>
                 <svg
-                  className="w-4 h-4 text-zinc-500 group-hover:text-pierre-violet transition-colors"
+                  className="w-4 h-4 text-outline group-hover:text-pierre-violet transition-colors"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

@@ -22,12 +22,12 @@ import type { Message, Coach } from '../../types';
 
 // Coach category badge background colors
 const COACH_CATEGORY_BADGE_BG: Record<string, string> = {
-  training: 'rgba(16, 185, 129, 0.15)',
-  nutrition: 'rgba(245, 158, 11, 0.15)',
-  recovery: 'rgba(99, 102, 241, 0.15)',
+  training: 'rgba(60, 102, 88, 0.15)',
+  nutrition: 'rgba(143, 106, 46, 0.15)',
+  recovery: 'rgba(94, 122, 130, 0.15)',
   recipes: 'rgba(249, 115, 22, 0.15)',
-  mobility: 'rgba(236, 72, 153, 0.15)',
-  custom: 'rgba(124, 58, 237, 0.15)',
+  mobility: 'rgba(122, 77, 94, 0.15)',
+  custom: 'rgba(0, 36, 26, 0.15)',
 };
 
 // Coach category emoji icons
@@ -349,7 +349,7 @@ export function MessageList({
           /* User message — right-aligned bubble with distinct background */
           <View
             className="max-w-[85%] rounded-2xl rounded-br-[4px] px-4 py-3"
-            style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.25)' }}
+            style={{ backgroundColor: 'rgba(0, 36, 26, 0.15)', borderWidth: 1, borderColor: 'rgba(0, 36, 26, 0.25)' }}
           >
             {renderMessageContent(item.content, true, item.id)}
           </View>
@@ -424,9 +424,9 @@ export function MessageList({
       <View
         className="flex-row max-w-[85%] rounded-2xl rounded-bl-[4px] p-4"
         style={{
-          backgroundColor: 'rgba(30, 30, 46, 0.9)',
+          backgroundColor: 'rgba(244, 244, 241, 0.9)',
           borderWidth: 1,
-          borderColor: 'rgba(139, 92, 246, 0.3)',
+          borderColor: 'rgba(0, 36, 26, 0.3)',
           ...aiGlow.thinking,
         }}
       >
@@ -447,7 +447,7 @@ export function MessageList({
   );
 
   const renderCoachCard = (coach: Coach) => {
-    const categoryColor = COACH_CATEGORY_BADGE_BG[coach.category] || 'rgba(124, 58, 237, 0.15)';
+    const categoryColor = COACH_CATEGORY_BADGE_BG[coach.category] || 'rgba(0, 36, 26, 0.15)';
 
     return (
       <TouchableOpacity
@@ -468,7 +468,7 @@ export function MessageList({
             {coach.category}
           </Text>
           {coach.is_favorite && (
-            <Text className="text-sm mr-1" style={{ color: '#F59E0B' }}>★</Text>
+            <Text className="text-sm mr-1" style={{ color: '#8f6a2e' }}>★</Text>
           )}
           <Text className="text-lg text-text-tertiary">›</Text>
         </View>

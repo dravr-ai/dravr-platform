@@ -33,12 +33,12 @@ export default function ProviderConnectionModal({
         onClick={onClose}
       />
       {/* Modal Content */}
-      <div className="relative bg-pierre-slate rounded-2xl shadow-2xl border border-white/10 max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+      <div className="relative bg-surface-container-low rounded-2xl shadow-2xl border ghost-border max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="p-8">
           {/* Close button */}
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 text-zinc-500 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            className="absolute top-4 right-4 p-2 text-outline hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors"
             aria-label="Close"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -47,15 +47,15 @@ export default function ProviderConnectionModal({
           </button>
 
           <div className="text-center mb-8">
-            <div className="w-14 h-14 bg-pierre-violet/20 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-glow-sm">
+            <div className="w-14 h-14 bg-pierre-violet/20 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-ambient">
               <svg className="w-7 h-7 text-pierre-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
-            <h2 className="text-2xl font-semibold text-white mb-3">
+            <h2 className="text-2xl font-semibold text-on-surface mb-3">
               Connect your fitness data
             </h2>
-            <p className="text-zinc-400">
+            <p className="text-on-surface-variant">
               Link a provider for personalized insights, or continue without
             </p>
           </div>

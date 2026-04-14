@@ -72,7 +72,7 @@ export const Slider: React.FC<SliderProps> = ({
         <div className="absolute top-1/2 left-0 right-0 h-2 -translate-y-1/2 bg-pierre-gray-200 rounded-full">
           {/* Filled track with gradient */}
           <div
-            className="absolute top-0 left-0 h-full bg-gradient-pierre-horizontal rounded-full transition-all duration-150"
+            className="absolute top-0 left-0 h-full boreal-hero-gradient rounded-full transition-all duration-150"
             style={{ width: `${percentage}%` }}
           />
         </div>

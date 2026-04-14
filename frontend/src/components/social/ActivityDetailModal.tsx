@@ -71,9 +71,9 @@ export default function ActivityDetailModal({
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-white truncate">{activityTitle}</h3>
+              <h3 className="text-lg font-semibold text-on-surface truncate">{activityTitle}</h3>
               {activityDate && (
-                <p className="text-sm text-zinc-400">{activityDate}</p>
+                <p className="text-sm text-on-surface-variant">{activityDate}</p>
               )}
               <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-pierre-cyan/20 text-pierre-cyan rounded-full capitalize">
                 {activityType}
@@ -92,7 +92,7 @@ export default function ActivityDetailModal({
                 </div>
                 <div className="flex-1">
                   <p className="text-xs font-medium text-pierre-violet mb-1">AI Insight</p>
-                  <div className="text-sm text-zinc-300 leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:text-base prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5">
+                  <div className="text-sm text-on-surface leading-relaxed prose prose-sm prose-invert max-w-none prose-headings:text-zinc-100 prose-headings:font-semibold prose-headings:text-base prose-strong:text-zinc-100 prose-ul:my-2 prose-li:my-0.5">
                     <Markdown
                       remarkPlugins={[remarkGfm]}
                       components={{
@@ -112,12 +112,12 @@ export default function ActivityDetailModal({
           )}
 
           {/* Share CTA Section */}
-          <Card variant="dark" className="bg-gradient-to-r from-pierre-violet/10 to-pierre-cyan/10 border border-white/10">
+          <Card variant="dark" className="bg-gradient-to-r from-pierre-violet/10 to-pierre-cyan/10 border ghost-border">
             <div className="text-center">
-              <h4 className="text-base font-medium text-white mb-2">
+              <h4 className="text-base font-medium text-on-surface mb-2">
                 Share this activity with friends
               </h4>
-              <p className="text-sm text-zinc-400 mb-4">
+              <p className="text-sm text-on-surface-variant mb-4">
                 Let Pierre create a coach-generated insight to share with your training partners.
                 Your private data stays private - only the insight is shared.
               </p>

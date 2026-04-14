@@ -70,12 +70,12 @@ export default function ShareChatMessageModal({
         {isEditing ? (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-zinc-300">
+              <label className="block text-sm font-medium text-on-surface">
                 Edit Your Insight
               </label>
               <button
                 onClick={() => setIsEditing(false)}
-                className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                className="text-xs text-on-surface-variant hover:text-on-surface transition-colors"
               >
                 Done Editing
               </button>
@@ -83,14 +83,14 @@ export default function ShareChatMessageModal({
             <textarea
               value={editedContent}
               onChange={(e) => setEditedContent(e.target.value)}
-              className="w-full h-64 bg-white/5 border border-white/10 rounded-lg p-4 text-zinc-200 text-sm leading-relaxed resize-none focus:outline-none focus:border-pierre-violet/50 focus:ring-1 focus:ring-pierre-violet/50"
+              className="w-full h-64 bg-surface-container-low border ghost-border rounded-lg p-4 text-on-surface text-sm leading-relaxed resize-none focus:outline-none focus:border-pierre-violet/50 focus:ring-1 focus:ring-pierre-violet/50"
               placeholder="Edit your insight..."
             />
           </div>
         ) : (
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-zinc-300">
+              <label className="block text-sm font-medium text-on-surface">
                 Message to Share
               </label>
               <button
@@ -110,7 +110,7 @@ export default function ShareChatMessageModal({
 
         {/* Visibility Selection */}
         <div>
-          <label className="block text-sm font-medium text-zinc-300 mb-3">
+          <label className="block text-sm font-medium text-on-surface mb-3">
             Who can see this?
           </label>
           <div className="space-y-2">
@@ -120,7 +120,7 @@ export default function ShareChatMessageModal({
                 className={`flex items-start p-3 rounded-lg cursor-pointer transition-colors ${
                   visibility === option.value
                     ? 'bg-pierre-violet/20 border-pierre-violet border'
-                    : 'bg-white/5 border-transparent border hover:bg-white/10'
+                    : 'bg-surface-container-low border-transparent border hover:bg-surface-container'
                 }`}
               >
                 <input
@@ -133,7 +133,7 @@ export default function ShareChatMessageModal({
                 />
                 <div>
                   <div className="text-sm font-medium text-zinc-100">{option.label}</div>
-                  <div className="text-xs text-zinc-400">{option.description}</div>
+                  <div className="text-xs text-on-surface-variant">{option.description}</div>
                 </div>
               </label>
             ))}

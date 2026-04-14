@@ -14,14 +14,14 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Pierre brand colors for charts
 const CHART_COLORS = [
-  '#8B5CF6', // pierre-violet
-  '#22D3EE', // pierre-cyan
-  '#4ADE80', // pierre-activity
-  '#F59E0B', // pierre-nutrition
+  '#00241a', // pierre-violet
+  '#0d3b2e', // pierre-cyan
+  '#3c6658', // pierre-activity
+  '#8f6a2e', // pierre-nutrition
   '#EF4444', // pierre-red
   '#A78BFA', // light violet
   '#FB923C', // orange
-  '#6366F1', // indigo
+  '#5e7a82', // indigo
 ];
 
 /** Format a token count for display (e.g., 1,234,567 -> "1.23M") */
@@ -98,7 +98,7 @@ export default function LlmConsumptionPanel() {
       <div className="card-dark">
         <div className="text-center py-8 text-pierre-red-400">
           <p className="text-lg mb-2">Failed to load consumption data</p>
-          <p className="text-sm text-zinc-500">Check admin permissions and try again.</p>
+          <p className="text-sm text-outline">Check admin permissions and try again.</p>
         </div>
       </div>
     );
@@ -107,8 +107,8 @@ export default function LlmConsumptionPanel() {
   if (!data) {
     return (
       <div className="card-dark">
-        <div className="text-center py-8 text-zinc-400">
-          <p className="text-lg mb-2 text-white">No LLM consumption data</p>
+        <div className="text-center py-8 text-on-surface-variant">
+          <p className="text-lg mb-2 text-on-surface">No LLM consumption data</p>
           <p>Start making chat or tool requests to see consumption analytics.</p>
         </div>
       </div>
@@ -128,8 +128,8 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Tokens',
         data: daily_series.map((p) => p.tokens),
-        borderColor: '#8B5CF6',
-        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+        borderColor: '#00241a',
+        backgroundColor: 'rgba(0, 36, 26, 0.1)',
         fill: true,
         tension: 0.4,
         pointRadius: daily_series.length > 30 ? 0 : 3,
@@ -138,8 +138,8 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Cost (USD)',
         data: daily_series.map((p) => p.cost_usd),
-        borderColor: '#22D3EE',
-        backgroundColor: 'rgba(34, 211, 238, 0.1)',
+        borderColor: '#0d3b2e',
+        backgroundColor: 'rgba(13, 59, 46, 0.1)',
         fill: false,
         tension: 0.4,
         pointRadius: daily_series.length > 30 ? 0 : 3,
@@ -218,15 +218,15 @@ export default function LlmConsumptionPanel() {
       {
         label: 'Tokens',
         data: byCallType.tokens,
-        backgroundColor: 'rgba(139, 92, 246, 0.6)',
-        borderColor: '#8B5CF6',
+        backgroundColor: 'rgba(0, 36, 26, 0.6)',
+        borderColor: '#00241a',
         borderWidth: 1,
       },
       {
         label: 'Calls',
         data: byCallType.calls,
-        backgroundColor: 'rgba(34, 211, 238, 0.6)',
-        borderColor: '#22D3EE',
+        backgroundColor: 'rgba(13, 59, 46, 0.6)',
+        borderColor: '#0d3b2e',
         borderWidth: 1,
       },
     ],
@@ -255,8 +255,8 @@ export default function LlmConsumptionPanel() {
     <div className="space-y-6">
       {/* Date range selector */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-white">LLM Consumption Analytics</h2>
-        <div className="flex rounded-lg bg-white/10 p-1">
+        <h2 className="text-xl font-semibold text-on-surface">LLM Consumption Analytics</h2>
+        <div className="flex rounded-lg bg-surface-container-high p-1">
           {(Object.entries(ADMIN_TIME_RANGE_LABELS) as [string, string][]).map(([value, label]) => {
             const numValue = Number(value) as AdminTimeRange;
             return (
@@ -265,8 +265,8 @@ export default function LlmConsumptionPanel() {
                 onClick={() => setTimeRange(numValue)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   timeRange === numValue
-                    ? 'bg-pierre-violet text-white shadow-sm'
-                    : 'text-zinc-400 hover:text-white'
+                    ? 'bg-pierre-violet text-on-surface shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >
                 {label}
@@ -282,26 +282,26 @@ export default function LlmConsumptionPanel() {
           <div className="text-2xl font-bold text-pierre-violet">
             {formatTokens(summary.total_tokens)}
           </div>
-          <div className="text-sm text-zinc-400">Total Tokens</div>
+          <div className="text-sm text-on-surface-variant">Total Tokens</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-cyan">
             {summary.total_calls.toLocaleString()}
           </div>
-          <div className="text-sm text-zinc-400">Total Calls</div>
+          <div className="text-sm text-on-surface-variant">Total Calls</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-activity">
             {formatCost(summary.estimated_cost_usd)}
           </div>
-          <div className="text-sm text-zinc-400">Estimated Cost (USD)</div>
+          <div className="text-sm text-on-surface-variant">Estimated Cost (USD)</div>
         </div>
       </div>
 
       {/* Daily consumption time series */}
       {daily_series.length > 0 && (
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-white">Daily Token Consumption</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Daily Token Consumption</h3>
           <div style={{ height: '320px' }}>
             <Line data={lineChartData} options={lineChartOptions} />
           </div>
@@ -312,7 +312,7 @@ export default function LlmConsumptionPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {byProvider.labels.length > 0 && (
           <div className="card-dark">
-            <h3 className="text-lg font-medium mb-4 text-white">By Provider</h3>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">By Provider</h3>
             <div style={{ height: '300px' }}>
               <Doughnut data={doughnutData} options={doughnutOptions} />
             </div>
@@ -321,7 +321,7 @@ export default function LlmConsumptionPanel() {
 
         {byCallType.labels.length > 0 && (
           <div className="card-dark">
-            <h3 className="text-lg font-medium mb-4 text-white">By Call Type</h3>
+            <h3 className="text-lg font-medium mb-4 text-on-surface">By Call Type</h3>
             <div style={{ height: '300px' }}>
               <Bar data={barChartData} options={barChartOptions} />
             </div>
@@ -332,38 +332,38 @@ export default function LlmConsumptionPanel() {
       {/* Detailed breakdown table */}
       {breakdown.length > 0 && (
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-white">Consumption Details</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Consumption Details</h3>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-white/10">
-              <thead className="bg-white/5">
+              <thead className="bg-surface-container-low">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Provider
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Model
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Call Type
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Tokens
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Calls
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-right text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                     Cost
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
                 {breakdown.map((item, i) => (
-                  <tr key={`${item.provider}-${item.model}-${item.call_type}-${i}`} className="hover:bg-white/5">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                  <tr key={`${item.provider}-${item.model}-${item.call_type}-${i}`} className="hover:bg-surface-container-low">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                       {item.provider}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-300">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                       {item.model}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -372,18 +372,18 @@ export default function LlmConsumptionPanel() {
                           ? 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30'
                           : item.call_type === 'insight'
                           ? 'bg-pierre-cyan/20 text-pierre-cyan-light border border-pierre-cyan/30'
-                          : 'bg-white/10 text-zinc-300 border border-white/10'
+                          : 'bg-surface-container-high text-on-surface border ghost-border'
                       }`}>
                         {item.call_type.replace(/_/g, ' ')}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white text-right">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">
                       {formatTokens(item.total_tokens)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white text-right">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">
                       {item.calls.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-white text-right">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface text-right">
                       {formatCost(item.cost_usd)}
                     </td>
                   </tr>

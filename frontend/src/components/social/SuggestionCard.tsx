@@ -39,7 +39,7 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
   const getRelevanceColor = (percentage: number) => {
     if (percentage >= 70) return 'bg-emerald-500/20 text-emerald-400';
     if (percentage >= 40) return 'bg-amber-500/20 text-amber-400';
-    return 'bg-zinc-500/20 text-zinc-400';
+    return 'bg-zinc-500/20 text-on-surface-variant';
   };
 
   return (
@@ -48,7 +48,7 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
         'w-full text-left rounded-xl p-4 mb-3 transition-all',
         isSelected
           ? 'bg-pierre-violet/20 border-2 border-pierre-violet'
-          : 'bg-white/5 border border-white/10 hover:bg-white/10'
+          : 'bg-surface-container-low border ghost-border hover:bg-surface-container'
       )}
       onClick={() => onShare(suggestion)}
     >
@@ -65,7 +65,7 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
 
         {/* Relevance indicator */}
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-zinc-500">Relevance</span>
+          <span className="text-xs text-outline">Relevance</span>
           <span className={clsx(
             'px-2 py-0.5 rounded text-xs font-semibold',
             getRelevanceColor(relevancePercentage)
@@ -77,11 +77,11 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
 
       {/* Optional title */}
       {suggestion.suggested_title && (
-        <h4 className="text-white font-semibold mb-1 line-clamp-1">{suggestion.suggested_title}</h4>
+        <h4 className="text-on-surface font-semibold mb-1 line-clamp-1">{suggestion.suggested_title}</h4>
       )}
 
       {/* Content preview */}
-      <p className="text-zinc-300 text-sm leading-relaxed mb-3 line-clamp-3">
+      <p className="text-on-surface text-sm leading-relaxed mb-3 line-clamp-3">
         {suggestion.suggested_content}
       </p>
 
@@ -89,12 +89,12 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
       {(suggestion.sport_type || suggestion.training_phase) && (
         <div className="flex flex-wrap gap-2 mb-3">
           {suggestion.sport_type && (
-            <span className="px-2 py-1 text-xs bg-white/10 text-zinc-400 rounded">
+            <span className="px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant rounded">
               {suggestion.sport_type}
             </span>
           )}
           {suggestion.training_phase && (
-            <span className="px-2 py-1 text-xs bg-white/10 text-zinc-400 rounded capitalize">
+            <span className="px-2 py-1 text-xs bg-surface-container-high text-on-surface-variant rounded capitalize">
               {suggestion.training_phase} phase
             </span>
           )}
@@ -103,7 +103,7 @@ export default function SuggestionCard({ suggestion, onShare, isSelected = false
 
       {/* Share button indicator */}
       <div className="flex justify-end">
-        <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-pierre-violet text-white text-sm font-semibold">
+        <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-pierre-violet text-on-surface text-sm font-semibold">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
           </svg>

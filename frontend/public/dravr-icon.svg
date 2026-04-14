@@ -1,33 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <title>Dravr Icon</title>
-  <desc>Dravr logo icon - letterform composed of data nodes in the three pillar colors</desc>
+  <desc>Dravr letterform on a Boreal surface — deep forest primary with pillar-colored node accents</desc>
 
   <defs>
     <linearGradient id="iconMain" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#7C3AED"/>
-      <stop offset="100%" style="stop-color:#06B6D4"/>
+      <stop offset="0%" style="stop-color:#00241a"/>
+      <stop offset="100%" style="stop-color:#0d3b2e"/>
     </linearGradient>
   </defs>
 
-  <!-- Background -->
-  <rect x="0" y="0" width="64" height="64" rx="14" fill="#0F0F1A"/>
+  <!-- Background — light surface with ghost border via rounded corners -->
+  <rect x="0" y="0" width="64" height="64" rx="10" fill="#f9f9f6"/>
 
-  <!-- Simple "P" made of nodes -->
-  <!-- Stem -->
+  <!-- Letter stem -->
   <line x1="20" y1="14" x2="20" y2="50" stroke="url(#iconMain)" stroke-width="4" stroke-linecap="round"/>
 
-  <!-- Bowl top -->
+  <!-- Letter bowl -->
   <path d="M20,14 L36,14 Q46,14 46,24 Q46,34 36,34 L20,34" fill="none" stroke="url(#iconMain)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Main nodes at key points -->
-  <circle cx="20" cy="14" r="5" fill="#10B981"/>
-  <circle cx="36" cy="14" r="4" fill="#10B981"/>
-  <circle cx="46" cy="24" r="5" fill="#06B6D4"/>
-  <circle cx="36" cy="34" r="4" fill="#F59E0B"/>
-  <circle cx="20" cy="34" r="4" fill="#F59E0B"/>
-  <circle cx="20" cy="50" r="5" fill="#6366F1"/>
+  <!-- Node accents in pillar colors -->
+  <circle cx="20" cy="14" r="5" fill="#3c6658"/>
+  <circle cx="36" cy="14" r="4" fill="#3c6658"/>
+  <circle cx="46" cy="24" r="5" fill="#0d3b2e"/>
+  <circle cx="36" cy="34" r="4" fill="#8f6a2e"/>
+  <circle cx="20" cy="34" r="4" fill="#8f6a2e"/>
+  <circle cx="20" cy="50" r="5" fill="#5e7a82"/>
 
   <!-- Data accent -->
-  <circle cx="52" cy="44" r="3" fill="#06B6D4" opacity="0.8"/>
-  <line x1="46" y1="28" x2="50" y2="42" stroke="#06B6D4" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
+  <circle cx="52" cy="44" r="3" fill="#0d3b2e" opacity="0.8"/>
+  <line x1="46" y1="28" x2="50" y2="42" stroke="#0d3b2e" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/>
 </svg>

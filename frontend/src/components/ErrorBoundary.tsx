@@ -117,10 +117,10 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
       // Default error UI
       return (
-        <div className="min-h-screen bg-pierre-dark flex items-center justify-center px-4">
+        <div className="min-h-screen bg-surface flex items-center justify-center px-4">
           <div className="max-w-lg w-full">
             {/* Error Card */}
-            <div className="bg-pierre-slate rounded-xl shadow-xl overflow-hidden border border-pierre-gray-800">
+            <div className="bg-surface-container-low rounded-xl shadow-xl overflow-hidden border border-pierre-gray-800">
               {/* Header with gradient */}
               <div className="h-1.5 w-full bg-gradient-to-r from-red-500 via-orange-500 to-red-500" />
 
@@ -133,7 +133,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 </div>
 
                 {/* Error Title */}
-                <h1 className="text-2xl font-bold text-white text-center mb-3">
+                <h1 className="text-2xl font-bold text-on-surface text-center mb-3">
                   Something went wrong
                 </h1>
 
@@ -144,8 +144,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
                 {/* Error Details (collapsible in production) */}
                 {error && (
-                  <details className="mb-6 bg-pierre-gray-900/50 rounded-lg overflow-hidden">
-                    <summary className="px-4 py-3 text-sm text-pierre-gray-400 cursor-pointer hover:bg-pierre-gray-900/70 transition-colors">
+                  <details className="mb-6 bg-surface-container-highest/50 rounded-lg overflow-hidden">
+                    <summary className="px-4 py-3 text-sm text-pierre-gray-400 cursor-pointer hover:bg-surface-container-highest/70 transition-colors">
                       Technical Details
                     </summary>
                     <div className="px-4 py-3 border-t border-pierre-gray-800">
@@ -165,7 +165,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button
                     onClick={this.handleRetry}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-pierre-violet hover:bg-pierre-violet/90 text-white font-medium rounded-lg transition-colors"
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-pierre-violet hover:bg-pierre-violet/90 text-on-surface font-medium rounded-lg transition-colors"
                   >
                     <RefreshCw className="w-4 h-4" />
                     Try Again
@@ -174,7 +174,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                   {showHomeButton && (
                     <button
                       onClick={this.handleGoHome}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-pierre-gray-700 hover:bg-pierre-gray-600 text-white font-medium rounded-lg transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-surface-container hover:bg-pierre-gray-600 text-on-surface font-medium rounded-lg transition-colors"
                     >
                       <Home className="w-4 h-4" />
                       Go Home
@@ -184,7 +184,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </div>
 
               {/* Footer */}
-              <div className="px-8 py-4 bg-pierre-gray-900/30 border-t border-pierre-gray-800">
+              <div className="px-8 py-4 bg-surface-container-highest/30 border-t border-pierre-gray-800">
                 <p className="text-xs text-pierre-gray-500 text-center">
                   If this problem persists, please contact support or try refreshing the page.
                 </p>

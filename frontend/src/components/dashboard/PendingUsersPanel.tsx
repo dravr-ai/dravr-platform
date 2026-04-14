@@ -43,11 +43,11 @@ export default function PendingUsersPanel({ onNavigate }: PendingUsersPanelProps
     >
       <div className="flex items-center gap-2">
         <div className="w-2 h-2 rounded-full bg-pierre-nutrition animate-pulse" />
-        <span className="text-sm font-medium text-white">
+        <span className="text-sm font-medium text-on-surface">
           {pendingUsers.length} user{pendingUsers.length !== 1 ? 's' : ''} awaiting approval
         </span>
       </div>
-      <svg className="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
       </svg>
     </button>

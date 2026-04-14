@@ -112,7 +112,7 @@ export default function CoachFollowupsTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Coach followups
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -131,7 +131,7 @@ export default function CoachFollowupsTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Pending
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {filtered.length}
             </div>
           </div>
@@ -139,7 +139,7 @@ export default function CoachFollowupsTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Overdue
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {overdueCount}
             </div>
           </div>
@@ -147,7 +147,7 @@ export default function CoachFollowupsTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Total fetched
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {data?.total ?? 0}
             </div>
           </div>
@@ -163,7 +163,7 @@ export default function CoachFollowupsTab() {
               value={coachFilter}
               onChange={(e) => setCoachFilter(e.target.value)}
               placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -173,7 +173,7 @@ export default function CoachFollowupsTab() {
               value={userFilter}
               onChange={(e) => setUserFilter(e.target.value)}
               placeholder="filter by user id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -181,7 +181,7 @@ export default function CoachFollowupsTab() {
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               {LIMIT_OPTIONS.map((n) => (
                 <option key={n} value={n}>

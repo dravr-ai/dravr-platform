@@ -47,12 +47,12 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 // Category border colors for left accent (synced with shared-constants)
 const CATEGORY_BORDER_COLORS: Record<string, string> = {
-  Training: '#4ADE80',
-  Nutrition: '#F59E0B',
-  Recovery: '#818CF8',
+  Training: '#3c6658',
+  Nutrition: '#8f6a2e',
+  Recovery: '#5e7a82',
   Recipes: '#F97316',
-  Mobility: '#EC4899',
-  Custom: '#8B5CF6',
+  Mobility: '#7a4d5e',
+  Custom: '#00241a',
 };
 
 // LLM context window size for percentage calculation
@@ -513,7 +513,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
   // Coach list view
   if (!selectedCoach && !isCreating) {
     return (
-      <div className="h-full flex flex-col bg-pierre-dark">
+      <div className="h-full flex flex-col bg-surface">
         <TabHeader
           icon={<BookOpen className="w-5 h-5" />}
           gradient="from-pierre-cyan to-pierre-blue-600"
@@ -523,7 +523,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               {onBack && (
                 <button
                   onClick={onBack}
-                  className="p-2 rounded-lg text-zinc-400 hover:text-pierre-violet hover:bg-white/5 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-surface-variant hover:text-pierre-violet hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="Back"
                   aria-label="Back"
                 >
@@ -538,7 +538,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   'p-2 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center',
                   showHidden
                     ? 'bg-pierre-violet/20 text-pierre-violet-light'
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/5'
+                    : 'text-outline hover:text-on-surface hover:bg-surface-container-low'
                 )}
                 title={showHidden ? 'Hide hidden coaches' : 'Show hidden coaches'}
                 aria-label={showHidden ? 'Hide hidden coaches' : 'Show hidden coaches'}
@@ -555,7 +555,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               <div className="relative" ref={importMenuRef}>
                 <button
                   onClick={() => setShowImportMenu(!showImportMenu)}
-                  className="p-2 rounded-lg text-zinc-400 hover:text-pierre-violet hover:bg-white/5 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-surface-variant hover:text-pierre-violet hover:bg-surface-container-low transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                   title="Import Coach"
                   aria-label="Import Coach"
                 >
@@ -564,13 +564,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   </svg>
                 </button>
                 {showImportMenu && (
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-[#1E1B2D] rounded-lg border border-white/10 shadow-xl z-50 py-1">
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-[#1E1B2D] rounded-lg border ghost-border shadow-xl z-50 py-1">
                     <button
                       onClick={() => {
                         setShowImportMenu(false);
                         fileInputRef.current?.click();
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low transition-colors"
                     >
                       <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -584,7 +584,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         setImportError(null);
                         setShowUrlDialog(true);
                       }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-on-surface hover:bg-surface-container-low transition-colors"
                     >
                       <svg className="w-4 h-4" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -608,7 +608,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   setFormData(defaultFormData);
                   setIsCreating(true);
                 }}
-                className="p-2 rounded-lg text-white bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-glow-sm hover:shadow-glow min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Create Coach"
                 aria-label="Create Coach"
               >
@@ -621,10 +621,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         />
 
         {/* Search Bar */}
-        <div className="px-6 py-4 border-b border-white/10">
+        <div className="px-6 py-4 border-b ghost-border">
           <div className="relative">
             <svg
-              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-zinc-500"
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-outline"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -638,13 +638,13 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               aria-label="Search coaches"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
+              className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder:text-outline focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear search"
-                className="absolute right-1 top-1/2 transform -translate-y-1/2 text-zinc-500 hover:text-zinc-300 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="absolute right-1 top-1/2 transform -translate-y-1/2 text-outline hover:text-on-surface min-w-[44px] min-h-[44px] flex items-center justify-center"
               >
                 <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -655,15 +655,15 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         </div>
 
         {/* Category Filters - inline with Favorites */}
-        <div className="px-6 py-3 border-b border-white/10 overflow-x-auto">
+        <div className="px-6 py-3 border-b ghost-border overflow-x-auto">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setCategoryFilter(null)}
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 categoryFilter === null
-                  ? 'bg-pierre-violet text-white shadow-glow-sm'
-                  : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300'
+                  ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
               All
@@ -675,8 +675,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className={clsx(
                   'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                   categoryFilter === cat
-                    ? 'bg-pierre-violet text-white shadow-glow-sm'
-                    : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300'
+                    ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                    : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
                 )}
               >
                 {cat}
@@ -689,7 +689,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 'flex items-center gap-1 px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px]',
                 favoritesOnly
                   ? 'bg-pierre-yellow-500/20 text-pierre-yellow-400'
-                  : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-zinc-300'
+                  : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
               <svg
@@ -711,7 +711,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         </div>
 
         {/* Source filter (All Sources / My Coaches / System) */}
-        <div className="px-6 py-2 bg-white/5 border-b border-white/10 flex justify-center items-center gap-3">
+        <div className="px-6 py-2 bg-surface-container-low border-b ghost-border flex justify-center items-center gap-3">
           {SOURCE_FILTERS.map((filter) => (
             <button
               key={filter.key}
@@ -720,7 +720,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 'px-3 py-1 text-sm font-medium rounded transition-colors min-h-[44px] flex items-center',
                 selectedSource === filter.key
                   ? 'bg-pierre-violet/20 text-pierre-violet-light font-medium'
-                  : 'text-zinc-400 hover:text-pierre-violet-light'
+                  : 'text-on-surface-variant hover:text-pierre-violet-light'
               )}
             >
               {filter.label}
@@ -736,19 +736,19 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </div>
         ) : filteredCoaches.length === 0 ? (
           <Card variant="dark" className="text-center py-12">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/5 flex items-center justify-center">
-              <svg className="w-8 h-8 text-zinc-500" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface-container-low flex items-center justify-center">
+              <svg className="w-8 h-8 text-outline" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-medium text-white mb-2">
+            <h3 className="text-lg font-medium text-on-surface mb-2">
               {favoritesOnly ? 'No Favorite Coaches' :
                selectedSource === 'user' ? 'No User-Created Coaches' :
                selectedSource === 'system' ? 'No System Coaches' :
                categoryFilter ? `No ${categoryFilter} Coaches` :
                'No Coaches Yet'}
             </h3>
-            <p className="text-zinc-400 mb-4">
+            <p className="text-on-surface-variant mb-4">
               {favoritesOnly
                 ? 'Star some coaches to see them here.'
                 : (coachesData?.coaches || []).length === 0
@@ -767,7 +767,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 <div
                   key={coach.id}
                   className={clsx(
-                    'cursor-pointer hover:shadow-md transition-all border-l-4 bg-pierre-slate rounded-xl p-4 border border-white/10',
+                    'cursor-pointer hover:shadow-md transition-all border-l-4 bg-surface-container-low rounded-xl p-4 border ghost-border',
                     isHidden && 'opacity-60'
                   )}
                   style={{ borderLeftColor: CATEGORY_BORDER_COLORS[coach.category] || CATEGORY_BORDER_COLORS.Custom }}
@@ -786,7 +786,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                     <div className="flex-1 min-w-0">
                       {/* Title and badges */}
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className={clsx('font-semibold', isHidden ? 'text-zinc-500' : 'text-white')}>
+                        <h3 className={clsx('font-semibold', isHidden ? 'text-outline' : 'text-on-surface')}>
                           {coach.title}
                         </h3>
                         <span className={clsx(
@@ -796,7 +796,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                           {coach.category}
                         </span>
                         {coach.is_system && (
-                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-zinc-700/50 text-zinc-400 flex-shrink-0">
+                          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-zinc-700/50 text-on-surface-variant flex-shrink-0">
                             System
                           </span>
                         )}
@@ -809,7 +809,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                             key={star}
                             className={clsx(
                               'w-3 h-3',
-                              coach.use_count >= star * 2 ? 'text-pierre-yellow-500 fill-pierre-yellow-500' : 'text-zinc-600 fill-none'
+                              coach.use_count >= star * 2 ? 'text-pierre-yellow-500 fill-pierre-yellow-500' : 'text-on-surface-variant fill-none'
                             )}
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -820,7 +820,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         ))}
                         <button
                           onClick={(e) => handleToggleFavorite(e, coach.id)}
-                          className="ml-2 p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-zinc-500 hover:text-pierre-violet transition-colors"
+                          className="ml-2 p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-outline hover:text-pierre-violet transition-colors"
                           title={coach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                         >
                           <svg className="w-4 h-4" aria-hidden="true" fill={coach.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -831,7 +831,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
                       {/* Description */}
                       {coach.description && (
-                        <p className={clsx('text-sm line-clamp-4', isHidden ? 'text-zinc-600' : 'text-zinc-400')}>
+                        <p className={clsx('text-sm line-clamp-4', isHidden ? 'text-on-surface-variant' : 'text-on-surface-variant')}>
                           {coach.description}
                         </p>
                       )}
@@ -843,10 +843,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         e.stopPropagation();
                         setSelectedCoach(coach);
                       }}
-                      className="px-4 py-2 rounded-full text-sm font-semibold text-white flex-shrink-0"
+                      className="px-4 py-2 rounded-full text-sm font-semibold text-on-surface flex-shrink-0"
                       style={{
-                        backgroundColor: '#8B5CF6',
-                        boxShadow: '0 0 12px rgba(139, 92, 246, 0.4)',
+                        backgroundColor: '#00241a',
+                        boxShadow: '0 0 12px rgba(0, 36, 26, 0.4)',
                       }}
                     >
                       Chat
@@ -854,7 +854,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   </div>
 
                   {/* Action row with export (always) and system/hidden actions */}
-                  <div className="flex items-center justify-end mt-3 pt-2 border-t border-white/5 gap-2">
+                  <div className="flex items-center justify-end mt-3 pt-2 border-t ghost-border gap-2">
                     {/* Export button (available for all coaches) */}
                     <button
                       onClick={(e) => {
@@ -862,7 +862,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         exportMutation.mutate(coach.id);
                       }}
                       disabled={exportMutation.isPending}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-outline hover:text-on-surface bg-surface-container-low hover:bg-surface-container transition-colors"
                     >
                       <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -876,7 +876,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                           e.stopPropagation();
                           handleForkCoach(coach);
                         }}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-outline hover:text-on-surface bg-surface-container-low hover:bg-surface-container transition-colors"
                       >
                         <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -895,7 +895,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                             handleHideCoach(coach);
                           }
                         }}
-                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 bg-white/5 hover:bg-white/10 transition-colors"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-xs text-outline hover:text-on-surface bg-surface-container-low hover:bg-surface-container transition-colors"
                       >
                         <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {isHidden ? (
@@ -909,7 +909,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                     )}
                     {/* Hidden indicator for non-system coaches */}
                     {isHidden && !coach.is_system && (
-                      <span className="flex items-center gap-1 text-xs text-zinc-500">
+                      <span className="flex items-center gap-1 text-xs text-outline">
                         <svg className="w-3.5 h-3.5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
                         </svg>
@@ -931,7 +931,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             onClick={closeActionMenu}
           >
             <div
-              className="bg-[#1E1B2D] rounded-xl p-2 min-w-[220px] shadow-xl border border-white/10"
+              className="bg-[#1E1B2D] rounded-xl p-2 min-w-[220px] shadow-xl border ghost-border"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Favorite toggle */}
@@ -940,7 +940,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   favoriteMutation.mutate(actionMenuCoach.id);
                   closeActionMenu();
                 }}
-                className="w-full flex items-center gap-3 px-3 py-2 text-left text-white hover:bg-white/5 rounded-lg transition-colors"
+                className="w-full flex items-center gap-3 px-3 py-2 text-left text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
               >
                 <svg
                   className={clsx('w-5 h-5', actionMenuCoach.is_favorite ? 'text-pierre-yellow-500' : '')}
@@ -964,7 +964,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       handleHideCoach(actionMenuCoach);
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-white hover:bg-white/5 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
                 >
                   <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     {actionMenuCoach.is_hidden ? (
@@ -981,7 +981,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               {actionMenuCoach.is_system && (
                 <button
                   onClick={() => handleForkCoach(actionMenuCoach)}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-white hover:bg-white/5 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
                 >
                   <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -994,7 +994,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               {!actionMenuCoach.is_system && (
                 <button
                   onClick={() => handleRename(actionMenuCoach)}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-white hover:bg-white/5 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-on-surface hover:bg-surface-container-low rounded-lg transition-colors"
                 >
                   <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1012,7 +1012,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       closeActionMenu();
                     }
                   }}
-                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-pierre-red-500 hover:bg-white/5 rounded-lg transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left text-pierre-red-500 hover:bg-surface-container-low rounded-lg transition-colors"
                 >
                   <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1034,15 +1034,15 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             }}
           >
             <div
-              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-md shadow-xl border border-white/10"
+              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-md shadow-xl border ghost-border"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-white mb-4">Rename Coach</h3>
+              <h3 className="text-lg font-semibold text-on-surface mb-4">Rename Coach</h3>
               <input
                 type="text"
                 value={renameValue}
                 onChange={(e) => setRenameValue(e.target.value)}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-4"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-4"
                 placeholder="Enter new name"
                 autoFocus
                 onKeyDown={(e) => {
@@ -1077,16 +1077,16 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             }}
           >
             <div
-              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-md shadow-xl border border-white/10"
+              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-md shadow-xl border ghost-border"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-white mb-2">Import from URL</h3>
-              <p className="text-sm text-zinc-400 mb-4">Enter the URL of a markdown coach file.</p>
+              <h3 className="text-lg font-semibold text-on-surface mb-2">Import from URL</h3>
+              <p className="text-sm text-on-surface-variant mb-4">Enter the URL of a markdown coach file.</p>
               <input
                 type="url"
                 value={importUrl}
                 onChange={(e) => setImportUrl(e.target.value)}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-3"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent mb-3"
                 placeholder="https://example.com/coach.md"
                 autoFocus
                 onKeyDown={(e) => {
@@ -1133,10 +1133,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             onClick={handleCancelImport}
           >
             <div
-              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-lg shadow-xl border border-white/10"
+              className="bg-[#1E1B2D] rounded-xl p-6 w-full max-w-lg shadow-xl border ghost-border"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold text-white mb-4">Import Preview</h3>
+              <h3 className="text-lg font-semibold text-on-surface mb-4">Import Preview</h3>
 
               {!importPreviewData.valid ? (
                 <div>
@@ -1157,11 +1157,11 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   {importPreviewData.parsed && (
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-zinc-400">Name:</span>
-                        <span className="text-sm text-white font-medium">{importPreviewData.parsed.title}</span>
+                        <span className="text-sm text-on-surface-variant">Name:</span>
+                        <span className="text-sm text-on-surface font-medium">{importPreviewData.parsed.title}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-zinc-400">Category:</span>
+                        <span className="text-sm text-on-surface-variant">Category:</span>
                         <span className={clsx(
                           'px-2 py-0.5 text-xs font-medium rounded-full border',
                           CATEGORY_COLORS[importPreviewData.parsed.category] || CATEGORY_COLORS.Custom
@@ -1171,19 +1171,19 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       </div>
                       {importPreviewData.parsed.tags.length > 0 && (
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm text-zinc-400">Tags:</span>
+                          <span className="text-sm text-on-surface-variant">Tags:</span>
                           {importPreviewData.parsed.tags.map((tag) => (
-                            <span key={tag} className="px-2 py-0.5 text-xs bg-white/5 text-zinc-300 rounded-full">{tag}</span>
+                            <span key={tag} className="px-2 py-0.5 text-xs bg-surface-container-low text-on-surface rounded-full">{tag}</span>
                           ))}
                         </div>
                       )}
                       {importPreviewData.token_count !== undefined && (
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-zinc-400">Tokens:</span>
-                          <span className="text-sm text-zinc-300">~{importPreviewData.token_count.toLocaleString()}</span>
+                          <span className="text-sm text-on-surface-variant">Tokens:</span>
+                          <span className="text-sm text-on-surface">~{importPreviewData.token_count.toLocaleString()}</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-3 text-xs text-zinc-500">
+                      <div className="flex items-center gap-3 text-xs text-outline">
                         <span>Purpose: {importPreviewData.parsed.purpose ? 'Yes' : 'No'}</span>
                         <span>Instructions: {importPreviewData.parsed.has_instructions ? 'Yes' : 'No'}</span>
                         <span>Examples: {importPreviewData.parsed.has_example_inputs ? 'Yes' : 'No'}</span>
@@ -1247,7 +1247,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       <div className="max-w-2xl mx-auto">
         <Card variant="dark">
           {/* Card header with integrated back button - industry standard pattern */}
-          <div className="flex items-center gap-3 pb-4 mb-6 border-b border-white/10">
+          <div className="flex items-center gap-3 pb-4 mb-6 border-b ghost-border">
             <button
               onClick={() => {
                 setIsCreating(false);
@@ -1255,14 +1255,14 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 setFormData(defaultFormData);
                 setSelectedCoach(null);
               }}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-pierre-violet hover:bg-white/5 transition-colors"
+              className="p-1.5 rounded-lg text-outline hover:text-pierre-violet hover:bg-surface-container-low transition-colors"
               title="Back to coaches"
             >
               <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-on-surface">
               {isCreating ? 'Create Coach' : `Edit "${selectedCoach?.title}"`}
             </h2>
           </div>
@@ -1270,14 +1270,14 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Title */}
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1">
+              <label className="block text-sm font-medium text-on-surface mb-1">
                 Title <span className="text-pierre-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
                 placeholder="e.g., Marathon Training Coach"
                 maxLength={100}
                 required
@@ -1286,53 +1286,53 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
             {/* Category */}
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1">
+              <label className="block text-sm font-medium text-on-surface mb-1">
                 Category
               </label>
               <select
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
               >
                 {COACH_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat} className="bg-pierre-slate">{cat}</option>
+                  <option key={cat} value={cat} className="bg-surface-container-low">{cat}</option>
                 ))}
               </select>
             </div>
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1">
+              <label className="block text-sm font-medium text-on-surface mb-1">
                 Description
               </label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
                 rows={2}
                 maxLength={500}
                 placeholder="Brief description of the coach's specialty..."
               />
-              <p className="mt-1 text-xs text-zinc-500 text-right">
+              <p className="mt-1 text-xs text-outline text-right">
                 {formData.description.length}/500
               </p>
             </div>
 
             {/* System Prompt */}
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1">
+              <label className="block text-sm font-medium text-on-surface mb-1">
                 System Prompt <span className="text-pierre-red-500">*</span>
               </label>
               <textarea
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent font-mono text-sm"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent font-mono text-sm"
                 rows={8}
                 maxLength={4000}
                 placeholder="You are Pierre, an expert coach with deep knowledge of..."
                 required
               />
-              <div className="mt-1 flex items-center justify-between text-xs text-zinc-500">
+              <div className="mt-1 flex items-center justify-between text-xs text-outline">
                 <span>
                   ~{tokenCount.toLocaleString()} tokens ({getContextPercentage(tokenCount)}% context)
                 </span>
@@ -1342,28 +1342,28 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
             {/* Tags */}
             <div>
-              <label className="block text-sm font-medium text-zinc-300 mb-1">
+              <label className="block text-sm font-medium text-on-surface mb-1">
                 Tags
               </label>
               <input
                 type="text"
                 value={formData.tags}
                 onChange={(e) => setFormData({ ...formData, tags: e.target.value })}
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
+                className="w-full px-3 py-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:ring-2 focus:ring-pierre-violet focus:border-transparent"
                 placeholder="marathon, endurance, beginner (comma-separated)"
               />
             </div>
 
             {/* Data Context */}
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-white/90 mb-3">Data Context</h3>
+              <h3 className="text-sm font-semibold text-on-surface/90 mb-3">Data Context</h3>
 
               <div className="mb-4">
-                <label className="block text-sm text-white/60 mb-1">
-                  Startup Query <span className="text-white/30">(optional)</span>
+                <label className="block text-sm text-on-surface/60 mb-1">
+                  Startup Query <span className="text-on-surface/30">(optional)</span>
                 </label>
                 <textarea
-                  className="w-full p-3 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none resize-none"
+                  className="w-full p-3 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none resize-none"
                   rows={2}
                   placeholder="What should the coach analyze on first message?"
                   value={formData.startup_query}
@@ -1376,31 +1376,31 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   type="checkbox"
                   checked={formData.prefetch_enabled}
                   onChange={(e) => setFormData({ ...formData, prefetch_enabled: e.target.checked })}
-                  className="w-4 h-4 rounded border-white/20 text-purple-500 focus:ring-purple-500 bg-white/5"
+                  className="w-4 h-4 rounded ghost-border text-purple-500 focus:ring-purple-500 bg-surface-container-low"
                 />
-                <span className="text-sm text-white/70">Pre-fetch activity data when conversation starts</span>
+                <span className="text-sm text-on-surface/70">Pre-fetch activity data when conversation starts</span>
               </label>
 
               {formData.prefetch_enabled && (
                 <div className="space-y-3 pl-4 border-l-2 border-purple-500/20">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-white/50 mb-1">Activity count</label>
+                      <label className="block text-xs text-on-surface/50 mb-1">Activity count</label>
                       <input
                         type="number"
                         min={1}
                         max={200}
                         value={formData.activity_count}
                         onChange={(e) => setFormData({ ...formData, activity_count: Math.max(1, Math.min(200, Number(e.target.value))) })}
-                        className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm focus:border-purple-500/50 focus:outline-none"
+                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-purple-500/50 focus:outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-white/50 mb-1">Time frame</label>
+                      <label className="block text-xs text-on-surface/50 mb-1">Time frame</label>
                       <select
                         value={formData.time_frame}
                         onChange={(e) => setFormData({ ...formData, time_frame: e.target.value })}
-                        className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm focus:border-purple-500/50 focus:outline-none"
+                        className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm focus:border-purple-500/50 focus:outline-none"
                       >
                         <option value="3w">3 weeks</option>
                         <option value="8w">8 weeks</option>
@@ -1412,15 +1412,15 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-white/50 mb-1">
-                      Sport types <span className="text-white/30">(comma-separated, empty = all)</span>
+                    <label className="block text-xs text-on-surface/50 mb-1">
+                      Sport types <span className="text-on-surface/30">(comma-separated, empty = all)</span>
                     </label>
                     <input
                       type="text"
                       placeholder="Run, Ride, Swim"
                       value={formData.sport_types}
                       onChange={(e) => setFormData({ ...formData, sport_types: e.target.value })}
-                      className="w-full p-2 bg-white/5 border border-white/10 rounded-lg text-white/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none"
+                      className="w-full p-2 bg-surface-container-low border ghost-border rounded-lg text-on-surface/90 text-sm placeholder-white/30 focus:border-purple-500/50 focus:outline-none"
                     />
                   </div>
 
@@ -1433,7 +1433,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         onChange={() => setFormData({ ...formData, detail_mode: 'summary' })}
                         className="text-purple-500 focus:ring-purple-500"
                       />
-                      <span className="text-xs text-white/60">Summary</span>
+                      <span className="text-xs text-on-surface/60">Summary</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -1443,7 +1443,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                         onChange={() => setFormData({ ...formData, detail_mode: 'detailed' })}
                         className="text-purple-500 focus:ring-purple-500"
                       />
-                      <span className="text-xs text-white/60">Detailed (laps, splits)</span>
+                      <span className="text-xs text-on-surface/60">Detailed (laps, splits)</span>
                     </label>
                   </div>
 
@@ -1452,9 +1452,9 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                       type="checkbox"
                       checked={formData.athlete_profile}
                       onChange={(e) => setFormData({ ...formData, athlete_profile: e.target.checked })}
-                      className="w-3.5 h-3.5 rounded border-white/20 text-purple-500 focus:ring-purple-500 bg-white/5"
+                      className="w-3.5 h-3.5 rounded ghost-border text-purple-500 focus:ring-purple-500 bg-surface-container-low"
                     />
-                    <span className="text-xs text-white/60">Also fetch athlete profile</span>
+                    <span className="text-xs text-on-surface/60">Also fetch athlete profile</span>
                   </label>
                 </div>
               )}
@@ -1504,18 +1504,18 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
       {/* Coach Details Card */}
       <Card variant="dark">
         {/* Card header with integrated back button - industry standard pattern */}
-        <div className="flex items-center justify-between pb-4 mb-6 border-b border-white/10">
+        <div className="flex items-center justify-between pb-4 mb-6 border-b ghost-border">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSelectedCoach(null)}
-              className="p-1.5 rounded-lg text-zinc-500 hover:text-pierre-violet hover:bg-white/5 transition-colors"
+              className="p-1.5 rounded-lg text-outline hover:text-pierre-violet hover:bg-surface-container-low transition-colors"
               title="Back to coaches"
             >
               <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h2 className="text-2xl font-semibold text-white">{selectedCoach.title}</h2>
+            <h2 className="text-2xl font-semibold text-on-surface">{selectedCoach.title}</h2>
             <span className={clsx(
               'px-2 py-1 text-xs font-medium rounded-full border',
               CATEGORY_COLORS[selectedCoach.category] || CATEGORY_COLORS.Custom
@@ -1524,7 +1524,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
             </span>
             <button
               onClick={(e) => handleToggleFavorite(e, selectedCoach.id)}
-              className="text-zinc-500 hover:text-pierre-yellow-500 transition-colors"
+              className="text-outline hover:text-pierre-yellow-500 transition-colors"
               title={selectedCoach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
               aria-label={selectedCoach.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
             >
@@ -1565,28 +1565,28 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
 
         {/* Description */}
         {selectedCoach.description && (
-          <p className="text-zinc-400 mb-6">{selectedCoach.description}</p>
+          <p className="text-on-surface-variant mb-6">{selectedCoach.description}</p>
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-white/5 rounded-lg">
+        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-surface-container-low rounded-lg">
           <div className="text-center">
             <div className="text-2xl font-bold text-pierre-violet">
               ~{selectedCoach.token_count.toLocaleString()}
             </div>
-            <div className="text-xs text-zinc-500">
+            <div className="text-xs text-outline">
               Tokens ({getContextPercentage(selectedCoach.token_count)}% context)
             </div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-pierre-activity">{selectedCoach.use_count}</div>
-            <div className="text-xs text-zinc-500">Uses</div>
+            <div className="text-xs text-outline">Uses</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-pierre-nutrition">
               {selectedCoach.is_favorite ? '★' : '☆'}
             </div>
-            <div className="text-xs text-zinc-500">
+            <div className="text-xs text-outline">
               {selectedCoach.is_favorite ? 'Favorite' : 'Not Favorite'}
             </div>
           </div>
@@ -1597,48 +1597,48 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           <div className="space-y-4 mb-6">
             {selectedCoach.purpose && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">Purpose</h3>
-                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                <h3 className="text-sm font-medium text-on-surface mb-2">Purpose</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg text-sm text-on-surface whitespace-pre-wrap">
                   {selectedCoach.purpose}
                 </div>
               </div>
             )}
             {selectedCoach.when_to_use && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">When to Use</h3>
-                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                <h3 className="text-sm font-medium text-on-surface mb-2">When to Use</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg text-sm text-on-surface whitespace-pre-wrap">
                   {selectedCoach.when_to_use}
                 </div>
               </div>
             )}
             {selectedCoach.instructions && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">Instructions</h3>
-                <div className="p-4 bg-white/5 rounded-lg font-mono text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                <h3 className="text-sm font-medium text-on-surface mb-2">Instructions</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg font-mono text-sm text-on-surface whitespace-pre-wrap max-h-48 overflow-y-auto">
                   {selectedCoach.instructions}
                 </div>
               </div>
             )}
             {selectedCoach.example_inputs && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">Example Inputs</h3>
-                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                <h3 className="text-sm font-medium text-on-surface mb-2">Example Inputs</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg text-sm text-on-surface whitespace-pre-wrap">
                   {selectedCoach.example_inputs}
                 </div>
               </div>
             )}
             {selectedCoach.example_outputs && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">Example Outputs</h3>
-                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                <h3 className="text-sm font-medium text-on-surface mb-2">Example Outputs</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg text-sm text-on-surface whitespace-pre-wrap">
                   {selectedCoach.example_outputs}
                 </div>
               </div>
             )}
             {selectedCoach.success_criteria && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-300 mb-2">Success Criteria</h3>
-                <div className="p-4 bg-white/5 rounded-lg text-sm text-zinc-300 whitespace-pre-wrap">
+                <h3 className="text-sm font-medium text-on-surface mb-2">Success Criteria</h3>
+                <div className="p-4 bg-surface-container-low rounded-lg text-sm text-on-surface whitespace-pre-wrap">
                   {selectedCoach.success_criteria}
                 </div>
               </div>
@@ -1646,8 +1646,8 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
           </div>
         ) : (
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-zinc-300 mb-2">System Prompt</h3>
-            <div className="p-4 bg-white/5 rounded-lg font-mono text-sm text-zinc-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+            <h3 className="text-sm font-medium text-on-surface mb-2">System Prompt</h3>
+            <div className="p-4 bg-surface-container-low rounded-lg font-mono text-sm text-on-surface whitespace-pre-wrap max-h-48 overflow-y-auto">
               {selectedCoach.system_prompt}
             </div>
           </div>
@@ -1656,10 +1656,10 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         {/* Tags */}
         {selectedCoach.tags.length > 0 && (
           <div className="mb-6">
-            <h3 className="text-sm font-medium text-zinc-300 mb-2">Tags</h3>
+            <h3 className="text-sm font-medium text-on-surface mb-2">Tags</h3>
             <div className="flex flex-wrap gap-2">
               {selectedCoach.tags.map((tag) => (
-                <span key={tag} className="px-3 py-1 text-sm bg-white/5 text-zinc-300 rounded-full">
+                <span key={tag} className="px-3 py-1 text-sm bg-surface-container-low text-on-surface rounded-full">
                   {tag}
                 </span>
               ))}
@@ -1668,7 +1668,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
         )}
 
         {/* Timestamps */}
-        <div className="grid grid-cols-2 gap-4 text-sm text-zinc-500 pt-4 border-t border-white/10">
+        <div className="grid grid-cols-2 gap-4 text-sm text-outline pt-4 border-t ghost-border">
           <div>
             <span className="font-medium">Created:</span>{' '}
             {new Date(selectedCoach.created_at).toLocaleString()}

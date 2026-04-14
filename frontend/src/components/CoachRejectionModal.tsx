@@ -77,7 +77,7 @@ export default function CoachRejectionModal({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
-      <div className="bg-[rgba(30,30,46,0.95)] backdrop-blur-[16px] rounded-xl border border-white/10 max-w-md w-full mx-4 shadow-2xl">
+      <div className="bg-surface-container-lowest shadow-ambient rounded-xl border ghost-border max-w-md w-full mx-4 shadow-2xl">
         {/* Red accent bar */}
         <div className="h-1 bg-gradient-to-r from-pierre-red-500 to-pierre-red-400 rounded-t-xl" />
 
@@ -85,15 +85,15 @@ export default function CoachRejectionModal({
           {/* Header */}
           <div className="flex justify-between items-start mb-4">
             <div>
-              <h2 className="text-xl font-semibold text-white">Reject Coach</h2>
-              <p className="text-sm text-zinc-400 mt-1">
+              <h2 className="text-xl font-semibold text-on-surface">Reject Coach</h2>
+              <p className="text-sm text-on-surface-variant mt-1">
                 "{coach.title}" by {coach.author_email || 'Unknown'}
               </p>
             </div>
             <button
               onClick={handleClose}
               aria-label="Close modal"
-              className="text-zinc-400 hover:text-white transition-colors"
+              className="text-on-surface-variant hover:text-on-surface transition-colors"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -115,7 +115,7 @@ export default function CoachRejectionModal({
 
           {/* Reason Select */}
           <div className="mb-4">
-            <label htmlFor="rejection-reason" className="block text-sm font-medium text-zinc-300 mb-2">
+            <label htmlFor="rejection-reason" className="block text-sm font-medium text-on-surface mb-2">
               Rejection Reason <span className="text-pierre-red-400">*</span>
             </label>
             <select
@@ -135,8 +135,8 @@ export default function CoachRejectionModal({
 
           {/* Notes Textarea */}
           <div className="mb-6">
-            <label htmlFor="rejection-notes" className="block text-sm font-medium text-zinc-300 mb-2">
-              Additional Notes <span className="text-zinc-500">(optional)</span>
+            <label htmlFor="rejection-notes" className="block text-sm font-medium text-on-surface mb-2">
+              Additional Notes <span className="text-outline">(optional)</span>
             </label>
             <textarea
               id="rejection-notes"
@@ -161,7 +161,7 @@ export default function CoachRejectionModal({
             <Button
               onClick={handleSubmit}
               disabled={!reason || rejectMutation.isPending}
-              className="flex-1 bg-pierre-red-500 hover:bg-pierre-red-600 text-white"
+              className="flex-1 bg-pierre-red-500 hover:bg-pierre-red-600 text-on-surface"
             >
               {rejectMutation.isPending ? (
                 <span className="flex items-center justify-center">

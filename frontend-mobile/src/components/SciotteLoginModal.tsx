@@ -375,7 +375,7 @@ export function SciotteLoginModal({
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 12, paddingVertical: 16, alignItems: 'center' }}
             >
-              <Text className="text-base font-bold text-white">
+              <Text className="text-base font-bold text-on-surface">
                 Sign In
               </Text>
             </LinearGradient>
@@ -503,7 +503,7 @@ export function SciotteLoginModal({
               {isLoading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-base font-bold text-white">Verify</Text>
+                <Text className="text-base font-bold text-on-surface">Verify</Text>
               )}
             </LinearGradient>
           </TouchableOpacity>
@@ -543,7 +543,7 @@ export function SciotteLoginModal({
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 }}
             >
-              <Text className="text-base font-semibold text-white">Try Again</Text>
+              <Text className="text-base font-semibold text-on-surface">Try Again</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>

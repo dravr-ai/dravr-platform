@@ -1,94 +1,192 @@
-/* Pierre Design System - Plus Jakarta Sans as primary font */
+/* Dravr — Boreal Editorial design system.
+   Class names are preserved from the prior Pierre system so existing consumers
+   keep resolving; the underlying styles are the canonical Boreal tokens.
+   Dark mode is driven by a `.dark` class on <html> that swaps CSS variables. */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   MD3 token variables. Tailwind utility classes read from these via the
+   config so a single `.dark` toggle flips every surface in the app.
+   ========================================================================== */
+:root {
+  --color-primary: #00241a;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #0d3b2e;
+  --color-on-primary-container: #79a694;
+  --color-primary-fixed-dim: #a3d0be;
+
+  --color-tertiary: #03231d;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #1b3932;
+  --color-on-tertiary-container: #83a399;
+
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  --color-surface: #f9f9f6;
+  --color-surface-dim: #dadad7;
+  --color-surface-bright: #f9f9f6;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f4f1;
+  --color-surface-container: #eeeeeb;
+  --color-surface-container-high: #e8e8e5;
+  --color-surface-container-highest: #e2e3e0;
+  --color-surface-variant: #e2e3e0;
+  --color-surface-tint: #3c6658;
+  --color-on-surface: #1a1c1b;
+  --color-on-surface-variant: #414845;
+
+  --color-outline: #717974;
+  --color-outline-variant: #c0c8c3;
+
+  /* Ghost border baseline — 15% opacity on outline-variant */
+  --ghost-border: rgba(192, 200, 195, 0.15);
+
+  /* Ambient shadow — 6% on_surface, 24px blur, -4px spread */
+  --shadow-ambient: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
+  --shadow-card: 0 24px 48px -12px rgba(26, 28, 27, 0.06);
+}
+
+html.dark {
+  --color-primary: #a3d0be;
+  --color-on-primary: #002117;
+  --color-primary-container: #234e40;
+  --color-on-primary-container: #beedd9;
+  --color-primary-fixed-dim: #a3d0be;
+
+  --color-tertiary: #adcdc3;
+  --color-on-tertiary: #01201a;
+  --color-tertiary-container: #2f4c45;
+  --color-on-tertiary-container: #c8eadf;
+
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  --color-surface: #11130f;
+  --color-surface-dim: #11130f;
+  --color-surface-bright: #363a35;
+  --color-surface-container-lowest: #0b0e0b;
+  --color-surface-container-low: #191c19;
+  --color-surface-container: #1d201d;
+  --color-surface-container-high: #272b27;
+  --color-surface-container-highest: #323532;
+  --color-surface-variant: #414845;
+  --color-surface-tint: #a3d0be;
+  --color-on-surface: #e1e3de;
+  --color-on-surface-variant: #c0c8c3;
+
+  --color-outline: #8a9389;
+  --color-outline-variant: #414845;
+
+  --ghost-border: rgba(192, 200, 195, 0.18);
+  --shadow-ambient: 0 24px 48px -4px rgba(0, 0, 0, 0.5);
+  --shadow-card: 0 24px 48px -12px rgba(0, 0, 0, 0.5);
+}
+
 @layer base {
   html {
     font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    color-scheme: light;
   }
 
-  /* Admin UI uses always-dark theme */
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
-    @apply bg-pierre-dark text-white;
+    @apply bg-surface text-on-surface;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply text-white font-semibold;
+    font-family: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+    line-height: 1.15;
+    @apply text-on-surface font-semibold;
   }
 }
 
 @layer components {
-  /* Pierre Button Components */
+  /* ==========================================================================
+     Buttons — DESIGN.md §5
+     Primary: filled, rounded-md. Secondary: ghost with center-expand underline.
+     Tertiary: small-caps label. Danger: error surface.
+     ========================================================================== */
+
   .btn-base {
     @apply inline-flex items-center justify-center px-6 py-3 rounded-md font-medium text-sm transition-all duration-base cursor-pointer border-0;
   }
-  
+
   .btn-primary {
-    @apply btn-base bg-pierre-violet text-white shadow-sm hover:bg-pierre-violet-dark hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
+    @apply btn-base bg-primary text-on-primary hover:bg-primary-container disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  .btn-gradient {
-    @apply btn-base bg-gradient-to-r from-pierre-violet to-pierre-cyan text-white shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
-    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.25);
+  /* Drop gradient/pill differentiation — everything funnels to primary.
+     The legacy names are kept as aliases so components compile unchanged. */
+  .btn-gradient,
+  .btn-pill {
+    @apply btn-primary;
   }
 
-  .btn-gradient:hover {
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
-  }
-  
   .btn-secondary {
-    @apply btn-base bg-white text-pierre-gray-700 border border-pierre-gray-300 hover:bg-pierre-gray-50 hover:border-pierre-gray-400;
+    @apply btn-base bg-transparent text-primary relative;
   }
-  
+
+  .btn-secondary::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 0.5rem;
+    width: 0;
+    height: 1px;
+    background-color: currentColor;
+    transition: width 0.3s ease, left 0.3s ease;
+  }
+
+  .btn-secondary:hover::after {
+    left: 0.75rem;
+    right: 0.75rem;
+    width: calc(100% - 1.5rem);
+  }
+
+  .btn-tertiary {
+    @apply btn-base bg-transparent text-primary uppercase tracking-label text-xs;
+  }
+
   .btn-danger {
-    @apply btn-base bg-pierre-red-600 text-white hover:bg-pierre-red-700;
+    @apply btn-base bg-error text-on-error hover:bg-error-container hover:text-on-error-container;
   }
-  
+
   .btn-success {
-    @apply btn-base bg-pierre-green-600 text-white hover:bg-pierre-green-700;
+    @apply btn-base bg-primary text-on-primary hover:bg-primary-container;
   }
 
   .btn-outline {
-    @apply btn-base bg-transparent text-pierre-gray-700 border border-pierre-gray-300 hover:bg-pierre-gray-50 hover:border-pierre-gray-400;
+    @apply btn-base bg-transparent text-primary hover:bg-surface-container-low;
+    box-shadow: inset 0 0 0 1px rgba(192, 200, 195, 0.25);
   }
 
-  /* Pill-shaped button with gradient glow - per Stitch design system */
-  .btn-pill {
-    @apply btn-base rounded-full bg-gradient-to-r from-pierre-violet to-pierre-cyan text-white hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
-    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.25);
-  }
-
-  .btn-pill:hover {
-    box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
-  }
-
-  /* Three Pillar Button Variants - per Stitch design system */
+  /* Pillar-flavored buttons map to their retuned pillar color. Used sparingly
+     for fitness data CTAs; default CTA is always btn-primary. */
   .btn-activity {
-    @apply btn-base bg-pierre-activity text-white hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
-    box-shadow: 0 4px 14px rgba(74, 222, 128, 0.25);
-  }
-
-  .btn-activity:hover {
-    box-shadow: 0 6px 20px rgba(74, 222, 128, 0.4);
+    @apply btn-base bg-pierre-activity text-on-primary hover:opacity-90;
   }
 
   .btn-nutrition {
-    @apply btn-base bg-pierre-nutrition text-white hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
-    box-shadow: 0 4px 14px rgba(251, 191, 36, 0.25);
-  }
-
-  .btn-nutrition:hover {
-    box-shadow: 0 6px 20px rgba(251, 191, 36, 0.4);
+    @apply btn-base bg-pierre-nutrition text-on-primary hover:opacity-90;
   }
 
   .btn-recovery {
-    @apply btn-base bg-pierre-recovery text-white hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none;
-    box-shadow: 0 4px 14px rgba(129, 140, 248, 0.25);
-  }
-
-  .btn-recovery:hover {
-    box-shadow: 0 6px 20px rgba(129, 140, 248, 0.4);
+    @apply btn-base bg-pierre-recovery text-on-primary hover:opacity-90;
   }
 
   .btn-sm {
@@ -99,342 +197,344 @@
     @apply px-8 py-4 text-base;
   }
 
-  /* Pierre Card Components */
+  /* ==========================================================================
+     Cards — DESIGN.md §4 (tonal layering) + §5 (cards)
+     ========================================================================== */
+
   .card {
-    @apply bg-white rounded-lg border border-pierre-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-base;
+    @apply bg-surface-container-lowest rounded-lg p-6 transition-all duration-base;
   }
-  
+
   .card-header {
-    @apply border-b border-pierre-gray-200 pb-4 mb-6;
+    @apply pb-4 mb-6;
+    border-bottom: 1px solid rgba(192, 200, 195, 0.15); /* ghost border */
   }
-  
+
   .stat-card {
-    @apply bg-white border border-pierre-gray-200 rounded-lg p-6 text-center hover:-translate-y-0.5 transition-transform duration-base relative overflow-hidden;
+    @apply bg-surface-container-lowest rounded-lg p-6 text-center transition-all duration-base relative overflow-hidden;
   }
 
   .stat-card::before {
-    @apply absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-pierre-violet via-pierre-cyan to-pierre-activity;
+    @apply absolute top-0 left-0 right-0 h-1;
     content: '';
+    background: linear-gradient(145deg, #00241a 0%, #0d3b2e 100%);
   }
 
-  /* Pierre Form Components */
-  .input-field {
-    @apply w-full px-4 py-3 border border-pierre-gray-300 rounded-md text-sm font-sans transition-all duration-base focus:outline-none focus:border-pierre-violet focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-20;
-  }
-
-  /* Glass Input Style - per Stitch design system */
-  .input-glass {
-    @apply w-full px-4 py-3 rounded-xl text-sm font-sans transition-all duration-base focus:outline-none;
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: white;
-  }
-
-  .input-glass::placeholder {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .input-glass:focus {
-    border-color: rgba(139, 92, 246, 0.5);
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
-  }
-
-  .input-glass:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .label {
-    @apply block text-sm font-medium text-pierre-gray-700 mb-2;
-  }
-  
-  .help-text {
-    @apply text-xs text-pierre-gray-500 mt-1;
-  }
-  
-  .error-text {
-    @apply text-xs text-pierre-red-600 mt-1;
-  }
-
-  /* Pierre Badge Components */
-  .badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
-  }
-  
-  .badge-success {
-    @apply badge bg-pierre-green-100 text-pierre-green-800;
-  }
-  
-  .badge-warning {
-    @apply badge bg-pierre-yellow-100 text-pierre-yellow-800;
-  }
-  
-  .badge-error {
-    @apply badge bg-pierre-red-100 text-pierre-red-800;
-  }
-  
-  .badge-info {
-    @apply badge bg-pierre-blue-100 text-pierre-blue-800;
-  }
-  
-  .badge-trial {
-    @apply badge bg-pierre-yellow-100 text-pierre-yellow-800;
-  }
-  
-  .badge-starter {
-    @apply badge bg-pierre-blue-100 text-pierre-blue-800;
-  }
-  
-  .badge-professional {
-    @apply badge bg-pierre-green-100 text-pierre-green-800;
-  }
-  
-  .badge-enterprise {
-    @apply badge bg-pierre-purple-100 text-pierre-purple-800;
-  }
-
-  .badge-destructive {
-    @apply badge bg-pierre-red-100 text-pierre-red-800;
-  }
-
-  .badge-secondary {
-    @apply badge bg-pierre-gray-100 text-pierre-gray-800;
-  }
-
-  .badge-mobility {
-    @apply badge bg-pierre-pink-100 text-pierre-pink-800;
-  }
-
-  /* Pierre Status Indicators */
-  .status-dot {
-    @apply w-2 h-2 rounded-full inline-block mr-2;
-  }
-  
-  .status-online {
-    @apply status-dot bg-pierre-green-500 animate-pulse;
-  }
-  
-  .status-offline {
-    @apply status-dot bg-pierre-gray-400;
-  }
-  
-  .status-error {
-    @apply status-dot bg-pierre-red-500;
-  }
-
-  /* Pierre Navigation */
-  .tab {
-    @apply py-4 border-b-2 border-transparent text-pierre-gray-500 font-medium transition-all duration-base flex items-center gap-2;
-  }
-  
-  .tab:hover {
-    @apply text-pierre-gray-700 border-pierre-gray-300;
-  }
-  
-  .tab-active {
-    @apply text-pierre-violet border-pierre-violet;
-  }
-
-  /* Pierre Loading Spinner */
-  .pierre-spinner {
-    @apply border-2 border-pierre-gray-200 border-t-pierre-violet rounded-full w-4 h-4 animate-spin;
-  }
-
-  /* Pierre Focus Ring */
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-pierre-violet focus:ring-opacity-50 focus:ring-offset-2;
-  }
-
-  /* Pierre Dark Theme Card - Glassmorphism 2.0 */
+  /* Legacy `card-dark` — the Pierre dark glassmorphism panel has been
+     retired. In Boreal we treat it as a standard editorial card so
+     existing consumers (variant="dark" on UserManagement, Dashboard, etc.)
+     render as expected light surfaces with tonal layering. */
   .card-dark {
-    @apply rounded-2xl border border-white/10 p-6 transition-all duration-base;
-    background: rgba(30, 30, 46, 0.6);
-    backdrop-filter: blur(16px);
+    @apply card;
   }
 
-  .card-dark:hover {
-    @apply border-pierre-violet/30;
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
-  }
-
-  /* Glassmorphism card with glow (for featured items) */
+  /* Featured callout — same editorial card with stronger elevation. */
   .card-glow {
-    @apply rounded-2xl p-6 transition-all duration-base;
-    background: rgba(30, 30, 46, 0.8);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(139, 92, 246, 0.3);
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+    @apply card;
+    box-shadow: var(--shadow-ambient);
   }
 
-  /* Light theme glassmorphism card */
-  .card-glass-light {
-    @apply rounded-2xl border border-black/5 p-6 transition-all duration-base;
-    background: rgba(255, 255, 255, 0.8);
+  /* The true "Boreal Overlay" signature (DESIGN.md §5) — dark translucent
+     panel used for data callouts over imagery. Opt-in via .boreal-overlay. */
+  .card-boreal-overlay {
+    @apply rounded-lg p-6 transition-all duration-base;
+    background: linear-gradient(145deg, rgba(0, 36, 26, 0.85) 0%, rgba(13, 59, 46, 0.75) 100%);
     backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #ffffff;
   }
 
-  /* Three Pillar cards */
+  /* Light glass panel (§2 "Glass & Gradient Rule") — floating nav/detail
+     panels on top of boreal imagery. */
+  .card-glass-light {
+    @apply rounded-lg p-6 transition-all duration-base;
+    background: rgba(249, 249, 246, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Pillar-colored cards — subtle tonal washes, no hard borders. */
   .card-activity {
-    @apply card-dark;
-    background: linear-gradient(135deg, rgba(74, 222, 128, 0.1) 0%, rgba(34, 197, 94, 0.05) 100%);
-    border-color: rgba(74, 222, 128, 0.2);
+    @apply card;
+    background: linear-gradient(145deg, rgba(60, 102, 88, 0.08) 0%, rgba(60, 102, 88, 0.02) 100%);
   }
 
   .card-nutrition {
-    @apply card-dark;
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(217, 119, 6, 0.05) 100%);
-    border-color: rgba(251, 191, 36, 0.2);
+    @apply card;
+    background: linear-gradient(145deg, rgba(143, 106, 46, 0.08) 0%, rgba(143, 106, 46, 0.02) 100%);
   }
 
   .card-recovery {
-    @apply card-dark;
-    background: linear-gradient(135deg, rgba(129, 140, 248, 0.1) 0%, rgba(79, 70, 229, 0.05) 100%);
-    border-color: rgba(129, 140, 248, 0.2);
+    @apply card;
+    background: linear-gradient(145deg, rgba(94, 122, 130, 0.08) 0%, rgba(94, 122, 130, 0.02) 100%);
   }
 
-  /* Micro-interaction: Hover lift with glow */
+  /* ==========================================================================
+     Form inputs — DESIGN.md §5 input fields: no enclosing box, bottom stroke
+     ========================================================================== */
+
+  .input-field {
+    @apply w-full px-1 py-3 text-sm font-sans text-on-surface transition-all duration-base bg-transparent;
+    border: none;
+    border-bottom: 1px solid rgba(192, 200, 195, 0.4);
+    border-radius: 0;
+    outline: none;
+  }
+
+  .input-field::placeholder {
+    color: #717974;
+  }
+
+  .input-field:focus {
+    border-bottom: 2px solid #00241a;
+    padding-bottom: calc(0.75rem - 1px);
+  }
+
+  .input-field:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  /* Glass input variant — rarely used, only over boreal-overlay imagery. */
+  .input-glass {
+    @apply w-full px-4 py-3 rounded-md text-sm font-sans text-on-surface transition-all duration-base;
+    background: rgba(249, 249, 246, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(192, 200, 195, 0.15);
+  }
+
+  .input-glass::placeholder {
+    color: rgba(26, 28, 27, 0.4);
+  }
+
+  .input-glass:focus {
+    outline: none;
+    border-color: rgba(0, 36, 26, 0.6);
+  }
+
+  .input-glass:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-on-surface-variant mb-2;
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.02em;
+  }
+
+  .help-text {
+    @apply text-xs text-outline mt-1;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .error-text {
+    @apply text-xs text-error mt-1;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* ==========================================================================
+     Badges — tonal chips on surface-container-high (DESIGN.md §6 allows
+     `full` radius only for small tags/chips)
+     ========================================================================== */
+
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+    background: #e8e8e5;          /* surface-container-high */
+    color: #1a1c1b;               /* on-surface */
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .badge-success,
+  .badge-professional {
+    @apply badge;
+    background: rgba(60, 102, 88, 0.14);  /* activity sage */
+    color: #234e40;
+  }
+
+  .badge-warning,
+  .badge-trial {
+    @apply badge;
+    background: rgba(143, 106, 46, 0.14); /* nutrition bronze */
+    color: #6e5020;
+  }
+
+  .badge-error,
+  .badge-destructive {
+    @apply badge;
+    background: #ffdad6;          /* error-container */
+    color: #93000a;               /* on-error-container */
+  }
+
+  .badge-info,
+  .badge-starter {
+    @apply badge;
+    background: rgba(13, 59, 46, 0.12); /* primary-container tint */
+    color: #0d3b2e;
+  }
+
+  .badge-enterprise {
+    @apply badge;
+    background: rgba(122, 77, 94, 0.14); /* mobility aged rose */
+    color: #5a3744;
+  }
+
+  .badge-secondary {
+    @apply badge;
+    background: #eeeeeb;          /* surface-container */
+    color: #414845;               /* on-surface-variant */
+  }
+
+  .badge-mobility {
+    @apply badge;
+    background: rgba(122, 77, 94, 0.14);
+    color: #5a3744;
+  }
+
+  /* ==========================================================================
+     Status indicators
+     ========================================================================== */
+
+  .status-dot {
+    @apply w-2 h-2 rounded-full inline-block mr-2;
+  }
+
+  .status-online {
+    @apply status-dot;
+    background-color: #3c6658;    /* activity sage */
+  }
+
+  .status-offline {
+    @apply status-dot;
+    background-color: #c0c8c3;    /* outline-variant */
+  }
+
+  .status-error {
+    @apply status-dot;
+    background-color: #ba1a1a;    /* error */
+  }
+
+  /* ==========================================================================
+     Navigation tabs — editorial underline (no pills)
+     ========================================================================== */
+
+  .tab {
+    @apply py-4 border-b-2 border-transparent text-on-surface-variant font-medium transition-all duration-base flex items-center gap-2;
+  }
+
+  .tab:hover {
+    @apply text-on-surface;
+  }
+
+  .tab-active {
+    @apply text-primary;
+    border-bottom-color: #00241a;
+  }
+
+  /* Admin tab variant is just the editorial tab in this system. */
+  .tab-dark {
+    @apply tab;
+  }
+
+  .tab-dark-active {
+    @apply tab-active;
+  }
+
+  /* ==========================================================================
+     Loading spinner + focus ring
+     ========================================================================== */
+
+  .pierre-spinner {
+    @apply rounded-full w-4 h-4 animate-spin;
+    border: 2px solid rgba(192, 200, 195, 0.3);
+    border-top-color: #00241a;
+  }
+
+  .focus-ring {
+    @apply focus:outline-none;
+  }
+
+  .focus-ring:focus {
+    box-shadow: 0 0 0 2px rgba(0, 36, 26, 0.4);
+  }
+
+  /* ==========================================================================
+     Hover lift — replaces the old glow-lift. Now a tonal shift + ambient.
+     ========================================================================== */
+
   .hover-lift {
     @apply transition-all duration-200;
   }
 
   .hover-lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.3);
+    transform: translateY(-1px);
+    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
   }
 
-  /* Pulse glow animation for active states */
+  /* pulse-glow: legacy name — now a subtle opacity breath, no violet. */
   .pulse-glow {
-    animation: pulse-glow 2s infinite;
+    animation: borealBreath 3s ease-in-out infinite;
   }
 
-  @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
-    50% { box-shadow: 0 0 0 8px rgba(139, 92, 246, 0); }
+  @keyframes borealBreath {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
   }
 
-  /* Chat Bubble Styles - per Stitch design system */
+  /* ==========================================================================
+     Chat bubbles — DESIGN.md §5 cards on surface-container-lowest with ghost
+     border. No glassmorphism in the chat panel.
+     ========================================================================== */
+
   .chat-bubble-ai {
-    @apply rounded-2xl p-4 max-w-[85%];
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    @apply rounded-lg p-4 max-w-[85%] bg-surface-container-lowest text-on-surface;
+    border: 1px solid rgba(192, 200, 195, 0.15);
   }
 
   .chat-bubble-user {
-    @apply rounded-2xl p-4 max-w-[85%] ml-auto;
-    background: rgba(139, 92, 246, 0.9);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    @apply rounded-lg p-4 max-w-[85%] ml-auto bg-primary text-on-primary;
   }
 
-  /* ============================================
-     AI Intelligence Glow Effects
-     Reinforces Pierre's AI-first brand identity
-     ============================================ */
+  /* ==========================================================================
+     AI effect legacy — all the old ai-glow / ai-thinking / ai-breathe /
+     ai-response / ai-input-focus / card-ai / ai-typing-dot / ai-gradient-border
+     / ai-shimmer classes are preserved as no-ops or subtle tonal shifts so
+     existing components don't crash. Over time, content sweep will delete the
+     class references entirely.
+     ========================================================================== */
 
-  /* AI Ambient Glow - subtle constant presence for AI elements */
-  .ai-glow {
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+  .ai-glow,
+  .ai-glow-strong,
+  .ai-breathe,
+  .ai-thinking,
+  .ai-response-glow,
+  .ai-avatar-glow {
+    /* No glow. Fallback to ambient shadow for floating elements. */
   }
 
-  .ai-glow-strong {
-    box-shadow: 0 0 30px rgba(139, 92, 246, 0.25), 0 0 60px rgba(139, 92, 246, 0.1);
-  }
-
-  /* AI Avatar/Icon Glow - for Pierre AI avatar */
   .ai-avatar-glow {
     @apply relative;
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.4);
   }
 
-  .ai-avatar-glow::after {
-    content: '';
-    @apply absolute inset-0 rounded-full;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.2) 0%, transparent 70%);
-    animation: ai-breathe 3s ease-in-out infinite;
-  }
-
-  /* AI Thinking/Processing Indicator - animated glow while AI processes */
-  .ai-thinking {
-    animation: ai-thinking-glow 1.5s ease-in-out infinite;
-  }
-
-  @keyframes ai-thinking-glow {
-    0%, 100% {
-      box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
-      border-color: rgba(139, 92, 246, 0.3);
-    }
-    50% {
-      box-shadow: 0 0 25px rgba(139, 92, 246, 0.5), 0 0 50px rgba(139, 92, 246, 0.2);
-      border-color: rgba(139, 92, 246, 0.6);
-    }
-  }
-
-  /* AI Breathing Glow - subtle ambient animation for AI presence */
-  .ai-breathe {
-    animation: ai-breathe 4s ease-in-out infinite;
-  }
-
-  @keyframes ai-breathe {
-    0%, 100% {
-      box-shadow: 0 0 15px rgba(139, 92, 246, 0.2);
-    }
-    50% {
-      box-shadow: 0 0 25px rgba(139, 92, 246, 0.35);
-    }
-  }
-
-  /* AI Response Glow - appears when AI sends a new message */
-  .ai-response-glow {
-    animation: ai-response 0.6s ease-out;
-  }
-
-  @keyframes ai-response {
-    0% {
-      box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6);
-      transform: scale(0.98);
-    }
-    50% {
-      box-shadow: 0 0 30px rgba(139, 92, 246, 0.4);
-    }
-    100% {
-      box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
-      transform: scale(1);
-    }
-  }
-
-  /* AI Input Focus - enhanced focus state for chat input */
   .ai-input-focus:focus {
-    border-color: rgba(139, 92, 246, 0.6);
-    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15), 0 0 20px rgba(139, 92, 246, 0.2);
+    border-bottom: 2px solid #00241a;
+    outline: none;
   }
 
-  /* AI Card - glassmorphism card with AI-specific styling */
   .card-ai {
-    @apply rounded-2xl p-6 transition-all duration-300;
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.08) 0%, rgba(30, 30, 46, 0.6) 100%);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(139, 92, 246, 0.2);
-    box-shadow: 0 0 20px rgba(139, 92, 246, 0.1);
+    @apply card;
+    background: linear-gradient(145deg, rgba(163, 208, 190, 0.08) 0%, rgba(13, 59, 46, 0.04) 100%);
   }
 
-  .card-ai:hover {
-    border-color: rgba(139, 92, 246, 0.4);
-    box-shadow: 0 0 30px rgba(139, 92, 246, 0.2);
-  }
-
-  /* AI Typing Dots - animated dots for AI typing indicator */
   .ai-typing-dot {
-    @apply w-2 h-2 rounded-full bg-pierre-violet;
-    animation: ai-typing 1.4s infinite ease-in-out both;
+    @apply w-2 h-2 rounded-full;
+    background-color: #717974;    /* outline — neutral ink */
+    animation: aiTyping 1.4s infinite ease-in-out both;
   }
 
   .ai-typing-dot:nth-child(1) { animation-delay: -0.32s; }
   .ai-typing-dot:nth-child(2) { animation-delay: -0.16s; }
   .ai-typing-dot:nth-child(3) { animation-delay: 0s; }
 
-  @keyframes ai-typing {
+  @keyframes aiTyping {
     0%, 80%, 100% {
       transform: scale(0.6);
       opacity: 0.5;
@@ -442,217 +542,220 @@
     40% {
       transform: scale(1);
       opacity: 1;
-      box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
     }
   }
 
-  /* AI Gradient Border - animated gradient border for premium AI elements */
   .ai-gradient-border {
-    @apply relative rounded-2xl;
-    background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(34, 211, 238, 0.1));
+    @apply relative rounded-lg;
+    border: 1px solid rgba(192, 200, 195, 0.25);
   }
 
-  .ai-gradient-border::before {
-    content: '';
-    @apply absolute inset-0 rounded-2xl;
-    padding: 1px;
-    background: linear-gradient(135deg, #8B5CF6, #22D3EE);
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0.5;
-    transition: opacity 0.3s ease;
-  }
-
-  .ai-gradient-border:hover::before {
-    opacity: 1;
-  }
-
-  /* AI Shimmer Effect - loading shimmer with violet tint */
   .ai-shimmer {
     @apply relative overflow-hidden;
     background: linear-gradient(90deg,
-      rgba(139, 92, 246, 0.05) 0%,
-      rgba(139, 92, 246, 0.15) 50%,
-      rgba(139, 92, 246, 0.05) 100%
+      rgba(192, 200, 195, 0.08) 0%,
+      rgba(192, 200, 195, 0.18) 50%,
+      rgba(192, 200, 195, 0.08) 100%
     );
     background-size: 200% 100%;
-    animation: ai-shimmer 1.5s infinite;
+    animation: borealShimmer 1.5s infinite;
   }
 
-  @keyframes ai-shimmer {
+  @keyframes borealShimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
 
-  /* Dark Theme Sidebar Scrollbar */
-  .sidebar-scroll::-webkit-scrollbar {
-    width: 4px;
-  }
+  /* ==========================================================================
+     Scrollbars — editorial thin scrollbar on light surface
+     ========================================================================== */
 
-  .sidebar-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .sidebar-scroll::-webkit-scrollbar-thumb {
-    background-color: #333;
-    border-radius: 20px;
-  }
-
-  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-    background-color: #555;
-  }
-
-  /* ================================== */
-  /* Admin Dark Theme Components        */
-  /* ================================== */
-
-  /* Dark Admin Card with Glassmorphism */
-  .card-admin {
-    @apply rounded-xl border border-white/10 p-6 transition-all duration-base;
-    background: rgba(30, 30, 46, 0.6);
-    backdrop-filter: blur(12px);
-  }
-
-  .card-admin:hover {
-    @apply border-white/20;
-  }
-
-  /* Dark Stat Card */
-  .stat-card-dark {
-    @apply rounded-xl border border-white/10 p-6 text-center transition-all duration-base relative overflow-hidden;
-    background: rgba(30, 30, 46, 0.6);
-    backdrop-filter: blur(12px);
-  }
-
-  .stat-card-dark::before {
-    @apply absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-pierre-violet via-pierre-cyan to-pierre-activity;
-    content: '';
-  }
-
-  .stat-card-dark:hover {
-    @apply -translate-y-0.5 border-white/20;
-    box-shadow: 0 4px 20px rgba(124, 59, 237, 0.15);
-  }
-
-  /* Dark Form Input */
-  .input-dark {
-    @apply w-full px-4 py-3 rounded-lg text-sm font-sans transition-all duration-base;
-    @apply bg-white/5 border border-white/10 text-white placeholder-zinc-500;
-    @apply focus:outline-none focus:border-pierre-violet focus:ring-2 focus:ring-pierre-violet/20;
-  }
-
-  .input-dark:disabled {
-    @apply opacity-50 cursor-not-allowed;
-  }
-
-  /* Dark Select */
-  .select-dark {
-    @apply w-full px-4 py-3 rounded-lg text-sm font-sans transition-all duration-base appearance-none;
-    @apply bg-white/5 border border-white/10 text-white;
-    @apply focus:outline-none focus:border-pierre-violet focus:ring-2 focus:ring-pierre-violet/20;
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-    background-position: right 0.5rem center;
-    background-repeat: no-repeat;
-    background-size: 1.5em 1.5em;
-    padding-right: 2.5rem;
-  }
-
-  /* Dark Tabs */
-  .tab-dark {
-    @apply py-3 px-4 border-b-2 border-transparent text-zinc-400 font-medium transition-all duration-base flex items-center gap-2;
-  }
-
-  .tab-dark:hover {
-    @apply text-zinc-200 border-zinc-600;
-  }
-
-  .tab-dark-active {
-    @apply text-pierre-violet border-pierre-violet;
-  }
-
-  /* Dark Badge Variants */
-  .badge-dark {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
-    @apply bg-white/10 text-zinc-300;
-  }
-
-  .badge-dark-success {
-    @apply badge bg-pierre-green-500/20 text-pierre-green-400 border border-pierre-green-500/30;
-  }
-
-  .badge-dark-warning {
-    @apply badge bg-pierre-yellow-500/20 text-pierre-yellow-400 border border-pierre-yellow-500/30;
-  }
-
-  .badge-dark-error {
-    @apply badge bg-pierre-red-500/20 text-pierre-red-400 border border-pierre-red-500/30;
-  }
-
-  .badge-dark-info {
-    @apply badge bg-pierre-blue-500/20 text-pierre-blue-400 border border-pierre-blue-500/30;
-  }
-
-  .badge-dark-violet {
-    @apply badge bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30;
-  }
-
-  .badge-dark-cyan {
-    @apply badge bg-pierre-cyan/20 text-pierre-cyan border border-pierre-cyan/30;
-  }
-
-  /* Dark Button Variants for Admin */
-  .btn-dark-secondary {
-    @apply btn-base bg-white/5 text-zinc-300 border border-white/10 hover:bg-white/10 hover:text-white;
-  }
-
-  .btn-dark-outline {
-    @apply btn-base bg-transparent text-zinc-300 border border-white/20 hover:bg-white/5 hover:border-white/30;
-  }
-
-  /* Dark Table Styles */
-  .table-dark {
-    @apply w-full text-sm;
-  }
-
-  .table-dark thead {
-    @apply border-b border-white/10;
-  }
-
-  .table-dark th {
-    @apply px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider;
-  }
-
-  .table-dark tbody tr {
-    @apply border-b border-white/5 transition-colors;
-  }
-
-  .table-dark tbody tr:hover {
-    @apply bg-white/5;
-  }
-
-  .table-dark td {
-    @apply px-4 py-3 text-zinc-300;
-  }
-
-  /* Dark Scrollbar for content areas */
+  .sidebar-scroll::-webkit-scrollbar,
   .scrollbar-dark::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
+  .sidebar-scroll::-webkit-scrollbar-track,
   .scrollbar-dark::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 3px;
+    background: transparent;
   }
 
+  .sidebar-scroll::-webkit-scrollbar-thumb,
   .scrollbar-dark::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.15);
+    background-color: rgba(192, 200, 195, 0.4);
     border-radius: 3px;
   }
 
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover,
   .scrollbar-dark::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.25);
+    background-color: rgba(192, 200, 195, 0.6);
+  }
+
+  /* ==========================================================================
+     Admin surfaces — card-admin / stat-card-dark / input-dark / select-dark /
+     table-dark / badge-dark-*. Rebuilt on the light palette — the "dark"
+     suffix is legacy; the system is light.
+     ========================================================================== */
+
+  .card-admin {
+    @apply card;
+  }
+
+  .card-admin:hover {
+    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
+  }
+
+  .stat-card-dark {
+    @apply stat-card;
+  }
+
+  .stat-card-dark:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 24px 48px -4px rgba(26, 28, 27, 0.06);
+  }
+
+  .input-dark,
+  .select-dark {
+    @apply input-field;
+  }
+
+  .select-dark {
+    padding-right: 2.5rem;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23717974' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+  }
+
+  .badge-dark,
+  .badge-dark-success,
+  .badge-dark-warning,
+  .badge-dark-error,
+  .badge-dark-info,
+  .badge-dark-violet,
+  .badge-dark-cyan {
+    @apply badge;
+  }
+
+  .badge-dark-success { background: rgba(60, 102, 88, 0.14); color: #234e40; }
+  .badge-dark-warning { background: rgba(143, 106, 46, 0.14); color: #6e5020; }
+  .badge-dark-error   { background: #ffdad6; color: #93000a; }
+  .badge-dark-info    { background: rgba(13, 59, 46, 0.12); color: #0d3b2e; }
+  .badge-dark-violet  { background: rgba(0, 36, 26, 0.1); color: #00241a; }
+  .badge-dark-cyan    { background: rgba(163, 208, 190, 0.2); color: #0d3b2e; }
+
+  .btn-dark-secondary {
+    @apply btn-base bg-surface-container-low text-on-surface hover:bg-surface-container-high;
+  }
+
+  .btn-dark-outline {
+    @apply btn-outline;
+  }
+
+  /* Editorial table — no solid borders; ghost separators only. */
+  .table-dark {
+    @apply w-full text-sm;
+  }
+
+  .table-dark thead {
+    border-bottom: 1px solid rgba(192, 200, 195, 0.25);
+  }
+
+  .table-dark th {
+    @apply px-4 py-3 text-left text-xs font-medium text-on-surface-variant uppercase;
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.05em;
+  }
+
+  .table-dark tbody tr {
+    border-bottom: 1px solid rgba(192, 200, 195, 0.1);
+    transition: background-color 0.15s;
+  }
+
+  .table-dark tbody tr:hover {
+    @apply bg-surface-container-low;
+  }
+
+  .table-dark td {
+    @apply px-4 py-3 text-on-surface;
+  }
+}
+
+@layer utilities {
+  /* Editorial input — override @tailwindcss/forms reset with higher specificity
+     and apply the focus-state underline growth from DESIGN.md §5. */
+  .boreal-underline-input {
+    border: 0 !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid rgba(192, 200, 195, 0.45) !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding-left: 0;
+    padding-right: 0;
+    transition: border-bottom-color 0.2s ease, border-bottom-width 0.2s ease, padding-bottom 0.2s ease;
+  }
+
+  .boreal-underline-input:focus {
+    border-bottom: 2px solid var(--color-primary) !important;
+    box-shadow: none !important;
+    outline: none !important;
+    padding-bottom: calc(0.5rem - 1px);
+  }
+
+  /* Text glow for hero brand marks (matches website) */
+  .text-glow {
+    text-shadow: 0 0 30px rgba(163, 208, 190, 0.2);
+  }
+
+  /* Boreal hero gradient — 145° primary → primary_container.
+     Uses `background-image` (not the shorthand) so `bg-clip-text` on the
+     same element still clips the gradient to the text. */
+  .boreal-hero-gradient {
+    background-image: linear-gradient(145deg, #00241a 0%, #0d3b2e 100%);
+    background-color: transparent;
+  }
+
+  /* Dark glass overlay (signature Boreal Overlay from DESIGN.md §5) */
+  .boreal-overlay {
+    background: linear-gradient(145deg, rgba(0, 36, 26, 0.85) 0%, rgba(13, 59, 46, 0.75) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Light glassmorphism card */
+  .boreal-glass {
+    background: rgba(249, 249, 246, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  /* Ghost border fallback (DESIGN.md §4) */
+  .ghost-border {
+    border: 1px solid rgba(192, 200, 195, 0.15);
+  }
+
+  /* DRAVR wordmark tracking */
+  .tracking-brand {
+    letter-spacing: 0.15em;
+  }
+
+  /* Staggered fade + rise entrance */
+  @keyframes fadeRise {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .animate-fade-rise {
+    opacity: 0;
+    animation: fadeRise 500ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: var(--delay, 0ms);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-rise {
+      animation: none;
+      opacity: 1;
+    }
   }
 }

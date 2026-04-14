@@ -137,7 +137,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Header with create button */}
       {canManage && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-zinc-400">
+          <p className="text-sm text-on-surface-variant">
             Share invite links to let people join this group.
           </p>
           <Button variant="primary" size="sm" onClick={() => setShowCreateForm(!showCreateForm)}>
@@ -152,7 +152,7 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Create invite form */}
       {showCreateForm && canManage && (
         <Card variant="dark" className="!p-5">
-          <h4 className="text-sm font-semibold text-white mb-4">Create Invite Link</h4>
+          <h4 className="text-sm font-semibold text-on-surface mb-4">Create Invite Link</h4>
           <div className="grid grid-cols-2 gap-4 mb-4">
             <Select
               label="Expires After"
@@ -181,21 +181,21 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Active invites */}
       {activeInvites.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-zinc-400 mb-3">
+          <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
             Active Invites ({activeInvites.length})
           </h4>
           <div className="space-y-2">
             {activeInvites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+                className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <Link2 className="w-4 h-4 text-pierre-violet-light flex-shrink-0" />
-                    <code className="text-sm text-white font-mono truncate">{invite.code}</code>
+                    <code className="text-sm text-on-surface font-mono truncate">{invite.code}</code>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-zinc-500">
+                  <div className="flex items-center gap-3 text-xs text-outline">
                     <span>
                       {invite.use_count} / {invite.max_uses ?? 'unlimited'} uses
                     </span>
@@ -240,21 +240,21 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Inactive invites */}
       {inactiveInvites.length > 0 && (
         <div>
-          <h4 className="text-sm font-semibold text-zinc-400 mb-3">
+          <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
             Expired / Used ({inactiveInvites.length})
           </h4>
           <div className="space-y-2">
             {inactiveInvites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex items-center justify-between p-4 rounded-lg bg-white/5 opacity-50"
+                className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low opacity-50"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <Link2 className="w-4 h-4 text-zinc-500 flex-shrink-0" />
-                    <code className="text-sm text-zinc-400 font-mono truncate">{invite.code}</code>
+                    <Link2 className="w-4 h-4 text-outline flex-shrink-0" />
+                    <code className="text-sm text-on-surface-variant font-mono truncate">{invite.code}</code>
                   </div>
-                  <div className="flex items-center gap-3 text-xs text-zinc-600">
+                  <div className="flex items-center gap-3 text-xs text-on-surface-variant">
                     <span>{invite.use_count} uses</span>
                     {!invite.is_active && <span>Deactivated</span>}
                     {invite.is_active && isExpired(invite) && <span>Expired</span>}
@@ -270,10 +270,10 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {/* Empty state */}
       {invites.length === 0 && (
         <div className="text-center py-8">
-          <Link2 className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-          <p className="text-zinc-500">No invites created yet.</p>
+          <Link2 className="w-8 h-8 text-on-surface-variant mx-auto mb-3" />
+          <p className="text-outline">No invites created yet.</p>
           {canManage && (
-            <p className="text-zinc-600 text-sm mt-1">
+            <p className="text-on-surface-variant text-sm mt-1">
               Create an invite link to let people join this group.
             </p>
           )}

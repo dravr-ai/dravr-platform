@@ -106,15 +106,15 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
           ← Back
         </button>
         <div>
-          <h2 className="text-xl font-semibold text-white">Create API Token</h2>
-          <p className="text-sm text-zinc-400 mt-1">
+          <h2 className="text-xl font-semibold text-on-surface">Create API Token</h2>
+          <p className="text-sm text-on-surface-variant mt-1">
             Generate a new API token for MCP clients and programmatic access
           </p>
         </div>
       </div>
 
       {/* Form */}
-      <div className="bg-pierre-slate/60 border border-white/10 rounded-lg p-6">
+      <div className="bg-surface-container-low/60 border ghost-border rounded-lg p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           {createTokenMutation.error && (
             <div className="bg-pierre-red-500/15 border border-pierre-red-500/30 text-pierre-red-400 px-4 py-3 rounded">
@@ -126,10 +126,10 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
 
           {/* Service Details */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium text-white">Service Details</h3>
+            <h3 className="text-lg font-medium text-on-surface">Service Details</h3>
 
             <div>
-              <label htmlFor="serviceName" className="block text-sm font-medium text-zinc-300 mb-2">
+              <label htmlFor="serviceName" className="block text-sm font-medium text-on-surface mb-2">
                 Service Name *
               </label>
               <input
@@ -141,13 +141,13 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                 value={serviceName}
                 onChange={(e) => setServiceName(e.target.value)}
               />
-              <p className="text-xs text-zinc-500 mt-1">
+              <p className="text-xs text-outline mt-1">
                 A unique identifier for the service that will use this token
               </p>
             </div>
 
             <div>
-              <label htmlFor="serviceDescription" className="block text-sm font-medium text-zinc-300 mb-2">
+              <label htmlFor="serviceDescription" className="block text-sm font-medium text-on-surface mb-2">
                 Description
               </label>
               <textarea
@@ -163,7 +163,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
 
           {/* Admin Level */}
           <div className="space-y-4">
-            <h3 className="text-lg font-medium text-white">Admin Level</h3>
+            <h3 className="text-lg font-medium text-on-surface">Admin Level</h3>
 
             <div className="space-y-3">
               <label className="flex items-start gap-3">
@@ -171,11 +171,11 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                   type="checkbox"
                   checked={isSuperAdmin}
                   onChange={(e) => handleSuperAdminToggle(e.target.checked)}
-                  className="mt-1 rounded border-white/20 bg-white/10 text-pierre-violet focus:ring-pierre-violet"
+                  className="mt-1 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
                 />
                 <div>
-                  <div className="font-medium text-white">Super Admin API Token</div>
-                  <p className="text-sm text-zinc-400">
+                  <div className="font-medium text-on-surface">Super Admin API Token</div>
+                  <p className="text-sm text-on-surface-variant">
                     Grants all permissions and never expires. Use with extreme caution.
                   </p>
                 </div>
@@ -189,7 +189,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                     </svg>
                     <div>
                       <h4 className="font-medium text-pierre-red-400">Danger Zone</h4>
-                      <p className="text-sm text-zinc-300 mt-1">
+                      <p className="text-sm text-on-surface mt-1">
                         Super admin API tokens have unrestricted access to all system operations.
                         Only create these for trusted, critical services.
                       </p>
@@ -203,22 +203,22 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
           {/* Permissions */}
           {!isSuperAdmin && (
             <div className="space-y-4">
-              <h3 className="text-lg font-medium text-white">Permissions</h3>
-              <p className="text-sm text-zinc-400">
+              <h3 className="text-lg font-medium text-on-surface">Permissions</h3>
+              <p className="text-sm text-on-surface-variant">
                 Select the specific permissions this token should have
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {Object.entries(PERMISSION_DESCRIPTIONS).map(([permission, info]) => (
-                  <label key={permission} className="flex items-start gap-3 p-3 border border-white/10 rounded-lg hover:bg-white/5 cursor-pointer">
+                  <label key={permission} className="flex items-start gap-3 p-3 border ghost-border rounded-lg hover:bg-surface-container-low cursor-pointer">
                     <input
                       type="checkbox"
                       checked={selectedPermissions.has(permission as AdminPermission)}
                       onChange={() => handlePermissionToggle(permission as AdminPermission)}
-                      className="mt-1 rounded border-white/20 bg-white/10 text-pierre-violet focus:ring-pierre-violet"
+                      className="mt-1 rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
                     />
                     <div className="flex-1">
-                      <div className={`font-medium ${info.danger ? 'text-pierre-red-400' : 'text-white'}`}>
+                      <div className={`font-medium ${info.danger ? 'text-pierre-red-400' : 'text-on-surface'}`}>
                         {info.label}
                         {info.danger && (
                           <span className="ml-2 text-xs bg-pierre-red-500/20 text-pierre-red-400 px-1.5 py-0.5 rounded border border-pierre-red-500/30">
@@ -226,7 +226,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                           </span>
                         )}
                       </div>
-                      <p className="text-sm text-zinc-400 mt-1">
+                      <p className="text-sm text-on-surface-variant mt-1">
                         {info.description}
                       </p>
                     </div>
@@ -247,7 +247,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
           {/* Expiration */}
           {!isSuperAdmin && (
             <div className="space-y-4">
-              <h3 className="text-lg font-medium text-white">Expiration</h3>
+              <h3 className="text-lg font-medium text-on-surface">Expiration</h3>
 
               <div className="space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer">
@@ -262,14 +262,14 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                         setExpiresInDays(365);
                       }
                     }}
-                    className="rounded border-white/20 bg-white/10 text-pierre-violet focus:ring-pierre-violet"
+                    className="rounded ghost-border bg-surface-container-high text-pierre-violet focus:ring-pierre-violet"
                   />
-                  <span className="font-medium text-white">Never expires</span>
+                  <span className="font-medium text-on-surface">Never expires</span>
                 </label>
 
                 {!neverExpires && (
                   <div>
-                    <label htmlFor="expiresInDays" className="block text-sm font-medium text-zinc-300 mb-2">
+                    <label htmlFor="expiresInDays" className="block text-sm font-medium text-on-surface mb-2">
                       Expires in (days)
                     </label>
                     <input
@@ -281,7 +281,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                       value={expiresInDays || ''}
                       onChange={(e) => setExpiresInDays(e.target.value ? parseInt(e.target.value) : null)}
                     />
-                    <p className="text-xs text-zinc-500 mt-1">
+                    <p className="text-xs text-outline mt-1">
                       Recommended: 365 days (1 year) for production services
                     </p>
                   </div>
@@ -291,7 +291,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
           )}
 
           {/* Actions */}
-          <div className="flex items-center gap-3 pt-4 border-t border-white/10">
+          <div className="flex items-center gap-3 pt-4 border-t ghost-border">
             <button
               type="submit"
               disabled={
@@ -318,7 +318,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
       {/* Security Reminder */}
       <div className="bg-pierre-cyan/15 border border-pierre-cyan/30 rounded-lg p-4">
         <h4 className="font-medium text-pierre-cyan mb-2">🔒 Security Reminder</h4>
-        <ul className="text-sm text-zinc-300 space-y-1">
+        <ul className="text-sm text-on-surface space-y-1">
           <li>• The API token will be shown only once after creation</li>
           <li>• Store the token securely in your environment</li>
           <li>• Never commit API tokens to version control</li>

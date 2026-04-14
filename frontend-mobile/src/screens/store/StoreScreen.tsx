@@ -52,12 +52,12 @@ const SORT_OPTIONS: Array<{ key: SortOption; label: string }> = [
 
 // Coach category colors
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#10B981',
-  nutrition: '#F59E0B',
-  recovery: '#6366F1',
+  training: '#3c6658',
+  nutrition: '#8f6a2e',
+  recovery: '#5e7a82',
   recipes: '#F97316',
-  mobility: '#EC4899',
-  custom: '#7C3AED',
+  mobility: '#7a4d5e',
+  custom: '#00241a',
 };
 
 export function StoreScreen() {

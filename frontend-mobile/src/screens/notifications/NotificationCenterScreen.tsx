@@ -72,7 +72,7 @@ function NotificationRow({
 
   return (
     <TouchableOpacity
-      className="flex-row items-start px-4 py-3 border-b border-white/5"
+      className="flex-row items-start px-4 py-3 border-b ghost-border"
       style={{ backgroundColor: isUnread ? 'rgba(139, 92, 246, 0.05)' : 'transparent' }}
       onPress={() => onPress(item)}
       activeOpacity={0.7}
@@ -106,12 +106,12 @@ function NotificationRow({
           >
             {meta.label.toUpperCase()}
           </Text>
-          <Text className="text-xs text-zinc-500">
+          <Text className="text-xs text-outline">
             {formatNotificationTime(item.created_at)}
           </Text>
           {collapsedLabel && (
-            <View className="ml-2 px-1.5 py-0.5 rounded bg-white/5">
-              <Text className="text-[10px] text-zinc-500">{collapsedLabel}</Text>
+            <View className="ml-2 px-1.5 py-0.5 rounded bg-surface-container-low">
+              <Text className="text-[10px] text-outline">{collapsedLabel}</Text>
             </View>
           )}
         </View>
@@ -122,7 +122,7 @@ function NotificationRow({
         >
           {item.title}
         </Text>
-        <Text className="text-xs text-zinc-400" numberOfLines={2}>
+        <Text className="text-xs text-on-surface-variant" numberOfLines={2}>
           {item.body}
         </Text>
         {/* Action buttons */}
@@ -212,7 +212,7 @@ export function NotificationCenterScreen() {
   return (
     <View className="flex-1 bg-background-primary" style={{ paddingTop: insets.top }}>
       {/* Header */}
-      <View className="flex-row items-center px-4 py-3 border-b border-white/10">
+      <View className="flex-row items-center px-4 py-3 border-b ghost-border">
         <TouchableOpacity
           className="w-10 h-10 items-center justify-center mr-2"
           onPress={() => router.back()}
@@ -223,17 +223,17 @@ export function NotificationCenterScreen() {
 
         <View className="flex-1 flex-row items-center">
           <Bell size={20} color={colors.primary[400]} />
-          <Text className="text-lg font-semibold text-white ml-2">Notifications</Text>
+          <Text className="text-lg font-semibold text-on-surface ml-2">Notifications</Text>
           {unreadCount > 0 && (
             <View className="ml-2 px-2 py-0.5 rounded-full bg-violet-600">
-              <Text className="text-xs font-bold text-white">{unreadCount}</Text>
+              <Text className="text-xs font-bold text-on-surface">{unreadCount}</Text>
             </View>
           )}
         </View>
 
         {unreadCount > 0 && (
           <TouchableOpacity
-            className="flex-row items-center px-3 py-1.5 rounded-lg bg-white/5"
+            className="flex-row items-center px-3 py-1.5 rounded-lg bg-surface-container-low"
             onPress={() => markAllAsRead()}
             disabled={isMarkingAllRead}
             testID="mark-all-read"
@@ -245,7 +245,7 @@ export function NotificationCenterScreen() {
       </View>
 
       {/* Category filter tabs */}
-      <View className="border-b border-white/5">
+      <View className="border-b ghost-border">
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -292,13 +292,13 @@ export function NotificationCenterScreen() {
       >
         {isLoading && !isRefetching ? (
           <View className="items-center py-12">
-            <Text className="text-zinc-500">Loading notifications...</Text>
+            <Text className="text-outline">Loading notifications...</Text>
           </View>
         ) : notifications.length === 0 ? (
           <View className="items-center py-16">
             <Bell size={48} color="#475569" />
-            <Text className="text-zinc-400 mt-4 text-base">No notifications yet</Text>
-            <Text className="text-zinc-500 mt-1 text-sm">
+            <Text className="text-on-surface-variant mt-4 text-base">No notifications yet</Text>
+            <Text className="text-outline mt-1 text-sm">
               {selectedCategory === 'all'
                 ? "You're all caught up!"
                 : `No ${selectedCategory} notifications`}

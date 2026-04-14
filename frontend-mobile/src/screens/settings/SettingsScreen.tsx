@@ -270,13 +270,13 @@ export function SettingsScreen() {
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-              <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#ffffff' }}>
+              <Text style={{ fontSize: 36, fontWeight: 'bold', color: colors.text.primary }}>
                 {displayName[0]?.toUpperCase() || 'U'}
               </Text>
             </View>
           </LinearGradient>
 
-          <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#ffffff', marginBottom: 4 }}>{displayName}</Text>
+          <Text style={{ fontSize: 24, fontWeight: 'bold', color: colors.text.primary, marginBottom: 4 }}>{displayName}</Text>
           <Text style={{ fontSize: 16, color: colors.text.tertiary, marginBottom: 16 }}>{user?.email}</Text>
 
           {/* Edit Profile Button with violet glow */}
@@ -293,13 +293,13 @@ export function SettingsScreen() {
               elevation: 6,
             }}
           >
-            <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff' }}>Edit Profile</Text>
+            <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text.primary }}>Edit Profile</Text>
           </TouchableOpacity>
         </View>
 
         {/* Data Providers Section - navigates to Connections screen */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-data-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Data</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Data</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity
               style={settingsRowStyle}
@@ -310,7 +310,7 @@ export function SettingsScreen() {
                 <Feather name="link" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: '#ffffff' }}>Data Providers</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Data Providers</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>
                   {connectedProviders.filter(p => p.connected).length} connected
                 </Text>
@@ -322,13 +322,13 @@ export function SettingsScreen() {
 
         {/* Account Settings Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-account-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Account</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Account</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]} testID="settings-personal-info-button">
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="user" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: '#ffffff' }}>Personal Information</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Personal Information</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -340,7 +340,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="lock" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: '#ffffff' }}>Change Password</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Change Password</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -349,7 +349,7 @@ export function SettingsScreen() {
                 <Feather name="key" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: '#ffffff' }}>MCP Tokens</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>MCP Tokens</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>{tokens.length} active</Text>
               </View>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
@@ -359,7 +359,7 @@ export function SettingsScreen() {
 
         {/* Usage Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }} testID="settings-usage-section">
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Usage</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Usage</Text>
           <View style={glassCardStyle}>
             {usageLoading ? (
               <View style={{ paddingVertical: 24, alignItems: 'center' }}>
@@ -408,13 +408,13 @@ export function SettingsScreen() {
                   <View style={{ flexDirection: 'row', gap: 12 }}>
                     <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
                       <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Coaches</Text>
-                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#ffffff' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.coaches} / {usageData.resources.max_coaches}
                       </Text>
                     </View>
                     <View style={{ flex: 1, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 8, padding: 12 }}>
                       <Text style={{ fontSize: 12, color: colors.text.tertiary, marginBottom: 4 }}>Conversations</Text>
-                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#ffffff' }}>
+                      <Text style={{ fontSize: 14, fontWeight: '500', color: colors.text.primary }}>
                         {usageData.resources.conversations} / {usageData.resources.max_conversations}
                       </Text>
                     </View>
@@ -427,13 +427,13 @@ export function SettingsScreen() {
 
         {/* Privacy Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>Privacy</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>Privacy</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity style={settingsRowStyle}>
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="shield" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: '#ffffff' }}>Privacy Settings</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Privacy Settings</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
@@ -441,14 +441,14 @@ export function SettingsScreen() {
 
         {/* About Section */}
         <View style={{ paddingHorizontal: 16, marginBottom: 24 }}>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: '#ffffff', marginBottom: 12 }}>About</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text.primary, marginBottom: 12 }}>About</Text>
           <View style={glassCardStyle}>
             <TouchableOpacity style={[settingsRowStyle, { borderBottomWidth: 1, borderBottomColor: 'rgba(255, 255, 255, 0.05)' }]}>
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="info" size={20} color={colors.text.secondary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 16, color: '#ffffff' }}>Version</Text>
+                <Text style={{ fontSize: 16, color: colors.text.primary }}>Version</Text>
                 <Text style={{ fontSize: 14, color: colors.text.tertiary }}>1.0.0</Text>
               </View>
             </TouchableOpacity>
@@ -457,7 +457,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="help-circle" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: '#ffffff' }}>Help Center</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Help Center</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
 
@@ -465,7 +465,7 @@ export function SettingsScreen() {
               <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: colors.background.secondary, alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
                 <Feather name="file-text" size={20} color={colors.text.secondary} />
               </View>
-              <Text style={{ flex: 1, fontSize: 16, color: '#ffffff' }}>Terms & Privacy</Text>
+              <Text style={{ flex: 1, fontSize: 16, color: colors.text.primary }}>Terms & Privacy</Text>
               <Feather name="chevron-right" size={20} color={colors.text.tertiary} />
             </TouchableOpacity>
           </View>
@@ -495,10 +495,10 @@ export function SettingsScreen() {
           style={{ paddingHorizontal: spacing.lg }}
         >
           <View
-            className="bg-pierre-slate p-5"
+            className="bg-surface-container-low p-5"
             style={{ borderRadius: borderRadius.xl }}
           >
-            <Text className="text-xl font-semibold text-white mb-5 text-center">
+            <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
               {newToken ? 'Token Created' : 'Create MCP Token'}
             </Text>
 
@@ -507,8 +507,8 @@ export function SettingsScreen() {
                 <Text className="text-sm text-amber-500 text-center mb-3">
                   Copy this token now. You won't be able to see it again!
                 </Text>
-                <View className="bg-pierre-dark rounded-lg p-3 mb-5">
-                  <Text className="text-sm text-white font-mono" selectable>
+                <View className="bg-surface rounded-lg p-3 mb-5">
+                  <Text className="text-sm text-on-surface font-mono" selectable>
                     {newToken}
                   </Text>
                 </View>
@@ -520,7 +520,7 @@ export function SettingsScreen() {
                     setNewToken(null);
                   }}
                 >
-                  <Text className="text-base font-semibold text-white">Done</Text>
+                  <Text className="text-base font-semibold text-on-surface">Done</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -537,7 +537,7 @@ export function SettingsScreen() {
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                     onPress={() => setShowCreateToken(false)}
                   >
-                    <Text className="text-base font-semibold text-white">Cancel</Text>
+                    <Text className="text-base font-semibold text-on-surface">Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     className="flex-1 py-3 rounded-full items-center"
@@ -548,7 +548,7 @@ export function SettingsScreen() {
                     {isCreatingToken ? (
                       <ActivityIndicator size="small" color="#ffffff" />
                     ) : (
-                      <Text className="text-base font-semibold text-white">Create</Text>
+                      <Text className="text-base font-semibold text-on-surface">Create</Text>
                     )}
                   </TouchableOpacity>
                 </View>
@@ -570,10 +570,10 @@ export function SettingsScreen() {
           style={{ paddingHorizontal: spacing.lg }}
         >
           <View
-            className="bg-pierre-slate p-5"
+            className="bg-surface-container-low p-5"
             style={{ borderRadius: borderRadius.xl }}
           >
-            <Text className="text-xl font-semibold text-white mb-5 text-center">
+            <Text className="text-xl font-semibold text-on-surface mb-5 text-center">
               Change Password
             </Text>
 
@@ -605,7 +605,7 @@ export function SettingsScreen() {
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                 onPress={() => setShowChangePassword(false)}
               >
-                <Text className="text-base font-semibold text-white">Cancel</Text>
+                <Text className="text-base font-semibold text-on-surface">Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 className="flex-1 py-3 rounded-full items-center"
@@ -616,7 +616,7 @@ export function SettingsScreen() {
                 {isChangingPassword ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text className="text-base font-semibold text-white">Change</Text>
+                  <Text className="text-base font-semibold text-on-surface">Change</Text>
                 )}
               </TouchableOpacity>
             </View>

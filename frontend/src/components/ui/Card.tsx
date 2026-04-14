@@ -17,11 +17,13 @@ export const Card: React.FC<CardProps> = ({
   variant = 'default',
   onClick
 }) => {
+  // `variant="dark"` is a legacy name from the Pierre design system. In the
+  // Boreal Editorial system every card sits on the light surface stack with
+  // tonal layering; the old dark variant is now the standard editorial card.
   const classes = clsx(
     {
-      'card': variant === 'default',
+      'card': variant === 'default' || variant === 'dark',
       'stat-card': variant === 'stat',
-      'card-dark': variant === 'dark',
     },
     className
   );

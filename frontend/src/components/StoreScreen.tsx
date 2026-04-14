@@ -237,7 +237,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-pierre-dark">
+    <div className="h-full flex flex-col bg-surface">
       <TabHeader
         icon={<Compass className="w-5 h-5" />}
         gradient="from-pierre-activity to-pierre-activity-dark"
@@ -245,7 +245,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
       />
 
       {/* Search Bar */}
-      <div className="px-6 py-4 border-b border-white/10">
+      <div className="px-6 py-4 border-b ghost-border">
         <div className="relative">
           <svg
             className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-500"
@@ -262,7 +262,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
             aria-label="Search coaches"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-10 py-2.5 bg-white/5 border border-white/10 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
+            className="w-full pl-10 pr-10 py-2.5 bg-surface-container-low border ghost-border rounded-lg text-sm text-on-surface placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-pierre-violet/30 focus:border-pierre-violet transition-colors"
           />
           {searchQuery && (
             <button
@@ -284,7 +284,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
       </div>
 
       {/* Category Filters */}
-      <div className="px-6 py-3 border-b border-white/10 overflow-x-auto">
+      <div className="px-6 py-3 border-b ghost-border overflow-x-auto">
         <div className="flex items-center gap-2">
           {CATEGORY_FILTERS.map((filter) => (
             <button
@@ -293,8 +293,8 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 selectedCategory === filter.key
-                  ? 'bg-pierre-violet text-white shadow-glow-sm'
-                  : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-300'
+                  ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                  : 'bg-surface-container-low text-gray-400 hover:bg-surface-container hover:text-gray-300'
               )}
             >
               {filter.label}
@@ -304,7 +304,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
       </div>
 
       {/* Sort Options */}
-      <div className="px-6 py-2 bg-white/5 border-b border-white/10 flex items-center gap-3">
+      <div className="px-6 py-2 bg-surface-container-low border-b ghost-border flex items-center gap-3">
         <span className="text-sm text-gray-500">Sort by:</span>
         {SORT_OPTIONS.map((option) => (
           <button
@@ -342,7 +342,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <h3 className="text-lg font-medium text-white">
+            <h3 className="text-lg font-medium text-on-surface">
               {searchQuery ? 'No coaches found' : 'Store is empty'}
             </h3>
             <p className="text-sm text-gray-500 mt-1">
@@ -393,7 +393,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
   return (
     <button
       onClick={onClick}
-      className="text-left p-4 bg-white/5 border border-white/10 rounded-xl hover:border-pierre-violet/40 hover:bg-white/10 hover:shadow-glow-sm transition-all duration-200 group"
+      className="text-left p-4 bg-surface-container-low border ghost-border rounded-xl hover:border-pierre-violet/40 hover:bg-surface-container hover:shadow-ambient transition-all duration-200 group"
     >
       {/* Header with category and install count */}
       <div className="flex items-center justify-between mb-2">
@@ -406,7 +406,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
       </div>
 
       {/* Title */}
-      <h3 className="font-semibold text-white mb-1 line-clamp-1 group-hover:text-pierre-violet transition-colors">
+      <h3 className="font-semibold text-on-surface mb-1 line-clamp-1 group-hover:text-pierre-violet transition-colors">
         {coach.title}
       </h3>
 
@@ -421,7 +421,7 @@ const CoachCard = memo(function CoachCard({ coach, onClick }: CoachCardProps) {
           {coach.tags.slice(0, 3).map((tag, index) => (
             <span
               key={index}
-              className="px-2 py-0.5 text-xs bg-white/10 text-gray-400 rounded"
+              className="px-2 py-0.5 text-xs bg-surface-container-high text-gray-400 rounded"
             >
               {tag}
             </span>
@@ -461,7 +461,7 @@ function CoachDetailView({
 }: CoachDetailViewProps) {
   if (isLoading) {
     return (
-      <div className="h-full flex flex-col bg-pierre-dark">
+      <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-8 h-8 border-2 border-pierre-violet border-t-transparent rounded-full animate-spin mx-auto" />
@@ -474,13 +474,13 @@ function CoachDetailView({
 
   if (!coach) {
     return (
-      <div className="h-full flex flex-col bg-pierre-dark">
+      <div className="h-full flex flex-col bg-surface">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-lg text-gray-400 mb-4">Coach not found</p>
             <button
               onClick={onBack}
-              className="px-4 py-2 bg-pierre-violet text-white rounded-lg hover:bg-pierre-violet/80 transition-colors"
+              className="px-4 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet/80 transition-colors"
             >
               Go Back
             </button>
@@ -493,18 +493,18 @@ function CoachDetailView({
   const categoryColors = COACH_CATEGORY_COLORS[coach.category] ?? 'bg-gray-500/20 text-gray-400';
 
   return (
-    <div className="h-full flex flex-col bg-pierre-dark">
+    <div className="h-full flex flex-col bg-surface">
       {/* Header with back button */}
-      <div className="p-4 border-b border-white/10 flex items-center gap-3">
+      <div className="p-4 border-b ghost-border flex items-center gap-3">
         <button
           onClick={onBack}
           title="Back to Store"
           aria-label="Back to Store"
-          className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          className="p-2 text-gray-400 hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
         >
           <ArrowLeft className="w-5 h-5" aria-hidden="true" />
         </button>
-        <h2 className="text-lg font-semibold text-white truncate flex-1">{coach.title}</h2>
+        <h2 className="text-lg font-semibold text-on-surface truncate flex-1">{coach.title}</h2>
       </div>
 
       {/* Scrollable content */}
@@ -533,7 +533,7 @@ function CoachDetailView({
                 {coach.tags.map((tag, index) => (
                   <span
                     key={index}
-                    className="px-3 py-1 text-sm bg-white/10 text-gray-300 rounded-full border border-white/10"
+                    className="px-3 py-1 text-sm bg-surface-container-high text-gray-300 rounded-full border ghost-border"
                   >
                     {tag}
                   </span>
@@ -550,7 +550,7 @@ function CoachDetailView({
                 {coach.sample_prompts.map((prompt, index) => (
                   <div
                     key={index}
-                    className="p-3 bg-white/5 border border-white/10 rounded-lg text-sm text-gray-300"
+                    className="p-3 bg-surface-container-low border ghost-border rounded-lg text-sm text-gray-300"
                   >
                     {prompt}
                   </div>
@@ -562,7 +562,7 @@ function CoachDetailView({
           {/* System Prompt Preview */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">System Prompt</h3>
-            <div className="p-3 bg-white/5 border border-white/10 rounded-lg">
+            <div className="p-3 bg-surface-container-low border ghost-border rounded-lg">
               <p className="text-sm text-gray-400 font-mono whitespace-pre-wrap line-clamp-10">
                 {coach.system_prompt}
               </p>
@@ -577,15 +577,15 @@ function CoachDetailView({
           {/* Details */}
           <div>
             <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Details</h3>
-            <div className="bg-white/5 border border-white/10 rounded-lg overflow-hidden">
-              <div className="flex justify-between items-center px-4 py-3 border-b border-white/10">
+            <div className="bg-surface-container-low border ghost-border rounded-lg overflow-hidden">
+              <div className="flex justify-between items-center px-4 py-3 border-b ghost-border">
                 <span className="text-sm text-gray-500">Token Count</span>
-                <span className="text-sm text-white font-medium">{coach.token_count.toLocaleString()}</span>
+                <span className="text-sm text-on-surface font-medium">{coach.token_count.toLocaleString()}</span>
               </div>
               {coach.published_at && (
                 <div className="flex justify-between items-center px-4 py-3">
                   <span className="text-sm text-gray-500">Published</span>
-                  <span className="text-sm text-white font-medium">
+                  <span className="text-sm text-on-surface font-medium">
                     {new Date(coach.published_at).toLocaleDateString()}
                   </span>
                 </div>
@@ -614,12 +614,12 @@ function CoachDetailView({
       </div>
 
       {/* Fixed action button at bottom */}
-      <div className="p-4 border-t border-white/10 bg-pierre-dark">
+      <div className="p-4 border-t ghost-border bg-surface">
         {isInstalled ? (
           <button
             onClick={onRemove}
             disabled={isInstalling}
-            className="w-full py-3 px-4 bg-white/10 border border-white/20 rounded-lg text-white font-medium hover:bg-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-surface-container-high border ghost-border rounded-lg text-on-surface font-medium hover:bg-surface-container-highest transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isInstalling ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -634,7 +634,7 @@ function CoachDetailView({
           <button
             onClick={onInstall}
             disabled={isInstalling}
-            className="w-full py-3 px-4 bg-pierre-violet text-white font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-pierre-violet text-on-surface font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isInstalling ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

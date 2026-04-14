@@ -92,7 +92,7 @@ export default function CoachNotesAuditTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Coach notes — compliance audit
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -111,7 +111,7 @@ export default function CoachNotesAuditTab() {
             <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Notes shown
             </div>
-            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+            <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
               {filtered.length}
             </div>
           </div>
@@ -123,7 +123,7 @@ export default function CoachNotesAuditTab() {
               <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">
                 {humanizeScope(key)}
               </div>
-              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-white">
+              <div className="mt-1 text-2xl font-semibold text-gray-900 dark:text-on-surface">
                 {count}
               </div>
             </div>
@@ -140,7 +140,7 @@ export default function CoachNotesAuditTab() {
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
               placeholder="substring search in note body"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -150,7 +150,7 @@ export default function CoachNotesAuditTab() {
               value={coachFilter}
               onChange={(e) => setCoachFilter(e.target.value)}
               placeholder="filter by coach id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -160,7 +160,7 @@ export default function CoachNotesAuditTab() {
               value={userFilter}
               onChange={(e) => setUserFilter(e.target.value)}
               placeholder="filter by user id"
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -168,7 +168,7 @@ export default function CoachNotesAuditTab() {
             <select
               value={scopeFilter}
               onChange={(e) => setScopeFilter(e.target.value as '' | ScopeKey)}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               <option value="">All scopes</option>
               <option value="conversation">Conversation</option>
@@ -181,7 +181,7 @@ export default function CoachNotesAuditTab() {
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
-              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="rounded border border-gray-300 bg-white px-2 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             >
               {LIMIT_OPTIONS.map((n) => (
                 <option key={n} value={n}>

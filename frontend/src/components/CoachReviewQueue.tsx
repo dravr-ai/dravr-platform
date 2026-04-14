@@ -97,8 +97,8 @@ export default function CoachReviewQueue() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white mb-2">Failed to Load Review Queue</h3>
-        <p className="text-zinc-400">Unable to fetch pending coach submissions. Please try again.</p>
+        <h3 className="text-lg font-medium text-on-surface mb-2">Failed to Load Review Queue</h3>
+        <p className="text-on-surface-variant">Unable to fetch pending coach submissions. Please try again.</p>
       </Card>
     );
   }
@@ -113,8 +113,8 @@ export default function CoachReviewQueue() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-white mb-2">All Caught Up!</h3>
-        <p className="text-zinc-400">There are no coaches pending review at this time.</p>
+        <h3 className="text-lg font-medium text-on-surface mb-2">All Caught Up!</h3>
+        <p className="text-on-surface-variant">There are no coaches pending review at this time.</p>
       </Card>
     );
   }
@@ -126,7 +126,7 @@ export default function CoachReviewQueue() {
           <button
             key={coach.id}
             onClick={() => setSelectedCoach(coach)}
-            className="w-full text-left bg-[rgba(30,30,46,0.6)] backdrop-blur-[16px] border border-white/10 rounded-xl p-4 hover:border-pierre-violet/30 transition-all group"
+            className="w-full text-left bg-surface-container-lowest shadow-ambient border ghost-border rounded-xl p-4 hover:border-pierre-violet/30 transition-all group"
           >
             <div className="flex items-start justify-between">
               <div className="flex-1 min-w-0">
@@ -135,7 +135,7 @@ export default function CoachReviewQueue() {
                   <span className="flex-shrink-0 w-6 h-6 rounded-full bg-pierre-violet/20 text-pierre-violet-light text-xs font-bold flex items-center justify-center">
                     {index + 1}
                   </span>
-                  <h3 className="font-semibold text-white truncate group-hover:text-pierre-violet-light transition-colors">
+                  <h3 className="font-semibold text-on-surface truncate group-hover:text-pierre-violet-light transition-colors">
                     {coach.title}
                   </h3>
                   <span className={clsx(
@@ -147,12 +147,12 @@ export default function CoachReviewQueue() {
                 </div>
 
                 {coach.description && (
-                  <p className="text-sm text-zinc-400 line-clamp-1 mb-2 ml-9">
+                  <p className="text-sm text-on-surface-variant line-clamp-1 mb-2 ml-9">
                     {coach.description}
                   </p>
                 )}
 
-                <div className="flex items-center gap-4 ml-9 text-xs text-zinc-500">
+                <div className="flex items-center gap-4 ml-9 text-xs text-outline">
                   <span className="flex items-center gap-1">
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -176,12 +176,12 @@ export default function CoachReviewQueue() {
                 {coach.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2 ml-9">
                     {coach.tags.slice(0, 4).map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 text-xs bg-white/10 text-zinc-400 rounded">
+                      <span key={tag} className="px-2 py-0.5 text-xs bg-surface-container-high text-on-surface-variant rounded">
                         {tag}
                       </span>
                     ))}
                     {coach.tags.length > 4 && (
-                      <span className="px-2 py-0.5 text-xs bg-white/10 text-zinc-500 rounded">
+                      <span className="px-2 py-0.5 text-xs bg-surface-container-high text-outline rounded">
                         +{coach.tags.length - 4}
                       </span>
                     )}
@@ -189,7 +189,7 @@ export default function CoachReviewQueue() {
                 )}
               </div>
 
-              <div className="flex-shrink-0 ml-4 flex items-center gap-2 text-zinc-500 group-hover:text-pierre-violet-light transition-colors">
+              <div className="flex-shrink-0 ml-4 flex items-center gap-2 text-outline group-hover:text-pierre-violet-light transition-colors">
                 <span className="text-xs hidden sm:inline">{formatDate(coach.submitted_at)}</span>
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />

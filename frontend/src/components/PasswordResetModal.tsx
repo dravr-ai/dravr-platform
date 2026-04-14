@@ -65,16 +65,16 @@ export default function PasswordResetModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-pierre-slate border border-white/10 rounded-xl shadow-xl max-w-md w-full m-4">
+      <div className="bg-surface-container-low border ghost-border rounded-xl shadow-xl max-w-md w-full m-4">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-semibold text-white">
+            <h2 className="text-xl font-semibold text-on-surface">
               Reset User Password
             </h2>
             <button
               onClick={handleClose}
               aria-label="Close modal"
-              className="text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+              className="text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -82,11 +82,11 @@ export default function PasswordResetModal({
             </button>
           </div>
 
-          <Card className="mb-4 p-4 bg-white/5 border border-white/10">
+          <Card className="mb-4 p-4 bg-surface-container-low border ghost-border">
             <div className="flex items-start justify-between">
               <div>
-                <h3 className="font-medium text-white">{user.display_name || 'Unnamed User'}</h3>
-                <p className="text-sm text-zinc-400">{user.email}</p>
+                <h3 className="font-medium text-on-surface">{user.display_name || 'Unnamed User'}</h3>
+                <p className="text-sm text-on-surface-variant">{user.email}</p>
               </div>
               <Badge
                 variant={
@@ -128,7 +128,7 @@ export default function PasswordResetModal({
                 <Button
                   onClick={handleReset}
                   disabled={resetMutation.isPending}
-                  className="flex-1 bg-pierre-violet hover:bg-pierre-violet-dark text-white"
+                  className="flex-1 bg-pierre-violet hover:bg-pierre-violet-dark text-on-surface"
                 >
                   {resetMutation.isPending ? (
                     <div className="flex items-center justify-center">
@@ -156,11 +156,11 @@ export default function PasswordResetModal({
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm font-medium text-zinc-300 mb-2">
+                <label className="block text-sm font-medium text-on-surface mb-2">
                   Temporary Password
                 </label>
                 <div className="flex items-center space-x-2">
-                  <code className="flex-1 px-3 py-2 bg-white/5 border border-white/10 rounded-md font-mono text-sm text-white">
+                  <code className="flex-1 px-3 py-2 bg-surface-container-low border ghost-border rounded-md font-mono text-sm text-on-surface">
                     {resetResult.temporary_password}
                   </code>
                   <Button
@@ -179,7 +179,7 @@ export default function PasswordResetModal({
                     )}
                   </Button>
                 </div>
-                <p className="mt-2 text-xs text-zinc-500">
+                <p className="mt-2 text-xs text-outline">
                   Expires: {new Date(resetResult.expires_at).toLocaleString()}
                 </p>
               </div>
@@ -192,7 +192,7 @@ export default function PasswordResetModal({
 
               <Button
                 onClick={handleClose}
-                className="w-full bg-white/10 hover:bg-white/15 text-white"
+                className="w-full bg-surface-container-high hover:bg-white/15 text-on-surface"
               >
                 Done
               </Button>

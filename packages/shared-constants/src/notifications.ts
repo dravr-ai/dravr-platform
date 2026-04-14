@@ -16,18 +16,20 @@ export interface NotificationCategoryMeta {
 /**
  * Canonical category metadata for notification rendering.
  *
- * Colors are aligned with the Pierre design system pillar colors
- * where applicable (activity=training, recovery=recovery).
+ * Colors are aligned with the Boreal Editorial palette so badges read
+ * correctly on the light `surface` (#F9F9F6). Training and recovery pull
+ * from `PILLAR_COLORS`; coach/ai/reminders use tonal derivatives of the
+ * primary forest-green family.
  */
 export const NOTIFICATION_CATEGORY_META: Record<NotificationCategory, NotificationCategoryMeta> = {
-  training: { label: 'Training', color: '#4ADE80', iconName: 'dumbbell' },
-  recovery: { label: 'Recovery', color: '#818CF8', iconName: 'heart' },
-  social: { label: 'Social', color: '#818CF8', iconName: 'users' },
-  coach: { label: 'Coach', color: '#38BDF8', iconName: 'message-circle' },
-  achievement: { label: 'Achievements', color: '#FBBF24', iconName: 'trophy' },
-  system: { label: 'System', color: '#94A3B8', iconName: 'settings' },
-  ai: { label: 'AI Insights', color: '#22D3EE', iconName: 'brain' },
-  reminders: { label: 'Reminders', color: '#F472B6', iconName: 'clock' },
+  training: { label: 'Training', color: '#3c6658', iconName: 'dumbbell' },     // activity pillar
+  recovery: { label: 'Recovery', color: '#5e7a82', iconName: 'heart' },        // recovery pillar
+  social: { label: 'Social', color: '#234e40', iconName: 'users' },            // on_primary_fixed_variant
+  coach: { label: 'Coach', color: '#00241a', iconName: 'message-circle' },     // primary
+  achievement: { label: 'Achievements', color: '#8f6a2e', iconName: 'trophy' }, // nutrition pillar / warm bronze
+  system: { label: 'System', color: '#717974', iconName: 'settings' },          // outline
+  ai: { label: 'AI Insights', color: '#0d3b2e', iconName: 'brain' },           // primary_container
+  reminders: { label: 'Reminders', color: '#7a4d5e', iconName: 'clock' },      // mobility pillar / aged rose
 } as const;
 
 /** All notification categories in display order */

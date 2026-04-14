@@ -141,7 +141,7 @@ export default function HarnessConfigTab() {
       <Card className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
               Coaching Harness Configuration
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -293,7 +293,7 @@ export default function HarnessConfigTab() {
                 })
               }
               rows={4}
-              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
             />
             <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
               Markdown allowed. Prepended to the coach response when any trigger matches.
@@ -366,7 +366,7 @@ function NumericField({ label, help, value, min, max, step, onChange }: NumericF
         max={max}
         step={step}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
       />
       {help ? (
         <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{help}</span>
@@ -390,7 +390,7 @@ function CsvField({ label, help, value, onChange }: CsvFieldProps) {
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+        className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-on-surface"
       />
       {help ? (
         <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">{help}</span>

@@ -60,21 +60,21 @@ interface TabDefinition {
   section?: string;
 }
 
-const PierreLogo = () => (
+const DravrLogo = () => (
   <svg width="48" height="48" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <defs>
-      <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#8B5CF6"/><stop offset="100%" stopColor="#22D3EE"/></linearGradient>
-      <linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#4ADE80"/><stop offset="100%" stopColor="#22C55E"/></linearGradient>
-      <linearGradient id="ng" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#F59E0B"/><stop offset="100%" stopColor="#D97706"/></linearGradient>
-      <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#818CF8"/><stop offset="100%" stopColor="#6366F1"/></linearGradient>
+      <linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#00241a"/><stop offset="100%" stopColor="#0d3b2e"/></linearGradient>
+      <linearGradient id="ag" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#3c6658"/><stop offset="100%" stopColor="#234e40"/></linearGradient>
+      <linearGradient id="ng" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#8f6a2e"/><stop offset="100%" stopColor="#6e5020"/></linearGradient>
+      <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#5e7a82"/><stop offset="100%" stopColor="#425962"/></linearGradient>
     </defs>
-    <g strokeWidth="2" opacity="0.5" strokeLinecap="round">
+    <g strokeWidth="2" opacity="0.55" strokeLinecap="round">
       <line x1="40" y1="30" x2="52" y2="42" stroke="url(#ag)"/><line x1="52" y1="42" x2="70" y2="35" stroke="url(#ag)"/>
       <line x1="52" y1="42" x2="48" y2="55" stroke="url(#pg)"/><line x1="48" y1="55" x2="75" y2="52" stroke="url(#ng)"/>
       <line x1="48" y1="55" x2="55" y2="72" stroke="url(#pg)"/><line x1="55" y1="72" x2="35" y2="85" stroke="url(#rg)"/><line x1="55" y1="72" x2="72" y2="82" stroke="url(#rg)"/>
     </g>
     <circle cx="40" cy="30" r="7" fill="url(#ag)"/><circle cx="52" cy="42" r="5" fill="url(#ag)"/><circle cx="70" cy="35" r="3.5" fill="url(#ag)"/>
-    <circle cx="48" cy="55" r="6" fill="url(#pg)"/><circle cx="48" cy="55" r="3" fill="#fff" opacity="0.9"/>
+    <circle cx="48" cy="55" r="6" fill="url(#pg)"/><circle cx="48" cy="55" r="3" fill="#f9f9f6" opacity="0.9"/>
     <circle cx="75" cy="52" r="4.5" fill="url(#ng)"/><circle cx="88" cy="60" r="3.5" fill="url(#ng)"/>
     <circle cx="55" cy="72" r="5" fill="url(#rg)"/><circle cx="35" cy="85" r="4" fill="url(#rg)"/><circle cx="72" cy="82" r="4" fill="url(#rg)"/>
   </svg>
@@ -283,26 +283,26 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
   // Admin user view: Full sidebar with tabs - Dark Theme
   return (
-    <div className="min-h-screen bg-pierre-dark flex">
+    <div className="min-h-screen bg-surface flex">
       {/* Vertical Sidebar - Dark */}
       <aside
         className={clsx(
-          'fixed left-0 top-0 h-screen bg-pierre-slate border-r border-white/10 flex flex-col z-40 transition-all duration-300 ease-in-out overflow-hidden',
+          'fixed left-0 top-0 h-screen bg-surface-container-low border-r ghost-border flex flex-col z-40 transition-all duration-300 ease-in-out overflow-hidden',
           sidebarCollapsed ? 'w-[72px]' : 'w-[260px]'
         )}
       >
         {/* Sidebar accent bar */}
-        <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b from-pierre-violet via-pierre-cyan to-pierre-activity"></div>
+        <div className="absolute top-0 left-0 bottom-0 w-1 bg-gradient-to-b boreal-hero-gradient"></div>
 
         {/* Logo Section */}
         <div className={clsx(
-          'flex items-center border-b border-white/10 transition-all duration-300',
+          'flex items-center border-b ghost-border transition-all duration-300',
           sidebarCollapsed ? 'px-3 py-4 justify-center' : 'px-5 py-5 gap-3'
         )}>
-          <PierreLogo />
+          <DravrLogo />
           {!sidebarCollapsed && (
             <div className="flex flex-col">
-              <span className="text-lg font-semibold bg-gradient-to-r from-pierre-violet to-pierre-cyan bg-clip-text text-transparent">
+              <span className="text-lg font-semibold bg-gradient-to-r boreal-hero-gradient bg-clip-text text-transparent">
                 Dravr
               </span>
             </div>
@@ -321,12 +321,12 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               return (
                 <li key={tab.id}>
                   {showSection && (
-                    <div className={clsx('px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500', index === 0 && '!pt-0')}>
+                    <div className={clsx('px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-outline', index === 0 && '!pt-0')}>
                       {tab.section}
                     </div>
                   )}
                   {showDivider && (
-                    <div className="my-2 border-t border-white/10" />
+                    <div className="my-2 border-t ghost-border" />
                   )}
                   <button
                     onClick={() => {
@@ -344,7 +344,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative min-h-[44px]',
                       {
                         'bg-gradient-to-r from-pierre-violet/20 to-pierre-cyan/10 text-pierre-violet-light shadow-sm': activeTab === tab.id,
-                        'text-zinc-400 hover:bg-white/5 hover:text-white': activeTab !== tab.id,
+                        'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface': activeTab !== tab.id,
                       },
                       sidebarCollapsed && 'justify-center'
                     )}
@@ -359,7 +359,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       {tab.badge && (
                         <span
                           data-testid="pending-users-badge"
-                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
+                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-on-surface text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
                         >
                           {tab.badge}
                         </span>
@@ -368,7 +368,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                     {!sidebarCollapsed && <span>{tab.name}</span>}
                     {/* Tooltip for collapsed state */}
                     {sidebarCollapsed && (
-                      <div className="absolute left-full ml-2 px-2 py-1 bg-white/10 backdrop-blur-sm text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
+                      <div className="absolute left-full ml-2 px-2 py-1 bg-surface-container-high backdrop-blur-sm text-on-surface text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap transition-opacity z-50">
                         {tab.name}
                       </div>
                     )}
@@ -391,7 +391,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
 
         {/* User Profile Section - Bottom of sidebar */}
         <div className={clsx(
-          'border-t border-white/10',
+          'border-t ghost-border',
           sidebarCollapsed ? 'p-1.5' : 'px-2 py-1.5'
         )}>
           <div className={clsx(
@@ -402,7 +402,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <button
               onClick={() => setActiveTab('settings')}
               className={clsx(
-                'flex items-center gap-2 rounded-lg transition-all duration-200 hover:bg-white/5',
+                'flex items-center gap-2 rounded-lg transition-all duration-200 hover:bg-surface-container-low',
                 sidebarCollapsed ? 'p-1 flex-col' : 'flex-1 min-w-0 p-1.5'
               )}
               title="Open Settings"
@@ -410,21 +410,21 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             >
               {/* User Avatar with online indicator */}
               <div className="relative flex-shrink-0">
-                <div className="w-8 h-8 bg-gradient-to-br from-pierre-violet to-pierre-cyan rounded-full flex items-center justify-center">
-                  <span className="text-xs font-bold text-white">
+                <div className="w-8 h-8 boreal-hero-gradient rounded-full flex items-center justify-center">
+                  <span className="text-xs font-bold text-on-primary">
                     {(user?.display_name || user?.email)?.charAt(0).toUpperCase()}
                   </span>
                 </div>
                 {/* Online status dot */}
-                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-pierre-activity rounded-full border-2 border-pierre-slate" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-pierre-activity rounded-full border-2 border-surface-container-low" />
               </div>
 
               {!sidebarCollapsed && (
                 <div className="flex-1 min-w-0 text-left">
-                  <p className="text-[11px] font-medium text-white truncate leading-tight">
+                  <p className="text-[11px] font-medium text-on-surface truncate leading-tight">
                     {user?.display_name || user?.email}
                   </p>
-                  <span className="text-[9px] text-zinc-400 uppercase">
+                  <span className="text-[9px] text-on-surface-variant uppercase">
                     {user?.role === 'super_admin' ? 'Super Admin' : user?.role === 'admin' ? 'Admin' : 'User'}
                   </span>
                 </div>
@@ -438,7 +438,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             <button
               onClick={() => setActiveTab('settings')}
               className={clsx(
-                'text-zinc-500 hover:text-pierre-violet transition-colors flex-shrink-0 flex items-center justify-center',
+                'text-outline hover:text-pierre-violet transition-colors flex-shrink-0 flex items-center justify-center',
                 sidebarCollapsed ? 'min-w-[44px] min-h-[44px]' : 'min-w-[44px] min-h-[44px]',
                 activeTab === 'settings' && 'text-pierre-violet'
               )}
@@ -454,7 +454,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             {/* Sign out button */}
             <button
               onClick={logout}
-              className="text-zinc-500 hover:text-pierre-violet transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
+              className="text-outline hover:text-pierre-violet transition-colors flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center"
               title="Sign out"
               aria-label="Sign out"
             >
@@ -472,13 +472,13 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             localStorage.setItem('pierre.sidebar_collapsed', String(next));
             setSidebarCollapsed(next);
           }}
-          className="absolute -right-5 top-20 w-11 h-11 bg-pierre-slate border border-white/20 rounded-full flex items-center justify-center shadow-sm hover:bg-white/10 hover:border-pierre-violet transition-all duration-200 z-50"
+          className="absolute -right-5 top-20 w-11 h-11 bg-surface-container-low border ghost-border rounded-full flex items-center justify-center shadow-sm hover:bg-surface-container hover:border-pierre-violet transition-all duration-200 z-50"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
           <svg
             className={clsx(
-              'w-4 h-4 text-zinc-400 transition-transform duration-300',
+              'w-4 h-4 text-on-surface-variant transition-transform duration-300',
               sidebarCollapsed && 'rotate-180'
             )}
             fill="none"
@@ -500,10 +500,10 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       >
         {/* Top Header Bar - only for admin tabs; user tabs have their own TabHeader */}
         {isAdminUser && (
-          <header className="bg-pierre-slate/80 backdrop-blur-lg shadow-sm border-b border-white/10 sticky top-0 z-30 flex-shrink-0">
+          <header className="bg-surface-container-low/80 backdrop-blur-lg shadow-sm border-b ghost-border sticky top-0 z-30 flex-shrink-0">
             <div className="px-6 py-4 flex items-center justify-between">
               <div>
-                <h1 className="text-xl font-medium text-white">
+                <h1 className="text-xl font-medium text-on-surface">
                   {tabs.find(t => t.id === activeTab)?.name || (activeTab === 'settings' ? 'Settings' : '')}
                 </h1>
               </div>
@@ -675,8 +675,8 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
             ) : (
               <>
                 <Card variant="dark">
-                  <h2 className="text-xl font-semibold mb-4 text-white">API Key Management</h2>
-                  <p className="text-zinc-400 mb-4">
+                  <h2 className="text-xl font-semibold mb-4 text-on-surface">API Key Management</h2>
+                  <p className="text-on-surface-variant mb-4">
                     Manage API keys for MCP clients and programmatic access. Only super admins can create, rotate, and revoke API keys.
                   </p>
                 </Card>

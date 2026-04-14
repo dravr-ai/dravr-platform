@@ -40,12 +40,12 @@ const coachMarkdownStyles = {
 
 // Coach category colors matching Stitch UX spec
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#4ADE80',  // Green per Stitch spec
-  nutrition: '#F59E0B', // Amber per Stitch spec
-  recovery: '#22D3EE',  // Cyan per Stitch spec
-  recipes: '#F59E0B',   // Amber
-  mobility: '#EC4899',  // Pink - for stretching/yoga
-  custom: '#8B5CF6',    // Violet per Stitch spec
+  training: '#3c6658',  // Green per Stitch spec
+  nutrition: '#8f6a2e', // Amber per Stitch spec
+  recovery: '#0d3b2e',  // Cyan per Stitch spec
+  recipes: '#8f6a2e',   // Amber
+  mobility: '#7a4d5e',  // Pink - for stretching/yoga
+  custom: '#00241a',    // Violet per Stitch spec
 };
 
 export function CoachDetailScreen() {
@@ -219,7 +219,7 @@ export function CoachDetailScreen() {
               </View>
             )}
             {coach.is_favorite && (
-              <Feather name="star" size={16} color="#F59E0B" style={{ marginLeft: spacing.xs }} />
+              <Feather name="star" size={16} color="#8f6a2e" style={{ marginLeft: spacing.xs }} />
             )}
           </View>
           <Text testID="use-count" className="text-sm text-text-secondary">
@@ -247,9 +247,9 @@ export function CoachDetailScreen() {
                   key={tag}
                   className="px-3 py-1.5 rounded-full mr-2 mb-2"
                   style={{
-                    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+                    backgroundColor: 'rgba(0, 36, 26, 0.15)',
                     borderWidth: 1,
-                    borderColor: 'rgba(139, 92, 246, 0.3)',
+                    borderColor: 'rgba(0, 36, 26, 0.3)',
                   }}
                 >
                   <Text className="text-sm" style={{ color: colors.pierre.violet }}>{tag}</Text>
@@ -362,18 +362,18 @@ export function CoachDetailScreen() {
               end={{ x: 1, y: 0 }}
               style={{ height: 2, width: '100%' }}
             />
-            <View className="flex-row justify-between items-center px-4 py-3 border-b border-white/5">
+            <View className="flex-row justify-between items-center px-4 py-3 border-b ghost-border">
               <Text className="text-sm text-text-secondary">Token Count</Text>
               <Text className="text-sm text-text-primary font-medium">{coach.token_count}</Text>
             </View>
-            <View className="flex-row justify-between items-center px-4 py-3 border-b border-white/5">
+            <View className="flex-row justify-between items-center px-4 py-3 border-b ghost-border">
               <Text className="text-sm text-text-secondary">Context Usage</Text>
               <Text className="text-sm text-text-primary font-medium">
                 {((coach.token_count / 128000) * 100).toFixed(1)}%
               </Text>
             </View>
             {coach.created_at && (
-              <View className="flex-row justify-between items-center px-4 py-3 border-b border-white/5">
+              <View className="flex-row justify-between items-center px-4 py-3 border-b ghost-border">
                 <Text className="text-sm text-text-secondary">Created</Text>
                 <Text className="text-sm text-text-primary font-medium">
                   {new Date(coach.created_at).toLocaleDateString()}
@@ -402,7 +402,7 @@ export function CoachDetailScreen() {
           bottom: TAB_BAR_BOTTOM_OFFSET,
           backgroundColor: 'rgba(15, 15, 23, 0.95)',
           borderTopWidth: 1,
-          borderTopColor: 'rgba(139, 92, 246, 0.2)',
+          borderTopColor: 'rgba(0, 36, 26, 0.2)',
         }}
       >
         <TouchableOpacity
@@ -415,7 +415,7 @@ export function CoachDetailScreen() {
           testID="use-in-chat-button"
         >
           <Feather name="message-circle" size={18} color="#FFFFFF" />
-          <Text className="text-white text-base font-semibold">Use in Chat</Text>
+          <Text className="text-on-surface text-base font-semibold">Use in Chat</Text>
         </TouchableOpacity>
 
         {coach.is_system && (

@@ -47,12 +47,12 @@ const SOURCE_FILTERS: Array<{ key: CoachSource; label: string }> = [
 
 // Coach category colors matching Stitch UX spec
 const COACH_CATEGORY_COLORS: Record<string, string> = {
-  training: '#4ADE80',  // Green per Stitch spec
-  nutrition: '#F59E0B', // Amber per Stitch spec
-  recovery: '#22D3EE',  // Cyan per Stitch spec
-  recipes: '#F59E0B',   // Amber
-  mobility: '#EC4899',  // Pink - for stretching/yoga
-  custom: '#8B5CF6',    // Violet per Stitch spec
+  training: '#3c6658',  // Green per Stitch spec
+  nutrition: '#8f6a2e', // Amber per Stitch spec
+  recovery: '#0d3b2e',  // Cyan per Stitch spec
+  recipes: '#8f6a2e',   // Amber
+  mobility: '#7a4d5e',  // Pink - for stretching/yoga
+  custom: '#00241a',    // Violet per Stitch spec
 };
 
 // Action menu with glassmorphism style
@@ -62,7 +62,7 @@ const actionMenuStyle: ViewStyle = {
   paddingVertical: spacing.sm,
   minWidth: 240,
   borderWidth: 1,
-  borderColor: 'rgba(139, 92, 246, 0.2)',
+  borderColor: 'rgba(0, 36, 26, 0.2)',
   shadowColor: colors.pierre.violet,
   shadowOffset: { width: 0, height: 4 },
   shadowOpacity: 0.3,
@@ -353,7 +353,7 @@ export function CoachLibraryScreen() {
         icon: 'heart',
         label: item.is_favorite ? 'Unfave' : 'Favorite',
         color: '#FFFFFF',
-        backgroundColor: '#F59E0B',
+        backgroundColor: '#8f6a2e',
         onPress: () => handleToggleFavorite(item),
       },
     ];
@@ -416,7 +416,7 @@ export function CoachLibraryScreen() {
           <View className="flex-1">
             {/* Title and badges row */}
             <View className="flex-row items-center gap-2 mb-1">
-              <Text className={`text-base font-semibold ${isHidden ? 'text-zinc-500' : 'text-white'}`} numberOfLines={1}>
+              <Text className={`text-base font-semibold ${isHidden ? 'text-outline' : 'text-on-surface'}`} numberOfLines={1}>
                 {item.title}
               </Text>
               {/* Category badge with color per Stitch spec */}
@@ -437,7 +437,7 @@ export function CoachLibraryScreen() {
                   key={star}
                   name="star"
                   size={12}
-                  color={item.use_count >= star * 2 ? '#F59E0B' : colors.text.tertiary}
+                  color={item.use_count >= star * 2 ? '#8f6a2e' : colors.text.tertiary}
                 />
               ))}
               <TouchableOpacity
@@ -456,7 +456,7 @@ export function CoachLibraryScreen() {
 
             {/* Description */}
             {item.description && (
-              <Text className={`text-sm leading-5 ${isHidden ? 'text-zinc-600' : 'text-zinc-400'}`} numberOfLines={2}>
+              <Text className={`text-sm leading-5 ${isHidden ? 'text-on-surface-variant' : 'text-on-surface-variant'}`} numberOfLines={2}>
                 {item.description}
               </Text>
             )}
@@ -476,13 +476,13 @@ export function CoachLibraryScreen() {
             onPress={() => handleCoachPress(item)}
             testID={`chat-button-${item.id}`}
           >
-            <Text className="text-sm font-semibold text-white">Chat</Text>
+            <Text className="text-sm font-semibold text-on-surface">Chat</Text>
           </TouchableOpacity>
         </View>
 
         {/* Action row for system coaches and hidden coaches (inside card content) */}
         {(item.is_system || isHidden) && (
-          <View className="flex-row items-center justify-end mx-4 mb-3 pt-2 border-t border-white/5 gap-2">
+          <View className="flex-row items-center justify-end mx-4 mb-3 pt-2 border-t ghost-border gap-2">
             {/* Fork button for system coaches */}
             {item.is_system && (
               <TouchableOpacity
@@ -493,7 +493,7 @@ export function CoachLibraryScreen() {
                 testID={`fork-button-${item.id}`}
               >
                 <Feather name="copy" size={14} color={colors.text.tertiary} />
-                <Text className="text-xs text-zinc-500 ml-1">Fork</Text>
+                <Text className="text-xs text-outline ml-1">Fork</Text>
               </TouchableOpacity>
             )}
             {/* Hide/Show button */}
@@ -516,14 +516,14 @@ export function CoachLibraryScreen() {
                   size={14}
                   color={isHidden ? colors.pierre.violet : colors.text.tertiary}
                 />
-                <Text className="text-xs text-zinc-500 ml-1">{isHidden ? 'Show' : 'Hide'}</Text>
+                <Text className="text-xs text-outline ml-1">{isHidden ? 'Show' : 'Hide'}</Text>
               </TouchableOpacity>
             )}
             {/* Hidden indicator */}
             {isHidden && !item.is_system && (
               <View className="flex-row items-center">
                 <Feather name="eye-off" size={14} color={colors.text.tertiary} />
-                <Text className="text-xs text-zinc-500 ml-1">Hidden</Text>
+                <Text className="text-xs text-outline ml-1">Hidden</Text>
               </View>
             )}
           </View>
@@ -560,8 +560,8 @@ export function CoachLibraryScreen() {
             <Text
               className={`text-sm ${
                 selectedCategory === filter.key
-                  ? 'text-white font-semibold'
-                  : 'text-zinc-400'
+                  ? 'text-on-surface font-semibold'
+                  : 'text-on-surface-variant'
               }`}
             >
               {filter.label}
@@ -580,7 +580,7 @@ export function CoachLibraryScreen() {
           className="px-3 py-1.5 rounded-full"
           style={{
             backgroundColor: selectedSource === filter.key
-              ? 'rgba(139, 92, 246, 0.2)'
+              ? 'rgba(0, 36, 26, 0.2)'
               : 'transparent',
             borderWidth: 1,
             borderColor: selectedSource === filter.key
@@ -617,7 +617,7 @@ export function CoachLibraryScreen() {
     >
       {/* Header with bold title and action buttons - + button in top right like Chat tab */}
       <View className="flex-row items-center px-4 py-3 border-b border-border-subtle">
-        <Text className="flex-1 text-xl font-bold text-white">Coaches</Text>
+        <Text className="flex-1 text-xl font-bold text-on-surface">Coaches</Text>
         <View className="flex-row items-center gap-2">
           <TouchableOpacity
             className={`w-10 h-10 items-center justify-center rounded-full ${showFavoritesOnly ? 'bg-pierre-violet/20' : ''}`}
@@ -628,7 +628,7 @@ export function CoachLibraryScreen() {
             <Feather
               name="star"
               size={20}
-              color={showFavoritesOnly ? '#F59E0B' : colors.text.tertiary}
+              color={showFavoritesOnly ? '#8f6a2e' : colors.text.tertiary}
             />
           </TouchableOpacity>
           <TouchableOpacity
@@ -761,7 +761,7 @@ export function CoachLibraryScreen() {
                 <Feather
                   name="star"
                   size={18}
-                  color={selectedCoach?.is_favorite ? '#F59E0B' : colors.text.primary}
+                  color={selectedCoach?.is_favorite ? '#8f6a2e' : colors.text.primary}
                 />
               </View>
               <Text className="text-base text-text-primary">

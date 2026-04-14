@@ -28,14 +28,14 @@ export function LanguageSwitcher() {
             className={`flex-1 py-3 px-4 rounded-xl items-center ${
               isSelected
                 ? 'bg-pierre-violet'
-                : 'bg-pierre-gray-800 border border-pierre-gray-700'
+                : 'bg-surface-container-high border border-pierre-gray-700'
             }`}
             activeOpacity={0.7}
           >
             <Text className="text-2xl mb-1">{LANGUAGE_FLAGS[lang]}</Text>
             <Text
               className={`text-sm font-medium ${
-                isSelected ? 'text-white' : 'text-pierre-gray-300'
+                isSelected ? 'text-on-surface' : 'text-pierre-gray-300'
               }`}
             >
               {LANGUAGE_NAMES[lang]}

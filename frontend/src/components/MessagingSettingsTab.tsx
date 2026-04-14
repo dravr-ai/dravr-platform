@@ -166,9 +166,9 @@ export default function MessagingSettingsTab() {
     return (
       <Card variant="dark">
         <div className="animate-pulse space-y-4">
-          <div className="h-6 bg-white/10 rounded w-1/3"></div>
-          <div className="h-20 bg-white/5 rounded"></div>
-          <div className="h-20 bg-white/5 rounded"></div>
+          <div className="h-6 bg-surface-container-high rounded w-1/3"></div>
+          <div className="h-20 bg-surface-container-low rounded"></div>
+          <div className="h-20 bg-surface-container-low rounded"></div>
         </div>
       </Card>
     );
@@ -177,8 +177,8 @@ export default function MessagingSettingsTab() {
   return (
     <>
       <Card variant="dark">
-        <h2 className="text-lg font-semibold text-white mb-4">Messaging Channels</h2>
-        <p className="text-sm text-white/60 mb-6">
+        <h2 className="text-lg font-semibold text-on-surface mb-4">Messaging Channels</h2>
+        <p className="text-sm text-on-surface/60 mb-6">
           Configure messaging channels to enable users to chat with Pierre through WhatsApp,
           Telegram, Slack, Discord, or Messenger.
         </p>
@@ -195,7 +195,7 @@ export default function MessagingSettingsTab() {
                   'p-4 rounded-lg border transition-all',
                   isConfigured
                     ? 'border-pierre-activity/30 bg-pierre-activity-light/10'
-                    : 'border-white/10 bg-white/5 hover:border-white/20'
+                    : 'ghost-border bg-surface-container-low hover:ghost-border'
                 )}
               >
                 <div className="flex items-start justify-between">
@@ -203,17 +203,17 @@ export default function MessagingSettingsTab() {
                     <div
                       className={clsx(
                         'p-2 rounded-lg',
-                        isConfigured ? 'bg-pierre-activity/20 text-pierre-activity' : 'bg-white/10 text-white/60'
+                        isConfigured ? 'bg-pierre-activity/20 text-pierre-activity' : 'bg-surface-container-high text-on-surface/60'
                       )}
                     >
                       {info.icon}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-medium text-white">{info.name}</h3>
+                        <h3 className="font-medium text-on-surface">{info.name}</h3>
                         {isConfigured && <Badge variant="success">Configured</Badge>}
                       </div>
-                      <p className="text-sm text-white/60">{info.description}</p>
+                      <p className="text-sm text-on-surface/60">{info.description}</p>
                     </div>
                   </div>
                   <div className="flex gap-2 ml-4">
@@ -249,10 +249,10 @@ export default function MessagingSettingsTab() {
       {selectedChannel && CHANNEL_INFO[selectedChannel] && (
         <Card variant="dark">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">
+            <h2 className="text-lg font-semibold text-on-surface">
               Configure {CHANNEL_INFO[selectedChannel].name}
             </h2>
-            <button onClick={resetForm} className="text-white/40 hover:text-white/70">
+            <button onClick={resetForm} className="text-on-surface/40 hover:text-on-surface/70">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>

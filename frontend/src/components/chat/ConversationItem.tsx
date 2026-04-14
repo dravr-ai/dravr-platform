@@ -63,11 +63,11 @@ const ConversationItem = memo(function ConversationItem({
       className={clsx(
         'w-full flex items-center gap-3 px-3 py-2 rounded-lg group transition-colors text-left',
         isSelected
-          ? 'bg-white/10 text-white'
-          : 'hover:bg-white/5 text-zinc-300'
+          ? 'bg-surface-container-high text-on-surface'
+          : 'hover:bg-surface-container-low text-on-surface'
       )}
     >
-      <div className="text-zinc-500 group-hover:text-zinc-300 transition-colors flex-shrink-0">
+      <div className="text-outline group-hover:text-on-surface transition-colors flex-shrink-0">
         <History className="w-4 h-4" aria-hidden="true" />
       </div>
       <div className="flex-1 min-w-0">
@@ -79,23 +79,23 @@ const ConversationItem = memo(function ConversationItem({
             onChange={(e) => onTitleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onBlur={onSaveRename}
-            className="w-full text-sm font-medium text-white bg-pierre-slate border border-pierre-violet rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-pierre-violet"
+            className="w-full text-sm font-medium text-on-surface bg-surface-container-low border border-pierre-violet rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-pierre-violet"
             onClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <p className="text-sm font-normal truncate group-hover:text-white transition-colors">
+          <p className="text-sm font-normal truncate group-hover:text-on-surface transition-colors">
             {conversation.title ?? 'Untitled Chat'}
           </p>
         )}
       </div>
-      <span className="text-zinc-600 text-xs whitespace-nowrap flex-shrink-0">
+      <span className="text-on-surface-variant text-xs whitespace-nowrap flex-shrink-0">
         {formatDate(conversation.updated_at)}
       </span>
       {/* Action buttons on hover */}
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={onStartRename}
-          className="p-2.5 rounded transition-colors text-zinc-500 hover:text-pierre-violet hover:bg-white/10"
+          className="p-2.5 rounded transition-colors text-outline hover:text-pierre-violet hover:bg-surface-container"
           title="Rename"
           aria-label="Rename conversation"
         >
@@ -103,7 +103,7 @@ const ConversationItem = memo(function ConversationItem({
         </button>
         <button
           onClick={onDelete}
-          className="p-2.5 rounded transition-colors text-zinc-500 hover:text-pierre-red-500 hover:bg-white/10"
+          className="p-2.5 rounded transition-colors text-outline hover:text-pierre-red-500 hover:bg-surface-container"
           title="Delete"
           aria-label="Delete conversation"
         >

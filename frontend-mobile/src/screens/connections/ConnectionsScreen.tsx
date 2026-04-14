@@ -182,7 +182,7 @@ export function ConnectionsScreen() {
             className="w-11 h-11 rounded-xl items-center justify-center mr-3"
             style={{ backgroundColor: config.color }}
           >
-            <Text className="text-xl font-bold text-white">{config.icon}</Text>
+            <Text className="text-xl font-bold text-on-surface">{config.icon}</Text>
           </View>
 
           {/* Provider info */}
@@ -224,7 +224,7 @@ export function ConnectionsScreen() {
               {isConnecting ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text className="text-sm font-semibold text-white">Connect</Text>
+                <Text className="text-sm font-semibold text-on-surface">Connect</Text>
               )}
             </TouchableOpacity>
           ) : null}

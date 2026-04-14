@@ -78,7 +78,7 @@ export function NotificationDetailModal({
             </View>
             <TouchableOpacity
               onPress={onClose}
-              className="w-8 h-8 items-center justify-center rounded-full bg-white/5"
+              className="w-8 h-8 items-center justify-center rounded-full bg-surface-container-low"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               testID="notification-detail-close"
             >
@@ -98,15 +98,15 @@ export function NotificationDetailModal({
 
             {/* Content */}
             <View className="px-5 pb-5">
-              <Text className="text-lg font-bold text-white mt-3 mb-1">
+              <Text className="text-lg font-bold text-on-surface mt-3 mb-1">
                 {notification.title}
               </Text>
 
-              <Text className="text-xs text-zinc-500 mb-3">
+              <Text className="text-xs text-outline mb-3">
                 {formatNotificationTime(notification.created_at)}
               </Text>
 
-              <Text className="text-sm text-zinc-300 leading-5">
+              <Text className="text-sm text-on-surface leading-5">
                 {notification.body}
               </Text>
 
@@ -144,7 +144,7 @@ export function NotificationDetailModal({
                   testID="notification-detail-navigate"
                 >
                   <ExternalLink size={16} color="#FFFFFF" />
-                  <Text className="text-sm font-semibold text-white ml-2">
+                  <Text className="text-sm font-semibold text-on-surface ml-2">
                     View Details
                   </Text>
                 </TouchableOpacity>

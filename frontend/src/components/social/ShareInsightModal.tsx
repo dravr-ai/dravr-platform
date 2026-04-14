@@ -116,7 +116,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
       <Modal isOpen onClose={onClose} title="Share Insight" size="lg">
         <div className="flex flex-col items-center justify-center py-12">
           <div className="pierre-spinner mb-4"></div>
-          <p className="text-zinc-400">Loading coach suggestions...</p>
+          <p className="text-on-surface-variant">Loading coach suggestions...</p>
         </div>
       </Modal>
     );
@@ -128,12 +128,12 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
       <Modal isOpen onClose={onClose} title="Share Insight" size="lg">
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-800 flex items-center justify-center">
-            <svg className="w-8 h-8 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-8 h-8 text-outline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">No Insights Available</h3>
-          <p className="text-zinc-400 mb-6 max-w-sm">
+          <h3 className="text-lg font-semibold text-on-surface mb-2">No Insights Available</h3>
+          <p className="text-on-surface-variant mb-6 max-w-sm">
             {error || 'Complete some activities to unlock coach-mediated sharing!'}
           </p>
           <Button variant="primary" onClick={fetchSuggestions}>
@@ -153,7 +153,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
           <button
             onClick={handleBackToSuggestions}
             disabled={flowState === 'submitting'}
-            className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 text-sm text-on-surface-variant hover:text-on-surface transition-colors disabled:opacity-50"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -163,14 +163,14 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
 
           {/* Type indicator */}
           {selectedSuggestion && (
-            <div className="text-sm text-zinc-500 uppercase tracking-wide">
+            <div className="text-sm text-outline uppercase tracking-wide">
               Coach Suggestion: {selectedSuggestion.insight_type.replace('_', ' ')}
             </div>
           )}
 
           {/* Editable content */}
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-2">Content</label>
+            <label className="block text-sm font-medium text-on-surface-variant mb-2">Content</label>
             <textarea
               value={editedContent}
               onChange={(e) => setEditedContent(e.target.value)}
@@ -178,13 +178,13 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
               maxLength={500}
               rows={6}
               disabled={flowState === 'submitting'}
-              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-pierre-violet/50 resize-none disabled:opacity-50"
+              className="w-full px-4 py-3 bg-surface-container-low border ghost-border rounded-lg text-on-surface placeholder:text-outline focus:outline-none focus:border-pierre-violet/50 resize-none disabled:opacity-50"
             />
             <div className="flex justify-between mt-1">
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-outline">
                 {editedContent.length < 10 ? `${10 - editedContent.length} more characters needed` : ''}
               </span>
-              <span className="text-xs text-zinc-500">{editedContent.length}/500</span>
+              <span className="text-xs text-outline">{editedContent.length}/500</span>
             </div>
           </div>
 
@@ -194,8 +194,8 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
             <div>
-              <p className="text-sm font-medium text-white">Privacy Protected</p>
-              <p className="text-sm text-zinc-400 mt-1">
+              <p className="text-sm font-medium text-on-surface">Privacy Protected</p>
+              <p className="text-sm text-on-surface-variant mt-1">
                 Your insight is automatically sanitized. GPS coordinates, exact pace, recovery scores, and other private data are never shared.
               </p>
             </div>
@@ -203,7 +203,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
 
           {/* Visibility */}
           <div>
-            <label className="block text-sm font-medium text-zinc-400 mb-2">Visibility</label>
+            <label className="block text-sm font-medium text-on-surface-variant mb-2">Visibility</label>
             <div className="flex gap-3">
               <button
                 onClick={() => setVisibility('friends_only')}
@@ -212,7 +212,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'friends_only'
                     ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
-                    : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                    : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -227,7 +227,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
                   'flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border transition-colors',
                   visibility === 'public'
                     ? 'bg-pierre-violet/20 border-pierre-violet text-pierre-violet-light'
-                    : 'bg-white/5 border-white/10 text-zinc-400 hover:bg-white/10'
+                    : 'bg-surface-container-low ghost-border text-on-surface-variant hover:bg-surface-container'
                 )}
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,7 +246,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+          <div className="flex justify-end gap-3 pt-4 border-t ghost-border">
             <Button variant="secondary" onClick={onClose} disabled={flowState === 'submitting'}>
               Cancel
             </Button>
@@ -270,8 +270,8 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
       <div className="space-y-4">
         {/* Intro text */}
         <div className="mb-4">
-          <p className="text-white font-medium">Your coach noticed some achievements!</p>
-          <p className="text-sm text-zinc-400 mt-1">
+          <p className="text-on-surface font-medium">Your coach noticed some achievements!</p>
+          <p className="text-sm text-on-surface-variant mt-1">
             Select a suggestion to share with friends.
           </p>
         </div>
@@ -291,7 +291,7 @@ export default function ShareInsightModal({ onClose, onSuccess, activityId }: Sh
         <div className="flex justify-center pt-2">
           <button
             onClick={fetchSuggestions}
-            className="text-sm text-zinc-400 hover:text-white transition-colors flex items-center gap-2"
+            className="text-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

@@ -31,22 +31,22 @@ export default function A2ADashboardPanel() {
 
   return (
     <Card variant="dark" className="!p-5">
-      <h3 className="text-base font-semibold text-white mb-4">A2A Protocol</h3>
+      <h3 className="text-base font-semibold text-on-surface mb-4">A2A Protocol</h3>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <p className="text-sm text-zinc-400">Total Clients</p>
-          <p className="text-2xl font-bold text-white">{a2aOverview.total_clients}</p>
+          <p className="text-sm text-on-surface-variant">Total Clients</p>
+          <p className="text-2xl font-bold text-on-surface">{a2aOverview.total_clients}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Active Clients</p>
+          <p className="text-sm text-on-surface-variant">Active Clients</p>
           <p className="text-2xl font-bold text-pierre-activity">{a2aOverview.active_clients}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">Today's Requests</p>
+          <p className="text-sm text-on-surface-variant">Today's Requests</p>
           <p className="text-2xl font-bold text-pierre-nutrition">{a2aOverview.requests_today.toLocaleString()}</p>
         </div>
         <div>
-          <p className="text-sm text-zinc-400">This Month</p>
+          <p className="text-sm text-on-surface-variant">This Month</p>
           <p className="text-2xl font-bold text-pierre-recovery">{a2aOverview.requests_this_month.toLocaleString()}</p>
         </div>
       </div>

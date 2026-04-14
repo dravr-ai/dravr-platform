@@ -37,7 +37,7 @@ function statusToneClass(status: ChatVerdictRow['status']): string {
       return 'bg-sky-500/15 text-sky-300';
     case 'unverifiable':
     default:
-      return 'bg-zinc-500/15 text-zinc-300';
+      return 'bg-zinc-500/15 text-on-surface';
   }
 }
 
@@ -71,16 +71,16 @@ export default function ChatVerdictDrawer({
         className="h-full w-full max-w-md overflow-y-auto bg-zinc-950 shadow-xl text-zinc-100"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 border-b border-white/10 bg-zinc-950/90 px-5 py-4 backdrop-blur">
+        <div className="sticky top-0 border-b ghost-border bg-zinc-950/90 px-5 py-4 backdrop-blur">
           <div className="flex items-start justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-white">About this claim</h3>
-              <p className="mt-0.5 text-xs text-zinc-500">{verdict.id}</p>
+              <h3 className="text-lg font-semibold text-on-surface">About this claim</h3>
+              <p className="mt-0.5 text-xs text-outline">{verdict.id}</p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded p-1 text-zinc-400 hover:bg-white/10 hover:text-white"
+              className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
               aria-label="Close"
             >
               <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -97,13 +97,13 @@ export default function ChatVerdictDrawer({
             <span className={`rounded-full px-2 py-0.5 ${statusToneClass(verdict.status)}`}>
               {verdict.status}
             </span>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-zinc-300">
+            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
               {humanizeCategory(verdict.category)}
             </span>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-zinc-300">
+            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
               evidence: {verdict.evidence_strength}
             </span>
-            <span className="rounded-full bg-white/10 px-2 py-0.5 text-zinc-300">
+            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
               {verdict.layer_fired}
             </span>
           </div>
@@ -111,31 +111,31 @@ export default function ChatVerdictDrawer({
 
         <div className="space-y-5 px-5 py-5 text-sm">
           <section>
-            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
               The claim
             </h4>
-            <blockquote className="border-l-2 border-pierre-violet bg-white/5 p-3 text-zinc-100">
+            <blockquote className="border-l-2 border-pierre-violet bg-surface-container-low p-3 text-zinc-100">
               {verdict.claim_text}
             </blockquote>
           </section>
 
           {verdict.explanation ? (
             <section>
-              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
                 What the detector found
               </h4>
-              <p className="text-zinc-300">{verdict.explanation}</p>
+              <p className="text-on-surface">{verdict.explanation}</p>
             </section>
           ) : null}
 
           {references.length > 0 ? (
             <section>
-              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-outline">
                 Evidence references
               </h4>
               <ul className="space-y-1">
                 {references.map((ref) => (
-                  <li key={ref} className="font-mono text-xs text-zinc-300">
+                  <li key={ref} className="font-mono text-xs text-on-surface">
                     {ref}
                   </li>
                 ))}
@@ -143,7 +143,7 @@ export default function ChatVerdictDrawer({
             </section>
           ) : null}
 
-          <section className="text-xs text-zinc-500">
+          <section className="text-xs text-outline">
             Verdict emitted {formatTimestamp(verdict.created_at)}
           </section>
 
@@ -151,7 +151,7 @@ export default function ChatVerdictDrawer({
             <button
               type="button"
               onClick={onAskAboutClaim}
-              className="w-full rounded-lg bg-pierre-violet px-4 py-2 text-sm font-medium text-white hover:bg-pierre-violet/90"
+              className="w-full rounded-lg bg-pierre-violet px-4 py-2 text-sm font-medium text-on-surface hover:bg-pierre-violet/90"
             >
               Ask me about this claim
             </button>

@@ -89,7 +89,7 @@ export default function JoinGroupModal({ isOpen, onClose, initialCode }: JoinGro
       }
     >
       <div className="space-y-5">
-        <p className="text-sm text-zinc-400">
+        <p className="text-sm text-on-surface-variant">
           Enter the invite code you received to join a coaching group.
         </p>
 
@@ -119,9 +119,9 @@ export default function JoinGroupModal({ isOpen, onClose, initialCode }: JoinGro
               setConsentGiven(e.target.checked);
               setFieldError('');
             }}
-            className="mt-0.5 w-4 h-4 rounded border-white/20 bg-white/5 text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
+            className="mt-0.5 w-4 h-4 rounded ghost-border bg-surface-container-low text-pierre-violet focus:ring-pierre-violet focus:ring-offset-0"
           />
-          <span className="text-sm text-zinc-300 group-hover:text-white transition-colors">
+          <span className="text-sm text-on-surface group-hover:text-on-surface transition-colors">
             I agree to share my training data with the group coach for personalized coaching.
             Peer data sharing depends on group settings and your consent.
           </span>

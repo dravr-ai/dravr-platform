@@ -48,12 +48,12 @@ const STEPS = [
 ];
 
 const CATEGORIES: Array<{ key: CoachCategory; label: string; color: string }> = [
-  { key: 'training', label: 'Training', color: '#4ADE80' },
-  { key: 'nutrition', label: 'Nutrition', color: '#F59E0B' },
-  { key: 'recovery', label: 'Recovery', color: '#6366F1' },
+  { key: 'training', label: 'Training', color: '#3c6658' },
+  { key: 'nutrition', label: 'Nutrition', color: '#8f6a2e' },
+  { key: 'recovery', label: 'Recovery', color: '#5e7a82' },
   { key: 'recipes', label: 'Recipes', color: '#F97316' },
-  { key: 'mobility', label: 'Mobility', color: '#EC4899' },
-  { key: 'custom', label: 'Custom', color: '#8B5CF6' },
+  { key: 'mobility', label: 'Mobility', color: '#7a4d5e' },
+  { key: 'custom', label: 'Custom', color: '#00241a' },
 ];
 
 const PROVIDERS = ['Strava', 'Garmin', 'Fitbit', 'Whoop', 'Coros', 'Terra'];
@@ -292,9 +292,9 @@ ${formData.successCriteria}
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
                 index === currentStep
-                  ? 'bg-pierre-violet text-white'
+                  ? 'bg-pierre-violet text-on-surface'
                   : index < currentStep
-                  ? 'bg-pierre-activity text-white'
+                  ? 'bg-pierre-activity text-on-surface'
                   : 'bg-pierre-gray-200 text-pierre-gray-500'
               }`}
             >
@@ -379,7 +379,7 @@ ${formData.successCriteria}
           />
           <button
             onClick={addTag}
-            className="px-4 py-2 bg-pierre-violet text-white rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-4 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet-dark transition-colors"
           >
             Add
           </button>
@@ -434,7 +434,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
             className={`px-3 py-1 text-sm rounded ${
-              isMarkdownMode ? 'bg-pierre-violet text-white' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              isMarkdownMode ? 'bg-pierre-violet text-on-surface' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             {isMarkdownMode ? 'Visual' : 'Markdown'}
@@ -442,7 +442,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setShowPreview(!showPreview)}
             className={`px-3 py-1 text-sm rounded ${
-              showPreview ? 'bg-pierre-violet text-white' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              showPreview ? 'bg-pierre-violet text-on-surface' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             Preview
@@ -464,7 +464,7 @@ ${formData.successCriteria}
           {errors.systemPrompt && <span className="text-pierre-red-500 text-xs">{errors.systemPrompt}</span>}
         </div>
         {showPreview && (
-          <div className="px-4 py-3 bg-pierre-gray-50 border border-pierre-gray-200 rounded-lg overflow-auto max-h-[400px]">
+          <div className="px-4 py-3 bg-surface-container-low border border-pierre-gray-200 rounded-lg overflow-auto max-h-[400px]">
             <div className="prose prose-sm">
               <pre className="whitespace-pre-wrap text-pierre-gray-700 text-sm">{formData.systemPrompt}</pre>
             </div>
@@ -623,7 +623,7 @@ ${formData.successCriteria}
               <span className="text-pierre-gray-500 text-sm">Category</span>
               <p>
                 <span
-                  className="inline-block px-3 py-1 rounded-full text-white text-sm"
+                  className="inline-block px-3 py-1 rounded-full text-on-surface text-sm"
                   style={{ backgroundColor: selectedCategory?.color }}
                 >
                   {selectedCategory?.label}
@@ -674,7 +674,7 @@ ${formData.successCriteria}
           </div>
         </div>
 
-        <div className="p-4 bg-pierre-gray-50 rounded-lg border border-pierre-gray-200">
+        <div className="p-4 bg-surface-container-low rounded-lg border border-pierre-gray-200">
           <span className="text-pierre-gray-500 text-sm">System Prompt Preview</span>
           <pre className="text-pierre-gray-700 text-sm mt-2 whitespace-pre-wrap line-clamp-6 font-mono">
             {formData.systemPrompt || '(not set)'}
@@ -731,12 +731,12 @@ ${formData.successCriteria}
       </div>
 
       {/* Step Indicator */}
-      <div className="px-6 py-6 border-b border-pierre-gray-200 bg-pierre-gray-50">
+      <div className="px-6 py-6 border-b border-pierre-gray-200 bg-surface-container-low">
         {renderStepIndicator()}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 bg-pierre-gray-50">
+      <div className="flex-1 overflow-y-auto px-6 py-6 bg-surface-container-low">
         <div className="max-w-3xl mx-auto">
           <h3 className="text-lg font-semibold text-pierre-gray-900 mb-2">{STEPS[currentStep].title}</h3>
           <p className="text-pierre-gray-500 mb-6">{STEPS[currentStep].description}</p>
@@ -765,7 +765,7 @@ ${formData.successCriteria}
         {currentStep < STEPS.length - 1 ? (
           <button
             onClick={handleNext}
-            className="px-6 py-2 bg-pierre-violet text-white rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-6 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet-dark transition-colors"
           >
             Next →
           </button>
@@ -773,7 +773,7 @@ ${formData.successCriteria}
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-6 py-2 bg-pierre-activity text-white rounded-lg hover:bg-pierre-activity-dark transition-colors disabled:opacity-50"
+            className="px-6 py-2 bg-pierre-activity text-on-surface rounded-lg hover:bg-pierre-activity-dark transition-colors disabled:opacity-50"
           >
             {isSaving ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create Coach'}
           </button>

@@ -137,7 +137,7 @@ export function FriendsScreen() {
         onPress={() => router.push('/(app)/(tabs)/(social)/search-friends')}
       >
         <Feather name="search" size={18} color="#FFFFFF" />
-        <Text className="text-white text-base font-semibold">Find Friends</Text>
+        <Text className="text-on-surface text-base font-semibold">Find Friends</Text>
       </TouchableOpacity>
     </View>
   );

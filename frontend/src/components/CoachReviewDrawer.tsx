@@ -104,14 +104,14 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-pierre-dark shadow-2xl z-50 border-l border-white/10 flex flex-col">
+      <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface shadow-2xl z-50 border-l ghost-border flex flex-col">
         {/* Header - Sticky */}
-        <div className="sticky top-0 bg-pierre-dark/95 backdrop-blur-lg border-b border-white/10 px-6 py-4 flex justify-between items-center z-10">
-          <h2 className="text-xl font-semibold text-white">Review Coach</h2>
+        <div className="sticky top-0 bg-surface/95 backdrop-blur-lg border-b ghost-border px-6 py-4 flex justify-between items-center z-10">
+          <h2 className="text-xl font-semibold text-on-surface">Review Coach</h2>
           <button
             onClick={onClose}
             aria-label="Close drawer"
-            className="text-zinc-400 hover:text-white transition-colors"
+            className="text-on-surface-variant hover:text-on-surface transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -127,17 +127,17 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               <img
                 src={coach.icon_url}
                 alt={coach.title}
-                className="w-16 h-16 rounded-xl object-cover border border-white/10"
+                className="w-16 h-16 rounded-xl object-cover border ghost-border"
               />
             ) : (
-              <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-pierre-violet to-pierre-cyan flex items-center justify-center">
-                <span className="text-2xl font-bold text-white">
+              <div className="w-16 h-16 rounded-xl boreal-hero-gradient flex items-center justify-center">
+                <span className="text-2xl font-bold text-on-primary">
                   {coach.title.charAt(0).toUpperCase()}
                 </span>
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-white truncate">{coach.title}</h3>
+              <h3 className="text-lg font-semibold text-on-surface truncate">{coach.title}</h3>
               <span className={clsx(
                 'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
                 getCategoryColorClass(coach.category)
@@ -149,15 +149,15 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
 
           {/* Description */}
           {coach.description && (
-            <Card variant="dark" className="p-4 bg-white/5">
-              <h4 className="text-sm font-medium text-zinc-300 mb-2">Description</h4>
-              <p className="text-sm text-zinc-400">{coach.description}</p>
+            <Card variant="dark" className="p-4 bg-surface-container-low">
+              <h4 className="text-sm font-medium text-on-surface mb-2">Description</h4>
+              <p className="text-sm text-on-surface-variant">{coach.description}</p>
             </Card>
           )}
 
           {/* Author Info */}
-          <Card variant="dark" className="p-4 bg-white/5">
-            <h4 className="text-sm font-medium text-zinc-300 mb-3 flex items-center">
+          <Card variant="dark" className="p-4 bg-surface-container-low">
+            <h4 className="text-sm font-medium text-on-surface mb-3 flex items-center">
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
@@ -165,31 +165,31 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             </h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-500">Email</span>
-                <span className="text-white font-medium">{coach.author_email || 'Unknown'}</span>
+                <span className="text-outline">Email</span>
+                <span className="text-on-surface font-medium">{coach.author_email || 'Unknown'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Author ID</span>
-                <span className="text-white font-mono text-xs">{coach.author_id || '—'}</span>
+                <span className="text-outline">Author ID</span>
+                <span className="text-on-surface font-mono text-xs">{coach.author_id || '—'}</span>
               </div>
             </div>
           </Card>
 
           {/* System Prompt */}
-          <Card variant="dark" className="p-4 bg-white/5">
+          <Card variant="dark" className="p-4 bg-surface-container-low">
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-medium text-zinc-300 flex items-center">
+              <h4 className="text-sm font-medium text-on-surface flex items-center">
                 <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                 </svg>
                 System Prompt
               </h4>
-              <span className="text-xs text-zinc-500">
+              <span className="text-xs text-outline">
                 {coach.token_count.toLocaleString()} tokens
               </span>
             </div>
-            <div className="p-3 bg-pierre-slate rounded-lg border border-white/10">
-              <pre className="text-sm text-zinc-300 whitespace-pre-wrap font-mono">
+            <div className="p-3 bg-surface-container-low rounded-lg border ghost-border">
+              <pre className="text-sm text-on-surface whitespace-pre-wrap font-mono">
                 {promptPreview}
               </pre>
               {coach.system_prompt.length > 500 && (
@@ -205,11 +205,11 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
 
           {/* Tags */}
           {coach.tags.length > 0 && (
-            <Card variant="dark" className="p-4 bg-white/5">
-              <h4 className="text-sm font-medium text-zinc-300 mb-3">Tags</h4>
+            <Card variant="dark" className="p-4 bg-surface-container-low">
+              <h4 className="text-sm font-medium text-on-surface mb-3">Tags</h4>
               <div className="flex flex-wrap gap-2">
                 {coach.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 text-sm bg-white/10 text-zinc-300 rounded-full">
+                  <span key={tag} className="px-3 py-1 text-sm bg-surface-container-high text-on-surface rounded-full">
                     {tag}
                   </span>
                 ))}
@@ -219,11 +219,11 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
 
           {/* Sample Prompts */}
           {coach.sample_prompts.length > 0 && (
-            <Card variant="dark" className="p-4 bg-white/5">
-              <h4 className="text-sm font-medium text-zinc-300 mb-3">Sample Prompts</h4>
+            <Card variant="dark" className="p-4 bg-surface-container-low">
+              <h4 className="text-sm font-medium text-on-surface mb-3">Sample Prompts</h4>
               <ul className="space-y-2">
                 {coach.sample_prompts.map((prompt, idx) => (
-                  <li key={idx} className="text-sm text-zinc-400 flex items-start gap-2">
+                  <li key={idx} className="text-sm text-on-surface-variant flex items-start gap-2">
                     <span className="text-pierre-violet-light">•</span>
                     <span>{prompt}</span>
                   </li>
@@ -233,19 +233,19 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           )}
 
           {/* Metadata */}
-          <Card variant="dark" className="p-4 bg-white/5">
-            <h4 className="text-sm font-medium text-zinc-300 mb-3">Submission Details</h4>
+          <Card variant="dark" className="p-4 bg-surface-container-low">
+            <h4 className="text-sm font-medium text-on-surface mb-3">Submission Details</h4>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-500">Created</span>
-                <span className="text-zinc-300">{formatDate(coach.created_at)}</span>
+                <span className="text-outline">Created</span>
+                <span className="text-on-surface">{formatDate(coach.created_at)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Submitted for Review</span>
-                <span className="text-zinc-300">{formatDate(coach.submitted_at)}</span>
+                <span className="text-outline">Submitted for Review</span>
+                <span className="text-on-surface">{formatDate(coach.submitted_at)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-500">Status</span>
+                <span className="text-outline">Status</span>
                 <span className="px-2 py-0.5 text-xs bg-pierre-violet/20 text-pierre-violet-light rounded-full">
                   Pending Review
                 </span>
@@ -255,7 +255,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         </div>
 
         {/* Footer - Sticky */}
-        <div className="sticky bottom-0 bg-pierre-dark/95 backdrop-blur-lg border-t border-white/10 px-6 py-4 flex gap-3">
+        <div className="sticky bottom-0 bg-surface/95 backdrop-blur-lg border-t ghost-border px-6 py-4 flex gap-3">
           <Button
             onClick={() => setShowRejectionModal(true)}
             variant="secondary"
@@ -269,7 +269,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={handleApprove}
             disabled={approveMutation.isPending}
-            className="flex-1 bg-pierre-activity hover:bg-pierre-activity/80 text-white"
+            className="flex-1 bg-pierre-activity hover:bg-pierre-activity/80 text-on-surface"
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">

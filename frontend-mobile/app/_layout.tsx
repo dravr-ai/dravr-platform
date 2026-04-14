@@ -6,7 +6,7 @@
 
 import '../global.css';
 import React from 'react';
-import { View, ActivityIndicator, LogBox } from 'react-native';
+import { View, ActivityIndicator, LogBox, useColorScheme } from 'react-native';
 import { Slot, useSegments, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
@@ -18,7 +18,7 @@ import { ErrorBoundary } from '../src/components/ErrorBoundary';
 import { AuthProvider, useAuth } from '../src/contexts/AuthContext';
 import { QueryProvider } from '../src/providers/QueryProvider';
 import { WebSocketProvider } from '../src/contexts/WebSocketContext';
-import { colors } from '../src/constants/theme';
+import { BOREAL_LIGHT, BOREAL_DARK } from '../src/constants/theme';
 
 LogBox.ignoreLogs([
   'Failed to send message:',
@@ -34,6 +34,8 @@ function RootLayoutNav() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const scheme = useColorScheme();
+  const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;
 
   // Hide the native splash screen once auth state is resolved
   React.useEffect(() => {
@@ -57,20 +59,22 @@ function RootLayoutNav() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center bg-background-primary">
-        <ActivityIndicator size="large" color={colors.primary[500]} />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: tokens.surface }}>
+        <ActivityIndicator size="large" color={tokens.primary} />
       </View>
     );
   }
 
   return (
-    <View className="flex-1">
+    <View style={{ flex: 1, backgroundColor: tokens.surface }}>
       <Slot />
     </View>
   );
 }
 
 export default function RootLayout() {
+  // `auto` lets StatusBar follow the system color scheme — light icons on
+  // dark surfaces, dark icons on light surfaces.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ErrorBoundary>
@@ -78,7 +82,7 @@ export default function RootLayout() {
           <AuthProvider>
             <QueryProvider>
               <WebSocketProvider>
-                <StatusBar style="light" />
+                <StatusBar style="auto" />
                 <RootLayoutNav />
                 <Toast config={toastConfig} />
               </WebSocketProvider>

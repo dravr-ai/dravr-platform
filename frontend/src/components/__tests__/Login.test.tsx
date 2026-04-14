@@ -6,6 +6,7 @@ import { render, screen, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Login from '../Login'
 import { AuthProvider } from '../../contexts/AuthContext'
+import { ThemeProvider } from '../../hooks/useTheme'
 
 // vi.hoisted runs before vi.mock hoisting, so these variables are available in the factory
 const { mockAuthStorage } = vi.hoisted(() => ({
@@ -44,9 +45,11 @@ async function renderLogin() {
   let result;
   await act(async () => {
     result = render(
-      <AuthProvider>
-        <Login />
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <Login />
+        </AuthProvider>
+      </ThemeProvider>
     );
     // Wait for setup status check to complete
     await waitFor(() => {
@@ -64,7 +67,7 @@ describe('Login Component', () => {
   it('should render login form', async () => {
     await renderLogin()
 
-    expect(screen.getByRole('heading', { name: /dravr/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/email address/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
@@ -115,7 +118,7 @@ describe('Login Component', () => {
     await user.type(passwordInput, 'password123')
     await user.click(submitButton)
 
-    expect(screen.getByText(/signing in\.\.\./i)).toBeInTheDocument()
+    expect(screen.getByText(/signing in/i)).toBeInTheDocument()
     expect(submitButton).toBeDisabled()
   })
 

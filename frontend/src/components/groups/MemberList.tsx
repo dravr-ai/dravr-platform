@@ -27,7 +27,7 @@ const ROLE_ORDER: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 };
 const ROLE_BADGE: Record<GroupRole, { label: string; color: string; Icon: typeof Crown }> = {
   owner: { label: 'Owner', color: 'bg-amber-500/20 text-amber-400', Icon: Crown },
   admin: { label: 'Admin', color: 'bg-pierre-violet/20 text-pierre-violet-light', Icon: Shield },
-  member: { label: 'Member', color: 'bg-zinc-500/20 text-zinc-400', Icon: User },
+  member: { label: 'Member', color: 'bg-zinc-500/20 text-on-surface-variant', Icon: User },
 };
 
 function formatDate(dateStr: string): string {
@@ -126,7 +126,7 @@ export default function MemberList({
 
   if (members.length === 0) {
     return (
-      <p className="text-center py-8 text-zinc-500">No members in this group.</p>
+      <p className="text-center py-8 text-outline">No members in this group.</p>
     );
   }
 
@@ -135,33 +135,33 @@ export default function MemberList({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-white/10 text-left">
+            <tr className="border-b ghost-border text-left">
               <th
-                className="py-3 px-4 text-zinc-400 font-medium cursor-pointer select-none hover:text-white transition-colors"
+                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('display_name')}
               >
                 Name <SortIcon field="display_name" />
               </th>
               <th
-                className="py-3 px-4 text-zinc-400 font-medium cursor-pointer select-none hover:text-white transition-colors"
+                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('role')}
               >
                 Role <SortIcon field="role" />
               </th>
               <th
-                className="py-3 px-4 text-zinc-400 font-medium cursor-pointer select-none hover:text-white transition-colors"
+                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('joined_at')}
               >
                 Joined <SortIcon field="joined_at" />
               </th>
               <th
-                className="py-3 px-4 text-zinc-400 font-medium cursor-pointer select-none hover:text-white transition-colors"
+                className="py-3 px-4 text-on-surface-variant font-medium cursor-pointer select-none hover:text-on-surface transition-colors"
                 onClick={() => handleSort('peer_sharing_consent')}
               >
                 Peer Sharing <SortIcon field="peer_sharing_consent" />
               </th>
               {canManageMembers && (
-                <th className="py-3 px-4 text-zinc-400 font-medium text-right">
+                <th className="py-3 px-4 text-on-surface-variant font-medium text-right">
                   Actions
                 </th>
               )}
@@ -179,15 +179,15 @@ export default function MemberList({
                 <tr
                   key={member.id}
                   className={clsx(
-                    'border-b border-white/5 transition-colors',
-                    isSelf ? 'bg-pierre-violet/5' : 'hover:bg-white/5'
+                    'border-b ghost-border transition-colors',
+                    isSelf ? 'bg-pierre-violet/5' : 'hover:bg-surface-container-low'
                   )}
                 >
                   <td className="py-3 px-4">
-                    <span className="text-white font-medium">
+                    <span className="text-on-surface font-medium">
                       {member.display_name ?? 'Unknown'}
                       {isSelf && (
-                        <span className="ml-2 text-xs text-zinc-500">(you)</span>
+                        <span className="ml-2 text-xs text-outline">(you)</span>
                       )}
                     </span>
                   </td>
@@ -202,14 +202,14 @@ export default function MemberList({
                       {badge.label}
                     </span>
                   </td>
-                  <td className="py-3 px-4 text-zinc-400">
+                  <td className="py-3 px-4 text-on-surface-variant">
                     {formatDate(member.joined_at)}
                   </td>
                   <td className="py-3 px-4">
                     {member.peer_sharing_consent ? (
                       <span className="text-pierre-activity text-xs font-medium">Enabled</span>
                     ) : (
-                      <span className="text-zinc-500 text-xs">Disabled</span>
+                      <span className="text-outline text-xs">Disabled</span>
                     )}
                   </td>
                   {canManageMembers && (

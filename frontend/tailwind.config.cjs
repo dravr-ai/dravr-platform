@@ -1,149 +1,151 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+// Boreal Editorial design system — MD3 tokens.
+//
+// Every token below reads from a CSS custom property defined in src/index.css,
+// so a single `.dark` class on <html> flips the entire palette without
+// needing `dark:` variants on individual utilities. The legacy `pierre.*`
+// namespace is kept as a repointed alias during the content sweep.
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
-        // Pierre brand colors - Holistic Intelligence design system
+        // ── Boreal MD3 tokens (canonical) ──
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          container: 'var(--color-primary-container)',
+          'fixed-dim': 'var(--color-primary-fixed-dim)',
+        },
+        'on-primary': 'var(--color-on-primary)',
+        'on-primary-container': 'var(--color-on-primary-container)',
+
+        tertiary: {
+          DEFAULT: 'var(--color-tertiary)',
+          container: 'var(--color-tertiary-container)',
+        },
+        'on-tertiary': 'var(--color-on-tertiary)',
+        'on-tertiary-container': 'var(--color-on-tertiary-container)',
+
+        error: {
+          DEFAULT: 'var(--color-error)',
+          container: 'var(--color-error-container)',
+        },
+        'on-error': 'var(--color-on-error)',
+        'on-error-container': 'var(--color-on-error-container)',
+
+        surface: {
+          DEFAULT: 'var(--color-surface)',
+          dim: 'var(--color-surface-dim)',
+          bright: 'var(--color-surface-bright)',
+          tint: 'var(--color-surface-tint)',
+          variant: 'var(--color-surface-variant)',
+          container: {
+            DEFAULT: 'var(--color-surface-container)',
+            lowest: 'var(--color-surface-container-lowest)',
+            low: 'var(--color-surface-container-low)',
+            high: 'var(--color-surface-container-high)',
+            highest: 'var(--color-surface-container-highest)',
+          },
+        },
+        'on-surface': {
+          DEFAULT: 'var(--color-on-surface)',
+          variant: 'var(--color-on-surface-variant)',
+        },
+
+        outline: {
+          DEFAULT: 'var(--color-outline)',
+          variant: 'var(--color-outline-variant)',
+        },
+
+        // ── Legacy `pierre.*` namespace — repointed at Boreal semantics ──
+        // Kept during the rebrand so ~140 in-tree references keep resolving.
+        // Migrate call sites to canonical MD3 names (primary, surface, outline…)
+        // and this block can be deleted.
         pierre: {
-          // Primary brand colors (synced with shared-constants/design-system.ts)
-          violet: '#7C3AED',  // Intelligence, AI, sophistication (WCAG AA compliant with white text)
-          cyan: '#22D3EE',    // Data flow, connectivity, freshness
-
-          // Three Pillars - Semantic accent colors (synced with shared-constants)
-          activity: '#4ADE80',   // Green - Movement, fitness, energy
-          nutrition: '#F59E0B',  // Amber - Food, fuel, nourishment
-          recovery: '#818CF8',   // Indigo - Rest, sleep, restoration
-          mobility: '#EC4899',   // Pink - Flexibility, stretching, movement quality
-
-          // Dark theme backgrounds
-          dark: '#0F0F1A',       // Deep Space - Primary dark bg
-          slate: '#1E1E2E',      // Secondary dark bg
-
-          // Extended violet palette
-          'violet-light': '#A78BFA',
-          'violet-dark': '#7C3AED',
-
-          // Extended cyan palette
-          'cyan-light': '#67E8F9',
-          'cyan-dark': '#06B6D4',
-
-          // Extended activity (green) palette
-          'activity-light': '#86EFAC',
-          'activity-dark': '#22C55E',
-
-          // Extended nutrition (amber) palette
-          'nutrition-light': '#FCD34D',
-          'nutrition-dark': '#D97706',
-
-          // Extended recovery (indigo) palette
-          'recovery-light': '#818CF8',
-          'recovery-dark': '#4F46E5',
-
-          // Extended mobility (pink) palette
-          'mobility-light': '#F472B6',
-          'mobility-dark': '#DB2777',
-
-          // Legacy color scales (for backward compatibility)
+          violet: '#00241a',           // → primary
+          cyan: '#0d3b2e',              // → primary-container
+          activity: '#3c6658',          // pillar sage
+          nutrition: '#8f6a2e',         // pillar warm bronze
+          recovery: '#5e7a82',          // pillar muted slate
+          mobility: '#7a4d5e',          // pillar aged rose
+          dark: '#1a1c1b',              // → on-surface (ink, not bg)
+          slate: '#eeeeeb',             // → surface-container
+          'violet-light': '#234e40',    // on_primary_fixed_variant
+          'violet-dark': '#002117',     // on_primary_fixed
+          'cyan-light': '#a3d0be',      // primary_fixed_dim
+          'cyan-dark': '#0d3b2e',
+          'activity-light': '#5e8a78',
+          'activity-dark': '#234e40',
+          'nutrition-light': '#b98a47',
+          'nutrition-dark': '#6e5020',
+          'recovery-light': '#839ba2',
+          'recovery-dark': '#425962',
+          'mobility-light': '#9a6b7b',
+          'mobility-dark': '#5a3744',
+          // Grayscale legacy scales mapped onto the Boreal neutral ramp.
           blue: {
-            50: '#eff6ff',
-            100: '#dbeafe',
-            200: '#bfdbfe',
-            300: '#93c5fd',
-            400: '#60a5fa',
-            500: '#3b82f6',
-            600: '#2563eb',
-            700: '#1d4ed8',
-            800: '#1e40af',
-            900: '#1e3a8a',
+            50: '#eef4f1', 100: '#d6e3dc', 200: '#a3d0be', 300: '#79a694',
+            400: '#5e8a78', 500: '#3c6658', 600: '#234e40', 700: '#0d3b2e',
+            800: '#002117', 900: '#00241a',
           },
           gray: {
-            50: '#f9fafb',
-            100: '#f3f4f6',
-            200: '#e5e7eb',
-            300: '#d1d5db',
-            400: '#9ca3af',
-            500: '#6b7280',
-            600: '#4b5563',
-            700: '#374151',
-            800: '#1f2937',
-            900: '#111827',
+            50: '#f9f9f6', 100: '#f4f4f1', 200: '#eeeeeb', 300: '#e8e8e5',
+            400: '#c0c8c3', 500: '#717974', 600: '#414845', 700: '#2f312f',
+            800: '#1a1c1b', 900: '#11130f',
           },
           green: {
-            50: '#f0fdf4',
-            100: '#dcfce7',
-            500: '#22c55e',
-            600: '#16a34a',
-            700: '#15803d',
-            800: '#166534',
+            50: '#eef4f1', 100: '#d6e3dc', 500: '#3c6658',
+            600: '#234e40', 700: '#0d3b2e', 800: '#002117',
           },
           yellow: {
-            50: '#fefce8',
-            100: '#fef3c7',
-            500: '#eab308',
-            600: '#ca8a04',
-            700: '#a16207',
-            800: '#854d0e',
+            50: '#f5efdf', 100: '#e9dcb0', 500: '#8f6a2e',
+            600: '#6e5020', 700: '#4c3716', 800: '#2a1e0c',
           },
           red: {
-            50: '#fef2f2',
-            100: '#fee2e2',
-            500: '#ef4444',
-            600: '#dc2626',
-            700: '#b91c1c',
-            800: '#991b1b',
+            50: '#ffdad6', 100: '#ffb4ab', 500: '#ba1a1a',
+            600: '#93000a', 700: '#690005', 800: '#410002',
           },
           purple: {
-            50: '#faf5ff',
-            100: '#f3e8ff',
-            500: '#a855f7',
-            600: '#9333ea',
-            700: '#7c3aed',
-            800: '#6b21a8',
+            50: '#f0eaee', 100: '#d5c5cd', 500: '#7a4d5e',
+            600: '#5a3744', 700: '#3b222c', 800: '#1d0e14',
           },
           teal: {
-            50: '#f0fdfa',
-            100: '#ccfbf1',
-            200: '#99f6e4',
-            300: '#5eead4',
-            400: '#2dd4bf',
-            500: '#14b8a6',
-            600: '#0d9488',
-            700: '#0f766e',
-            800: '#115e59',
+            50: '#eef4f1', 100: '#c8dcd3', 200: '#a3d0be', 300: '#79a694',
+            400: '#5e8a78', 500: '#3c6658', 600: '#234e40', 700: '#0d3b2e',
+            800: '#002117',
           },
           pink: {
-            50: '#fdf2f8',
-            100: '#fce7f3',
-            200: '#fbcfe8',
-            500: '#ec4899',
-            600: '#db2777',
-            700: '#be185d',
-            800: '#9d174d',
+            50: '#f0eaee', 100: '#d5c5cd', 200: '#b89daa', 500: '#7a4d5e',
+            600: '#5a3744', 700: '#3b222c', 800: '#1d0e14',
           },
         },
-        // API tier colors
+        // API tier colors — rebalanced to boreal
         tier: {
-          trial: '#eab308',
-          starter: '#3b82f6',
-          professional: '#22c55e',
-          enterprise: '#a855f7',
+          trial: '#8f6a2e',       // warm bronze
+          starter: '#3c6658',     // sage
+          professional: '#00241a',// primary
+          enterprise: '#5e7a82',  // muted slate
         },
-        // Legacy API colors for backward compatibility
-        'api-blue': '#2563eb',
-        'api-green': '#16a34a',
-        'api-red': '#dc2626',
-        'api-yellow': '#ca8a04',
+        'api-blue': '#234e40',
+        'api-green': '#3c6658',
+        'api-red': '#ba1a1a',
+        'api-yellow': '#8f6a2e',
       },
       fontFamily: {
-        // Plus Jakarta Sans for premium tech aesthetic, Inter as fallback
+        // Boreal typography stack per DESIGN.md §3
         sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        display: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
+        headline: ['Space Grotesk', 'Plus Jakarta Sans', 'sans-serif'],
+        label: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['Newsreader', 'Georgia', 'serif'],
         mono: ['JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace'],
       },
       fontSize: {
@@ -155,6 +157,10 @@ module.exports = {
         '2xl': '1.5rem',
         '3xl': '1.875rem',
         '4xl': '2.25rem',
+      },
+      letterSpacing: {
+        brand: '0.15em',   // DRAVR wordmark
+        label: '0.05em',   // tertiary buttons / small caps
       },
       spacing: {
         '1': '0.25rem',
@@ -169,32 +175,42 @@ module.exports = {
         '16': '4rem',
         '20': '5rem',
         '24': '6rem',
+        'section': '8.5rem', // DESIGN.md §6 "24" spacing for major breaks
       },
       borderRadius: {
-        'sm': '0.375rem',
-        'md': '0.5rem',
-        'lg': '0.75rem',
-        'xl': '1rem',
+        // Boreal scale — tight geometric precision (DESIGN.md §6)
+        'sm': '0.125rem',
+        'md': '0.25rem',
+        'lg': '0.5rem',
+        'xl': '0.75rem',
+        // `full` (9999px) still available from core for chips only
       },
       boxShadow: {
-        'sm': '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-        'md': '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        'lg': '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-        'xl': '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-        // Glow effects for premium interactions (synced with shared-constants)
-        'glow': '0 0 15px rgba(124, 58, 237, 0.3)',
-        'glow-sm': '0 0 8px rgba(124, 58, 237, 0.2)',
-        'glow-lg': '0 0 20px rgba(124, 58, 237, 0.5)',
-        'glow-violet': '0 0 20px rgba(124, 58, 237, 0.3)',
-        'glow-cyan': '0 0 20px rgba(34, 211, 238, 0.3)',
-        'glow-activity': '0 0 20px rgba(74, 222, 128, 0.3)',
-        'glow-nutrition': '0 0 20px rgba(245, 158, 11, 0.3)',
-        'glow-recovery': '0 0 20px rgba(129, 140, 248, 0.3)',
-        // Glassmorphism inner border effect
-        'glass': 'inset 0 0 0 1px rgba(255, 255, 255, 0.1)',
+        // Boreal ambient shadows — 6% on_surface, 24px blur, -4px spread.
+        // No glow presets. Elevation comes from tonal layering first.
+        'ambient': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'card': '0 24px 48px -12px rgba(26, 28, 27, 0.06)',
+        // Retain sm/md/lg/xl as softer variants so legacy classes don't blow up.
+        'sm': '0 1px 2px 0 rgba(26, 28, 27, 0.04)',
+        'md': '0 8px 16px -4px rgba(26, 28, 27, 0.05)',
+        'lg': '0 16px 32px -4px rgba(26, 28, 27, 0.06)',
+        'xl': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        // Legacy glow-* names repointed at ambient shadow so old classes render
+        // quietly instead of crashing during the content sweep.
+        'glow': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-sm': '0 16px 32px -4px rgba(26, 28, 27, 0.05)',
+        'glow-lg': '0 32px 64px -8px rgba(26, 28, 27, 0.08)',
+        'glow-violet': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-cyan': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-activity': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-nutrition': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        'glow-recovery': '0 24px 48px -4px rgba(26, 28, 27, 0.06)',
+        // Ghost border fallback — 1px inset ghost border for accessibility
+        'glass': 'inset 0 0 0 1px rgba(192, 200, 195, 0.15)',
       },
       backdropBlur: {
         xs: '2px',
+        boreal: '12px', // canonical glass blur (DESIGN.md §2)
       },
       transitionDuration: {
         'fast': '150ms',
@@ -202,40 +218,39 @@ module.exports = {
         'slow': '300ms',
       },
       backgroundImage: {
-        'gradient-pierre': 'linear-gradient(135deg, #8B5CF6 0%, #22D3EE 100%)',
-        'gradient-activity': 'linear-gradient(135deg, #4ADE80 0%, #22C55E 100%)',
-        'gradient-nutrition': 'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-        'gradient-recovery': 'linear-gradient(135deg, #818CF8 0%, #6366F1 100%)',
-        'gradient-mobility': 'linear-gradient(135deg, #EC4899 0%, #DB2777 100%)',
-        'gradient-pierre-horizontal': 'linear-gradient(90deg, #8B5CF6 0%, #22D3EE 100%)',
+        // Canonical 145° primary → primary_container
+        'boreal-hero': 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)',
+        // Legacy gradient names — all repoint at the boreal hero so content
+        // sweep can delete or rename them safely.
+        'gradient-pierre': 'linear-gradient(145deg, #00241a 0%, #0d3b2e 100%)',
+        'gradient-pierre-horizontal': 'linear-gradient(90deg, #00241a 0%, #0d3b2e 100%)',
+        'gradient-activity': 'linear-gradient(145deg, #3c6658 0%, #234e40 100%)',
+        'gradient-nutrition': 'linear-gradient(145deg, #8f6a2e 0%, #6e5020 100%)',
+        'gradient-recovery': 'linear-gradient(145deg, #5e7a82 0%, #425962 100%)',
+        'gradient-mobility': 'linear-gradient(145deg, #7a4d5e 0%, #5a3744 100%)',
       },
       animation: {
-        'slide-up': 'slideUp 0.2s ease-out',
+        'fade-rise': 'fadeRise 500ms cubic-bezier(0.22, 1, 0.36, 1) both',
         'fade-in': 'fadeIn 0.15s ease-out',
+        'slide-up': 'slideUp 0.2s ease-out',
         'scale-in': 'scaleIn 0.2s ease-out',
-        'shimmer': 'shimmer 2s infinite linear',
-        'pulse-glow': 'pulseGlow 2s infinite',
       },
       keyframes: {
-        slideUp: {
-          '0%': { transform: 'translateY(10px)', opacity: '0' },
-          '100%': { transform: 'translateY(0)', opacity: '1' },
+        fadeRise: {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
+        slideUp: {
+          '0%': { transform: 'translateY(10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
         scaleIn: {
           '0%': { transform: 'scale(0.95)', opacity: '0' },
           '100%': { transform: 'scale(1)', opacity: '1' },
-        },
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
-        },
-        pulseGlow: {
-          '0%, 100%': { boxShadow: '0 0 0 0 rgba(124, 58, 237, 0.4)' },
-          '50%': { boxShadow: '0 0 0 8px rgba(124, 58, 237, 0)' },
         },
       },
     },

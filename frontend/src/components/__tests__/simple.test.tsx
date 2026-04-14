@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import Login from '../Login'
 import { AuthProvider } from '../../contexts/AuthContext'
+import { ThemeProvider } from '../../hooks/useTheme'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock the API service - AuthContext uses authApi, pierreApi, adminApi
@@ -45,9 +46,11 @@ function renderWithProviders(component: React.ReactElement) {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        {component}
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          {component}
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }
@@ -56,7 +59,7 @@ describe('Component Tests', () => {
   it('should render Login component', async () => {
     renderWithProviders(<Login />)
 
-    expect(screen.getByRole('heading', { name: /dravr/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /sign in/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/email address/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()

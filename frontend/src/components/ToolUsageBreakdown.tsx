@@ -32,9 +32,9 @@ export default function ToolUsageBreakdownComponent({
   if (!toolUsage || toolUsage.length === 0) {
     return (
       <div className="card-dark">
-        <div className="text-center py-8 text-zinc-400">
+        <div className="text-center py-8 text-on-surface-variant">
           <div className="text-4xl mb-4">🔧</div>
-          <p className="text-lg mb-2 text-white">No tool usage data</p>
+          <p className="text-lg mb-2 text-on-surface">No tool usage data</p>
           <p>Start making API calls to see tool usage breakdown</p>
         </div>
       </div>
@@ -43,12 +43,12 @@ export default function ToolUsageBreakdownComponent({
 
   // Prepare chart data - Pierre brand colors
   const colors = [
-    '#8B5CF6', // pierre-violet
-    '#22D3EE', // pierre-cyan
-    '#4ADE80', // pierre-activity
-    '#F59E0B', // pierre-nutrition
+    '#00241a', // pierre-violet
+    '#0d3b2e', // pierre-cyan
+    '#3c6658', // pierre-activity
+    '#8f6a2e', // pierre-nutrition
     '#FF6B6B', // pierre-red
-    '#22D3EE', // cyan
+    '#0d3b2e', // cyan
     '#FB923C', // orange
     '#A78BFA', // light violet
   ];
@@ -71,7 +71,7 @@ export default function ToolUsageBreakdownComponent({
       {
         label: 'Avg Response Time (ms)',
         data: toolUsage.map(tool => tool.average_response_time),
-        backgroundColor: 'rgba(139, 92, 246, 0.6)',
+        backgroundColor: 'rgba(0, 36, 26, 0.6)',
         borderColor: 'rgb(139, 92, 246)',
         borderWidth: 1,
       },
@@ -145,14 +145,14 @@ export default function ToolUsageBreakdownComponent({
       {/* Tool Usage Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-white">Request Distribution</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Request Distribution</h3>
           <div style={{ height: '300px' }}>
             <Doughnut data={doughnutData} options={doughnutOptions} />
           </div>
         </div>
 
         <div className="card-dark">
-          <h3 className="text-lg font-medium mb-4 text-white">Average Response Time</h3>
+          <h3 className="text-lg font-medium mb-4 text-on-surface">Average Response Time</h3>
           <div style={{ height: '300px' }}>
             <Bar data={barData} options={barOptions} />
           </div>
@@ -161,54 +161,54 @@ export default function ToolUsageBreakdownComponent({
 
       {/* Detailed Breakdown Table */}
       <div className="card-dark">
-        <h3 className="text-lg font-medium mb-4 text-white">Tool Usage Details</h3>
+        <h3 className="text-lg font-medium mb-4 text-on-surface">Tool Usage Details</h3>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-white/10">
-            <thead className="bg-white/5">
+            <thead className="bg-surface-container-low">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Tool Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Requests
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Success Rate
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Avg Response Time
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Errors
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <th className="px-6 py-3 text-left text-xs font-medium text-on-surface-variant uppercase tracking-wider">
                   Share
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {toolUsage.map((tool, index) => (
-                <tr key={tool.tool_name} className="hover:bg-white/5">
+                <tr key={tool.tool_name} className="hover:bg-surface-container-low">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
                       <div
                         className="w-3 h-3 rounded-full mr-3"
                         style={{ backgroundColor: colors[index % colors.length] }}
                       />
-                      <div className="text-sm font-medium text-white">
+                      <div className="text-sm font-medium text-on-surface">
                         {formatToolName(tool.tool_name)}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                     {tool.request_count.toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="text-sm text-white">
+                      <div className="text-sm text-on-surface">
                         {tool.success_rate.toFixed(1)}%
                       </div>
-                      <div className="ml-2 w-16 bg-white/10 rounded-full h-2">
+                      <div className="ml-2 w-16 bg-surface-container-high rounded-full h-2">
                         <div
                           className={`h-2 rounded-full ${
                             tool.success_rate >= 95 ? 'bg-pierre-activity' :
@@ -219,7 +219,7 @@ export default function ToolUsageBreakdownComponent({
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                     {tool.average_response_time.toFixed(0)}ms
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -238,7 +238,7 @@ export default function ToolUsageBreakdownComponent({
                       );
                     })()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-on-surface">
                     {(() => {
                       const totalRequests = toolUsage?.reduce((sum, t) => sum + t.request_count, 0) || 1;
                       const percentage = (tool.request_count / totalRequests) * 100;
@@ -258,27 +258,27 @@ export default function ToolUsageBreakdownComponent({
           <div className="text-2xl font-bold text-pierre-violet">
             {toolUsage.length}
           </div>
-          <div className="text-sm text-zinc-400">Tools Used</div>
+          <div className="text-sm text-on-surface-variant">Tools Used</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-cyan">
             {toolUsage.reduce((sum, tool) => sum + tool.request_count, 0).toLocaleString()}
           </div>
-          <div className="text-sm text-zinc-400">Total Requests</div>
+          <div className="text-sm text-on-surface-variant">Total Requests</div>
         </div>
         <div className="stat-card-dark">
           <div className="text-2xl font-bold text-pierre-activity">
             {(toolUsage.reduce((sum, tool) => sum + tool.success_rate * tool.request_count, 0) /
              toolUsage.reduce((sum, tool) => sum + tool.request_count, 0)).toFixed(1)}%
           </div>
-          <div className="text-sm text-zinc-400">Overall Success Rate</div>
+          <div className="text-sm text-on-surface-variant">Overall Success Rate</div>
         </div>
         <div className="stat-card-dark">
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-on-surface">
             {(toolUsage.reduce((sum, tool) => sum + tool.average_response_time * tool.request_count, 0) /
              toolUsage.reduce((sum, tool) => sum + tool.request_count, 0)).toFixed(0)}ms
           </div>
-          <div className="text-sm text-zinc-400">Avg Response Time</div>
+          <div className="text-sm text-on-surface-variant">Avg Response Time</div>
         </div>
       </div>
     </div>

@@ -75,7 +75,7 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-12">
             <div className="pierre-spinner mb-4"></div>
-            <p className="text-zinc-400 text-sm">Pierre is personalizing this insight for you...</p>
+            <p className="text-on-surface-variant text-sm">Pierre is personalizing this insight for you...</p>
           </div>
         ) : error ? (
           <div className="text-center py-8">
@@ -94,12 +94,12 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
             {/* Original Insight */}
             {sourceInsight && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-400 mb-2">Original Insight</h3>
-                <div className="p-4 bg-white/5 border border-white/10 rounded-lg">
+                <h3 className="text-sm font-medium text-on-surface-variant mb-2">Original Insight</h3>
+                <div className="p-4 bg-surface-container-low border ghost-border rounded-lg">
                   {sourceInsight.title && (
-                    <p className="font-medium text-zinc-300 mb-2">{sourceInsight.title}</p>
+                    <p className="font-medium text-on-surface mb-2">{sourceInsight.title}</p>
                   )}
-                  <p className="text-zinc-400 text-sm">{sourceInsight.content}</p>
+                  <p className="text-on-surface-variant text-sm">{sourceInsight.content}</p>
                 </div>
               </div>
             )}
@@ -107,17 +107,17 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
             {/* Adapted Content */}
             {adaptedContent && (
               <div>
-                <h3 className="text-sm font-medium text-zinc-400 mb-2 flex items-center gap-2">
+                <h3 className="text-sm font-medium text-on-surface-variant mb-2 flex items-center gap-2">
                   <svg className="w-4 h-4 text-pierre-violet-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                   Personalized for You
                 </h3>
                 <div className="p-4 bg-pierre-violet/10 border border-pierre-violet/30 rounded-lg">
-                  <p className="text-white whitespace-pre-wrap">{adaptedContent.adapted_content}</p>
+                  <p className="text-on-surface whitespace-pre-wrap">{adaptedContent.adapted_content}</p>
                   {adaptedContent.adaptation_context && (
-                    <p className="text-sm text-zinc-400 mt-3 pt-3 border-t border-white/10">
-                      <span className="font-medium text-zinc-300">Context: </span>
+                    <p className="text-sm text-on-surface-variant mt-3 pt-3 border-t ghost-border">
+                      <span className="font-medium text-on-surface">Context: </span>
                       {adaptedContent.adaptation_context}
                     </p>
                   )}
@@ -126,12 +126,12 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
             )}
 
             {/* Info Box */}
-            <div className="flex items-start gap-3 p-4 bg-white/5 border border-white/10 rounded-lg">
+            <div className="flex items-start gap-3 p-4 bg-surface-container-low border ghost-border rounded-lg">
               <svg className="w-5 h-5 text-pierre-cyan flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-sm text-zinc-300">
+                <p className="text-sm text-on-surface">
                   Pierre has analyzed your training history and goals to personalize this insight specifically for you.
                   This adaptation is saved to your library for future reference.
                 </p>
@@ -139,7 +139,7 @@ export default function AdaptInsightModal({ insightId, onClose, onSuccess }: Ada
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
+            <div className="flex justify-end gap-3 pt-4 border-t ghost-border">
               <Button variant="secondary" onClick={onClose}>
                 Close
               </Button>

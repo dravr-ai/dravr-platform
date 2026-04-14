@@ -14,18 +14,19 @@ export const REACTION_EMOJIS: Record<ReactionType, string> = {
 } as const;
 
 /**
- * Color mapping for insight types (Pierre brand colors)
+ * Color mapping for insight types (Boreal Editorial palette).
  *
- * These are the canonical colors for the Pierre platform.
- * Use these values across all frontends (web, mobile, etc.)
+ * Values read correctly against the light `surface` (#F9F9F6) and pull from
+ * the same tonal family as PILLAR_COLORS so social insights feel like a
+ * natural extension of the rest of the app.
  */
 export const INSIGHT_TYPE_COLORS: Record<InsightType, string> = {
-  achievement: '#10B981', // emerald-500
-  milestone: '#F59E0B',   // amber-500
-  training_tip: '#6366F1', // indigo-500
-  recovery: '#8B5CF6',     // violet-500
-  motivation: '#F97316',   // orange-500
-  coaching_insight: '#7C3AED', // pierre-violet
+  achievement: '#3c6658',     // activity pillar — sage
+  milestone: '#8f6a2e',       // nutrition pillar — warm bronze
+  training_tip: '#0d3b2e',    // primary_container
+  recovery: '#5e7a82',        // recovery pillar — muted slate
+  motivation: '#7a4d5e',      // mobility pillar — aged rose
+  coaching_insight: '#00241a', // primary — deep forest
 } as const;
 
 /**

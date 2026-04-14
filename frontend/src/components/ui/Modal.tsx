@@ -87,16 +87,16 @@ export const Modal: React.FC<ModalProps> = ({
       <div
         ref={modalRef}
         tabIndex={-1}
-        className={`${sizeClasses[size]} w-full bg-pierre-slate border border-white/10 rounded-xl shadow-xl overflow-hidden animate-scale-in`}
+        className={`${sizeClasses[size]} w-full bg-surface-container-low border ghost-border rounded-xl shadow-xl overflow-hidden animate-scale-in`}
       >
         {/* Gradient accent bar */}
-        <div className="h-1 w-full bg-gradient-pierre-horizontal" />
+        <div className="h-1 w-full boreal-hero-gradient" />
 
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
+          <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
             {title && (
-              <h2 id="modal-title" className="text-lg font-semibold text-white">
+              <h2 id="modal-title" className="text-lg font-semibold text-on-surface">
                 {title}
               </h2>
             )}
@@ -104,7 +104,7 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-container rounded-lg transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
                 aria-label="Close modal"
               >
                 <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -116,11 +116,11 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Content */}
-        <div className="px-6 py-4 text-zinc-300">{children}</div>
+        <div className="px-6 py-4 text-on-surface">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="px-6 py-4 bg-pierre-dark/50 border-t border-white/10">{footer}</div>
+          <div className="px-6 py-4 bg-surface/50 border-t ghost-border">{footer}</div>
         )}
       </div>
     </div>,

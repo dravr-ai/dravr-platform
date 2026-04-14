@@ -105,7 +105,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       case 'enterprise':
         return 'bg-pierre-violet/20 text-pierre-violet-light border border-pierre-violet/30';
       default:
-        return 'bg-white/10 text-zinc-400 border border-white/10';
+        return 'bg-surface-container-high text-on-surface-variant border ghost-border';
     }
   };
 
@@ -118,7 +118,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       'training-analytics': 'bg-pierre-cyan/20 text-pierre-cyan border border-pierre-cyan/30',
       'provider-integration': 'bg-pierre-recovery/20 text-pierre-recovery border border-pierre-recovery/30',
     };
-    return colorMap[capability] || 'bg-white/10 text-zinc-400 border border-white/10';
+    return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
   };
 
   const handleDeactivate = (client: A2AClient) => {
@@ -142,11 +142,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
     return (
       <Card variant="dark">
         <div className="animate-pulse">
-          <div className="h-4 bg-white/10 rounded w-1/4 mb-4"></div>
+          <div className="h-4 bg-surface-container-high rounded w-1/4 mb-4"></div>
           <div className="space-y-3">
-            <div className="h-16 bg-white/10 rounded"></div>
-            <div className="h-16 bg-white/10 rounded"></div>
-            <div className="h-16 bg-white/10 rounded"></div>
+            <div className="h-16 bg-surface-container-high rounded"></div>
+            <div className="h-16 bg-surface-container-high rounded"></div>
+            <div className="h-16 bg-surface-container-high rounded"></div>
           </div>
         </div>
       </Card>
@@ -158,8 +158,8 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       <Card variant="dark">
         <div className="text-center py-8">
           <div className="text-pierre-red-400 mb-4">❌</div>
-          <h3 className="text-lg font-medium text-white mb-2">Failed to load A2A clients</h3>
-          <p className="text-zinc-400 mb-4">There was an error loading your A2A clients.</p>
+          <h3 className="text-lg font-medium text-on-surface mb-2">Failed to load A2A clients</h3>
+          <p className="text-on-surface-variant mb-4">There was an error loading your A2A clients.</p>
           <Button onClick={() => window.location.reload()}>
             Try Again
           </Button>
@@ -170,10 +170,10 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
   if (allClients.length === 0) {
     return (
-      <div className="text-center py-16 bg-white/5 rounded-lg border-2 border-dashed border-white/20">
+      <div className="text-center py-16 bg-surface-container-low rounded-lg border-2 border-dashed ghost-border">
         <div className="text-6xl mb-4">🤖</div>
-        <h3 className="text-lg font-semibold text-white mb-2">No Connected Apps Yet</h3>
-        <p className="text-zinc-400 mb-6 max-w-md mx-auto">
+        <h3 className="text-lg font-semibold text-on-surface mb-2">No Connected Apps Yet</h3>
+        <p className="text-on-surface-variant mb-6 max-w-md mx-auto">
           Register your first app to enable secure agent-to-agent communication with AI assistants and third-party integrations.
         </p>
         <Button
@@ -214,14 +214,14 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
               className={`border rounded-lg p-4 cursor-pointer transition-colors ${
                 selectedClient === client.id
                   ? 'border-pierre-violet bg-pierre-violet/10'
-                  : 'border-white/10 hover:border-white/20'
+                  : 'ghost-border hover:ghost-border'
               }`}
               onClick={() => setSelectedClient(selectedClient === client.id ? null : client.id)}
             >
               <div className="flex items-center justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-lg font-medium text-white">{client.name}</h3>
+                    <h3 className="text-lg font-medium text-on-surface">{client.name}</h3>
                     <StatusIndicator
                       status={client.is_active ? 'online' : 'offline'}
                       size="sm"
@@ -232,7 +232,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       </Badge>
                     )}
                   </div>
-                  <p className="text-zinc-400 mb-3">{client.description}</p>
+                  <p className="text-on-surface-variant mb-3">{client.description}</p>
                   
                   {/* Capabilities */}
                   <div className="flex flex-wrap gap-2 mb-3">
@@ -247,7 +247,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-4 text-sm text-zinc-500">
+                  <div className="flex items-center gap-4 text-sm text-outline">
                     <span>Created {formatDistanceToNow(new Date(client.created_at))} ago</span>
                     {client.agent_version && <span>v{client.agent_version}</span>}
                   </div>
@@ -282,16 +282,16 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
               {/* Credentials (when expanded) */}
               {showCredentials[client.id] && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <h4 className="text-sm font-medium text-white mb-2">Client Credentials</h4>
+                <div className="mt-4 pt-4 border-t ghost-border">
+                  <h4 className="text-sm font-medium text-on-surface mb-2">Client Credentials</h4>
                   <div className="space-y-2 text-sm">
                     <div>
-                      <label className="text-zinc-400">Client ID:</label>
-                      <code className="block bg-white/10 p-2 rounded font-mono text-xs mt-1 text-zinc-300">
+                      <label className="text-on-surface-variant">Client ID:</label>
+                      <code className="block bg-surface-container-high p-2 rounded font-mono text-xs mt-1 text-on-surface">
                         {client.id}
                       </code>
                     </div>
-                    <div className="text-zinc-500 text-xs">
+                    <div className="text-outline text-xs">
                       ⚠️ Client secret and API key are only shown once during registration
                     </div>
                   </div>
@@ -305,31 +305,31 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
       {/* Client Details */}
       {selectedClient && clientUsage && clientRateLimit && (
         <Card variant="dark">
-          <h3 className="text-lg font-semibold text-white mb-4">
+          <h3 className="text-lg font-semibold text-on-surface mb-4">
             Client Usage & Rate Limits
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Usage Stats */}
             <div>
-              <h4 className="text-sm font-medium text-zinc-300 mb-2">Usage Statistics</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">Usage Statistics</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Today:</span>
-                  <span className="font-medium text-white">{clientUsage?.requests_today?.toLocaleString() || 0}</span>
+                  <span className="text-on-surface-variant">Today:</span>
+                  <span className="font-medium text-on-surface">{clientUsage?.requests_today?.toLocaleString() || 0}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">This Month:</span>
-                  <span className="font-medium text-white">{clientUsage?.requests_this_month?.toLocaleString() || 0}</span>
+                  <span className="text-on-surface-variant">This Month:</span>
+                  <span className="font-medium text-on-surface">{clientUsage?.requests_this_month?.toLocaleString() || 0}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Total:</span>
-                  <span className="font-medium text-white">{clientUsage?.total_requests?.toLocaleString() || 0}</span>
+                  <span className="text-on-surface-variant">Total:</span>
+                  <span className="font-medium text-on-surface">{clientUsage?.total_requests?.toLocaleString() || 0}</span>
                 </div>
                 {clientUsage?.last_request_at && (
                   <div className="flex justify-between">
-                    <span className="text-zinc-400">Last Request:</span>
-                    <span className="font-medium text-white">
+                    <span className="text-on-surface-variant">Last Request:</span>
+                    <span className="font-medium text-on-surface">
                       {formatDistanceToNow(new Date(clientUsage.last_request_at))} ago
                     </span>
                   </div>
@@ -339,10 +339,10 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
             {/* Rate Limits */}
             <div>
-              <h4 className="text-sm font-medium text-zinc-300 mb-2">Rate Limits</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">Rate Limits</h4>
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">Tier:</span>
+                  <span className="text-on-surface-variant">Tier:</span>
                   <Badge variant="info" className={getTierBadgeColor(clientRateLimit?.tier || 'trial')}>
                     {clientRateLimit?.tier || 'Trial'}
                   </Badge>
@@ -350,11 +350,11 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                 {clientRateLimit?.limit && (
                   <>
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">Monthly Limit:</span>
-                      <span className="font-medium text-white">{clientRateLimit.limit.toLocaleString()}</span>
+                      <span className="text-on-surface-variant">Monthly Limit:</span>
+                      <span className="font-medium text-on-surface">{clientRateLimit.limit.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-zinc-400">Remaining:</span>
+                      <span className="text-on-surface-variant">Remaining:</span>
                       <span className={`font-medium ${
                         clientRateLimit.remaining && clientRateLimit.remaining < clientRateLimit.limit * 0.1
                           ? 'text-pierre-red-400'
@@ -365,8 +365,8 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                     </div>
                     {clientRateLimit.reset_at && (
                       <div className="flex justify-between">
-                        <span className="text-zinc-400">Resets:</span>
-                        <span className="font-medium text-white">
+                        <span className="text-on-surface-variant">Resets:</span>
+                        <span className="font-medium text-on-surface">
                           {format(new Date(clientRateLimit.reset_at), 'MMM d, yyyy')}
                         </span>
                       </div>
@@ -378,16 +378,16 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
 
             {/* Tool Usage */}
             <div>
-              <h4 className="text-sm font-medium text-zinc-300 mb-2">Top Tools</h4>
+              <h4 className="text-sm font-medium text-on-surface mb-2">Top Tools</h4>
               <div className="space-y-2">
                 {clientUsage?.tool_usage_breakdown?.slice(0, 3).map((tool: { tool_name: string; usage_count: number }) => (
                   <div key={tool.tool_name} className="flex justify-between">
-                    <span className="text-zinc-400 truncate">{tool.tool_name}:</span>
-                    <span className="font-medium text-white">{tool.usage_count}</span>
+                    <span className="text-on-surface-variant truncate">{tool.tool_name}:</span>
+                    <span className="font-medium text-on-surface">{tool.usage_count}</span>
                   </div>
                 ))}
                 {(!clientUsage?.tool_usage_breakdown || clientUsage.tool_usage_breakdown.length === 0) && (
-                  <div className="text-zinc-500 text-sm">No tool usage yet</div>
+                  <div className="text-outline text-sm">No tool usage yet</div>
                 )}
               </div>
             </div>

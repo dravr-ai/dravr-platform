@@ -168,8 +168,8 @@ export default function ActivityTab() {
                 onClick={() => setTypeFilter(type)}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   typeFilter === type
-                    ? 'bg-pierre-violet text-white'
-                    : 'bg-white/10 text-zinc-300 hover:bg-white/20'
+                    ? 'bg-pierre-violet text-on-surface'
+                    : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
                 }`}
               >
                 {labels[type]}
@@ -195,18 +195,18 @@ export default function ActivityTab() {
       {/* Activity Table */}
       {!hasData && summary?.llm_calls_today === 0 ? (
         <div className="card-dark">
-          <div className="text-center py-12 text-zinc-400">
-            <svg className="w-12 h-12 mx-auto mb-4 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-12 text-on-surface-variant">
+            <svg className="w-12 h-12 mx-auto mb-4 text-on-surface-variant" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
-            <p className="text-lg mb-2 text-white">No activity yet</p>
+            <p className="text-lg mb-2 text-on-surface">No activity yet</p>
             <p>LLM calls and conversations will appear here in real-time.</p>
           </div>
         </div>
       ) : (
         <div className="card-dark">
           {/* Table header */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-white/10 text-xs font-medium text-zinc-400 uppercase tracking-wider">
+          <div className="grid grid-cols-12 gap-3 px-4 py-3 border-b ghost-border text-xs font-medium text-on-surface-variant uppercase tracking-wider">
             <div className="col-span-1">Type</div>
             <div className="col-span-4">Details</div>
             <div className="col-span-2">Category</div>
@@ -217,7 +217,7 @@ export default function ActivityTab() {
           {/* Rows */}
           <div className="max-h-[600px] overflow-y-auto scrollbar-dark">
             {filteredEntries.length === 0 ? (
-              <div className="text-center py-8 text-zinc-500">
+              <div className="text-center py-8 text-outline">
                 {searchQuery ? 'No results match your search.' : 'No activity in this category.'}
               </div>
             ) : (
@@ -225,7 +225,7 @@ export default function ActivityTab() {
                 <div key={entry.id}>
                   <button
                     onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
-                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors text-left items-center"
+                    className="w-full grid grid-cols-12 gap-3 px-4 py-3 border-b ghost-border hover:bg-surface-container-low transition-colors text-left items-center"
                   >
                     {/* Type icon */}
                     <div className="col-span-1">
@@ -246,8 +246,8 @@ export default function ActivityTab() {
 
                     {/* Title + subtitle */}
                     <div className="col-span-4 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{entry.title}</p>
-                      <p className="text-xs text-zinc-500 truncate mt-0.5">{entry.subtitle}</p>
+                      <p className="text-sm font-medium text-on-surface truncate">{entry.title}</p>
+                      <p className="text-xs text-outline truncate mt-0.5">{entry.subtitle}</p>
                     </div>
 
                     {/* Category badge */}
@@ -262,7 +262,7 @@ export default function ActivityTab() {
                     </div>
 
                     {/* Metrics */}
-                    <div className="col-span-3 text-xs text-zinc-400">
+                    <div className="col-span-3 text-xs text-on-surface-variant">
                       {entry.type === 'llm' ? (
                         <div className="flex items-center gap-3">
                           <span>{formatTokens((entry.rawData as RecentLlmCall).total_tokens)}</span>
@@ -270,15 +270,15 @@ export default function ActivityTab() {
                           <span>{formatDuration((entry.rawData as RecentLlmCall).execution_time_ms)}</span>
                         </div>
                       ) : (
-                        <span className="text-zinc-500">{(entry.rawData as RecentConversation).user_email}</span>
+                        <span className="text-outline">{(entry.rawData as RecentConversation).user_email}</span>
                       )}
                     </div>
 
                     {/* Timestamp */}
                     <div className="col-span-2 text-right">
-                      <span className="text-xs text-zinc-500">{formatRelativeTime(entry.timestamp)}</span>
+                      <span className="text-xs text-outline">{formatRelativeTime(entry.timestamp)}</span>
                       <svg
-                        className={`w-4 h-4 inline-block ml-2 text-zinc-600 transition-transform ${
+                        className={`w-4 h-4 inline-block ml-2 text-on-surface-variant transition-transform ${
                           expandedId === entry.id ? 'rotate-180' : ''
                         }`}
                         fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -290,7 +290,7 @@ export default function ActivityTab() {
 
                   {/* Expanded detail row */}
                   {expandedId === entry.id && (
-                    <div className="px-4 py-3 bg-white/5 border-b border-white/5">
+                    <div className="px-4 py-3 bg-surface-container-low border-b ghost-border">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         {entry.type === 'llm' ? (
                           <>
@@ -318,7 +318,7 @@ export default function ActivityTab() {
           </div>
 
           {/* Footer with count */}
-          <div className="px-4 py-2 border-t border-white/10 text-xs text-zinc-500">
+          <div className="px-4 py-2 border-t ghost-border text-xs text-outline">
             Showing {filteredEntries.length} of {allEntries.length} entries
           </div>
         </div>
@@ -331,8 +331,8 @@ export default function ActivityTab() {
 function DetailItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <span className="text-zinc-500">{label}</span>
-      <p className="text-white mt-0.5 font-mono text-xs">{value}</p>
+      <span className="text-outline">{label}</span>
+      <p className="text-on-surface mt-0.5 font-mono text-xs">{value}</p>
     </div>
   );
 }
@@ -345,25 +345,25 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
         <div className="text-2xl font-bold text-pierre-cyan">
           {summary?.active_conversations ?? 0}
         </div>
-        <div className="text-sm text-zinc-400">Active Conversations (15m)</div>
+        <div className="text-sm text-on-surface-variant">Active Conversations (15m)</div>
       </div>
       <div className="stat-card-dark">
         <div className="text-2xl font-bold text-pierre-violet-light">
           {summary?.llm_calls_today ?? 0}
         </div>
-        <div className="text-sm text-zinc-400">LLM Calls Today</div>
+        <div className="text-sm text-on-surface-variant">LLM Calls Today</div>
       </div>
       <div className="stat-card-dark">
         <div className="text-2xl font-bold text-pierre-activity">
           {formatTokens(summary?.total_tokens_today ?? 0)}
         </div>
-        <div className="text-sm text-zinc-400">Tokens Today</div>
+        <div className="text-sm text-on-surface-variant">Tokens Today</div>
       </div>
       <div className="stat-card-dark">
         <div className="text-2xl font-bold text-pierre-nutrition">
           {formatCost(summary?.estimated_cost_today ?? 0)}
         </div>
-        <div className="text-sm text-zinc-400">Est. Cost Today</div>
+        <div className="text-sm text-on-surface-variant">Est. Cost Today</div>
       </div>
     </div>
   );
