@@ -16,6 +16,13 @@
 - [Authentication](authentication.md)
 - [MCP Tool Discovery](mcp-tool-discovery.md)
 
+# Coaching Harness
+
+- [Overview](coaching-harness-overview.md)
+- [Tier-by-Tier](coaching-harness-tiers.md)
+- [Implementation Log](coaching-harness-sprints.md)
+- [Operator Guide](coaching-harness-ops.md)
+
 # Intelligence & Analytics
 
 - [Intelligence Methodology](intelligence-methodology.md)

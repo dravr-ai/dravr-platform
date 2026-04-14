@@ -109,6 +109,13 @@ enum Command {
         #[command(subcommand)]
         action: commands::seed::SeedCommand,
     },
+
+    /// Coaching harness operator commands (Tier 5.5 backfill, etc.)
+    #[cfg(feature = "tools-verification")]
+    Harness {
+        #[command(subcommand)]
+        action: commands::harness::HarnessCommand,
+    },
 }
 
 #[non_exhaustive]
@@ -330,6 +337,10 @@ async fn main() -> Result<()> {
                 commands::token::stats(&repos, token_id, days).await?;
             }
         },
+        #[cfg(feature = "tools-verification")]
+        Command::Harness { action } => {
+            commands::harness::dispatch(action, &repos, &database).await?;
+        }
     }
 
     Ok(())

@@ -894,7 +894,40 @@ export const adminApi = {
     const response = await axios.get(`/api/admin/coach-grading/summary?${query.toString()}`);
     return response.data;
   },
+
+  // ==================== EVAL HARNESS FIXTURE BROWSER (Phase B C16) ====================
+  async getEvalFixtureBrowser(): Promise<EvalFixtureBrowserResponse> {
+    const response = await axios.get('/api/admin/evals/fixtures');
+    return response.data;
+  },
 };
+
+/** Per-case summary row from the eval fixture browser. */
+export interface EvalFixtureCaseSummary {
+  id: string;
+  label: string;
+  persona: string;
+  turn_count: number;
+  must_contain_total: number;
+  must_not_contain_total: number;
+}
+
+/** Per-fixture summary from the eval fixture browser. */
+export interface EvalFixtureSummary {
+  name: string;
+  path: string;
+  case_count: number;
+  personas: string[];
+  cases: EvalFixtureCaseSummary[];
+}
+
+/** Top-level response for `GET /admin/evals/fixtures`. */
+export interface EvalFixtureBrowserResponse {
+  scanned_dir: string;
+  fixture_count: number;
+  case_total: number;
+  fixtures: EvalFixtureSummary[];
+}
 
 /** Compaction tunables persisted with the harness config document. */
 export interface HarnessCompactionConfig {

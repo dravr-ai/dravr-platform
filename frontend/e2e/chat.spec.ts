@@ -325,9 +325,11 @@ test.describe('Chat - Conversation Sidebar', () => {
     await loginToDashboard(page);
   });
 
-  test('displays Recent Chats heading in sidebar', async ({ page }) => {
-    // ConversationsPanel shows "Recent Chats" heading when activeTab === 'chat'
-    await expect(page.getByText('Recent Chats')).toBeVisible({ timeout: 10000 });
+  test('displays Coaching sessions heading in sidebar', async ({ page }) => {
+    // Sprint C15 renamed the ConversationsPanel heading from "Recent Chats"
+    // to "Coaching sessions" so the sidebar matches the Tier 4 session-
+    // hierarchy backend model (conversations are grouped per coach).
+    await expect(page.getByText('Coaching sessions')).toBeVisible({ timeout: 10000 });
   });
 
   test('displays existing conversations in sidebar', async ({ page }) => {
