@@ -292,9 +292,9 @@ ${formData.successCriteria}
             <div
               className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold transition-colors ${
                 index === currentStep
-                  ? 'bg-pierre-violet text-on-surface'
+                  ? 'bg-pierre-violet text-on-primary'
                   : index < currentStep
-                  ? 'bg-pierre-activity text-on-surface'
+                  ? 'bg-pierre-activity text-on-primary'
                   : 'bg-pierre-gray-200 text-pierre-gray-500'
               }`}
             >
@@ -379,7 +379,7 @@ ${formData.successCriteria}
           />
           <button
             onClick={addTag}
-            className="px-4 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-4 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet-dark transition-colors"
           >
             Add
           </button>
@@ -434,7 +434,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
             className={`px-3 py-1 text-sm rounded ${
-              isMarkdownMode ? 'bg-pierre-violet text-on-surface' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              isMarkdownMode ? 'bg-pierre-violet text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             {isMarkdownMode ? 'Visual' : 'Markdown'}
@@ -442,7 +442,7 @@ ${formData.successCriteria}
           <button
             onClick={() => setShowPreview(!showPreview)}
             className={`px-3 py-1 text-sm rounded ${
-              showPreview ? 'bg-pierre-violet text-on-surface' : 'bg-pierre-gray-100 text-pierre-gray-700'
+              showPreview ? 'bg-pierre-violet text-on-primary' : 'bg-pierre-gray-100 text-pierre-gray-700'
             }`}
           >
             Preview
@@ -765,7 +765,7 @@ ${formData.successCriteria}
         {currentStep < STEPS.length - 1 ? (
           <button
             onClick={handleNext}
-            className="px-6 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet-dark transition-colors"
+            className="px-6 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet-dark transition-colors"
           >
             Next →
           </button>
@@ -773,7 +773,7 @@ ${formData.successCriteria}
           <button
             onClick={handleSave}
             disabled={isSaving}
-            className="px-6 py-2 bg-pierre-activity text-on-surface rounded-lg hover:bg-pierre-activity-dark transition-colors disabled:opacity-50"
+            className="px-6 py-2 bg-pierre-activity text-on-primary rounded-lg hover:bg-pierre-activity-dark transition-colors disabled:opacity-50"
           >
             {isSaving ? 'Saving...' : isEditMode ? 'Save Changes' : 'Create Coach'}
           </button>

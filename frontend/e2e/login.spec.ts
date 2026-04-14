@@ -30,9 +30,12 @@ test.describe('Login Page', () => {
     // Wait for page to load - look for the form container
     await page.waitForSelector('form', { timeout: 10000 });
 
-    // Check for main heading
+    // Check for main heading (Boreal editorial layout uses "Sign in" as h1)
     const heading = page.locator('h1');
-    await expect(heading).toContainText('Dravr');
+    await expect(heading).toContainText('Sign in');
+
+    // DRAVR brand wordmark lives in the hero aside (desktop) and as a label on mobile
+    await expect(page.getByText('DRAVR').first()).toBeVisible();
 
     // Check for form elements
     await expect(page.locator('input[name="email"]')).toBeVisible();
@@ -55,11 +58,11 @@ test.describe('Login Page', () => {
 
     if (isGoogleVisible) {
       await expect(googleButton).toBeVisible();
-      await expect(page.getByText('or continue with')).toBeVisible();
+      // Boreal editorial divider uses a short "OR" chip
+      await expect(page.getByText(/^or$/i).first()).toBeVisible();
     } else {
       // Firebase not configured - button should not be present
       await expect(googleButton).not.toBeVisible();
-      await expect(page.getByText('or continue with')).not.toBeVisible();
     }
   });
 
@@ -117,8 +120,8 @@ test.describe('Login Page', () => {
     // Password should be hidden by default
     await expect(passwordInput).toHaveAttribute('type', 'password');
 
-    // Click the toggle button (button inside the password field container)
-    const toggleButton = page.locator('button[type="button"]').first();
+    // Click the show/hide password toggle (aria-label is set on the eye icon button)
+    const toggleButton = page.getByRole('button', { name: /show password|hide password/i });
     await toggleButton.click();
 
     // Password should now be visible
@@ -160,7 +163,7 @@ test.describe('Login Page', () => {
     await submitButton.click();
 
     // Should show loading text
-    await expect(page.getByRole('button', { name: 'Signing in...' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /signing in/i })).toBeVisible();
   });
 
   test('successful login shows dashboard', async ({ page }) => {
@@ -380,6 +383,6 @@ test.describe('Login Page - Accessibility', () => {
     await submitButton.click();
 
     // Button should be disabled during loading
-    await expect(page.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /signing in/i })).toBeDisabled();
   });
 });

@@ -168,7 +168,7 @@ export default function ActivityTab() {
                 onClick={() => setTypeFilter(type)}
                 className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
                   typeFilter === type
-                    ? 'bg-pierre-violet text-on-surface'
+                    ? 'bg-pierre-violet text-on-primary'
                     : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
                 }`}
               >

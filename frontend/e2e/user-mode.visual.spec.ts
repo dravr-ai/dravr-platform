@@ -68,8 +68,8 @@ test.describe('ASY-313: Web User Mode Visual Tests', () => {
       // Password should be hidden by default
       await expect(passwordInput).toHaveAttribute('type', 'password');
 
-      // Click toggle button
-      const toggleButton = page.locator('button[type="button"]').first();
+      // Click toggle button (eye icon inside the password underline input)
+      const toggleButton = page.getByRole('button', { name: /show password|hide password/i });
       if (await toggleButton.isVisible().catch(() => false)) {
         await toggleButton.click();
         await expect(passwordInput).toHaveAttribute('type', 'text');

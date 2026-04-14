@@ -283,7 +283,7 @@ export default function SocialFeedTab({ onNavigateToFriends }: SocialFeedTabProp
             )}
             <button
               onClick={() => shareModal.open()}
-              className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
+              className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[36px] min-h-[36px] flex items-center justify-center"
               title="Share Insight"
               aria-label="Share Insight"
             >

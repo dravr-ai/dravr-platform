@@ -81,7 +81,7 @@ export default function MessageInput({
             className={clsx(
               'absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
               value.trim() && !isStreaming && !disabled
-                ? 'bg-pierre-violet text-on-surface hover:bg-pierre-violet/90 shadow-ambient'
+                ? 'bg-pierre-violet text-on-primary hover:bg-pierre-violet/90 shadow-ambient'
                 : 'text-on-surface-variant cursor-not-allowed'
             )}
           >

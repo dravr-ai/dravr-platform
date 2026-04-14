@@ -289,7 +289,7 @@ export default function UserDetailDrawer({
               {user.user_status === 'pending' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-surface"
+                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -314,7 +314,7 @@ export default function UserDetailDrawer({
               {user.user_status === 'suspended' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-surface"
+                  className="w-full justify-start bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />

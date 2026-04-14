@@ -352,13 +352,12 @@ export default function Login({ onNavigateToRegister, onNavigateToForgotPassword
 
           {onNavigateToRegister && (
             <p className="text-sm text-on-surface-variant text-center">
-              New to Dravr?{' '}
               <button
                 type="button"
                 onClick={onNavigateToRegister}
                 className="btn-secondary font-medium text-on-surface"
               >
-                Create an account
+                Don&apos;t have an account? Create one
               </button>
             </p>
           )}

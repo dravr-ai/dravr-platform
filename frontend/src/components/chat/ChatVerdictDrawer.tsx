@@ -151,7 +151,7 @@ export default function ChatVerdictDrawer({
             <button
               type="button"
               onClick={onAskAboutClaim}
-              className="w-full rounded-lg bg-pierre-violet px-4 py-2 text-sm font-medium text-on-surface hover:bg-pierre-violet/90"
+              className="w-full rounded-lg bg-pierre-violet px-4 py-2 text-sm font-medium text-on-primary hover:bg-pierre-violet/90"
             >
               Ask me about this claim
             </button>

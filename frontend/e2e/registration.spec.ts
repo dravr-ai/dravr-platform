@@ -96,8 +96,8 @@ test.describe('Registration Page - Form Display', () => {
     // Click the sign in link
     await page.getByText('Already have an account?').click();
 
-    // Should see login form
-    await expect(page.locator('h1')).toContainText('Dravr');
+    // Should see login form (Boreal editorial h1 is "Sign in")
+    await expect(page.locator('h1')).toContainText('Sign in');
     await expect(page.locator('input[name="displayName"]')).not.toBeVisible();
   });
 });

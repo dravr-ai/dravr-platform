@@ -311,7 +311,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-surface"
+                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-primary"
                     >
                       Approve
                     </Button>
@@ -330,7 +330,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'approve')}
                       size="sm"
-                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-surface"
+                      className="bg-pierre-green-600 hover:bg-pierre-green-700 text-on-primary"
                     >
                       Reactivate
                     </Button>

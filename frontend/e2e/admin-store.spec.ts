@@ -236,10 +236,10 @@ test.describe('Admin Store Stats Dashboard', () => {
     await expect(page.locator('h1').filter({ hasText: 'Coach Store' })).toBeVisible({ timeout: 5000 });
 
     // Should display stats cards (use specific selectors to avoid matching description text)
-    await expect(page.locator('.text-sm.text-zinc-400').filter({ hasText: 'Pending Reviews' })).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.text-sm.text-zinc-400').filter({ hasText: 'Published Coaches' })).toBeVisible();
-    await expect(page.locator('.text-sm.text-zinc-400').filter({ hasText: 'Total Installs' })).toBeVisible();
-    await expect(page.locator('.text-sm.text-zinc-400').filter({ hasText: 'Rejection Rate' })).toBeVisible();
+    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Pending Reviews' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Published Coaches' })).toBeVisible();
+    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Total Installs' })).toBeVisible();
+    await expect(page.locator('.text-sm.text-on-surface-variant').filter({ hasText: 'Rejection Rate' })).toBeVisible();
   });
 
   test('displays correct stats values', async ({ page }) => {
@@ -253,19 +253,19 @@ test.describe('Admin Store Stats Dashboard', () => {
 
     // Locate each stat card via its label, go up to the card container, check value
     const publishedCard = page
-      .locator('.text-sm.text-zinc-400')
+      .locator('.text-sm.text-on-surface-variant')
       .filter({ hasText: 'Published Coaches' })
       .locator('xpath=..');
     await expect(publishedCard.locator('.text-2xl')).toHaveText('12', { timeout: 10000 });
 
     const installsCard = page
-      .locator('.text-sm.text-zinc-400')
+      .locator('.text-sm.text-on-surface-variant')
       .filter({ hasText: 'Total Installs' })
       .locator('xpath=..');
     await expect(installsCard.locator('.text-2xl')).toHaveText('150');
 
     const rejectionCard = page
-      .locator('.text-sm.text-zinc-400')
+      .locator('.text-sm.text-on-surface-variant')
       .filter({ hasText: 'Rejection Rate' })
       .locator('xpath=..');
     await expect(rejectionCard.locator('.text-2xl')).toHaveText('20.0%');

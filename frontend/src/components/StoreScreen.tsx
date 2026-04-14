@@ -293,7 +293,7 @@ export default function StoreScreen({ onNavigateToCoaches }: StoreScreenProps) {
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 selectedCategory === filter.key
-                  ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                  ? 'bg-pierre-violet text-on-primary shadow-ambient'
                   : 'bg-surface-container-low text-gray-400 hover:bg-surface-container hover:text-gray-300'
               )}
             >
@@ -480,7 +480,7 @@ function CoachDetailView({
             <p className="text-lg text-gray-400 mb-4">Coach not found</p>
             <button
               onClick={onBack}
-              className="px-4 py-2 bg-pierre-violet text-on-surface rounded-lg hover:bg-pierre-violet/80 transition-colors"
+              className="px-4 py-2 bg-pierre-violet text-on-primary rounded-lg hover:bg-pierre-violet/80 transition-colors"
             >
               Go Back
             </button>
@@ -634,7 +634,7 @@ function CoachDetailView({
           <button
             onClick={onInstall}
             disabled={isInstalling}
-            className="w-full py-3 px-4 bg-pierre-violet text-on-surface font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 bg-pierre-violet text-on-primary font-medium rounded-lg hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isInstalling ? (
               <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />

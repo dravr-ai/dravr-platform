@@ -94,7 +94,7 @@ export default function CoachStoreManagement() {
               </svg>
             </div>
             {(stats?.pending_count ?? 0) > 0 && (
-              <span className="bg-pierre-violet text-on-surface text-xs font-bold px-2 py-1 rounded-full">
+              <span className="bg-pierre-violet text-on-primary text-xs font-bold px-2 py-1 rounded-full">
                 {stats?.pending_count}
               </span>
             )}
