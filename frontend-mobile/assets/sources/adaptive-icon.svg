@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Dravr — Android adaptive icon foreground</title>
+  <desc>Transparent foreground layer for the Android adaptive icon. The adaptive icon system crops the foreground inside the safe zone (~66% of 1024 = 676px); the network motif is sized to fit inside that safe zone with breathing room.</desc>
+
+  <defs>
+    <linearGradient id="activityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a3d0be"/>
+      <stop offset="100%" style="stop-color:#79a694"/>
+    </linearGradient>
+
+    <linearGradient id="nutritionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c9a76d"/>
+      <stop offset="100%" style="stop-color:#8f6a2e"/>
+    </linearGradient>
+
+    <linearGradient id="recoveryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9bb3bb"/>
+      <stop offset="100%" style="stop-color:#5e7a82"/>
+    </linearGradient>
+
+    <linearGradient id="mobilityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#b88a96"/>
+      <stop offset="100%" style="stop-color:#7a4d5e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Transparent background — adaptive icon background is in app.config.js -->
+
+  <!-- Network of nodes, centred in the 676px safe zone (scale factor ~4) -->
+  <g transform="translate(512 512) scale(4) translate(-60 -60)">
+    <g stroke-width="3" opacity="0.5" stroke-linecap="round">
+      <line x1="40" y1="30" x2="52" y2="42" stroke="#00241a"/>
+      <line x1="52" y1="42" x2="70" y2="35" stroke="#00241a"/>
+      <line x1="52" y1="42" x2="48" y2="55" stroke="#00241a"/>
+      <line x1="48" y1="55" x2="75" y2="52" stroke="#00241a"/>
+      <line x1="75" y1="52" x2="88" y2="60" stroke="#00241a"/>
+      <line x1="48" y1="55" x2="55" y2="72" stroke="#00241a"/>
+      <line x1="55" y1="72" x2="35" y2="85" stroke="#00241a"/>
+      <line x1="55" y1="72" x2="72" y2="82" stroke="#00241a"/>
+    </g>
+
+    <circle cx="40" cy="30" r="7" fill="url(#activityGrad)"/>
+    <circle cx="52" cy="42" r="5" fill="url(#activityGrad)"/>
+    <circle cx="70" cy="35" r="3.5" fill="url(#activityGrad)"/>
+
+    <circle cx="48" cy="55" r="7" fill="#00241a"/>
+    <circle cx="48" cy="55" r="3.5" fill="#ffffff"/>
+
+    <circle cx="75" cy="52" r="4.5" fill="url(#nutritionGrad)"/>
+    <circle cx="88" cy="60" r="3.5" fill="url(#nutritionGrad)"/>
+
+    <circle cx="55" cy="72" r="5" fill="url(#recoveryGrad)"/>
+    <circle cx="35" cy="85" r="4" fill="url(#recoveryGrad)"/>
+    <circle cx="72" cy="82" r="4" fill="url(#recoveryGrad)"/>
+
+    <circle cx="82" cy="28" r="2.5" fill="url(#mobilityGrad)"/>
+  </g>
+</svg>

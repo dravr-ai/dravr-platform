@@ -36,6 +36,9 @@
     "maestro:ci": "maestro test .maestro/ --format junit --output maestro-results.xml"
   },
   "dependencies": {
+    "@expo-google-fonts/inter": "^0.4.2",
+    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
+    "@expo-google-fonts/space-grotesk": "^0.4.1",
     "@pierre/api-client": "file:../packages/api-client",
     "@pierre/chat-utils": "file:../packages/chat-utils",
     "@pierre/shared-types": "file:../packages/shared-types",
@@ -52,6 +55,7 @@
     "expo-clipboard": "~55.0.8",
     "expo-dev-client": "~55.0.10",
     "expo-device": "^55.0.9",
+    "expo-font": "^55.0.6",
     "expo-haptics": "~55.0.8",
     "expo-linear-gradient": "~55.0.8",
     "expo-router": "~55.0.3",
