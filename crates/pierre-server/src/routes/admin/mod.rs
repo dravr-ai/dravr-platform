@@ -228,13 +228,23 @@ impl AdminRoutes {
         merged
     }
 
-    /// Eval harness fixture browser routes (Axum, gated on tools-verification)
+    /// Eval harness fixture browser + CRUD + calibration routes (Axum, gated on tools-verification)
     #[cfg(feature = "tools-verification")]
     fn eval_harness_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
                 "/admin/evals/fixtures",
                 get(eval_harness::handle_list_fixtures),
+            )
+            .route(
+                "/admin/evals/fixtures/{name}",
+                get(eval_harness::handle_get_fixture)
+                    .put(eval_harness::handle_put_fixture)
+                    .delete(eval_harness::handle_delete_fixture),
+            )
+            .route(
+                "/admin/evals/verdict-stats",
+                get(eval_harness::handle_verdict_stats),
             )
             .with_state(context)
     }

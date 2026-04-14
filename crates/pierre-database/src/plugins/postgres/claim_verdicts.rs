@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
@@ -16,7 +18,10 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use super::PostgresDatabase;
-use crate::repositories::{ClaimVerdictRepository, InsertClaimVerdictParams};
+use crate::repositories::{
+    ClaimVerdictRepository, InsertClaimVerdictParams, VerdictCalibrationStats, VerdictDailyBucket,
+    VerdictStatusBreakdown,
+};
 
 fn row_to_verdict(row: &PgRow) -> AppResult<ClaimVerdict> {
     let category_str: String = row.get("category");
@@ -157,5 +162,66 @@ impl ClaimVerdictRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to list recent verdicts: {e}")))?;
 
         rows.iter().map(row_to_verdict).collect()
+    }
+
+    async fn aggregate_verdict_stats(
+        &self,
+        tenant_id: TenantId,
+        window_days: i64,
+    ) -> AppResult<VerdictCalibrationStats> {
+        let days = window_days.clamp(1, 365);
+        let window_start = Utc::now() - chrono::Duration::days(days);
+
+        let rows = sqlx::query(
+            r"
+            SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+                   status AS status,
+                   COUNT(*)::bigint AS c
+            FROM claim_verdicts
+            WHERE tenant_id = $1 AND created_at >= $2
+            GROUP BY day, status
+            ORDER BY day ASC
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(window_start)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to aggregate claim verdicts: {e}")))?;
+
+        let mut totals = VerdictStatusBreakdown::default();
+        let mut daily_map: BTreeMap<String, VerdictStatusBreakdown> = BTreeMap::new();
+
+        for row in &rows {
+            let day: String = row.get("day");
+            let status: String = row.get("status");
+            let count: i64 = row.get("c");
+            let bucket = daily_map.entry(day).or_default();
+            apply_status_count(bucket, &status, count);
+            apply_status_count(&mut totals, &status, count);
+        }
+
+        let daily = daily_map
+            .into_iter()
+            .map(|(date, counts)| VerdictDailyBucket { date, counts })
+            .collect();
+
+        Ok(VerdictCalibrationStats {
+            window_start: window_start.to_rfc3339(),
+            window_days: days,
+            totals,
+            daily,
+        })
+    }
+}
+
+fn apply_status_count(breakdown: &mut VerdictStatusBreakdown, status: &str, count: i64) {
+    match status {
+        "supported" => breakdown.supported += count,
+        "unsupported" => breakdown.unsupported += count,
+        "contradicted" => breakdown.contradicted += count,
+        "rhetorical" => breakdown.rhetorical += count,
+        "unverifiable" => breakdown.unverifiable += count,
+        _ => {}
     }
 }

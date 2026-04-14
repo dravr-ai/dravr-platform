@@ -900,6 +900,41 @@ export const adminApi = {
     const response = await axios.get('/api/admin/evals/fixtures');
     return response.data;
   },
+
+  /** Fetch Tier 5.5 verdict calibration stats for the calibration panel (Sprint C20). */
+  async getVerdictCalibrationStats(
+    tenantId: string,
+    windowDays = 30,
+  ): Promise<VerdictCalibrationStats> {
+    const query = new URLSearchParams({
+      tenant_id: tenantId,
+      window_days: String(windowDays),
+    });
+    const response = await axios.get(`/api/admin/evals/verdict-stats?${query.toString()}`);
+    return response.data;
+  },
+
+  /** Fetch the raw JSONL body of a single fixture for inline editing. */
+  async getEvalFixtureContent(name: string): Promise<EvalFixtureContentResponse> {
+    const response = await axios.get(
+      `/api/admin/evals/fixtures/${encodeURIComponent(name)}`,
+    );
+    return response.data;
+  },
+
+  /** Write the raw JSONL body of a fixture (creating it if missing). */
+  async putEvalFixture(name: string, body: string): Promise<EvalFixtureSummary> {
+    const response = await axios.put(
+      `/api/admin/evals/fixtures/${encodeURIComponent(name)}`,
+      { body },
+    );
+    return response.data;
+  },
+
+  /** Delete a fixture by name. */
+  async deleteEvalFixture(name: string): Promise<void> {
+    await axios.delete(`/api/admin/evals/fixtures/${encodeURIComponent(name)}`);
+  },
 };
 
 /** Per-case summary row from the eval fixture browser. */
@@ -927,6 +962,35 @@ export interface EvalFixtureBrowserResponse {
   fixture_count: number;
   case_total: number;
   fixtures: EvalFixtureSummary[];
+}
+
+/** Response from `GET /admin/evals/fixtures/{name}`. */
+export interface EvalFixtureContentResponse {
+  name: string;
+  body: string;
+}
+
+/** Status-level counters emitted by `GET /admin/evals/verdict-stats`. */
+export interface VerdictStatusBreakdown {
+  supported: number;
+  unsupported: number;
+  contradicted: number;
+  rhetorical: number;
+  unverifiable: number;
+}
+
+/** One day's verdict counts for the calibration panel. */
+export interface VerdictDailyBucket {
+  date: string;
+  counts: VerdictStatusBreakdown;
+}
+
+/** Verdict calibration rollup for a tenant over the last `window_days`. */
+export interface VerdictCalibrationStats {
+  window_start: string;
+  window_days: number;
+  totals: VerdictStatusBreakdown;
+  daily: VerdictDailyBucket[];
 }
 
 /** Compaction tunables persisted with the harness config document. */
