@@ -37,6 +37,8 @@ export const ENDPOINTS = {
     CONVERSATION: (id: string) => `/api/chat/conversations/${id}`,
     /** Get/send messages in a conversation */
     MESSAGES: (id: string) => `/api/chat/conversations/${id}/messages`,
+    /** Tier 5.5 claim verdicts attached to messages in this conversation */
+    VERDICTS: (id: string) => `/api/chat/conversations/${id}/verdicts`,
   },
 
   // ==================== COACHES ====================

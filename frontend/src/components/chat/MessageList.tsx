@@ -9,6 +9,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isInsightPrompt, detectInsightMessages, splitActivityContent } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
+import type { ChatVerdictRow } from '@pierre/api-client';
 import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
 
@@ -19,6 +20,8 @@ interface MessageListProps {
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Map<string, string>;
   insightMessageIds: Set<string>;
+  /** Tier 5.5 claim verdicts for the active conversation, keyed by message_id. */
+  verdicts?: ChatVerdictRow[];
   isLoading: boolean;
   isStreaming: boolean;
   streamingContent: string;
@@ -34,6 +37,10 @@ interface MessageListProps {
   onThumbsUp: (messageId: string) => void;
   onThumbsDown: (messageId: string) => void;
   onRetryMessage: (messageId: string) => void;
+  /** Click handler for the verdict chip → open detail drawer. */
+  onShowVerdict?: (verdict: ChatVerdictRow) => void;
+  /** "Ask me about this claim" callback → ChatTab dispatches a follow-up. */
+  onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
 }
 
 export default function MessageList({
@@ -42,6 +49,7 @@ export default function MessageList({
   messageFeedback,
   activityLists,
   insightMessageIds,
+  verdicts,
   isLoading,
   isStreaming,
   streamingContent,
@@ -57,6 +65,8 @@ export default function MessageList({
   onThumbsUp,
   onThumbsDown,
   onRetryMessage,
+  onShowVerdict,
+  onAskAboutClaim,
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +116,7 @@ export default function MessageList({
             isError={msg.isError}
             hasInsight={isInsight}
             activityList={resolvedActivityList}
+            verdicts={verdicts}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
             onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
             onCreateInsight={msg.role === 'assistant' ? () => onCreateInsight(msg.content) : undefined}
@@ -113,6 +124,8 @@ export default function MessageList({
             onThumbsUp={msg.role === 'assistant' ? () => onThumbsUp(msg.id) : undefined}
             onThumbsDown={msg.role === 'assistant' ? () => onThumbsDown(msg.id) : undefined}
             onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
+            onShowVerdict={onShowVerdict}
+            onAskAboutClaim={onAskAboutClaim}
           />
         );
       })}

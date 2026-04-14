@@ -20,11 +20,13 @@ import {
   CreateCoachFromConversationModal,
   DEFAULT_COACH_FORM_DATA,
 } from './chat';
+import ChatVerdictDrawer from './chat/ChatVerdictDrawer';
 import UsageWarningBanner from './chat/UsageWarningBanner';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import ShareChatMessageModal from './social/ShareChatMessageModal';
 import { useSuccessToast, useInfoToast } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import type { ChatVerdictRow } from '@pierre/api-client';
 import type {
   Message,
   Conversation,
@@ -129,7 +131,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
   const [oauthNotification, setOauthNotification] = useState<OAuthNotification | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-  const [pendingSystemPrompt, setPendingSystemPrompt] = useState<string | null>(null);
+  const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
   const [showIdeas, setShowIdeas] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [showProviderModal, setShowProviderModal] = useState(false);
@@ -166,20 +168,40 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     enabled: !!selectedConversation,
   });
 
-  // Mutations
+  // Tier 5.5 — claim verdicts attached to messages in the selected conversation.
+  // Refetched alongside messages so a coach reply that triggers verification
+  // surfaces its chip without a manual reload.
+  const { data: verdictsData } = useQuery({
+    queryKey: ['chat', 'verdicts', selectedConversation],
+    queryFn: () => chatApi.getConversationVerdicts(selectedConversation!),
+    enabled: !!selectedConversation,
+  });
+  const verdicts: ChatVerdictRow[] = verdictsData?.verdicts ?? [];
+
+  // Drawer state for the Tier 5.5 verdict detail surface.
+  const [selectedVerdict, setSelectedVerdict] = useState<ChatVerdictRow | null>(null);
+
+  const handleAskAboutClaim = useCallback((verdict: ChatVerdictRow) => {
+    setNewMessage(
+      `Can you back up this claim with evidence? "${verdict.claim_text}"`,
+    );
+  }, []);
+
+  // Mutations. Takes an optional coach ID; the server resolves the
+  // coach's system prompt at runtime from the coaches table.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
-    mutationFn: (systemPrompt) => {
+    mutationFn: (coachId) => {
       const now = new Date();
       const defaultTitle = `Chat ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
       return chatApi.createConversation({
         title: defaultTitle,
-        system_prompt: systemPrompt || pendingSystemPrompt || undefined,
+        coach_id: coachId || pendingCoachId || undefined,
       });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       onSelectConversation(data.id);
-      setPendingSystemPrompt(null);
+      setPendingCoachId(null);
     },
   });
 
@@ -291,10 +313,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
 
       if (data.savedCoachAction) {
         setPendingPrompt(data.savedCoachAction.prompt);
-        if (data.savedCoachAction.systemPrompt) {
-          setPendingSystemPrompt(data.savedCoachAction.systemPrompt);
+        if (data.savedCoachAction.coachId) {
+          setPendingCoachId(data.savedCoachAction.coachId);
         }
-        createConversation.mutate(data.savedCoachAction.systemPrompt);
+        createConversation.mutate(data.savedCoachAction.coachId);
       }
 
       setTimeout(() => {
@@ -506,22 +528,21 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     }
   }, [newMessage, selectedConversation, isStreaming, connectingProvider, oauthNotification, hasConnectedProvider, messagesData?.messages, providersData?.providers, queryClient, token, usageStatus]);
 
-  // Coach handlers
-  // Note: coachId is passed by PromptSuggestions but not currently used here
-  const handleSelectPrompt = (prompt: string, coachId?: string, systemPrompt?: string) => {
-    void coachId; // Acknowledge unused parameter - may be used for coach tracking later
+  // Coach handlers. The optional coachId is what we now propagate to the
+  // conversation record — the server resolves the coach's system prompt.
+  const handleSelectPrompt = (prompt: string, coachId?: string) => {
     if (!hasConnectedProvider) {
-      setPendingCoachAction({ prompt, systemPrompt });
-      sessionStorage.setItem('pierre_pending_coach_action', JSON.stringify({ prompt, systemPrompt }));
+      setPendingCoachAction({ prompt, coachId });
+      sessionStorage.setItem('pierre_pending_coach_action', JSON.stringify({ prompt, coachId }));
       setShowProviderModal(true);
       return;
     }
 
     setPendingPrompt(prompt);
-    if (systemPrompt) {
-      setPendingSystemPrompt(systemPrompt);
+    if (coachId) {
+      setPendingCoachId(coachId);
     }
-    createConversation.mutate(systemPrompt);
+    createConversation.mutate(coachId);
   };
 
   const handleFillPrompt = (prompt: string) => {
@@ -700,10 +721,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     setShowProviderModal(false);
     if (pendingCoachAction) {
       setPendingPrompt(pendingCoachAction.prompt);
-      if (pendingCoachAction.systemPrompt) {
-        setPendingSystemPrompt(pendingCoachAction.systemPrompt);
+      if (pendingCoachAction.coachId) {
+        setPendingCoachId(pendingCoachAction.coachId);
       }
-      createConversation.mutate(pendingCoachAction.systemPrompt);
+      createConversation.mutate(pendingCoachAction.coachId);
     }
     setPendingCoachAction(null);
     sessionStorage.removeItem('pierre_pending_coach_action');
@@ -837,6 +858,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageFeedback={messageFeedback}
                 activityLists={activityLists}
                 insightMessageIds={new Set<string>()}
+                verdicts={verdicts}
                 isLoading={messagesLoading}
                 isStreaming={isStreaming}
                 streamingContent={streamingContent}
@@ -852,6 +874,8 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 onThumbsUp={handleThumbsUp}
                 onThumbsDown={handleThumbsDown}
                 onRetryMessage={handleRetryMessage}
+                onShowVerdict={setSelectedVerdict}
+                onAskAboutClaim={handleAskAboutClaim}
               />
             </div>
           </div>
@@ -925,6 +949,17 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
           onNavigateToInsights?.();
         }}
       />
+
+      {selectedVerdict ? (
+        <ChatVerdictDrawer
+          verdict={selectedVerdict}
+          onClose={() => setSelectedVerdict(null)}
+          onAskAboutClaim={() => {
+            handleAskAboutClaim(selectedVerdict);
+            setSelectedVerdict(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

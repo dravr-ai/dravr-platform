@@ -778,4 +778,284 @@ export const adminApi = {
     const response = await axios.post(`/api/admin/contremaitre/coaches/${coachId}/promote`);
     return response.data;
   },
+
+  // ==================== HARNESS CONFIG (Phase B C3) ====================
+  async getHarnessConfig(): Promise<HarnessConfigResponse> {
+    const response = await axios.get('/api/admin/settings/harness');
+    return response.data;
+  },
+
+  async putHarnessConfig(config: HarnessConfigDocument): Promise<HarnessConfigResponse> {
+    const response = await axios.put('/api/admin/settings/harness', config);
+    return response.data;
+  },
+
+  // ==================== TIER 5.5 CLAIM VERDICTS ====================
+  async listClaimVerdicts(params: {
+    tenant_id: string;
+    status?: string;
+    category?: string;
+    coach_id?: string;
+    limit?: number;
+  }): Promise<{
+    verdicts: ClaimVerdictRow[];
+    total: number;
+  }> {
+    const query = new URLSearchParams();
+    query.append('tenant_id', params.tenant_id);
+    if (params.status) query.append('status', params.status);
+    if (params.category) query.append('category', params.category);
+    if (params.coach_id) query.append('coach_id', params.coach_id);
+    if (params.limit !== undefined) query.append('limit', String(params.limit));
+    const response = await axios.get(`/api/admin/claim-verdicts?${query.toString()}`);
+    return response.data;
+  },
+
+  async listVerdictsForConversation(
+    conversationId: string,
+    tenantId: string,
+  ): Promise<{
+    verdicts: ClaimVerdictRow[];
+    total: number;
+  }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.get(
+      `/api/admin/claim-verdicts/conversations/${conversationId}?${query.toString()}`,
+    );
+    return response.data;
+  },
+
+  // ==================== MEMORY EXTRACTION WORKER (Phase B C6) ====================
+  async getMemoryWorkerMetrics(tenantId: string): Promise<MemoryWorkerMetricsResponse> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.get(`/api/admin/memory/worker-metrics?${query.toString()}`);
+    return response.data;
+  },
+
+  // ==================== COACH FOLLOWUP TRIAGE (Phase B C7) ====================
+  async listPendingFollowups(
+    tenantId: string,
+    limit?: number,
+  ): Promise<{ followups: FollowupRow[]; total: number }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    if (limit !== undefined) {
+      query.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/admin/coach-followups/pending?${query.toString()}`);
+    return response.data;
+  },
+
+  async cancelFollowup(
+    followupId: string,
+    tenantId: string,
+  ): Promise<{ cancelled: boolean }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    const response = await axios.post(
+      `/api/admin/coach-followups/${followupId}/cancel?${query.toString()}`,
+    );
+    return response.data;
+  },
+
+  // ==================== COACH NOTES AUDIT (Phase B C8) ====================
+  async listCoachNoteAudit(
+    tenantId: string,
+    limit?: number,
+  ): Promise<{ notes: CoachNoteAuditRow[]; total: number }> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    if (limit !== undefined) {
+      query.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/admin/coach-notes/audit?${query.toString()}`);
+    return response.data;
+  },
+
+  // ==================== MYTH-BUSTING SUMMARY (Phase D C13) ====================
+  async getMythBustingSummary(
+    tenantId: string,
+    limit?: number,
+  ): Promise<MythBustingSummary> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    if (limit !== undefined) {
+      query.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/admin/myth-busting/summary?${query.toString()}`);
+    return response.data;
+  },
+
+  // ==================== COACH GRADING SUMMARY (Phase D C14) ====================
+  async getCoachGradingSummary(
+    tenantId: string,
+    limit?: number,
+  ): Promise<CoachGradingSummary> {
+    const query = new URLSearchParams({ tenant_id: tenantId });
+    if (limit !== undefined) {
+      query.append('limit', String(limit));
+    }
+    const response = await axios.get(`/api/admin/coach-grading/summary?${query.toString()}`);
+    return response.data;
+  },
 };
+
+/** Compaction tunables persisted with the harness config document. */
+export interface HarnessCompactionConfig {
+  window_tokens: number;
+  warn_threshold: number;
+  emergency_threshold: number;
+  summarize_oldest_n: number;
+  sliding_drop_n: number;
+}
+
+/** Tier 6 text guardrail tunables. */
+export interface HarnessGuardrailsConfig {
+  max_response_chars: number;
+  blocked_topics: string[];
+  disclaimer_triggers: string[];
+  disclaimer_text: string;
+}
+
+/** Top-level harness config document persisted under `system_settings`. */
+export interface HarnessConfigDocument {
+  schema_version: number;
+  compaction: HarnessCompactionConfig;
+  guardrails: HarnessGuardrailsConfig;
+}
+
+/** Wire response wrapper for harness config GET / PUT. */
+export interface HarnessConfigResponse {
+  config: HarnessConfigDocument;
+  source: 'persisted' | 'default';
+  updated_at: string | null;
+}
+
+/**
+ * Aggregate health snapshot for the memory extraction worker.
+ *
+ * Derived from `user_facts` rows on the server rather than worker instrumentation,
+ * because the extraction pipeline is a fire-and-forget background task.
+ */
+export interface UserFactMetrics {
+  total_facts: number;
+  facts_last_24h: number;
+  facts_last_7d: number;
+  distinct_users: number;
+  facts_by_kind: Record<string, number>;
+  newest_updated_at: string | null;
+}
+
+/** Envelope returned by `GET /admin/memory/worker-metrics`. */
+export interface MemoryWorkerMetricsResponse {
+  tenant_id: string;
+  metrics: UserFactMetrics;
+}
+
+/** Aggregated stat for a recurring offending claim. */
+export interface ClaimPattern {
+  claim_excerpt: string;
+  occurrences: number;
+  coach_count: number;
+  last_seen_at: string | null;
+}
+
+/** Aggregated stat for a coach with recurring unsupported claims. */
+export interface CoachPattern {
+  coach_id: string;
+  unsupported_total: number;
+  categories: string[];
+}
+
+/** Aggregated stat for a claim category. */
+export interface CategoryPattern {
+  category: string;
+  flagged_total: number;
+  coach_count: number;
+}
+
+/** Top-level wire response for `GET /admin/myth-busting/summary`. */
+export interface MythBustingSummary {
+  tenant_id: string;
+  verdicts_scanned: number;
+  flagged_total: number;
+  top_claims: ClaimPattern[];
+  top_coaches: CoachPattern[];
+  top_categories: CategoryPattern[];
+}
+
+/** Letter grade for a coach based on Tier 5.5 verdict history. */
+export type LetterGrade = 'A' | 'B' | 'C' | 'D' | 'F' | 'PROVISIONAL';
+
+/** Per-coach grade row from `GET /admin/coach-grading/summary`. */
+export interface CoachGrade {
+  coach_id: string;
+  total_verdicts: number;
+  supported: number;
+  unsupported: number;
+  contradicted: number;
+  rhetorical: number;
+  unverifiable: number;
+  score: number;
+  grade: LetterGrade;
+}
+
+/** Top-level wire response for `GET /admin/coach-grading/summary`. */
+export interface CoachGradingSummary {
+  tenant_id: string;
+  verdicts_scanned: number;
+  grades: CoachGrade[];
+}
+
+/**
+ * Wire representation of a coach note row for the admin compliance audit log.
+ *
+ * Notes are personal context the coach persona derived about a user from
+ * conversations, so the audit surface gates behind `ViewAuditLogs`.
+ */
+export interface CoachNoteAuditRow {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  coach_id: string;
+  conversation_id: string | null;
+  scope: 'conversation' | 'user' | 'tenant';
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Wire representation of a coach followup row for the admin triage tab.
+ *
+ * The server flattens the domain `FollowupStatus` enum to its stable
+ * snake_case string so the client does not need to map enum variants.
+ */
+export interface FollowupRow {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  coach_id: string;
+  conversation_id: string | null;
+  content: string;
+  due_at: string | null;
+  status: 'pending' | 'delivered' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+  delivered_at: string | null;
+}
+
+/** Wire-format representation of a Tier 5.5 claim verdict row. */
+export interface ClaimVerdictRow {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  coach_id: string | null;
+  conversation_id: string | null;
+  message_id: string | null;
+  claim_text: string;
+  category: 'physiological' | 'training_prescription' | 'nutrition' | 'recovery' | 'supplement' | 'injury_rehab';
+  status: 'supported' | 'unsupported' | 'contradicted' | 'rhetorical' | 'unverifiable';
+  evidence_strength: 'strong' | 'mixed' | 'weak' | 'none';
+  confidence: number;
+  layer_fired: 'rhetoric' | 'deterministic' | 'evidence' | 'consistency' | 'judge';
+  explanation: string | null;
+  evidence_refs: string | null;
+  created_at: string;
+}

@@ -14,26 +14,14 @@ use pierre_core::models::coaches::{
     CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, DataRequirements,
     ListCoachesFilter, UpdateCoachRequest,
 };
+use pierre_core::models::CoachRuntimeContext;
 use pierre_core::models::TenantId;
+use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
-
-/// Token estimation constant: average characters per token for system prompts
-const CHARS_PER_TOKEN: usize = 4;
-
-/// Estimate token count for a system prompt text
-///
-/// Uses conservative estimate of ~4 characters per token
-#[allow(clippy::cast_possible_truncation)]
-const fn estimate_tokens(text: &str) -> u32 {
-    let char_count = text.len();
-    let tokens = char_count / CHARS_PER_TOKEN;
-    // Token count bounded by reasonable system prompt size (< 100K chars = < 25K tokens)
-    tokens as u32
-}
 
 /// Convert a u32 token count to i32 for binding to `PostgreSQL` INTEGER columns.
 /// Token counts are bounded well within i32 range (max ~25K tokens for 100K chars).
@@ -380,16 +368,17 @@ impl CoachesRepository for PostgresDatabase {
 
         // Section-aware token count
         let token_count = if request.instructions.is_some() || request.purpose.is_some() {
-            let total_chars = request.purpose.as_ref().map_or(0, String::len)
-                + request.instructions.as_ref().map_or(0, String::len)
-                + request.example_inputs.as_ref().map_or(0, String::len)
-                + request.example_outputs.as_ref().map_or(0, String::len)
-                + request.success_criteria.as_ref().map_or(0, String::len);
-            #[allow(clippy::cast_possible_truncation)]
-            let count = (total_chars / CHARS_PER_TOKEN) as u32;
-            count
+            let combined = [
+                request.purpose.as_deref().unwrap_or_default(),
+                request.instructions.as_deref().unwrap_or_default(),
+                request.example_inputs.as_deref().unwrap_or_default(),
+                request.example_outputs.as_deref().unwrap_or_default(),
+                request.success_criteria.as_deref().unwrap_or_default(),
+            ]
+            .concat();
+            estimate_prompt_tokens(&combined)
         } else {
-            estimate_tokens(&request.system_prompt)
+            estimate_prompt_tokens(&request.system_prompt)
         };
 
         // Serialize data_requirements to JSON if present
@@ -626,7 +615,7 @@ impl CoachesRepository for PostgresDatabase {
             .unwrap_or(&existing.sample_prompts);
         let tags_json = serde_json::to_string(tags)?;
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         // Resolve startup_query: use new value if provided, otherwise keep existing via COALESCE
         let startup_query: Option<String> = if request.startup_query.is_some() {
@@ -1156,7 +1145,7 @@ impl CoachesRepository for PostgresDatabase {
         let id = Uuid::new_v4();
         let tags_json = serde_json::to_string(&request.tags)?;
         let sample_prompts_json = serde_json::to_string(&request.sample_prompts)?;
-        let token_count = estimate_tokens(&request.system_prompt);
+        let token_count = estimate_prompt_tokens(&request.system_prompt);
 
         sqlx::query(
             r"
@@ -1318,7 +1307,7 @@ impl CoachesRepository for PostgresDatabase {
             .unwrap_or(&existing.sample_prompts);
         let tags_json = serde_json::to_string(tags)?;
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         let result = sqlx::query(
             r"
@@ -1732,7 +1721,7 @@ impl CoachesRepository for PostgresDatabase {
         let now = Utc::now();
         let tags_json = serde_json::to_string(&tags)?;
         let sample_prompts_json = serde_json::to_string(&sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         // Update the coach with the reverted content
         let result = sqlx::query(
@@ -1802,61 +1791,36 @@ impl CoachesRepository for PostgresDatabase {
         Ok(row.get("current_version"))
     }
 
-    async fn get_startup_context_by_system_prompt(
+    async fn get_coach_runtime_context(
         &self,
-        system_prompt: &str,
+        coach_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+    ) -> AppResult<Option<CoachRuntimeContext>> {
+        type Row = (String, Option<String>, Option<String>, Option<i32>);
+        let row: Option<Row> = sqlx::query_as(
             r"
-            SELECT startup_query, data_requirements
+            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations
             FROM coaches
-            WHERE system_prompt = $1
-              AND (startup_query IS NOT NULL OR data_requirements IS NOT NULL)
+            WHERE id = $1
               AND (tenant_id = $2 OR is_system = TRUE)
             LIMIT 1
             ",
         )
-        .bind(system_prompt)
+        .bind(coach_id)
         .bind(tenant_id.to_string())
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get startup context: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
 
-        Ok(row)
-    }
-
-    async fn get_startup_query_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
-        let context = self
-            .get_startup_context_by_system_prompt(system_prompt, tenant_id)
-            .await?;
-        Ok(context.and_then(|(q, _)| q))
-    }
-
-    async fn get_max_tool_iterations_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<i32>> {
-        let row: Option<(Option<i32>,)> = sqlx::query_as(
-            r"
-            SELECT max_tool_iterations
-            FROM coaches
-            WHERE system_prompt = $1
-              AND (tenant_id = $2 OR is_system = TRUE)
-            LIMIT 1
-            ",
-        )
-        .bind(system_prompt)
-        .bind(tenant_id.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get max_tool_iterations: {e}")))?;
-
-        Ok(row.and_then(|(v,)| v))
+        Ok(row.map(
+            |(system_prompt, startup_query, data_requirements, max_tool_iterations)| {
+                CoachRuntimeContext {
+                    system_prompt,
+                    startup_query,
+                    data_requirements,
+                    max_tool_iterations,
+                }
+            },
+        ))
     }
 }

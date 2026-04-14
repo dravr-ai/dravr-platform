@@ -34,7 +34,7 @@ export function useConversations(options: UseConversationsOptions = {}) {
   const [editingTitle, setEditingTitle] = useState<string | null>(null);
   const [editedTitleValue, setEditedTitleValue] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ id: string; title: string | null } | null>(null);
-  const [pendingSystemPrompt, setPendingSystemPrompt] = useState<string | null>(null);
+  const [pendingCoachId, setPendingCoachId] = useState<string | null>(null);
 
   // Fetch conversations
   const {
@@ -55,20 +55,21 @@ export function useConversations(options: UseConversationsOptions = {}) {
     enabled: !!selectedConversation,
   });
 
-  // Create conversation mutation
+  // Create conversation mutation. The mutate argument is an optional
+  // coach ID; the server resolves the coach's system prompt at runtime.
   const createConversation = useMutation<{ id: string }, Error, string | void>({
-    mutationFn: (systemPrompt) => {
+    mutationFn: (coachId) => {
       const now = new Date();
       const defaultTitle = `Chat ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
       return chatApi.createConversation({
         title: defaultTitle,
-        system_prompt: systemPrompt || pendingSystemPrompt || undefined,
+        coach_id: coachId || pendingCoachId || undefined,
       });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
       setSelectedConversation(data.id);
-      setPendingSystemPrompt(null);
+      setPendingCoachId(null);
       options.onConversationCreated?.(data.id);
     },
   });
@@ -148,12 +149,12 @@ export function useConversations(options: UseConversationsOptions = {}) {
     editingTitle,
     editedTitleValue,
     deleteConfirmation,
-    pendingSystemPrompt,
+    pendingCoachId,
 
     // Setters
     setSelectedConversation: handleSelectConversation,
     setEditedTitleValue,
-    setPendingSystemPrompt,
+    setPendingCoachId,
 
     // Query data
     conversations: conversationsData?.conversations ?? [],

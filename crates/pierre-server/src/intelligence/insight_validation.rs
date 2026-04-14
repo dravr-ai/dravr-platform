@@ -51,8 +51,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 use tracing::{debug, warn};
 
+use pierre_llm::judge::ask_for_json;
+
 use crate::errors::AppError;
-use crate::llm::{ChatMessage, ChatRequest, LlmProvider};
+use crate::llm::LlmProvider;
 use crate::models::{InsightType, UserTier};
 
 // InsightSharingPolicy is defined in pierre-core and re-exported here
@@ -628,8 +630,6 @@ async fn validate_insight(
         user_tier, insight_type
     );
 
-    // Build the validation prompt
-    let system_prompt = validation_prompt.to_owned();
     let user_message = format!(
         "Please evaluate this fitness content for social sharing:\n\n\
         Content Type: {}\n\
@@ -639,67 +639,17 @@ async fn validate_insight(
         content
     );
 
-    let messages = vec![
-        ChatMessage::system(system_prompt),
-        ChatMessage::user(user_message),
-    ];
+    // Low temperature for consistent evaluation
+    let llm_response: LlmValidationResponse =
+        ask_for_json(provider, validation_prompt, &user_message, 0.3).await?;
 
-    let request = ChatRequest::new(messages).with_temperature(0.3); // Low temperature for consistent evaluation
-
-    // Call LLM
-    let response = provider.complete(&request).await?;
-
-    // Parse response
-    let verdict = parse_llm_response(&response.content, user_tier)?;
+    let verdict = llm_response.into_verdict(user_tier);
     let was_improved = matches!(verdict, ValidationVerdict::Improved { .. });
 
     Ok(InternalValidationResult {
         verdict,
         was_improved,
     })
-}
-
-/// Parse LLM response into a validation verdict
-fn parse_llm_response(response: &str, user_tier: &UserTier) -> Result<ValidationVerdict, AppError> {
-    // Try to extract JSON from the response (LLM might include extra text)
-    let json_str = extract_json(response)?;
-
-    let llm_response: LlmValidationResponse = serde_json::from_str(&json_str).map_err(|e| {
-        warn!("Failed to parse LLM validation response: {e}");
-        AppError::internal(format!("Failed to parse validation response: {e}"))
-    })?;
-
-    Ok(llm_response.into_verdict(user_tier))
-}
-
-/// Extract JSON from LLM response that might contain extra text
-fn extract_json(response: &str) -> Result<String, AppError> {
-    // First try: parse the whole response as JSON
-    if serde_json::from_str::<serde_json::Value>(response).is_ok() {
-        return Ok(response.to_owned());
-    }
-
-    // Second try: find JSON object in the response
-    if let Some(start) = response.find('{') {
-        if let Some(end) = response.rfind('}') {
-            let json_candidate = &response[start..=end];
-            if serde_json::from_str::<serde_json::Value>(json_candidate).is_ok() {
-                return Ok(json_candidate.to_owned());
-            }
-        }
-    }
-
-    // Third try: look for JSON in code blocks
-    if let Some(start) = response.find("```json") {
-        if let Some(end) = response[start..].find("```\n") {
-            let json_block = &response[start + 7..start + end];
-            return extract_json(json_block.trim());
-        }
-    }
-
-    Err(AppError::internal(
-        "Could not extract valid JSON from LLM response",
-    ))
 }
 
 // ============================================================================

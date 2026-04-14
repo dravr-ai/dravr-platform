@@ -14,6 +14,8 @@ pub mod analytics;
 pub mod api_keys;
 /// Chat conversation and message storage
 pub mod chat;
+/// Tier 5.5 claim verdicts from the bullshit detector pipeline
+pub mod claim_verdicts;
 /// Coach authors (creator profiles for Store)
 pub mod coach_authors;
 /// Coaches (custom AI personas) storage and management
@@ -32,6 +34,8 @@ pub mod impersonation;
 pub mod llm_credentials;
 /// LLM usage tracking for cost analysis and quota enforcement
 pub mod llm_usage;
+/// Coaching harness memory foundations (facts, compaction, notes, followups, sessions)
+pub mod memory;
 /// Multi-channel messaging gateway (channel configs, sessions, messages, queue)
 pub mod messaging;
 /// Mobility features (stretching exercises and yoga poses)
@@ -2358,11 +2362,11 @@ impl Database {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        system_prompt: Option<&str>,
+        coach_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let chat_manager = ChatManager::new(self.pool.clone());
         chat_manager
-            .create_conversation(user_id, tenant_id, title, model, system_prompt)
+            .create_conversation(user_id, tenant_id, title, model, coach_id)
             .await
     }
 

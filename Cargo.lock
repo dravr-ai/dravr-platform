@@ -2969,6 +2969,7 @@ dependencies = [
  "chrono",
  "hex",
  "pierre-core",
+ "pierre-memory",
  "rand 0.8.5",
  "ring",
  "serde",
@@ -2978,6 +2979,22 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "pierre-evals"
+version = "0.3.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "pierre-core",
+ "pierre-llm",
+ "pierre-memory",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3028,6 +3045,17 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "pierre-memory"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "pierre-core",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 
@@ -3120,9 +3148,11 @@ dependencies = [
  "pierre-cache",
  "pierre-core",
  "pierre-database",
+ "pierre-evals",
  "pierre-groups",
  "pierre-intelligence",
  "pierre-llm",
+ "pierre-memory",
  "pierre-messaging",
  "pierre-notifications",
  "pierre-providers",

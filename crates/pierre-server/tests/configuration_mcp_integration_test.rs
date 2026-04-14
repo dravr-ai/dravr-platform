@@ -225,9 +225,12 @@ async fn test_configuration_tools_count_in_total() {
     );
     // Note: OAuth notification tools removed (4) + connect_to_pierre removed (1) = 5 fewer non-config tools
     // Coaches feature added 21 tools: 9 admin + 12 user coach management tools
+    // Tier 3 harness added 4 memory tools (coach_note_add, coach_followup_schedule,
+    //     remember_fact, recall_user_memory)
+    // Tier 5.5 harness added 1 verification tool (verify_claim)
     assert_eq!(
-        fitness_tools, 69,
-        "Expected exactly 69 non-configuration tools"
+        fitness_tools, 74,
+        "Expected exactly 74 non-configuration tools"
     );
-    assert_eq!(tools.len(), 75, "Expected total of 75 tools"); // 69 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 80, "Expected total of 80 tools"); // 74 non-configuration + 6 configuration
 }

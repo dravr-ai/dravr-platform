@@ -11,6 +11,7 @@ use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::CoachPrerequisites;
 use pierre_core::models::TenantId;
+use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -353,7 +354,7 @@ impl CoachesManager {
             .unwrap_or(&existing.sample_prompts);
         let tags_json = serde_json::to_string(tags)?;
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
-        let token_count = Self::estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         // Resolve startup_query: use new value if provided, otherwise keep existing
         let startup_query: Option<String> = if request.startup_query.is_some() {

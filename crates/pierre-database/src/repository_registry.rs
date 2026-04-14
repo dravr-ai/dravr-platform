@@ -10,15 +10,16 @@ use crate::database::Database as SqliteDatabase;
 #[cfg(feature = "postgresql")]
 use crate::plugins::postgres::PostgresDatabase;
 use crate::repositories::{
-    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, CoachesRepository,
-    CoachingGroupRepository, DataSourceRepository, FitnessConfigRepository,
-    HealthSnapshotRepository, ImpersonationRepository, InsightRepository, LlmCredentialRepository,
-    LlmUsageRepository, MessagingRepository, MobilityRepository, NotificationRepository,
-    OAuth2ServerRepository, OAuthClientStateRepository, OAuthTokenRepository,
-    PasswordResetRepository, ProfileRepository, ProviderConnectionRepository, RecipeRepository,
-    RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository, SocialRepository,
-    StoreListingsRepository, SyncCursorRepository, TenantRepository, ToolSelectionRepository,
-    UsageCounterRepository, UsageRepository, UserMcpTokenRepository, UserRepository,
+    A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
+    CoachesRepository, CoachingGroupRepository, DataSourceRepository, FitnessConfigRepository,
+    HarnessMemoryRepository, HealthSnapshotRepository, ImpersonationRepository, InsightRepository,
+    LlmCredentialRepository, LlmUsageRepository, MessagingRepository, MobilityRepository,
+    NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
+    OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
+    RecipeRepository, RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository,
+    SocialRepository, StoreListingsRepository, SyncCursorRepository, TenantRepository,
+    ToolSelectionRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
+    UserRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -99,6 +100,10 @@ pub struct RepositoryRegistry {
     pub health_snapshots: Arc<dyn HealthSnapshotRepository>,
     /// Sync cursor tracking for CDC-based incremental sync
     pub sync_cursors: Arc<dyn SyncCursorRepository>,
+    /// Coaching harness memory (compaction, facts, notes, followups, sessions)
+    pub memory: Arc<dyn HarnessMemoryRepository>,
+    /// Tier 5.5 claim verdicts from the bullshit detector pipeline
+    pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
 }
 
 impl RepositoryRegistry {
@@ -144,7 +149,9 @@ impl RepositoryRegistry {
             sleep: db.clone(),
             recovery: db.clone(),
             health_snapshots: db.clone(),
-            sync_cursors: db,
+            sync_cursors: db.clone(),
+            memory: db.clone(),
+            claim_verdicts: db,
         }
     }
 
@@ -188,7 +195,9 @@ impl RepositoryRegistry {
             sleep: db.clone(),
             recovery: db.clone(),
             health_snapshots: db.clone(),
-            sync_cursors: db,
+            sync_cursors: db.clone(),
+            memory: db.clone(),
+            claim_verdicts: db,
         }
     }
 }

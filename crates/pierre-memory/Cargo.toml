@@ -1,0 +1,22 @@
+# ABOUTME: Memory primitives for the coaching harness (facts, compaction blocks, sessions, notes)
+# ABOUTME: Pure-types crate — repository traits live in pierre-database, services in pierre-server
+
+[package]
+name = "pierre-memory"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Memory primitives for the Pierre coaching harness"
+repository = "https://github.com/dravr-ai/dravr-platform"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.22", features = ["v4", "serde"] }
+
+[lints]
+workspace = true

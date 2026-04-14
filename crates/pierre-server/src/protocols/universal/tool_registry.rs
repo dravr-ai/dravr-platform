@@ -210,6 +210,20 @@ pub enum ToolId {
     AdminUnassignCoach,
     /// List coach assignments (admin only)
     AdminListCoachAssignments,
+
+    // Tier 3 coach-authored memory tools (harness)
+    /// Persist a coach-authored note about a user
+    CoachNoteAdd,
+    /// Schedule a future coach check-in
+    CoachFollowupSchedule,
+    /// Persist a structured durable user fact via active memory
+    RememberFact,
+    /// Recall stored user facts for the current user
+    RecallUserMemory,
+
+    // Tier 5.5 bullshit detector (verification)
+    /// Verify a factual claim against the Tier 5.5 detector pipeline
+    VerifyClaim,
 }
 
 impl ToolId {
@@ -305,6 +319,11 @@ impl ToolId {
             ADMIN_ASSIGN_COACH => Some(Self::AdminAssignCoach),
             ADMIN_UNASSIGN_COACH => Some(Self::AdminUnassignCoach),
             ADMIN_LIST_COACH_ASSIGNMENTS => Some(Self::AdminListCoachAssignments),
+            "coach_note_add" => Some(Self::CoachNoteAdd),
+            "coach_followup_schedule" => Some(Self::CoachFollowupSchedule),
+            "remember_fact" => Some(Self::RememberFact),
+            "recall_user_memory" => Some(Self::RecallUserMemory),
+            "verify_claim" => Some(Self::VerifyClaim),
             _ => None,
         }
     }
@@ -399,6 +418,11 @@ impl ToolId {
             Self::AdminAssignCoach => ADMIN_ASSIGN_COACH,
             Self::AdminUnassignCoach => ADMIN_UNASSIGN_COACH,
             Self::AdminListCoachAssignments => ADMIN_LIST_COACH_ASSIGNMENTS,
+            Self::CoachNoteAdd => "coach_note_add",
+            Self::CoachFollowupSchedule => "coach_followup_schedule",
+            Self::RememberFact => "remember_fact",
+            Self::RecallUserMemory => "recall_user_memory",
+            Self::VerifyClaim => "verify_claim",
         }
     }
 
@@ -489,6 +513,13 @@ impl ToolId {
             Self::AdminAssignCoach => "Assign coach to users (admin only)",
             Self::AdminUnassignCoach => "Remove coach assignment (admin only)",
             Self::AdminListCoachAssignments => "List coach assignments (admin only)",
+            Self::CoachNoteAdd => "Persist a coach-authored note about the user",
+            Self::CoachFollowupSchedule => "Schedule a future coach check-in with the user",
+            Self::RememberFact => "Persist a structured durable fact about the user",
+            Self::RecallUserMemory => "Recall stored user facts for the active user",
+            Self::VerifyClaim => {
+                "Verify a factual claim against the Tier 5.5 bullshit detector pipeline"
+            }
         }
     }
 

@@ -117,7 +117,7 @@ fn check_branch_match(event: &PushEvent, expected_branch: &str) -> Result<(), St
     }
 }
 
-/// Spawn a background selective sync for the changed prompt/tool files.
+/// Spawn a background selective sync for the changed prompt/tool/evidence files.
 fn spawn_selective_sync(
     resources: &Arc<ServerResources>,
     config: &super::config::ContremaitreConfig,
@@ -125,12 +125,18 @@ fn spawn_selective_sync(
 ) {
     let registry = Arc::clone(&resources.prompt_registry);
     let tool_desc_registry = Arc::clone(&resources.tool_description_registry);
+    let evidence_registry = Arc::clone(&resources.evidence_registry);
     let client = config.github_client();
 
     tokio::spawn(async move {
-        if let Err(e) =
-            super::sync::selective_sync(&registry, &tool_desc_registry, &client, &filtered_paths)
-                .await
+        if let Err(e) = super::sync::selective_sync(
+            &registry,
+            &tool_desc_registry,
+            &evidence_registry,
+            &client,
+            &filtered_paths,
+        )
+        .await
         {
             warn!(error = %e, "Contremaitre selective sync failed");
         } else {

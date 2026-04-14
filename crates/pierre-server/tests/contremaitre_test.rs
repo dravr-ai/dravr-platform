@@ -13,7 +13,8 @@ use std::collections::{HashMap, HashSet};
 
 use pierre_mcp_server::contremaitre::errors::ContremaitreError;
 use pierre_mcp_server::contremaitre::manifest::{
-    compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestPrompts, ManifestTools,
+    compute_sha256, parse_manifest, Manifest, ManifestEntry, ManifestEvidence, ManifestPrompts,
+    ManifestTools,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_mcp_server::contremaitre::tool_descriptions::{
@@ -121,6 +122,7 @@ fn test_manifest_round_trip() {
             coaches: HashMap::new(),
         },
         tools: ManifestTools::default(),
+        evidence: ManifestEvidence::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");
@@ -568,6 +570,8 @@ const EXPECTED_TOOLS: &[&str] = &[
     "calculate_metrics",
     "calculate_personalized_zones",
     "calculate_recovery_score",
+    "coach_followup_schedule",
+    "coach_note_add",
     "compare_activities",
     "connect_provider",
     "create_coach",
@@ -603,7 +607,9 @@ const EXPECTED_TOOLS: &[&str] = &[
     "list_stretching_exercises",
     "list_yoga_poses",
     "optimize_sleep_schedule",
+    "recall_user_memory",
     "refresh_provider_data",
+    "remember_fact",
     "save_recipe",
     "search_coaches",
     "search_food",
@@ -622,6 +628,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "update_user_configuration",
     "validate_configuration",
     "validate_recipe",
+    "verify_claim",
 ];
 
 /// Extract tool names from `fn name(&self) -> &'static str { "..." }` definitions

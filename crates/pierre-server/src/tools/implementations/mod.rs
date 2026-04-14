@@ -72,6 +72,14 @@ pub mod configuration;
 #[cfg(feature = "tools-mobility")]
 pub mod mobility;
 
+// Memory tools: coach_note_add, coach_followup_schedule, remember_fact, recall_user_memory
+#[cfg(feature = "tools-memory")]
+pub mod memory;
+
+// Tier 5.5 verification tools: verify_claim
+#[cfg(feature = "tools-verification")]
+pub mod verification;
+
 // Store tools: browse_store, search_store, install_coach, uninstall_coach
 #[cfg(feature = "tools-store")]
 pub mod store;

@@ -384,7 +384,7 @@ export function ChatScreen() {
     setRenameDefaultTitle('');
   }, []);
 
-  const isCoachConversation = Boolean(conversations.currentConversation?.system_prompt);
+  const isCoachConversation = Boolean(conversations.currentConversation?.coach_id);
 
   return (
     <View className="flex-1 bg-background-primary" testID="chat-screen">

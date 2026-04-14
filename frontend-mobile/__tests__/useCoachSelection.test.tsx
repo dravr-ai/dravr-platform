@@ -133,8 +133,8 @@ describe('useCoachSelection', () => {
       expect(setIsSending).toHaveBeenNthCalledWith(2, false);
     });
 
-    it('should create conversation with coach system prompt', async () => {
-      const coach = createMockCoach({ title: 'Recovery Coach', system_prompt: 'You help with recovery' });
+    it('should create conversation attached to the coach by id', async () => {
+      const coach = createMockCoach({ id: 'coach-recovery', title: 'Recovery Coach' });
       const conversation = createMockConversation();
       const createConversation = jest.fn().mockResolvedValue(conversation);
       const setMessages = jest.fn();
@@ -159,7 +159,7 @@ describe('useCoachSelection', () => {
 
       expect(createConversation).toHaveBeenCalledWith({
         title: 'Chat with Recovery Coach',
-        system_prompt: 'You help with recovery',
+        coach_id: 'coach-recovery',
       });
     });
 

@@ -15,6 +15,7 @@ use crate::models::TenantId;
 use crate::protocols::universal::UniversalResponse;
 #[cfg(feature = "tools-groups")]
 use crate::services::group_fitness::fetch_member_snapshots;
+use crate::services::prompt_leak;
 use crate::{
     errors::AppError,
     llm::{ChatMessage, ChatProvider, FunctionDeclaration, Tool},
@@ -22,7 +23,7 @@ use crate::{
     middleware::extract_auth_from_headers,
     protocols::universal::UniversalExecutor,
     services::{
-        chat_orchestration,
+        chat_orchestration, chat_verdicts,
         usage_counter::{LimitCheckResult, UsageCounterService},
     },
 };
@@ -36,9 +37,9 @@ use axum::{
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::coaches::DataRequirements;
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::AddMessageParams;
+use pierre_core::models::{AddMessageParams, CoachRuntimeContext};
+use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::pricing::estimate_tokens;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 use serde::{Deserialize, Serialize};
@@ -185,9 +186,10 @@ pub struct CreateConversationRequest {
     /// LLM model to use (optional, defaults to provider's default model)
     #[serde(default)]
     pub model: Option<String>,
-    /// System prompt for the conversation (optional)
+    /// Coach ID to attach to this conversation (optional). The coach's
+    /// system prompt is resolved at runtime from the `coaches` table.
     #[serde(default)]
-    pub system_prompt: Option<String>,
+    pub coach_id: Option<String>,
 }
 
 /// Response for conversation creation
@@ -199,8 +201,8 @@ pub struct ConversationResponse {
     pub title: String,
     /// Model used
     pub model: String,
-    /// System prompt if set
-    pub system_prompt: Option<String>,
+    /// Coach attached to this conversation, if any
+    pub coach_id: Option<String>,
     /// Total tokens used
     pub total_tokens: i64,
     /// Creation timestamp
@@ -345,6 +347,11 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/messages",
                 post(Self::send_message),
             )
+            // Tier 5.5 claim verdicts attached to messages in this conversation
+            .route(
+                "/api/chat/conversations/{conversation_id}/verdicts",
+                get(chat_verdicts::get_verdicts_handler),
+            )
             .with_state(resources)
     }
 
@@ -367,18 +374,51 @@ impl ChatRoutes {
             .map_or_else(|| TenantId::from(user_id), |t| t.id))
     }
 
-    /// Get the system prompt text for a conversation
+    /// Resolve the coach runtime context (system prompt + startup query +
+    /// data requirements + tool-iteration override) for a conversation.
     ///
-    /// Uses conversation-specific prompt if set, otherwise returns the default Pierre system prompt
-    /// from the contremaitre registry (hot-reloadable) or compiled-in fallback.
-    fn get_system_prompt_text(
+    /// Returns `None` when the conversation has no coach attached. Errors
+    /// from the lookup are logged and swallowed — callers fall back to the
+    /// default Pierre prompt.
+    async fn resolve_coach_context(
         conversation: &ConversationRecord,
         resources: &ServerResources,
+        tenant_id: TenantId,
+    ) -> Option<CoachRuntimeContext> {
+        let coach_id = conversation.coach_id.as_deref()?;
+        match resources
+            .repos
+            .coaches
+            .get_coach_runtime_context(coach_id, tenant_id)
+            .await
+        {
+            Ok(Some(ctx)) => Some(ctx),
+            Ok(None) => {
+                warn!(
+                    coach_id = coach_id,
+                    "Conversation references a coach that no longer exists; \
+                     falling back to default Pierre prompt"
+                );
+                None
+            }
+            Err(e) => {
+                warn!("Failed to resolve coach runtime context: {e}");
+                None
+            }
+        }
+    }
+
+    /// Get the system prompt text for a conversation given an already-fetched
+    /// coach context. Falls back to the default Pierre system prompt when no
+    /// coach is attached (from the contremaitre registry or compiled-in).
+    fn get_system_prompt_text(
+        coach_ctx: Option<&CoachRuntimeContext>,
+        resources: &ServerResources,
     ) -> String {
-        conversation
-            .system_prompt
-            .clone()
-            .unwrap_or_else(|| resources.pierre_system_prompt())
+        coach_ctx.map_or_else(
+            || resources.pierre_system_prompt(),
+            |c| c.system_prompt.clone(),
+        )
     }
 
     /// Build provider context string for inclusion in system prompt
@@ -428,11 +468,12 @@ impl ChatRoutes {
     /// Get augmented system prompt with provider context and group coaching context
     async fn get_augmented_system_prompt(
         conversation: &ConversationRecord,
+        coach_ctx: Option<&CoachRuntimeContext>,
         resources: &Arc<ServerResources>,
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> String {
-        let base_prompt = Self::get_system_prompt_text(conversation, resources);
+        let base_prompt = Self::get_system_prompt_text(coach_ctx, resources);
         let provider_context = Self::build_provider_context(resources, user_id).await;
 
         let mut augmented = if provider_context.is_empty() {
@@ -543,58 +584,45 @@ impl ChatRoutes {
     ///
     /// Returns `Some((query, data_requirements))` only if:
     /// - This is the first message in the conversation (`history_len == 1`)
-    /// - The conversation has a custom `system_prompt` (indicates a coach)
+    /// - The conversation has a resolved coach context
     /// - The coach has a `startup_query` or `data_requirements` configured
-    async fn get_startup_context_if_applicable(
-        resources: &Arc<ServerResources>,
+    fn get_startup_context_if_applicable(
         history_len: usize,
-        system_prompt: Option<&String>,
-        tenant_id: TenantId,
+        coach_ctx: Option<&CoachRuntimeContext>,
     ) -> Option<(Option<String>, Option<DataRequirements>)> {
-        // Only inject on first message
         if history_len != 1 {
             return None;
         }
 
-        // Must have a system prompt (indicates coach conversation)
-        let prompt = system_prompt?;
+        let ctx = coach_ctx?;
 
-        let coaches_manager = resources.coaches_manager();
-
-        match coaches_manager
-            .get_startup_context_by_system_prompt(prompt, tenant_id)
-            .await
-        {
-            Ok(Some((query, data_reqs_json))) => {
-                if let Some(q) = &query {
-                    info!(
-                        "Found startup query for coach conversation: {}",
-                        &q[..q.len().min(50)]
-                    );
-                }
-
-                // Parse data_requirements JSON if present
-                let data_reqs = data_reqs_json.and_then(|json| {
-                    match serde_json::from_str::<DataRequirements>(&json) {
-                        Ok(dr) => {
-                            info!("Found data_requirements for coach context assembly");
-                            Some(dr)
-                        }
-                        Err(e) => {
-                            warn!("Failed to parse data_requirements JSON: {e}");
-                            None
-                        }
+        let query = ctx.startup_query.clone();
+        let data_reqs =
+            ctx.data_requirements.as_ref().and_then(|json| {
+                match serde_json::from_str::<DataRequirements>(json) {
+                    Ok(dr) => {
+                        info!("Found data_requirements for coach context assembly");
+                        Some(dr)
                     }
-                });
+                    Err(e) => {
+                        warn!("Failed to parse data_requirements JSON: {e}");
+                        None
+                    }
+                }
+            });
 
-                Some((query, data_reqs))
-            }
-            Ok(None) => None,
-            Err(e) => {
-                warn!("Failed to get startup context: {e}");
-                None
-            }
+        if query.is_none() && data_reqs.is_none() {
+            return None;
         }
+
+        if let Some(q) = &query {
+            info!(
+                "Found startup query for coach conversation: {}",
+                &q[..q.len().min(50)]
+            );
+        }
+
+        Some((query, data_reqs))
     }
 
     /// Pre-fetch activity data based on structured `DataRequirements`.
@@ -666,21 +694,15 @@ impl ChatRoutes {
     /// Without `data_requirements`, the startup query is injected as-is for the LLM
     /// to interpret (tool-calling fallback).
     async fn inject_startup_context(
-        resources: &Arc<ServerResources>,
         executor: &Arc<UniversalExecutor>,
         llm_messages: &mut Vec<ChatMessage>,
         history: &[MessageRecord],
-        system_prompt: Option<&String>,
+        coach_ctx: Option<&CoachRuntimeContext>,
         user_id_str: &str,
         tenant_id: TenantId,
     ) {
-        let Some((startup_query, data_reqs)) = Self::get_startup_context_if_applicable(
-            resources,
-            history.len(),
-            system_prompt,
-            tenant_id,
-        )
-        .await
+        let Some((startup_query, data_reqs)) =
+            Self::get_startup_context_if_applicable(history.len(), coach_ctx)
         else {
             return;
         };
@@ -711,30 +733,6 @@ impl ChatRoutes {
     /// Get LLM provider based on `PIERRE_LLM_PROVIDER` environment variable
     async fn get_llm_provider() -> Result<ChatProvider, AppError> {
         super::create_chat_provider().await
-    }
-
-    /// Build LLM messages from conversation history and optional system prompt
-    fn build_llm_messages(
-        system_prompt: Option<&str>,
-        history: &[MessageRecord],
-    ) -> Vec<ChatMessage> {
-        let mut messages = Vec::with_capacity(history.len() + 1);
-
-        if let Some(prompt) = system_prompt {
-            messages.push(ChatMessage::system(prompt));
-        }
-
-        for msg in history {
-            let chat_msg = match msg.role.as_str() {
-                "user" => ChatMessage::user(&msg.content),
-                "assistant" => ChatMessage::assistant(&msg.content),
-                "system" => ChatMessage::system(&msg.content),
-                _ => continue,
-            };
-            messages.push(chat_msg);
-        }
-
-        messages
     }
 
     /// Build connection-related tool definitions
@@ -989,7 +987,7 @@ impl ChatRoutes {
             tenant_id,
             &request.title,
             request.model.as_deref(),
-            request.system_prompt.as_deref(),
+            request.coach_id.as_deref(),
         )
         .await?;
 
@@ -998,7 +996,7 @@ impl ChatRoutes {
             id: conv.id,
             title: conv.title,
             model: conv.model,
-            system_prompt: conv.system_prompt,
+            coach_id: conv.coach_id,
             total_tokens: conv.total_tokens,
             created_at: conv.created_at,
             updated_at: conv.updated_at,
@@ -1067,7 +1065,7 @@ impl ChatRoutes {
             id: conv.id,
             title: conv.title,
             model: conv.model,
-            system_prompt: conv.system_prompt,
+            coach_id: conv.coach_id,
             total_tokens: conv.total_tokens,
             created_at: conv.created_at,
             updated_at: conv.updated_at,
@@ -1113,7 +1111,7 @@ impl ChatRoutes {
             id: conv.id,
             title: conv.title,
             model: conv.model,
-            system_prompt: conv.system_prompt,
+            coach_id: conv.coach_id,
             total_tokens: conv.total_tokens,
             created_at: conv.created_at,
             updated_at: conv.updated_at,
@@ -1190,6 +1188,7 @@ impl ChatRoutes {
     }
 
     /// Send a message and get a response (non-streaming) with MCP tool execution
+    #[allow(clippy::cognitive_complexity)]
     async fn send_message(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1236,28 +1235,45 @@ impl ChatRoutes {
         // These use a dedicated prompt optimized for clean, shareable output
         let is_insight_request = request.content.starts_with(INSIGHT_PROMPT_PREFIX);
 
-        let mut llm_messages = if is_insight_request {
-            // For insight generation: use dedicated prompt and extract just the analysis
-            let insight_prompt = resources.insight_generation_prompt();
+        // Resolve coach runtime context once and reuse for prompt, startup, and
+        // tool-iteration decisions — single DB round trip per turn.
+        let coach_ctx = if is_insight_request {
+            None
+        } else {
+            Self::resolve_coach_context(&conv, &resources, tenant_id).await
+        };
 
-            // Extract the analysis content (everything after the prefix and colon/newlines)
+        let mut prompt_guard_opt: Option<prompt_leak::PromptGuard> = None;
+        let mut llm_messages = if is_insight_request {
+            let insight_prompt = resources.insight_generation_prompt();
             let analysis_content = request
                 .content
                 .strip_prefix(INSIGHT_PROMPT_PREFIX)
                 .unwrap_or(&request.content)
                 .trim_start_matches(':')
                 .trim();
-
-            // Build messages without history - insight generation is a single-turn task
             vec![
                 ChatMessage::system(insight_prompt),
                 ChatMessage::user(analysis_content),
             ]
         } else {
-            // Normal conversation: use augmented system prompt with full history
-            let system_prompt_text =
-                Self::get_augmented_system_prompt(&conv, &resources, auth.user_id, tenant_id).await;
-            Self::build_llm_messages(Some(system_prompt_text.as_str()), &history)
+            let system_prompt_text = Self::get_augmented_system_prompt(
+                &conv,
+                coach_ctx.as_ref(),
+                &resources,
+                auth.user_id,
+                tenant_id,
+            )
+            .await;
+            let guard = prompt_leak::harden_system_prompt(
+                tenant_id,
+                conv.coach_id.as_deref(),
+                &system_prompt_text,
+            );
+            let msgs =
+                chat_orchestration::build_llm_messages(Some(&guard.hardened_prompt), &history);
+            prompt_guard_opt = Some(guard);
+            msgs
         };
 
         // Create MCP executor for tool calls (Arc for sharing with SDK tool handler closures)
@@ -1267,11 +1283,10 @@ impl ChatRoutes {
         // Inject startup context if this is the first message in a coach conversation
         if !is_insight_request {
             Self::inject_startup_context(
-                &resources,
                 &executor,
                 &mut llm_messages,
                 &history,
-                conv.system_prompt.as_ref(),
+                coach_ctx.as_ref(),
                 &user_id_str,
                 tenant_id,
             )
@@ -1286,8 +1301,7 @@ impl ChatRoutes {
 
         // Resolve max tool iterations: coach setting > admin config > default
         let max_iterations =
-            Self::resolve_max_tool_iterations(&resources, conv.system_prompt.as_ref(), tenant_id)
-                .await;
+            Self::resolve_max_tool_iterations(&resources, coach_ctx.as_ref(), tenant_id).await;
 
         // Track execution time for the entire LLM + tool loop
         let start_time = Instant::now();
@@ -1320,6 +1334,18 @@ impl ChatRoutes {
         // Extract token counts from usage, falling back to character-based estimation
         // when the provider doesn't return real counts (e.g., CLI-based providers)
         let (prompt_tokens, token_count) = Self::extract_or_estimate_tokens(&result, &llm_messages);
+
+        // Sprint C9/C11: scan the LLM reply for verbatim system-prompt
+        // leaks and for the hidden canary. Only runs for coach-driven
+        // conversations — insight requests skip the guard block.
+        if let Some(ref guard) = prompt_guard_opt {
+            prompt_leak::scan_assistant_reply(
+                guard,
+                &result.content,
+                tenant_id,
+                conv.coach_id.as_deref(),
+            );
+        }
 
         // Process content: parse insight JSON if applicable
         let final_content = Self::post_process_content(&result.content, is_insight_request);
@@ -1405,7 +1431,7 @@ impl ChatRoutes {
     }
 
     /// Fire-and-forget notification when a coach conversation produces a response.
-    /// Only sends if the conversation has a `system_prompt` (indicates coach persona).
+    /// Only sends if the conversation has a `coach_id` (indicates coach persona).
     #[cfg(feature = "client-notifications")]
     fn notify_coach_response(
         resources: &Arc<ServerResources>,
@@ -1414,7 +1440,7 @@ impl ChatRoutes {
         tenant_id: TenantId,
         conversation_id: &str,
     ) {
-        if conv.system_prompt.is_some() {
+        if conv.coach_id.is_some() {
             if let Some(service) = &resources.notification_service {
                 let coach_title = conv.title.clone();
                 notification_triggers::trigger_coach_message(
@@ -1573,29 +1599,20 @@ impl ChatRoutes {
     /// Resolve the maximum tool iterations for this conversation
     ///
     /// Resolution hierarchy: coach `max_tool_iterations` > admin config > default (10).
-    /// Looks up the coach by system prompt when the conversation has one.
+    /// Uses the coach runtime context already resolved for this turn.
     async fn resolve_max_tool_iterations(
         resources: &Arc<ServerResources>,
-        system_prompt: Option<&String>,
-        tenant_id: TenantId,
+        coach_ctx: Option<&CoachRuntimeContext>,
+        _tenant_id: TenantId,
     ) -> usize {
-        // Try coach-level override via system prompt lookup
-        if let Some(prompt) = system_prompt {
-            {
-                let coaches_manager = resources.coaches_manager();
-                if let Ok(Some(iterations)) = coaches_manager
-                    .get_max_tool_iterations_by_system_prompt(prompt, tenant_id)
-                    .await
-                {
-                    #[allow(clippy::cast_sign_loss)]
-                    let value = iterations.max(1) as usize;
-                    debug!(
-                        max_tool_iterations = value,
-                        "Using coach-level tool iteration limit"
-                    );
-                    return value;
-                }
-            }
+        if let Some(iterations) = coach_ctx.and_then(|c| c.max_tool_iterations) {
+            #[allow(clippy::cast_sign_loss)]
+            let value = iterations.max(1) as usize;
+            debug!(
+                max_tool_iterations = value,
+                "Using coach-level tool iteration limit"
+            );
+            return value;
         }
 
         // Try admin config override
@@ -1675,7 +1692,8 @@ impl ChatRoutes {
                     .map(|m| m.content.as_str())
                     .collect::<Vec<_>>()
                     .join("\n");
-                let (est_prompt, est_completion) = estimate_tokens(&prompt_text, &result.content);
+                let (est_prompt, est_completion) =
+                    estimate_chat_tokens(&prompt_text, &result.content);
                 debug!(
                     est_prompt,
                     est_completion, "Using estimated token counts (provider returned no usage)"

@@ -82,6 +82,9 @@ export type {
   LlmSettingsResponse,
   SaveLlmCredentialsRequest,
   SaveLlmCredentialsResponse,
+  MemoryFactRow,
+  MemoryFactListResponse,
+  ForgetMemoryFactResponse,
 } from './domains/user';
 
 export { createNotificationsApi } from './domains/notifications';

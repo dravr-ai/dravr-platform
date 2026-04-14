@@ -11,7 +11,14 @@
 //! wrappers that delegate business logic to service layers.
 
 mod api_keys;
+mod claim_verdicts;
+mod coach_followups;
+mod coach_grading;
+mod coach_notes;
 mod diagnostics;
+pub mod harness_config;
+mod memory_worker;
+mod myth_busting;
 mod settings;
 mod setup;
 mod store;
@@ -153,6 +160,36 @@ impl AdminRoutes {
 
         // Diagnostics routes for system observability
         let diagnostics_routes = Self::diagnostics_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Tier 5.5 claim verdict triage routes
+        let claim_verdict_routes = Self::claim_verdict_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Memory extraction worker observability routes
+        let memory_worker_routes = Self::memory_worker_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Coach followup triage routes
+        let coach_followup_routes = Self::coach_followup_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Coach note compliance audit routes
+        let coach_note_routes = Self::coach_note_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Myth-busting summary routes (Phase D)
+        let myth_busting_routes = Self::myth_busting_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
+        // Coach grading routes (Phase D)
+        let coach_grading_routes = Self::coach_grading_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
@@ -167,7 +204,81 @@ impl AdminRoutes {
             .merge(tool_selection_routes)
             .merge(store_review_routes)
             .merge(diagnostics_routes)
+            .merge(claim_verdict_routes)
+            .merge(memory_worker_routes)
+            .merge(coach_followup_routes)
+            .merge(coach_note_routes)
+            .merge(myth_busting_routes)
+            .merge(coach_grading_routes)
             .merge(setup_routes)
+    }
+
+    /// Coach grading routes (Axum)
+    fn coach_grading_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/coach-grading/summary",
+                get(coach_grading::handle_get_summary),
+            )
+            .with_state(context)
+    }
+
+    /// Myth-busting summary routes (Axum)
+    fn myth_busting_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/myth-busting/summary",
+                get(myth_busting::handle_get_summary),
+            )
+            .with_state(context)
+    }
+
+    /// Coach note audit log routes (Axum)
+    fn coach_note_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/coach-notes/audit",
+                get(coach_notes::handle_list_audit),
+            )
+            .with_state(context)
+    }
+
+    /// Coach followup triage routes (Axum)
+    fn coach_followup_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/coach-followups/pending",
+                get(coach_followups::handle_list_pending_followups),
+            )
+            .route(
+                "/admin/coach-followups/{followup_id}/cancel",
+                post(coach_followups::handle_cancel_followup),
+            )
+            .with_state(context)
+    }
+
+    /// Memory extraction worker observability routes (Axum)
+    fn memory_worker_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/memory/worker-metrics",
+                get(memory_worker::handle_get_memory_metrics),
+            )
+            .with_state(context)
+    }
+
+    /// Tier 5.5 claim verdict triage routes (Axum)
+    fn claim_verdict_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route(
+                "/admin/claim-verdicts",
+                get(claim_verdicts::handle_list_claim_verdicts),
+            )
+            .route(
+                "/admin/claim-verdicts/conversations/{conversation_id}",
+                get(claim_verdicts::handle_list_verdicts_by_conversation),
+            )
+            .with_state(context)
     }
 
     /// API key management routes (Axum)
@@ -231,6 +342,14 @@ impl AdminRoutes {
             .route(
                 "/admin/settings/social-insights",
                 delete(settings::handle_reset_social_insights_config),
+            )
+            .route(
+                "/admin/settings/harness",
+                get(harness_config::handle_get_harness_config),
+            )
+            .route(
+                "/admin/settings/harness",
+                put(harness_config::handle_put_harness_config),
             )
             .with_state(context)
     }

@@ -1,0 +1,27 @@
+# ABOUTME: Coaching evaluation harness — golden fixtures, LLM-as-judge rubrics, multi-turn scoring
+# ABOUTME: Tier 5 of the coaching harness; consumed by `cargo test -p pierre-evals` in CI
+
+[package]
+name = "pierre-evals"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Coaching evaluation harness for the Pierre platform"
+repository = "https://github.com/dravr-ai/repository"
+publish = false
+
+[dependencies]
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["llm", "all-errors"] }
+pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tokio = { version = "1.50", features = ["fs", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -9,9 +9,8 @@ export interface Conversation {
   title: string | null;
   /** Model used for this conversation */
   model?: string;
-  /** System prompt (custom system instructions) */
-  system_prompt?: string;
-  /** Coach ID if conversation uses a coach */
+  /** Coach ID if conversation uses a coach; resolves to the coach's
+   *  system_prompt at runtime via the coaches table. */
   coach_id?: string | null;
   /** Total tokens used in conversation */
   total_tokens?: number;

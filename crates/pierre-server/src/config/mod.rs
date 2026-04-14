@@ -54,6 +54,8 @@ pub mod security;
 pub mod sleep_tool_params;
 /// Social insights configuration for coach-mediated sharing
 pub mod social;
+/// Tier 6 text guardrails — disclaimer prefixes, blocked topics, length caps
+pub mod text_guardrails;
 /// Tool selection configuration for global tool disabling via environment variables
 pub mod tool_selection;
 /// Core configuration type definitions (`LogLevel`, `Environment`, `LlmProviderType`)

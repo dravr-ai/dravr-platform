@@ -458,7 +458,55 @@ impl ToolRegistry {
         #[cfg(feature = "tools-store")]
         self.register_store_tools();
 
+        // Memory tools (Tier 3 coach-authored memory)
+        #[cfg(feature = "tools-memory")]
+        self.register_memory_tools();
+
+        // Verification tools (Tier 5.5 bullshit detector)
+        #[cfg(feature = "tools-verification")]
+        self.register_verification_tools();
+
         info!("Registered {} built-in tools", self.len());
+    }
+
+    /// Register Tier 3 coach-authored memory tools.
+    #[cfg(feature = "tools-memory")]
+    fn register_memory_tools(&mut self) {
+        use super::implementations::memory::create_memory_tools;
+
+        debug!(
+            "Registering memory tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_memory_tools() {
+            self.register_with_category(Arc::from(tool), "memory");
+        }
+
+        info!(
+            "Registered memory tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register Tier 5.5 verification tools.
+    #[cfg(feature = "tools-verification")]
+    fn register_verification_tools(&mut self) {
+        use super::implementations::verification::create_verification_tools;
+
+        debug!(
+            "Registering verification tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_verification_tools() {
+            self.register_with_category(Arc::from(tool), "verification");
+        }
+
+        info!(
+            "Registered verification tools (registry now has {} tools)",
+            self.tools.len()
+        );
     }
 
     /// Register connection management tools

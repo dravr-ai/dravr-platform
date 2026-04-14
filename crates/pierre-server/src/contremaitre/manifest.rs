@@ -17,13 +17,17 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (1 = prompts only, 2 = prompts + tools)
+    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
     /// Tool description entries keyed by tool name (version 2+)
     #[serde(default)]
     pub tools: ManifestTools,
+    /// Evidence entries grouped by domain then category (version 3+).
+    /// Empty on v1/v2 manifests.
+    #[serde(default)]
+    pub evidence: ManifestEvidence,
 }
 
 /// Prompt entries grouped by type: system prompts and coach personas.
@@ -38,6 +42,16 @@ pub struct ManifestPrompts {
 /// Top-level manifest structure (version 2+) adds tool description entries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
+
+/// Tier 5.5 evidence entries (version 3+).
+///
+/// Evidence is nested `domain → category → slug → entry`. The only domain
+/// in Phase A is `sports_science`; Phase D may add `physical_therapy`,
+/// `clinical_nutrition`, etc. Each category maps to a flat `HashMap` of
+/// proposition slugs so the sync engine can dedupe by `(domain, category,
+/// slug)` the same way [`ManifestTools`] dedupes by tool name.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestEvidence(pub HashMap<String, HashMap<String, HashMap<String, ManifestEntry>>>);
 
 /// A single prompt entry in the manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,9 +75,9 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ContremaitreError> {
     let manifest: Manifest =
         serde_json::from_str(json).map_err(|e| ContremaitreError::ManifestParse(e.to_string()))?;
 
-    if manifest.version == 0 || manifest.version > 2 {
+    if manifest.version == 0 || manifest.version > 3 {
         return Err(ContremaitreError::ManifestParse(format!(
-            "unsupported manifest version: {} (expected 1 or 2)",
+            "unsupported manifest version: {} (expected 1, 2, or 3)",
             manifest.version
         )));
     }

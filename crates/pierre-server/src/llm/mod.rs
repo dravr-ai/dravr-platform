@@ -14,6 +14,7 @@ pub use pierre_llm::*;
 
 // Re-export submodules explicitly so `crate::llm::pricing::calculate_cost` etc. work
 pub use pierre_llm::config;
+pub use pierre_llm::judge;
 pub use pierre_llm::pricing;
 pub use pierre_llm::prompts;
 pub use pierre_llm::sse_parser;

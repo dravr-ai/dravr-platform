@@ -88,6 +88,9 @@ pub mod usage;
 #[cfg(feature = "client-chat")]
 pub mod llm_consumption;
 
+/// User-facing harness memory routes (list / forget user_facts)
+pub mod memory;
+
 /// Coaches (custom AI personas) routes
 #[cfg(feature = "client-coaches")]
 pub mod coaches;

@@ -990,6 +990,7 @@ impl MultiTenantMcpServer {
         use crate::routes::llm_settings::LlmSettingsRoutes;
         #[cfg(feature = "protocol-mcp")]
         use crate::routes::mcp::McpRoutes;
+        use crate::routes::memory::MemoryRoutes;
         #[cfg(feature = "oauth")]
         use crate::routes::oauth2::OAuth2Routes;
         #[cfg(feature = "openapi")]
@@ -1148,6 +1149,9 @@ impl MultiTenantMcpServer {
             .merge(ChatRoutes::routes(Arc::clone(resources)))
             .merge(UsageRoutes::routes(Arc::clone(resources)))
             .merge(LlmConsumptionRoutes::routes(Arc::clone(resources)));
+
+        // Phase B Sprint C5 — user-facing harness memory facts (list / forget)
+        let app = app.merge(MemoryRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-coaches")]
         let app = app

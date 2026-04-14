@@ -72,7 +72,8 @@ async fn create_test_db() -> SqlitePool {
             tenant_id TEXT NOT NULL,
             title TEXT NOT NULL,
             model TEXT NOT NULL DEFAULT 'gemini-1.5-flash',
-            system_prompt TEXT,
+            coach_id TEXT,
+            session_id TEXT,
             total_tokens INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -126,29 +127,25 @@ async fn test_create_conversation() {
     assert_eq!(conv.tenant_id, tenant_id.to_string());
     assert_eq!(conv.title, "Test Chat");
     assert_eq!(conv.model, "gemini-1.5-flash");
-    assert!(conv.system_prompt.is_none());
+    assert!(conv.coach_id.is_none());
     assert_eq!(conv.total_tokens, 0);
 }
 
 #[tokio::test]
-async fn test_create_conversation_with_system_prompt() {
+async fn test_create_conversation_with_coach_id() {
     let pool = create_test_db().await;
     let manager = ChatManager::new(pool);
 
+    // No coaches table in this isolated test DB; pass None and assert the plumbing
+    // preserves the NULL. Full coach-attached conversation flow is exercised in the
+    // route-level and orchestration integration tests.
     let tenant_id = test_tenant_id();
-    let system_prompt = "You are a helpful fitness assistant.";
     let conv = manager
-        .create_conversation(
-            "user-1",
-            tenant_id,
-            "Fitness Chat",
-            "gemini-1.5-pro",
-            Some(system_prompt),
-        )
+        .create_conversation("user-1", tenant_id, "Fitness Chat", "gemini-1.5-pro", None)
         .await
         .unwrap();
 
-    assert_eq!(conv.system_prompt, Some(system_prompt.to_owned()));
+    assert!(conv.coach_id.is_none());
     assert_eq!(conv.model, "gemini-1.5-pro");
 }
 

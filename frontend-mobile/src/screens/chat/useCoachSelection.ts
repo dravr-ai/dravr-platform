@@ -30,7 +30,7 @@ export interface CoachSelectionActions {
   startCoachConversation: (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation>;
+      createConversation: (params: { title: string; coach_id?: string }) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -108,7 +108,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
   const startCoachConversation = useCallback(async (
     coach: Coach,
     options: {
-      createConversation: (params: { title: string; system_prompt?: string }) => Promise<Conversation>;
+      createConversation: (params: { title: string; coach_id?: string }) => Promise<Conversation>;
       setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
       setIsSending: (sending: boolean) => void;
       scrollToBottom: () => void;
@@ -124,7 +124,7 @@ export function useCoachSelection(): CoachSelectionState & CoachSelectionActions
 
       const conversation = await options.createConversation({
         title: `Chat with ${coach.title}`,
-        system_prompt: coach.system_prompt,
+        coach_id: coach.id,
       });
 
       const initialMessage = coach.startup_query || `Let's get started with ${coach.title}!`;

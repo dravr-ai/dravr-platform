@@ -252,7 +252,62 @@ export function createUserApi(axios: AxiosInstance) {
     deleteUserOAuthApp(provider: string) {
       return this.deleteOAuthApp(provider);
     },
+
+    /**
+     * List the harness memory facts the platform has stored about the
+     * authenticated user. Powers the Sprint C5 "what the coach
+     * remembers" panel.
+     */
+    async listMemoryFacts(params?: {
+      coach_id?: string;
+      kind?: string;
+      limit?: number;
+    }): Promise<MemoryFactListResponse> {
+      const query = new URLSearchParams();
+      if (params?.coach_id) query.append('coach_id', params.coach_id);
+      if (params?.kind) query.append('kind', params.kind);
+      if (params?.limit !== undefined) query.append('limit', String(params.limit));
+      const path = query.toString()
+        ? `/api/memory/facts?${query.toString()}`
+        : '/api/memory/facts';
+      const response = await axios.get<MemoryFactListResponse>(path);
+      return response.data;
+    },
+
+    /**
+     * GDPR-grade Forget for a single stored fact. Returns `{ deleted }`
+     * indicating whether a row was actually removed; the post-condition
+     * is idempotent ("the fact is gone") regardless.
+     */
+    async forgetMemoryFact(factId: string): Promise<ForgetMemoryFactResponse> {
+      const response = await axios.delete<ForgetMemoryFactResponse>(
+        `/api/memory/facts/${encodeURIComponent(factId)}`,
+      );
+      return response.data;
+    },
   };
+}
+
+/** Wire shape for a single user_facts row served to the memory panel. */
+export interface MemoryFactRow {
+  id: string;
+  coach_id: string | null;
+  kind: 'preference' | 'physiology' | 'injury' | 'goal' | 'schedule' | 'equipment' | 'other';
+  subject: string;
+  predicate: string;
+  object: string;
+  confidence: number;
+  source_msg_id: string | null;
+  updated_at: string;
+}
+
+export interface MemoryFactListResponse {
+  facts: MemoryFactRow[];
+  total: number;
+}
+
+export interface ForgetMemoryFactResponse {
+  deleted: boolean;
 }
 
 export type UserApi = ReturnType<typeof createUserApi>;

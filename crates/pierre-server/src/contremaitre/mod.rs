@@ -20,6 +20,8 @@ pub mod admin;
 pub mod config;
 /// Structured error types mapped to `AppError` via `ErrorCode`
 pub mod errors;
+/// Hot-reloadable Tier 5.5 evidence registry for the bullshit detector
+pub mod evidence_registry;
 /// GitHub Contents API client for reading and writing prompt files
 pub mod github;
 /// Manifest parsing and SHA-256 hash computation for change detection
@@ -35,6 +37,7 @@ pub mod webhook;
 
 pub use config::ContremaitreConfig;
 pub use errors::ContremaitreError;
+pub use evidence_registry::EvidenceRegistry;
 pub use manifest::Manifest;
 pub use registry::PromptRegistry;
 pub use tool_descriptions::ToolDescriptionRegistry;

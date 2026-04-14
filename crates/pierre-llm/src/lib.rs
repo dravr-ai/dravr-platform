@@ -33,10 +33,14 @@ pub use pierre_core::llm::{
 mod cli_llm_provider;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
+/// Embedding provider abstraction for the coaching harness memory pipeline
+pub mod embeddings;
 /// Google Gemini LLM provider implementation
 mod gemini;
 /// Groq LLM provider implementation
 mod groq;
+/// Generic LLM-as-judge helpers for structured JSON verdicts
+pub mod judge;
 /// Generic OpenAI-compatible LLM provider
 mod openai_compatible;
 /// Model pricing registry for cost tracking

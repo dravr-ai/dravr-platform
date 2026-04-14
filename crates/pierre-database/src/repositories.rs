@@ -30,13 +30,13 @@ use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::DataSource;
 use pierre_core::models::{
-    AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, ConnectionType,
-    ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest, FriendConnection,
-    FriendStatus, InsightReaction, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
-    OAuthApp, OAuthClientState, OAuthNotification, ProviderConnection, SharedInsight, Tenant,
-    TenantPlan, TenantToolOverride, ToolCatalogEntry, ToolCategory, User, UserMcpToken,
-    UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp, UserOAuthToken, UserSocialSettings,
-    UserStatus,
+    AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, CoachRuntimeContext,
+    ConnectionType, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
+    FriendConnection, FriendStatus, InsightReaction, OAuth2AuthCode, OAuth2Client,
+    OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
+    ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride, ToolCatalogEntry,
+    ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp,
+    UserOAuthToken, UserSocialSettings, UserStatus,
 };
 use pierre_core::models::{
     AddMessageParams, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
@@ -48,6 +48,7 @@ use pierre_core::models::{
 use pierre_core::models::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
 use pierre_core::pagination::{CursorPage, PaginationParams, StoreSortOrder};
 use pierre_core::permissions::impersonation::ImpersonationSession;
+use pierre_memory::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -732,14 +733,18 @@ pub trait FitnessConfigRepository: Send + Sync {
 /// Chat conversation and message management repository
 #[async_trait]
 pub trait ChatRepository: Send + Sync {
-    /// Create a new chat conversation
+    /// Create a new chat conversation.
+    ///
+    /// `coach_id` references a coach in the `coaches` table; the coach's
+    /// `system_prompt` is the canonical persona source and is resolved at
+    /// runtime via [`CoachesRepository::get_coach_runtime_context`].
     async fn create_conversation(
         &self,
         user_id: &str,
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        system_prompt: Option<&str>,
+        coach_id: Option<&str>,
     ) -> AppResult<ConversationRecord>;
     /// Get a conversation by ID with user/tenant isolation
     async fn get_conversation(
@@ -808,6 +813,314 @@ pub trait ChatRepository: Send + Sync {
 
     /// Count conversations updated since a given timestamp (admin view, cross-tenant)
     async fn count_active_conversations_since(&self, since: &str) -> AppResult<i64>;
+
+    /// Attach a coach session id to an existing conversation row (Tier 4
+    /// cross-channel continuity). Tenant-scoped; returns `false` if the
+    /// conversation does not exist.
+    async fn set_conversation_session_id(
+        &self,
+        conversation_id: &str,
+        session_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+}
+
+// ============================================================================
+// Coaching harness memory repository (Tier 0 foundations)
+// ============================================================================
+
+/// Parameters for a [`HarnessMemoryRepository::upsert_user_fact`] call.
+///
+/// Grouped into a struct to avoid a trait method with seven positional
+/// arguments.
+pub struct UpsertUserFactParams<'a> {
+    /// Tenant that owns the fact.
+    pub tenant_id: TenantId,
+    /// User the fact is about.
+    pub user_id: &'a str,
+    /// Coach the fact belongs to, or `None` for a user-wide fact.
+    pub coach_id: Option<&'a str>,
+    /// Scope bucket.
+    pub scope: pierre_memory::MemoryScope,
+    /// Semantic kind.
+    pub kind: pierre_memory::FactKind,
+    /// Subject phrase (typically "you" or an entity name).
+    pub subject: &'a str,
+    /// Predicate phrase.
+    pub predicate: &'a str,
+    /// Object phrase.
+    pub object: &'a str,
+    /// Confidence in `[0.0, 1.0]`.
+    pub confidence: f32,
+    /// Source message id for provenance.
+    pub source_msg_id: Option<&'a str>,
+    /// Optional embedding vector (little-endian f32 at the DB layer).
+    pub embedding: Option<&'a [f32]>,
+}
+
+/// Parameters for persisting a compaction block.
+pub struct InsertCompactionBlockParams<'a> {
+    /// Tenant that owns the block.
+    pub tenant_id: TenantId,
+    /// Conversation the block belongs to.
+    pub conversation_id: &'a str,
+    /// Summary text that replaces the compacted turns.
+    pub summary: &'a str,
+    /// Token count of the summary.
+    pub summary_tokens: i32,
+    /// Approximate token count of the raw turns the block replaces.
+    pub original_tokens: i32,
+    /// First (oldest) compacted message id, inclusive.
+    pub first_message_id: &'a str,
+    /// Last (newest) compacted message id, inclusive.
+    pub last_message_id: &'a str,
+}
+
+/// Parameters for creating a coach note via the harness memory tools.
+pub struct InsertCoachNoteParams<'a> {
+    /// Tenant that owns the note.
+    pub tenant_id: TenantId,
+    /// User the note is about.
+    pub user_id: &'a str,
+    /// Coach that authored the note.
+    pub coach_id: &'a str,
+    /// Conversation the note originated in, if any.
+    pub conversation_id: Option<&'a str>,
+    /// Scope bucket.
+    pub scope: pierre_memory::MemoryScope,
+    /// Free-form content.
+    pub content: &'a str,
+    /// Optional embedding for recall.
+    pub embedding: Option<&'a [f32]>,
+}
+
+/// Parameters for scheduling a coach followup.
+pub struct InsertCoachFollowupParams<'a> {
+    /// Tenant that owns the followup.
+    pub tenant_id: TenantId,
+    /// User the followup targets.
+    pub user_id: &'a str,
+    /// Coach that made the promise.
+    pub coach_id: &'a str,
+    /// Conversation the promise was made in, if any.
+    pub conversation_id: Option<&'a str>,
+    /// Reminder content.
+    pub content: &'a str,
+    /// When the followup should surface, if a specific time was promised.
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Coaching harness memory repository (Tier 0 foundations).
+///
+/// Groups the small CRUD surface for every memory primitive behind a single
+/// trait. The schemas land dormant in Tier 0; services come online in
+/// Tier 1 (compaction), Tier 2 (facts + recall), Tier 3 (notes + followups),
+/// Tier 4 (sessions). The trait is tight on purpose — new use cases should
+/// extend it with named parameter structs rather than accreting positional
+/// arguments.
+#[async_trait]
+pub trait HarnessMemoryRepository: Send + Sync {
+    // --- compaction blocks ---
+
+    /// Persist a compaction block covering a range of conversation messages.
+    async fn insert_compaction_block(
+        &self,
+        params: &InsertCompactionBlockParams<'_>,
+    ) -> AppResult<pierre_memory::CompactionBlock>;
+
+    /// List compaction blocks for a conversation in creation order.
+    async fn list_compaction_blocks(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<pierre_memory::CompactionBlock>>;
+
+    // --- user facts ---
+
+    /// Insert or update a user fact. Callers are responsible for merging
+    /// contradictory facts before calling this method.
+    async fn upsert_user_fact(
+        &self,
+        params: &UpsertUserFactParams<'_>,
+    ) -> AppResult<pierre_memory::UserFact>;
+
+    /// List user facts for recall. Filters by user, optional coach, and
+    /// optional kind; callers apply vector similarity on the returned set.
+    async fn list_user_facts(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        coach_id: Option<&str>,
+        kind: Option<pierre_memory::FactKind>,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::UserFact>>;
+
+    /// Delete a fact by id for GDPR-style "forget" flows.
+    async fn delete_user_fact(
+        &self,
+        fact_id: &str,
+        tenant_id: TenantId,
+        user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Tenant-wide aggregate snapshot of the memory extraction worker's output.
+    ///
+    /// The worker is a fire-and-forget background task, so its health is
+    /// derived from the rows it has actually produced in `user_facts`
+    /// rather than instrumenting the worker itself.
+    async fn count_user_facts_metrics(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<pierre_memory::UserFactMetrics>;
+
+    // --- coach notes ---
+
+    /// Persist a coach-authored note.
+    async fn insert_coach_note(
+        &self,
+        params: &InsertCoachNoteParams<'_>,
+    ) -> AppResult<pierre_memory::CoachNote>;
+
+    /// List coach notes for a user, newest first.
+    async fn list_coach_notes(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        coach_id: &str,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::CoachNote>>;
+
+    /// Tenant-wide coach-note audit log for the admin compliance tab.
+    ///
+    /// Returns notes newest-first, clamped to `limit`, spanning all
+    /// users and coaches. The admin UI uses this for a flat audit trail
+    /// so compliance reviewers can see every note a coach wrote about a
+    /// user without having to pick a (user, coach) pair first.
+    async fn list_coach_notes_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::CoachNote>>;
+
+    // --- coach followups ---
+
+    /// Schedule a coach followup.
+    async fn insert_coach_followup(
+        &self,
+        params: &InsertCoachFollowupParams<'_>,
+    ) -> AppResult<pierre_memory::CoachFollowup>;
+
+    /// List pending followups for a user/coach pair. Caller decides how to
+    /// render them in the next prompt.
+    async fn list_pending_followups(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        coach_id: &str,
+    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
+
+    /// Tenant-wide pending followup queue for the admin triage tab.
+    ///
+    /// Returns rows ordered by due date ascending (nulls last), then
+    /// creation order, clamped to `limit`. Unlike
+    /// [`Self::list_pending_followups`], this call spans all users and
+    /// coaches so the admin can see stale promises across the platform.
+    async fn list_pending_followups_for_tenant(
+        &self,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<pierre_memory::CoachFollowup>>;
+
+    /// Mark a followup as delivered after the coach has acted on it.
+    async fn mark_followup_delivered(
+        &self,
+        followup_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Cancel a pending followup — admin clears a stale promise that
+    /// should never reach the coach. Returns `false` if the followup was
+    /// already delivered or cancelled, `true` on a successful transition.
+    async fn cancel_followup(&self, followup_id: &str, tenant_id: TenantId) -> AppResult<bool>;
+
+    // --- coach sessions ---
+
+    /// Open a new coaching session. Returns the existing active session if
+    /// one already exists for the `(user, coach)` pair so callers can call
+    /// this idempotently.
+    async fn get_or_open_coach_session(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        coach_id: &str,
+    ) -> AppResult<pierre_memory::CoachSession>;
+
+    /// Mark the most recent activity on a session to feed "continue where
+    /// you left off" UI.
+    async fn touch_coach_session(&self, session_id: &str, tenant_id: TenantId) -> AppResult<()>;
+
+    /// Archive a session (coach unassigned or retired).
+    async fn archive_coach_session(&self, session_id: &str, tenant_id: TenantId)
+        -> AppResult<bool>;
+}
+
+// ============================================================================
+// Claim verdict repository (Tier 5.5 bullshit detector)
+// ============================================================================
+
+/// Parameters for inserting a claim verdict via [`ClaimVerdictRepository`].
+pub struct InsertClaimVerdictParams<'a> {
+    /// Tenant that owns the verdict.
+    pub tenant_id: TenantId,
+    /// User the claim was said to.
+    pub user_id: &'a str,
+    /// Coach persona that authored the claim, if resolvable.
+    pub coach_id: Option<&'a str>,
+    /// Conversation the claim came from, if in-dispatch.
+    pub conversation_id: Option<&'a str>,
+    /// Message the claim was extracted from, if available.
+    pub message_id: Option<&'a str>,
+    /// Raw claim text.
+    pub claim_text: &'a str,
+    /// Category assigned by the extractor.
+    pub category: ClaimCategory,
+    /// Final pipeline status.
+    pub status: ClaimStatus,
+    /// Evidence strength backing the verdict.
+    pub evidence_strength: EvidenceStrength,
+    /// Pipeline confidence in `[0.0, 1.0]`.
+    pub confidence: f32,
+    /// Which layer produced the verdict.
+    pub layer_fired: VerdictLayer,
+    /// Optional user-facing rationale.
+    pub explanation: Option<&'a str>,
+    /// Optional evidence references (DOIs/PMIDs, comma-separated).
+    pub evidence_refs: Option<&'a str>,
+}
+
+/// Tier 5.5 claim verdict repository — persists post-LLM detector output.
+#[async_trait]
+pub trait ClaimVerdictRepository: Send + Sync {
+    /// Persist a new claim verdict.
+    async fn insert_claim_verdict(
+        &self,
+        params: &InsertClaimVerdictParams<'_>,
+    ) -> AppResult<ClaimVerdict>;
+
+    /// List verdicts for a conversation in chronological order (oldest first).
+    async fn list_verdicts_for_conversation(
+        &self,
+        conversation_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<ClaimVerdict>>;
+
+    /// List the most recent verdicts for a tenant, newest first. Used by the
+    /// admin "flagged claims" dashboard.
+    async fn list_recent_verdicts(
+        &self,
+        tenant_id: TenantId,
+        limit: i64,
+    ) -> AppResult<Vec<ClaimVerdict>>;
 }
 
 /// User MCP token management repository
@@ -1316,25 +1629,18 @@ pub trait CoachesRepository: Send + Sync {
     ) -> AppResult<Coach>;
     /// Get the current version number for a coach
     async fn get_current_version(&self, coach_id: &str) -> AppResult<i32>;
-    /// Look up startup context (query + data requirements) by system prompt content
-    async fn get_startup_context_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<(Option<String>, Option<String>)>>;
 
-    /// Look up a startup query by system prompt content (delegates to startup context)
-    async fn get_startup_query_by_system_prompt(
+    /// Resolve the full runtime context (system prompt, startup query, data
+    /// requirements, tool-iteration override) for a coach attached to a
+    /// conversation.
+    ///
+    /// Tenant-scoped: returns the coach if it belongs to the caller's tenant
+    /// or is a system coach. Returns `None` if no matching coach is found.
+    async fn get_coach_runtime_context(
         &self,
-        system_prompt: &str,
+        coach_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<String>>;
-    /// Look up max tool iterations by system prompt content
-    async fn get_max_tool_iterations_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<i32>>;
+    ) -> AppResult<Option<CoachRuntimeContext>>;
 }
 
 /// Mobility (stretching exercises and yoga poses) read-only repository
