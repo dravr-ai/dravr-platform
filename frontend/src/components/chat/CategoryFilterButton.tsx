@@ -29,7 +29,7 @@ const CategoryFilterButton = memo(function CategoryFilterButton({
       className={clsx(
         'px-4 py-2 text-sm font-medium rounded-full whitespace-nowrap transition-colors flex items-center gap-1.5',
         isSelected
-          ? 'bg-pierre-violet text-on-surface shadow-ambient'
+          ? 'bg-pierre-violet text-on-primary shadow-ambient'
           : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
       )}
     >

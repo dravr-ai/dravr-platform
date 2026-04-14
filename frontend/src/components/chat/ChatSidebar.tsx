@@ -65,7 +65,7 @@ export default function ChatSidebar({
         <button
           onClick={onNewChat}
           disabled={isCreatingConversation}
-          className="w-8 h-8 flex items-center justify-center rounded-lg bg-pierre-violet text-on-surface hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
+          className="w-8 h-8 flex items-center justify-center rounded-lg bg-pierre-violet text-on-primary hover:bg-pierre-violet/80 transition-colors disabled:opacity-50 shadow-ambient"
           title="New chat"
           aria-label="New chat"
         >

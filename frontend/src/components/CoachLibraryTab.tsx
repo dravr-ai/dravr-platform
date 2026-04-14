@@ -608,7 +608,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                   setFormData(defaultFormData);
                   setIsCreating(true);
                 }}
-                className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Create Coach"
                 aria-label="Create Coach"
               >
@@ -662,7 +662,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
               className={clsx(
                 'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                 categoryFilter === null
-                  ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                  ? 'bg-pierre-violet text-on-primary shadow-ambient'
                   : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
               )}
             >
@@ -675,7 +675,7 @@ export default function CoachLibraryTab({ onBack }: CoachLibraryTabProps) {
                 className={clsx(
                   'px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap transition-colors min-h-[44px] flex items-center',
                   categoryFilter === cat
-                    ? 'bg-pierre-violet text-on-surface shadow-ambient'
+                    ? 'bg-pierre-violet text-on-primary shadow-ambient'
                     : 'bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
                 )}
               >

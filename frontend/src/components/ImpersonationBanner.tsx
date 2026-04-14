@@ -23,7 +23,7 @@ export default function ImpersonationBanner() {
   };
 
   return (
-    <div className="bg-pierre-yellow-500 text-on-surface px-4 py-2 sticky top-0 z-50 shadow-lg">
+    <div className="bg-pierre-yellow-500 text-on-primary px-4 py-2 sticky top-0 z-50 shadow-lg">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         <div className="flex items-center gap-3">
           <svg

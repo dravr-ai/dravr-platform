@@ -92,7 +92,7 @@ test.describe('Analytics Tab', () => {
     await loginAndNavigateToAnalytics(page);
 
     // The time range selector uses pill buttons, not a dropdown
-    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-white\\/10');
+    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-surface-container-high');
     await expect(pillContainer).toBeVisible();
 
     // Check all pill button labels
@@ -107,7 +107,7 @@ test.describe('Analytics Tab', () => {
     await loginAndNavigateToAnalytics(page);
 
     // Click 7 Days pill button
-    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-white\\/10');
+    const pillContainer = page.locator('.card-admin .flex.rounded-lg.bg-surface-container-high');
     await pillContainer.getByText('7 Days').click();
     await page.waitForTimeout(500);
 

@@ -161,7 +161,7 @@ export default function CoachRejectionModal({
             <Button
               onClick={handleSubmit}
               disabled={!reason || rejectMutation.isPending}
-              className="flex-1 bg-pierre-red-500 hover:bg-pierre-red-600 text-on-surface"
+              className="flex-1 bg-pierre-red-500 hover:bg-pierre-red-600 text-on-primary"
             >
               {rejectMutation.isPending ? (
                 <span className="flex items-center justify-center">

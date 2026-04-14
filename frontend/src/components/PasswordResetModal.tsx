@@ -128,7 +128,7 @@ export default function PasswordResetModal({
                 <Button
                   onClick={handleReset}
                   disabled={resetMutation.isPending}
-                  className="flex-1 bg-pierre-violet hover:bg-pierre-violet-dark text-on-surface"
+                  className="flex-1 bg-pierre-violet hover:bg-pierre-violet-dark text-on-primary"
                 >
                   {resetMutation.isPending ? (
                     <div className="flex items-center justify-center">

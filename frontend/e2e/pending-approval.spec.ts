@@ -114,8 +114,8 @@ test.describe('Pending Approval Page - Logout', () => {
     // Click sign out
     await page.getByRole('button', { name: 'Sign Out' }).click();
 
-    // Should return to login page
-    await expect(page.locator('h1')).toContainText('Dravr', { timeout: 5000 });
+    // Should return to login page (Boreal editorial h1 is "Sign in")
+    await expect(page.locator('h1')).toContainText('Sign in', { timeout: 5000 });
     await expect(page.locator('input[name="email"]')).toBeVisible();
   });
 });

@@ -58,7 +58,7 @@ export const Tabs: React.FC<TabsProps> = ({
       case 'pills':
         return `${baseClasses} rounded-lg ${
           isActive
-            ? 'bg-pierre-violet text-on-surface'
+            ? 'bg-pierre-violet text-on-primary'
             : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
         }`;
 

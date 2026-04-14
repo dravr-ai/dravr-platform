@@ -387,7 +387,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
           onClick={() => setSelectedCategories(new Set())}
           className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
             selectedCategories.size === 0
-              ? 'bg-pierre-violet text-on-surface'
+              ? 'bg-pierre-violet text-on-primary'
               : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
           }`}
         >
@@ -407,7 +407,7 @@ export default function ToolAvailability({ tenantId }: ToolAvailabilityProps) {
             }}
             className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
               selectedCategories.has(category)
-                ? 'bg-pierre-violet text-on-surface'
+                ? 'bg-pierre-violet text-on-primary'
                 : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest'
             }`}
           >

@@ -200,7 +200,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'friends'
-              ? 'bg-pierre-violet text-on-surface'
+              ? 'bg-pierre-violet text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
@@ -216,7 +216,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors',
             activeTab === 'search'
-              ? 'bg-pierre-violet text-on-surface'
+              ? 'bg-pierre-violet text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
@@ -232,7 +232,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
           className={clsx(
             'px-4 py-2 rounded-lg text-sm font-medium transition-colors relative',
             activeTab === 'pending'
-              ? 'bg-pierre-violet text-on-surface'
+              ? 'bg-pierre-violet text-on-primary'
               : 'bg-surface-container-low text-on-surface-variant hover:text-on-surface hover:bg-surface-container'
           )}
         >
@@ -242,7 +242,7 @@ export default function FriendsTab({ onBack }: FriendsTabProps) {
             </svg>
             Pending
             {pendingReceived.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-pierre-nutrition text-on-surface text-xs font-bold rounded-full flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 w-5 h-5 bg-pierre-nutrition text-on-primary text-xs font-bold rounded-full flex items-center justify-center">
                 {pendingReceived.length}
               </span>
             )}

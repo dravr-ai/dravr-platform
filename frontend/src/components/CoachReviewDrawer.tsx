@@ -269,7 +269,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={handleApprove}
             disabled={approveMutation.isPending}
-            className="flex-1 bg-pierre-activity hover:bg-pierre-activity/80 text-on-surface"
+            className="flex-1 bg-pierre-activity hover:bg-pierre-activity/80 text-on-primary"
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">

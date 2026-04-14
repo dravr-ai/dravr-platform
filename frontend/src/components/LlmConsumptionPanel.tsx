@@ -265,7 +265,7 @@ export default function LlmConsumptionPanel() {
                 onClick={() => setTimeRange(numValue)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   timeRange === numValue
-                    ? 'bg-pierre-violet text-on-surface shadow-sm'
+                    ? 'bg-pierre-violet text-on-primary shadow-sm'
                     : 'text-on-surface-variant hover:text-on-surface'
                 }`}
               >

@@ -359,7 +359,7 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
                       {tab.badge && (
                         <span
                           data-testid="pending-users-badge"
-                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-on-surface text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
+                          className="absolute -top-1 -right-1 bg-pierre-red-500 text-on-primary text-xs rounded-full h-4 w-4 flex items-center justify-center font-bold text-[10px]"
                         >
                           {tab.badge}
                         </span>

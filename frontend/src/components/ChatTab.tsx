@@ -766,7 +766,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 <button
                   onClick={() => createConversation.mutate()}
                   disabled={createConversation.isPending}
-                  className="p-2 rounded-lg text-on-surface bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[36px] min-h-[36px] flex items-center justify-center"
+                  className="p-2 rounded-lg text-on-primary bg-pierre-violet hover:bg-pierre-violet-dark transition-colors shadow-ambient hover:shadow-ambient disabled:opacity-50 min-w-[36px] min-h-[36px] flex items-center justify-center"
                   title="New Chat"
                   aria-label="New Chat"
                 >
@@ -806,7 +806,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                   <button
                     type="submit"
                     disabled={!newMessage.trim() || createConversation.isPending}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-pierre-violet text-on-surface text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-pierre-violet text-on-primary text-sm font-medium rounded-lg hover:bg-pierre-violet-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
                     {createConversation.isPending ? (
                       <div className="pierre-spinner w-4 h-4 border-white border-t-transparent" />
