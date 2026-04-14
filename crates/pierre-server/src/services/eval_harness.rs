@@ -176,3 +176,129 @@ fn summarize_case(case: &GoldenCase) -> FixtureCaseSummary {
         must_not_contain_total,
     }
 }
+
+/// Maximum size in bytes accepted by [`write_fixture`].
+///
+/// Golden fixtures are expected to be tiny hand-authored dialogue sets —
+/// the cap stops an admin from accidentally pasting a 5 MB blob that
+/// would bloat the repo and slow fixture scans.
+pub const MAX_FIXTURE_BYTES: usize = 256 * 1024;
+
+/// Read a single fixture's raw JSONL text so the admin UI can edit it.
+///
+/// # Errors
+///
+/// - Returns an error if `name` contains path separators or characters
+///   outside `[A-Za-z0-9_-]`.
+/// - Returns `AppError::not_found` if the fixture does not exist.
+pub fn read_fixture_text(name: &str) -> AppResult<String> {
+    read_fixture_text_from(&resolve_fixtures_dir(), name)
+}
+
+/// [`read_fixture_text`] variant taking an explicit root directory. Used by tests.
+///
+/// # Errors
+///
+/// Same as [`read_fixture_text`].
+pub fn read_fixture_text_from(dir: &Path, name: &str) -> AppResult<String> {
+    let path = validated_fixture_path(dir, name)?;
+    if !path.exists() {
+        return Err(AppError::not_found(format!("Fixture {name} not found")));
+    }
+    fs::read_to_string(&path)
+        .map_err(|e| AppError::internal(format!("Failed to read fixture {name}: {e}")))
+}
+
+/// Write a fixture's raw JSONL text, creating the file if missing.
+///
+/// The body is validated by parsing it through
+/// [`pierre_evals::GoldenFixture::parse_jsonl`] before any bytes touch
+/// disk so the repo never holds a malformed fixture.
+///
+/// # Errors
+///
+/// - Invalid `name` (see [`read_fixture_text`]).
+/// - Body larger than [`MAX_FIXTURE_BYTES`].
+/// - Parse error from the JSONL body.
+/// - Filesystem write errors.
+pub fn write_fixture(name: &str, body: &str) -> AppResult<FixtureSummary> {
+    write_fixture_to(&resolve_fixtures_dir(), name, body)
+}
+
+/// [`write_fixture`] variant taking an explicit root directory. Used by tests.
+///
+/// # Errors
+///
+/// Same as [`write_fixture`].
+pub fn write_fixture_to(dir: &Path, name: &str, body: &str) -> AppResult<FixtureSummary> {
+    let path = validated_fixture_path(dir, name)?;
+    if body.len() > MAX_FIXTURE_BYTES {
+        return Err(AppError::invalid_input(format!(
+            "Fixture body exceeds {MAX_FIXTURE_BYTES}-byte cap ({} bytes)",
+            body.len()
+        )));
+    }
+
+    // Parse first, write second — rejects malformed JSONL without
+    // touching disk. `parse_jsonl` also enforces line comments and
+    // empty-line tolerance, so admin pasteable content is stable.
+    let fixture = GoldenFixture::parse_jsonl(name, body)?;
+
+    if !dir.exists() {
+        fs::create_dir_all(dir).map_err(|e| {
+            AppError::internal(format!(
+                "Failed to create fixtures dir {}: {e}",
+                dir.display()
+            ))
+        })?;
+    }
+
+    fs::write(&path, body)
+        .map_err(|e| AppError::internal(format!("Failed to write fixture {name}: {e}")))?;
+
+    Ok(summarize_fixture(&path, &fixture))
+}
+
+/// Delete a fixture file by name.
+///
+/// # Errors
+///
+/// - Invalid `name` (see [`read_fixture_text`]).
+/// - `AppError::not_found` when the file does not exist.
+/// - Filesystem errors.
+pub fn delete_fixture(name: &str) -> AppResult<()> {
+    delete_fixture_from(&resolve_fixtures_dir(), name)
+}
+
+/// [`delete_fixture`] variant taking an explicit root directory. Used by tests.
+///
+/// # Errors
+///
+/// Same as [`delete_fixture`].
+pub fn delete_fixture_from(dir: &Path, name: &str) -> AppResult<()> {
+    let path = validated_fixture_path(dir, name)?;
+    if !path.exists() {
+        return Err(AppError::not_found(format!("Fixture {name} not found")));
+    }
+    fs::remove_file(&path)
+        .map_err(|e| AppError::internal(format!("Failed to delete fixture {name}: {e}")))
+}
+
+/// Resolve `<dir>/<name>.jsonl` after validating that `name` is a bare
+/// identifier. Blocks path traversal and overlong names.
+fn validated_fixture_path(dir: &Path, name: &str) -> AppResult<PathBuf> {
+    if name.is_empty() || name.len() > 64 {
+        return Err(AppError::invalid_input(
+            "Fixture name must be 1..=64 characters".to_owned(),
+        ));
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(AppError::invalid_input(format!(
+            "Invalid fixture name {name}: only [A-Za-z0-9_-] allowed"
+        )));
+    }
+    Ok(dir.join(format!("{name}.jsonl")))
+}

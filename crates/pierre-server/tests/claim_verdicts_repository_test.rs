@@ -148,3 +148,88 @@ async fn list_verdicts_for_conversation_filters_by_conversation() -> Result<()> 
 
     Ok(())
 }
+
+#[tokio::test]
+async fn aggregate_verdict_stats_rolls_up_totals_and_daily() -> Result<()> {
+    let db = fresh_db().await?;
+    let repos = db.repositories();
+
+    for status in [
+        ClaimStatus::Supported,
+        ClaimStatus::Supported,
+        ClaimStatus::Unsupported,
+        ClaimStatus::Contradicted,
+        ClaimStatus::Rhetorical,
+        ClaimStatus::Unverifiable,
+    ] {
+        let params = InsertClaimVerdictParams {
+            tenant_id: tenant(),
+            user_id: "user-1",
+            coach_id: None,
+            conversation_id: None,
+            message_id: None,
+            claim_text: "test",
+            category: ClaimCategory::Physiological,
+            status,
+            evidence_strength: EvidenceStrength::Mixed,
+            confidence: 0.7,
+            layer_fired: VerdictLayer::Evidence,
+            explanation: None,
+            evidence_refs: None,
+        };
+        repos.claim_verdicts.insert_claim_verdict(&params).await?;
+    }
+
+    let stats = repos
+        .claim_verdicts
+        .aggregate_verdict_stats(tenant(), 30)
+        .await?;
+    assert_eq!(stats.window_days, 30);
+    assert_eq!(stats.totals.supported, 2);
+    assert_eq!(stats.totals.unsupported, 1);
+    assert_eq!(stats.totals.contradicted, 1);
+    assert_eq!(stats.totals.rhetorical, 1);
+    assert_eq!(stats.totals.unverifiable, 1);
+    // All inserts happened in the same second → one day bucket.
+    assert_eq!(stats.daily.len(), 1);
+    assert_eq!(stats.daily[0].counts.supported, 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn aggregate_verdict_stats_clamps_window_days() -> Result<()> {
+    let db = fresh_db().await?;
+    let repos = db.repositories();
+
+    let params = InsertClaimVerdictParams {
+        tenant_id: tenant(),
+        user_id: "user-1",
+        coach_id: None,
+        conversation_id: None,
+        message_id: None,
+        claim_text: "test",
+        category: ClaimCategory::Recovery,
+        status: ClaimStatus::Supported,
+        evidence_strength: EvidenceStrength::Strong,
+        confidence: 0.9,
+        layer_fired: VerdictLayer::Evidence,
+        explanation: None,
+        evidence_refs: None,
+    };
+    repos.claim_verdicts.insert_claim_verdict(&params).await?;
+
+    // Values outside `1..=365` clamp to the nearest bound.
+    let low = repos
+        .claim_verdicts
+        .aggregate_verdict_stats(tenant(), 0)
+        .await?;
+    assert_eq!(low.window_days, 1);
+    let high = repos
+        .claim_verdicts
+        .aggregate_verdict_stats(tenant(), 10_000)
+        .await?;
+    assert_eq!(high.window_days, 365);
+
+    Ok(())
+}

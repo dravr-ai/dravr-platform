@@ -1,7 +1,7 @@
-// ABOUTME: Full conversations list screen with search functionality
-// ABOUTME: Shows all conversations with relative dates and search bar
+// ABOUTME: Full conversations list screen with search and coach-session grouping
+// ABOUTME: Groups conversations by coach_id with collapsible sections (mobile parity with web ConversationsPanel)
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,11 +18,12 @@ import { useFocusEffect } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, glassCard, gradients, buttonGlow } from '../../constants/theme';
-import { chatApi } from '../../services/api';
+import { chatApi, coachesApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { PromptDialog, SwipeableRow, type SwipeAction } from '../../components/ui';
-import type { Conversation } from '../../types';
+import type { Conversation, Coach } from '../../types';
 
 // Glassmorphic search bar style
 const searchBarStyle: ViewStyle = {
@@ -44,17 +45,80 @@ const menuStyle: ViewStyle = {
   borderColor: 'rgba(139, 92, 246, 0.2)',
 };
 
+/**
+ * A conversation session grouping: one bucket per coach_id, plus one
+ * "no coach" bucket for unattached conversations. Mirrors the web
+ * ConversationsPanel session-hierarchy model (Sprint C15).
+ */
+interface SessionGroup {
+  key: string;
+  label: string;
+  conversations: Conversation[];
+  isNoCoach: boolean;
+}
+
+const COLLAPSED_KEY = 'dravr.conversations-panel.collapsed';
+const NO_COACH_KEY = '__no_coach__';
+
+type ListRow =
+  | { kind: 'header'; group: SessionGroup; isCollapsed: boolean }
+  | { kind: 'conversation'; conversation: Conversation; groupKey: string };
+
 export function ConversationsScreen() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [renamePromptVisible, setRenamePromptVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // Hydrate collapsed state from AsyncStorage once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(COLLAPSED_KEY);
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          const onlyStrings = parsed.filter((v): v is string => typeof v === 'string');
+          setCollapsedGroups(new Set(onlyStrings));
+        }
+      } catch {
+        // Non-fatal — keep empty set if storage is corrupt or unavailable.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const persistCollapsed = useCallback((next: Set<string>): void => {
+    AsyncStorage.setItem(COLLAPSED_KEY, JSON.stringify(Array.from(next))).catch(() => {
+      // Non-fatal — the UI stays consistent within the session.
+    });
+  }, []);
+
+  const toggleGroup = useCallback(
+    (groupKey: string): void => {
+      setCollapsedGroups((prev) => {
+        const next = new Set(prev);
+        if (next.has(groupKey)) {
+          next.delete(groupKey);
+        } else {
+          next.add(groupKey);
+        }
+        persistCollapsed(next);
+        return next;
+      });
+    },
+    [persistCollapsed]
+  );
 
   const loadConversations = useCallback(async () => {
     if (!isAuthenticated) return;
@@ -62,18 +126,22 @@ export function ConversationsScreen() {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await chatApi.getConversations();
+      const [convResponse, coachResponse] = await Promise.all([
+        chatApi.getConversations(),
+        coachesApi.list().catch(() => ({ coaches: [] as Coach[] })),
+      ]);
       const seen = new Set<string>();
-      const deduplicated = (response.conversations || []).filter((conv: { id: string }) => {
+      const deduplicated = (convResponse.conversations || []).filter((conv: { id: string }) => {
         if (seen.has(conv.id)) return false;
         seen.add(conv.id);
         return true;
       });
       const sorted = deduplicated.sort(
-        (a: { updated_at: string }, b: { updated_at: string }) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        (a: { updated_at: string }, b: { updated_at: string }) =>
+          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
       );
       setConversations(sorted);
-      setFilteredConversations(sorted);
+      setCoaches(coachResponse.coaches || []);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load conversations';
       setError(errorMessage);
@@ -89,17 +157,82 @@ export function ConversationsScreen() {
     }, [loadConversations])
   );
 
-  useEffect(() => {
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      const filtered = conversations.filter((conv) =>
-        (conv.title || '').toLowerCase().includes(query)
-      );
-      setFilteredConversations(filtered);
-    } else {
-      setFilteredConversations(conversations);
+  const coachTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of coaches) {
+      map.set(c.id, c.title);
     }
+    return map;
+  }, [coaches]);
+
+  // Apply search filter first — searches across all groups so a matching
+  // conversation in a collapsed group still surfaces.
+  const filteredConversations = useMemo(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return conversations;
+    const query = trimmed.toLowerCase();
+    return conversations.filter((conv) => (conv.title || '').toLowerCase().includes(query));
   }, [searchQuery, conversations]);
+
+  const sessionGroups = useMemo<SessionGroup[]>(() => {
+    const buckets = new Map<string, Conversation[]>();
+    for (const conv of filteredConversations) {
+      const key = conv.coach_id ?? NO_COACH_KEY;
+      const bucket = buckets.get(key);
+      if (bucket) {
+        bucket.push(conv);
+      } else {
+        buckets.set(key, [conv]);
+      }
+    }
+
+    const groups: SessionGroup[] = [];
+    for (const [key, convs] of buckets.entries()) {
+      if (key === NO_COACH_KEY) continue;
+      groups.push({
+        key,
+        label: coachTitleById.get(key) ?? 'Unknown coach',
+        conversations: convs,
+        isNoCoach: false,
+      });
+    }
+    // Sort coach sessions by the most recent conversation's updated_at desc.
+    groups.sort((a, b) => {
+      const aLast = a.conversations[0]?.updated_at ?? '';
+      const bLast = b.conversations[0]?.updated_at ?? '';
+      return bLast.localeCompare(aLast);
+    });
+
+    const noCoachBucket = buckets.get(NO_COACH_KEY);
+    if (noCoachBucket && noCoachBucket.length > 0) {
+      groups.push({
+        key: NO_COACH_KEY,
+        label: 'Without a coach',
+        conversations: noCoachBucket,
+        isNoCoach: true,
+      });
+    }
+
+    return groups;
+  }, [filteredConversations, coachTitleById]);
+
+  // Flatten groups into a single FlashList-friendly row list.
+  // When a search filter is active we force-expand every group so matches
+  // stay visible even if the user had that coach collapsed.
+  const listRows = useMemo<ListRow[]>(() => {
+    const searchActive = searchQuery.trim().length > 0;
+    const rows: ListRow[] = [];
+    for (const group of sessionGroups) {
+      const isCollapsed = !searchActive && collapsedGroups.has(group.key);
+      rows.push({ kind: 'header', group, isCollapsed });
+      if (!isCollapsed) {
+        for (const conv of group.conversations) {
+          rows.push({ kind: 'conversation', conversation: conv, groupKey: group.key });
+        }
+      }
+    }
+    return rows;
+  }, [sessionGroups, collapsedGroups, searchQuery]);
 
   const formatRelativeDate = (dateString: string): string => {
     const date = new Date(dateString);
@@ -202,7 +335,41 @@ export function ConversationsScreen() {
     setSelectedConversation(null);
   };
 
-  const renderConversation = ({ item }: { item: Conversation }) => {
+  const renderGroupHeader = (group: SessionGroup, isCollapsed: boolean) => (
+    <TouchableOpacity
+      className="flex-row items-center px-4 py-3 bg-background-secondary/30 border-b border-border-subtle"
+      onPress={() => toggleGroup(group.key)}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !isCollapsed }}
+      accessibilityLabel={`Toggle ${group.label} session`}
+      testID={`session-group-header-${group.key}`}
+    >
+      <Feather
+        name={isCollapsed ? 'chevron-right' : 'chevron-down'}
+        size={16}
+        color={colors.text.tertiary}
+      />
+      <Feather
+        name="message-square"
+        size={14}
+        color={group.isNoCoach ? colors.text.tertiary : colors.pierre.violet}
+        style={{ marginLeft: 8 }}
+      />
+      <Text
+        className={
+          group.isNoCoach
+            ? 'flex-1 text-sm text-text-tertiary ml-2'
+            : 'flex-1 text-sm font-semibold text-text-primary ml-2'
+        }
+        numberOfLines={1}
+      >
+        {group.label}
+      </Text>
+      <Text className="text-xs text-text-tertiary ml-2">{group.conversations.length}</Text>
+    </TouchableOpacity>
+  );
+
+  const renderConversationRow = (conversation: Conversation) => {
     const leftActions: SwipeAction[] = [
       {
         icon: 'edit-2',
@@ -210,7 +377,7 @@ export function ConversationsScreen() {
         color: '#FFFFFF',
         backgroundColor: colors.pierre.violet,
         onPress: () => {
-          setSelectedConversation(item);
+          setSelectedConversation(conversation);
           setRenamePromptVisible(true);
         },
       },
@@ -223,10 +390,10 @@ export function ConversationsScreen() {
         color: '#FFFFFF',
         backgroundColor: '#EF4444',
         onPress: () => {
-          setSelectedConversation(item);
+          setSelectedConversation(conversation);
           Alert.alert(
             'Delete Conversation',
-            `Are you sure you want to delete "${item.title || 'this conversation'}"?`,
+            `Are you sure you want to delete "${conversation.title || 'this conversation'}"?`,
             [
               { text: 'Cancel', style: 'cancel' },
               {
@@ -234,8 +401,8 @@ export function ConversationsScreen() {
                 style: 'destructive',
                 onPress: async () => {
                   try {
-                    await chatApi.deleteConversation(item.id);
-                    setConversations((prev) => prev.filter((c) => c.id !== item.id));
+                    await chatApi.deleteConversation(conversation.id);
+                    setConversations((prev) => prev.filter((c) => c.id !== conversation.id));
                   } catch (err) {
                     const errorMessage = err instanceof Error ? err.message : 'Failed to delete conversation';
                     setError(errorMessage);
@@ -253,24 +420,38 @@ export function ConversationsScreen() {
       <SwipeableRow
         leftActions={leftActions}
         rightActions={rightActions}
-        testID={`swipeable-conversation-${item.id}`}
+        testID={`swipeable-conversation-${conversation.id}`}
       >
         <TouchableOpacity
-          className="flex-row items-center px-4 py-3 border-b border-border-subtle bg-background-primary"
-          onPress={() => handleConversationPress(item.id)}
-          onLongPress={() => handleConversationLongPress(item)}
+          className="flex-row items-center pl-10 pr-4 py-3 border-b border-border-subtle bg-background-primary"
+          onPress={() => handleConversationPress(conversation.id)}
+          onLongPress={() => handleConversationLongPress(conversation)}
           delayLongPress={300}
         >
           <View className="flex-1">
             <Text className="text-base font-medium text-text-primary mb-0.5" numberOfLines={1}>
-              {item.title || 'Untitled'}
+              {conversation.title || 'Untitled'}
             </Text>
-            <Text className="text-sm text-text-tertiary">{formatRelativeDate(item.updated_at)}</Text>
+            <Text className="text-sm text-text-tertiary">
+              {formatRelativeDate(conversation.updated_at)}
+            </Text>
           </View>
           <Text className="text-xl text-text-tertiary ml-2">›</Text>
         </TouchableOpacity>
       </SwipeableRow>
     );
+  };
+
+  const renderRow = ({ item }: { item: ListRow }) => {
+    if (item.kind === 'header') {
+      return renderGroupHeader(item.group, item.isCollapsed);
+    }
+    return renderConversationRow(item.conversation);
+  };
+
+  const keyExtractor = (item: ListRow) => {
+    if (item.kind === 'header') return `header-${item.group.key}`;
+    return `conv-${item.conversation.id}`;
   };
 
   return (
@@ -284,7 +465,9 @@ export function ConversationsScreen() {
         >
           <Feather name="arrow-left" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">Conversations</Text>
+        <Text className="flex-1 text-lg font-semibold text-text-primary text-center">
+          Coaching sessions
+        </Text>
         <View className="w-10" />
       </View>
 
@@ -311,10 +494,9 @@ export function ConversationsScreen() {
         </View>
       ) : (
         <FlashList
-          data={filteredConversations}
-          renderItem={renderConversation}
-          keyExtractor={(item) => item.id}
-
+          data={listRows}
+          renderItem={renderRow}
+          keyExtractor={keyExtractor}
           contentContainerStyle={{ paddingBottom: 80 }}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={

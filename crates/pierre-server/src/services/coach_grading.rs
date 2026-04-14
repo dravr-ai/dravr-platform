@@ -155,6 +155,47 @@ pub async fn compute_coach_grades(
     })
 }
 
+/// Default score applied to coaches the grading service has no
+/// verdicts for.
+///
+/// 0.5 matches the fallback in [`GradeBucket::finalize`] for coaches
+/// with zero scored verdicts, keeping ungraded coaches above known-bad
+/// ones but below known-good ones.
+pub const DEFAULT_UNGRADED_SCORE: f32 = 0.5;
+
+/// Re-sort `items` in place so higher-graded coaches rank first (Sprint C22).
+///
+/// `coach_id_of` extracts the coach identifier from each item; the
+/// function looks the id up in `grading.grades` and falls back to
+/// [`DEFAULT_UNGRADED_SCORE`] when no grade is present. Ties preserve
+/// the input order (Rust's `sort_by` is stable), which means the
+/// caller's original ranking — typically `install_count DESC` from the
+/// database — survives within any score bucket.
+pub fn rerank_by_grade<T, F>(items: &mut [T], coach_id_of: F, grading: &CoachGradingSummary)
+where
+    F: Fn(&T) -> String,
+{
+    use std::collections::HashMap;
+
+    let score_by_coach: HashMap<&str, f32> = grading
+        .grades
+        .iter()
+        .map(|g| (g.coach_id.as_str(), g.score))
+        .collect();
+
+    items.sort_by(|a, b| {
+        let a_score = score_by_coach
+            .get(coach_id_of(a).as_str())
+            .copied()
+            .unwrap_or(DEFAULT_UNGRADED_SCORE);
+        let b_score = score_by_coach
+            .get(coach_id_of(b).as_str())
+            .copied()
+            .unwrap_or(DEFAULT_UNGRADED_SCORE);
+        b_score.partial_cmp(&a_score).unwrap_or(Ordering::Equal)
+    });
+}
+
 #[derive(Default)]
 struct GradeBucket {
     total: u64,

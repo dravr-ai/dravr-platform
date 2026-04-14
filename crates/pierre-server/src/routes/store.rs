@@ -24,8 +24,12 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::{
-    errors::AppError, mcp::resources::ServerResources, middleware::extract_auth_from_headers,
-    models::TenantId, pagination::StoreSortOrder,
+    errors::AppError,
+    mcp::resources::ServerResources,
+    middleware::extract_auth_from_headers,
+    models::TenantId,
+    pagination::StoreSortOrder,
+    services::coach_grading::{compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT},
 };
 use pierre_auth::auth::AuthResult;
 use pierre_database::database::{CoachCategory, CoachWithListing, PublishStatus};
@@ -250,6 +254,7 @@ impl StoreRoutes {
         Query(query): Query<BrowseCoachesQuery>,
     ) -> Result<Response, AppError> {
         let auth = Self::authenticate(&headers, &resources).await?;
+        let viewer_tenant = Self::get_user_tenant(&auth)?;
 
         let manager = Self::get_store_manager(&resources);
 
@@ -265,7 +270,25 @@ impl StoreRoutes {
             .get_published_coaches_cursor(category, sort_by, limit, query.cursor.as_deref())
             .await?;
 
-        let store_coaches: Vec<StoreCoach> = page.items.into_iter().map(StoreCoach::from).collect();
+        let mut store_coaches: Vec<StoreCoach> =
+            page.items.into_iter().map(StoreCoach::from).collect();
+
+        // Re-rank the returned page by coach grade (Sprint C22). Grades
+        // are computed from the viewer tenant's recent Tier 5.5 verdicts
+        // so low-quality coaches fall below higher-graded peers even if
+        // they shipped with more installs. Failures degrade to the
+        // existing install_count ordering.
+        match compute_coach_grades(&resources.repos, viewer_tenant, DEFAULT_VERDICT_LIMIT).await {
+            Ok(grading) => {
+                rerank_by_grade(&mut store_coaches, |c| c.id.to_string(), &grading);
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "failed to compute coach grades for store rank; falling back to install_count"
+                );
+            }
+        }
 
         info!(
             "User {} browsed store: {} coaches (category={:?}, sort={:?}, has_more={})",

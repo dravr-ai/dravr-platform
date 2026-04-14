@@ -1098,6 +1098,48 @@ pub struct InsertClaimVerdictParams<'a> {
     pub evidence_refs: Option<&'a str>,
 }
 
+/// Per-status counters rolled up over a verdict scan window.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct VerdictStatusBreakdown {
+    /// Claims the pipeline marked `supported`.
+    pub supported: i64,
+    /// Claims the pipeline marked `unsupported`.
+    pub unsupported: i64,
+    /// Claims the pipeline marked `contradicted`.
+    pub contradicted: i64,
+    /// Claims the rhetoric filter dropped as rhetorical.
+    pub rhetorical: i64,
+    /// Claims the pipeline could not confidently verify either way.
+    pub unverifiable: i64,
+}
+
+/// One day's verdict counts, keyed by the UTC calendar date `YYYY-MM-DD`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct VerdictDailyBucket {
+    /// UTC calendar date `YYYY-MM-DD`.
+    pub date: String,
+    /// Status breakdown for that day.
+    pub counts: VerdictStatusBreakdown,
+}
+
+/// Calibration summary emitted by
+/// [`ClaimVerdictRepository::aggregate_verdict_stats`].
+///
+/// Drives the admin "Verdict calibration" panel in the eval harness
+/// tab — shows the live Tier 5.5 verdict mix and how it drifts day to
+/// day over the requested window.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct VerdictCalibrationStats {
+    /// Window lower bound (inclusive), RFC3339 UTC.
+    pub window_start: String,
+    /// Number of days scanned.
+    pub window_days: i64,
+    /// Totals over the full window.
+    pub totals: VerdictStatusBreakdown,
+    /// Per-day breakdown, oldest first.
+    pub daily: Vec<VerdictDailyBucket>,
+}
+
 /// Tier 5.5 claim verdict repository — persists post-LLM detector output.
 #[async_trait]
 pub trait ClaimVerdictRepository: Send + Sync {
@@ -1121,6 +1163,17 @@ pub trait ClaimVerdictRepository: Send + Sync {
         tenant_id: TenantId,
         limit: i64,
     ) -> AppResult<Vec<ClaimVerdict>>;
+
+    /// Aggregate verdict counts over the last `window_days` for a tenant.
+    ///
+    /// Returns both the full-window totals and a per-day breakdown so
+    /// the admin calibration panel can show drift. `window_days` is
+    /// clamped to `1..=365` by callers.
+    async fn aggregate_verdict_stats(
+        &self,
+        tenant_id: TenantId,
+        window_days: i64,
+    ) -> AppResult<VerdictCalibrationStats>;
 }
 
 /// User MCP token management repository
