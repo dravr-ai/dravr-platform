@@ -138,8 +138,7 @@ describe('PromptSuggestions Component', () => {
 
       expect(onSelectPrompt).toHaveBeenCalledWith(
         expect.any(String),
-        'coach-1',
-        'You are a training expert.'
+        'coach-1'
       );
     });
   });

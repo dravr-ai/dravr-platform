@@ -17,7 +17,7 @@ interface MessageInputProps {
   disabled?: boolean;
   showIdeas: boolean;
   onToggleIdeas: () => void;
-  onSelectPrompt: (prompt: string, systemPrompt?: string) => void;
+  onSelectPrompt: (prompt: string, coachId?: string) => void;
 }
 
 export default function MessageInput({

@@ -12,11 +12,12 @@ use pierre_core::models::messaging::{
 };
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{TenantId, User};
+use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
+use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::plugins::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
     MessagingRepository, TenantRepository, UserRepository,
 };
-use pierre_llm::pricing::estimate_tokens;
 use pierre_llm::TokenUsage;
 use pierre_messaging::channel::MessagingChannel;
 use rand::Rng;
@@ -1324,13 +1325,17 @@ async fn persist_single_message(
     // that OAuth connections and data queries match.
     let user_tenant_id = resolve_user_tenant(resources, &session.user_id, tenant_id).await;
 
-    // Extract text content for LLM dispatch
+    // Extract text content for LLM dispatch, then run the Phase C input
+    // sanitization scanner. Verbatim user text is preserved in the stored
+    // message above for audit/compliance; only the LLM-bound copy gets the
+    // redaction so injection patterns never reach prompt assembly.
     content_body_text(&message.content).map_or_else(
         || {
             info!("Skipping non-text message for LLM dispatch");
             Ok(PersistOutcome::StoredNoDispatch)
         },
         |text_content| {
+            let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
             Ok(PersistOutcome::StoredWithDispatch(Box::new(
                 PendingDispatch {
                     resources: Arc::clone(resources),
@@ -1342,13 +1347,39 @@ async fn persist_single_message(
                     channel: channel.to_owned(),
                     sender_id: message.sender_id.clone(),
                     conversation_id: message.conversation_id.clone(),
-                    text_content,
+                    text_content: sanitized,
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
                 },
             )))
         },
     )
+}
+
+/// Phase C input sanitization wrapper.
+///
+/// Runs [`pierre_core::safety::scan`] on the inbound text and returns the
+/// version that should reach the LLM. When sanitization fires the function
+/// emits a structured warn-level log entry tagged with the matched
+/// signature names so SOC tooling can react. The verbatim text remains in
+/// `chat_messages` for audit purposes.
+fn sanitize_for_dispatch(channel: &str, user_id: &str, text_content: String) -> String {
+    match scan_for_injection(&text_content) {
+        SanitizationOutcome::Clean => text_content,
+        SanitizationOutcome::Sanitized { redacted, matches } => {
+            let signatures: Vec<&'static str> =
+                matches.iter().map(|m| m.signature.as_str()).collect();
+            let signatures_str = signatures.join(",");
+            warn!(
+                channel = %channel,
+                user_id = %hash_id(user_id),
+                signatures = %signatures_str,
+                match_count = matches.len(),
+                "input sanitization fired — redacting injection patterns from LLM-bound text"
+            );
+            redacted
+        }
+    }
 }
 
 /// Send an authentication prompt to an unlinked user
@@ -1664,7 +1695,7 @@ fn estimate_or_extract_messaging_tokens(
 ) -> (i64, i64) {
     usage.map_or_else(
         || {
-            let (est_prompt, est_completion) = estimate_tokens(user_text, completion_text);
+            let (est_prompt, est_completion) = estimate_chat_tokens(user_text, completion_text);
             debug!(
                 est_prompt,
                 est_completion,

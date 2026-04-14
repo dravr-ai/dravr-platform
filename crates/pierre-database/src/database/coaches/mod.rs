@@ -25,9 +25,6 @@ use pierre_core::models::coaches::{CoachPrerequisites, DataRequirements};
 use sqlx::{sqlite::SqliteRow, Row, SqlitePool};
 use uuid::Uuid;
 
-/// Token estimation constant: average characters per token for system prompts
-const CHARS_PER_TOKEN: usize = 4;
-
 /// Coach database operations manager
 pub struct CoachesManager {
     pool: SqlitePool,
@@ -38,17 +35,6 @@ impl CoachesManager {
     #[must_use]
     pub const fn new(pool: SqlitePool) -> Self {
         Self { pool }
-    }
-
-    /// Estimate token count for a system prompt
-    ///
-    /// Uses conservative estimate of ~4 characters per token
-    #[allow(clippy::cast_possible_truncation)]
-    pub(super) const fn estimate_tokens(text: &str) -> u32 {
-        let char_count = text.len();
-        let tokens = char_count / CHARS_PER_TOKEN;
-        // Token count bounded by reasonable system prompt size (< 100K chars = < 25K tokens)
-        tokens as u32
     }
 
     /// Ensure a `coach_assignments` row exists for a user+coach pair.

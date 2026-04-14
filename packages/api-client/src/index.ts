@@ -35,6 +35,8 @@ export type {
   MessagesResponse,
   SendMessageResponse,
   CreateConversationOptions,
+  ChatVerdictRow,
+  ChatVerdictsResponse,
 } from './domains/chat';
 
 export { createCoachesApi } from './domains/coaches';
@@ -84,6 +86,9 @@ export type {
   LlmSettingsResponse,
   SaveLlmCredentialsRequest,
   SaveLlmCredentialsResponse,
+  MemoryFactRow,
+  MemoryFactListResponse,
+  ForgetMemoryFactResponse,
 } from './domains/user';
 
 export { createNotificationsApi } from './domains/notifications';

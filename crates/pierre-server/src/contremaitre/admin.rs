@@ -339,6 +339,7 @@ async fn handle_manual_sync(
     let result = super::sync::full_sync(
         &resources.prompt_registry,
         &resources.tool_description_registry,
+        &resources.evidence_registry,
         &client,
     )
     .await?;

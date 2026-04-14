@@ -16,7 +16,7 @@ interface OAuthNotification {
 
 interface PendingCoachAction {
   prompt: string;
-  systemPrompt?: string;
+  coachId?: string;
 }
 
 interface OAuthData {
@@ -43,8 +43,8 @@ interface UseOAuthHandlerReturn {
   onOAuthComplete: (
     setSelectedConversation: (id: string | null) => void,
     setPendingPrompt: (prompt: string | null) => void,
-    setPendingSystemPrompt: (prompt: string | null) => void,
-    createConversation: { mutate: (systemPrompt?: string) => void }
+    setPendingCoachId: (coachId: string | null) => void,
+    createConversation: { mutate: (coachId?: string) => void }
   ) => void;
 }
 
@@ -60,18 +60,18 @@ export function useOAuthHandler(): UseOAuthHandlerReturn {
   const [oauthCallbackData, setOAuthCallbackData] = useState<{
     setSelectedConversation: (id: string | null) => void;
     setPendingPrompt: (prompt: string | null) => void;
-    setPendingSystemPrompt: (prompt: string | null) => void;
-    createConversation: { mutate: (systemPrompt?: string) => void };
+    setPendingCoachId: (coachId: string | null) => void;
+    createConversation: { mutate: (coachId?: string) => void };
   } | null>(null);
 
   // Register callback for OAuth completion
   const onOAuthComplete = useCallback((
     setSelectedConversation: (id: string | null) => void,
     setPendingPrompt: (prompt: string | null) => void,
-    setPendingSystemPrompt: (prompt: string | null) => void,
-    createConversation: { mutate: (systemPrompt?: string) => void }
+    setPendingCoachId: (coachId: string | null) => void,
+    createConversation: { mutate: (coachId?: string) => void }
   ) => {
-    setOAuthCallbackData({ setSelectedConversation, setPendingPrompt, setPendingSystemPrompt, createConversation });
+    setOAuthCallbackData({ setSelectedConversation, setPendingPrompt, setPendingCoachId, createConversation });
   }, []);
 
   // Handle connecting to a provider
@@ -158,10 +158,10 @@ export function useOAuthHandler(): UseOAuthHandlerReturn {
       // Restore pending coach action and create conversation
       if (data.savedCoachAction) {
         oauthCallbackData.setPendingPrompt(data.savedCoachAction.prompt);
-        if (data.savedCoachAction.systemPrompt) {
-          oauthCallbackData.setPendingSystemPrompt(data.savedCoachAction.systemPrompt);
+        if (data.savedCoachAction.coachId) {
+          oauthCallbackData.setPendingCoachId(data.savedCoachAction.coachId);
         }
-        oauthCallbackData.createConversation.mutate(data.savedCoachAction.systemPrompt);
+        oauthCallbackData.createConversation.mutate(data.savedCoachAction.coachId);
       }
 
       // Reset flag after a short delay

@@ -13,7 +13,7 @@ import type { Coach } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 interface PromptSuggestionsProps {
-  onSelectPrompt: (prompt: string, coachId?: string, systemPrompt?: string) => void;
+  onSelectPrompt: (prompt: string, coachId?: string) => void;
   onEditCoach?: (coach: Coach) => void;
   onDeleteCoach?: (coach: Coach) => void;
 }
@@ -204,7 +204,7 @@ function CoachesSection({
   hiddenCoaches: Coach[];
   showHidden: boolean;
   onToggleShowHidden: () => void;
-  onSelectPrompt: (prompt: string, coachId?: string, systemPrompt?: string) => void;
+  onSelectPrompt: (prompt: string, coachId?: string) => void;
   onEditCoach?: (coach: Coach) => void;
   onDeleteCoach?: (coach: Coach) => void;
   onHideCoach: (coach: Coach) => void;
@@ -332,7 +332,7 @@ function CoachesSection({
 // Individual coach card component - memoized to prevent unnecessary re-renders
 interface CoachCardProps {
   coach: Coach;
-  onSelectPrompt: (prompt: string, coachId?: string, systemPrompt?: string) => void;
+  onSelectPrompt: (prompt: string, coachId?: string) => void;
   onEditCoach?: (coach: Coach) => void;
   onDeleteCoach?: (coach: Coach) => void;
   onHideCoach: (coach: Coach) => void;
@@ -407,8 +407,7 @@ const CoachCard = memo(function CoachCard({
           });
           onSelectPrompt(
             coach.description || `Chat with ${coach.title}`,
-            coach.id,
-            coach.system_prompt
+            coach.id
           );
         }}
         className="w-full text-left"

@@ -49,14 +49,14 @@ impl ChatManager {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        system_prompt: Option<&str>,
+        coach_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
             r"
-            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at)
+            INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, coach_id, total_tokens, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $7)
             ",
         )
@@ -65,7 +65,7 @@ impl ChatManager {
         .bind(tenant_id)
         .bind(title)
         .bind(model)
-        .bind(system_prompt)
+        .bind(coach_id)
         .bind(&now)
         .execute(&self.pool)
         .await
@@ -77,7 +77,8 @@ impl ChatManager {
             tenant_id: tenant_id.to_string(),
             title: title.to_owned(),
             model: model.to_owned(),
-            system_prompt: system_prompt.map(ToOwned::to_owned),
+            coach_id: coach_id.map(ToOwned::to_owned),
+            session_id: None,
             total_tokens: 0,
             created_at: now.clone(),
             updated_at: now,
@@ -98,7 +99,7 @@ impl ChatManager {
     ) -> AppResult<Option<ConversationRecord>> {
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, system_prompt, total_tokens, created_at, updated_at, group_id
+            SELECT id, user_id, tenant_id, title, model, coach_id, session_id, total_tokens, created_at, updated_at, group_id
             FROM chat_conversations
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ",
@@ -116,7 +117,8 @@ impl ChatManager {
             tenant_id: r.get("tenant_id"),
             title: r.get("title"),
             model: r.get("model"),
-            system_prompt: r.get("system_prompt"),
+            coach_id: r.get("coach_id"),
+            session_id: r.get("session_id"),
             total_tokens: r.get("total_tokens"),
             created_at: r.get("created_at"),
             updated_at: r.get("updated_at"),
@@ -496,10 +498,9 @@ impl ChatRepository for Database {
         tenant_id: TenantId,
         title: &str,
         model: &str,
-        system_prompt: Option<&str>,
+        coach_id: Option<&str>,
     ) -> AppResult<ConversationRecord> {
-        Self::chat_create_conversation_impl(self, user_id, tenant_id, title, model, system_prompt)
-            .await
+        Self::chat_create_conversation_impl(self, user_id, tenant_id, title, model, coach_id).await
     }
     async fn get_conversation(
         &self,
@@ -574,7 +575,7 @@ impl ChatRepository for Database {
     ) -> AppResult<Vec<ConversationRecord>> {
         let rows = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, title, model, system_prompt,
+            SELECT id, user_id, tenant_id, title, model, coach_id, session_id,
                    total_tokens, created_at, updated_at, group_id
             FROM chat_conversations
             ORDER BY updated_at DESC
@@ -594,7 +595,8 @@ impl ChatRepository for Database {
                 tenant_id: row.get("tenant_id"),
                 title: row.get("title"),
                 model: row.get("model"),
-                system_prompt: row.get("system_prompt"),
+                coach_id: row.get("coach_id"),
+                session_id: row.get("session_id"),
                 total_tokens: row.get("total_tokens"),
                 created_at: row.get("created_at"),
                 updated_at: row.get("updated_at"),
@@ -615,5 +617,27 @@ impl ChatRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to count active conversations: {e}")))?;
 
         Ok(row.0)
+    }
+
+    async fn set_conversation_session_id(
+        &self,
+        conversation_id: &str,
+        session_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r"
+            UPDATE chat_conversations
+            SET session_id = $1
+            WHERE id = $2 AND tenant_id = $3
+            ",
+        )
+        .bind(session_id)
+        .bind(conversation_id)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set conversation session_id: {e}")))?;
+        Ok(result.rows_affected() > 0)
     }
 }

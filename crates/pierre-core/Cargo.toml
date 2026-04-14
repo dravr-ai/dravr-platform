@@ -46,7 +46,7 @@ crypto-errors = ["dep:ring"]
 toon = ["dep:toon-format"]
 
 # Admin JWT utilities (AdminJwtManager with token generation, hashing)
-admin-jwt = ["dep:sha2", "dep:rand", "dep:bcrypt"]
+admin-jwt = ["dep:rand", "dep:bcrypt"]
 
 # OpenAPI schema generation for shared types
 openapi = ["dep:utoipa"]
@@ -111,8 +111,12 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 # workspace feature unification isn't in play.
 utoipa = { version = "5.4", optional = true, features = ["uuid", "chrono"] }
 
+# SHA-256 for system-prompt fingerprinting (safety::prompt_fingerprint) and
+# admin JWT hashing. Non-optional because prompt fingerprinting is part of
+# the always-on safety surface.
+sha2 = "0.10"
+
 # Optional: Admin JWT utilities
-sha2 = { version = "0.10", optional = true }
 rand = { version = "0.8", optional = true }
 bcrypt = { version = "0.16", optional = true }
 

@@ -31,6 +31,34 @@ pub mod tenant_admin;
 /// Chat orchestration: conversation creation, message persistence, LLM dispatch coordination
 pub mod chat_orchestration;
 
+/// Chat verdict service: maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
+pub mod chat_verdicts;
+
+/// User-facing memory fact service: list and forget what the coach remembers (Sprint C5)
+pub mod memory_facts;
+
+/// Phase C Sprint C9: prompt exfiltration defense — fingerprint + reply scan for verbatim leaks
+pub mod prompt_leak;
+
+/// Phase D Sprint C13: myth-busting summary over Tier 5.5 verdicts (top recurring claims, coaches, categories)
+pub mod myth_busting;
+
+/// Phase D Sprint C14: per-coach content grading derived from Tier 5.5 verdict history
+pub mod coach_grading;
+
+/// Claim verification: Tier 5.5 bullshit detector pipeline + evidence corpus singleton
+#[cfg(feature = "tools-verification")]
+pub mod claim_verification;
+
+/// Conversation compaction: keeps long conversations under the context window
+pub mod conversation_compaction;
+
+/// Memory extraction: Tier 2 background distillation of user facts from finished turns
+pub mod memory_extraction;
+
+/// Memory recall: Tier 2 retrieval of stored user facts for prompt injection
+pub mod memory_recall;
+
 /// Social insights: friend-request validation, user search enrichment, insight adaptation
 pub mod social_insights;
 

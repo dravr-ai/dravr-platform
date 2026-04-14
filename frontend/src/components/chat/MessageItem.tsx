@@ -4,10 +4,11 @@
 // ABOUTME: Individual message item in the chat message list
 // ABOUTME: Memoized for performance when rendering many messages
 
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb } from 'lucide-react';
+import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
+import type { ChatVerdictRow } from '@pierre/api-client';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
@@ -20,6 +21,8 @@ interface MessageItemProps {
   hasInsight?: boolean;
   /** Pre-resolved activity list text (from API field or parsed from old content) */
   activityList?: string;
+  /** Tier 5.5 claim verdicts attached to this message, if any. */
+  verdicts?: ChatVerdictRow[];
   onCopy?: () => void;
   onShare?: () => void;
   onShareToFeed?: () => void;
@@ -27,6 +30,72 @@ interface MessageItemProps {
   onThumbsUp?: () => void;
   onThumbsDown?: () => void;
   onRetry?: () => void;
+  /** Open the verdict detail drawer for a single verdict. */
+  onShowVerdict?: (verdict: ChatVerdictRow) => void;
+  /** Send a follow-up user message (used by "ask me about this claim"). */
+  onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
+}
+
+type WorstStrengthTone = 'success' | 'warning' | 'error' | 'info' | 'secondary';
+
+interface VerdictSummary {
+  worstStatus: ChatVerdictRow['status'];
+  worstStrength: ChatVerdictRow['evidence_strength'];
+  count: number;
+}
+
+const STATUS_PRIORITY: Record<ChatVerdictRow['status'], number> = {
+  contradicted: 4,
+  unsupported: 3,
+  unverifiable: 2,
+  rhetorical: 1,
+  supported: 0,
+};
+
+const STRENGTH_PRIORITY: Record<ChatVerdictRow['evidence_strength'], number> = {
+  none: 4,
+  weak: 3,
+  mixed: 2,
+  strong: 1,
+};
+
+const STATUS_TONE: Record<ChatVerdictRow['status'], WorstStrengthTone> = {
+  contradicted: 'error',
+  unsupported: 'warning',
+  unverifiable: 'secondary',
+  rhetorical: 'info',
+  supported: 'success',
+};
+
+function summarizeVerdicts(verdicts: ChatVerdictRow[]): VerdictSummary | null {
+  if (verdicts.length === 0) return null;
+  let worstStatus: ChatVerdictRow['status'] = 'supported';
+  let worstStrength: ChatVerdictRow['evidence_strength'] = 'strong';
+  for (const v of verdicts) {
+    if (STATUS_PRIORITY[v.status] > STATUS_PRIORITY[worstStatus]) {
+      worstStatus = v.status;
+    }
+    if (STRENGTH_PRIORITY[v.evidence_strength] > STRENGTH_PRIORITY[worstStrength]) {
+      worstStrength = v.evidence_strength;
+    }
+  }
+  return { worstStatus, worstStrength, count: verdicts.length };
+}
+
+function chipClassForTone(tone: WorstStrengthTone): string {
+  switch (tone) {
+    case 'success':
+      return 'bg-green-500/15 text-green-300 hover:bg-green-500/25';
+    case 'warning':
+      return 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25';
+    case 'error':
+      return 'bg-red-500/15 text-red-300 hover:bg-red-500/25';
+    case 'info':
+      return 'bg-sky-500/15 text-sky-300 hover:bg-sky-500/25';
+    case 'secondary':
+    default:
+      return 'bg-zinc-500/15 text-zinc-300 hover:bg-zinc-500/25';
+  }
 }
 
 const MessageItem = memo(function MessageItem({
@@ -36,6 +105,7 @@ const MessageItem = memo(function MessageItem({
   isError = false,
   hasInsight = false,
   activityList,
+  verdicts,
   onCopy,
   onShare,
   onShareToFeed,
@@ -43,12 +113,23 @@ const MessageItem = memo(function MessageItem({
   onThumbsUp,
   onThumbsDown,
   onRetry,
+  onShowVerdict,
+  onAskAboutClaim,
 }: MessageItemProps) {
   const isUser = message.role === 'user';
   const rawContent = stripContextPrefix(message.content);
 
   // When an activity list is present, strip it from the displayed content (for old baked-in messages)
   const content = activityList ? splitActivityContent(rawContent)[1] : rawContent;
+
+  const messageVerdicts = useMemo(
+    () => (verdicts ?? []).filter((v) => v.message_id === message.id),
+    [verdicts, message.id],
+  );
+  const verdictSummary = useMemo(
+    () => summarizeVerdicts(messageVerdicts),
+    [messageVerdicts],
+  );
 
   return (
     <div className="flex gap-3">
@@ -94,6 +175,37 @@ const MessageItem = memo(function MessageItem({
             {linkifyUrls(content)}
           </Markdown>
         </div>
+        {/* Tier 5.5 verdict chips — one summary chip + per-claim drawer triggers */}
+        {!isUser && verdictSummary && messageVerdicts.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onShowVerdict?.(messageVerdicts[0])}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors ${chipClassForTone(STATUS_TONE[verdictSummary.worstStatus])}`}
+              title={`${verdictSummary.count} claim verdict${verdictSummary.count === 1 ? '' : 's'} — worst: ${verdictSummary.worstStatus}, ${verdictSummary.worstStrength}`}
+            >
+              <ShieldAlert className="w-3 h-3" />
+              <span>
+                {verdictSummary.count} verdict{verdictSummary.count === 1 ? '' : 's'} ·{' '}
+                {verdictSummary.worstStrength}
+              </span>
+            </button>
+            {messageVerdicts.length > 1 ? (
+              <span className="text-xs text-zinc-500">
+                Click for details
+              </span>
+            ) : null}
+            {onAskAboutClaim && messageVerdicts.length === 1 ? (
+              <button
+                type="button"
+                onClick={() => onAskAboutClaim(messageVerdicts[0])}
+                className="text-xs text-pierre-violet hover:underline"
+              >
+                Ask me about this claim
+              </button>
+            ) : null}
+          </div>
+        )}
         {/* Action icons and metadata for assistant messages - matches mobile design */}
         {!isUser && (
           <div className="mt-2 flex items-center gap-4">

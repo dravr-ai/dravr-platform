@@ -74,6 +74,8 @@ tools-all = [
     "tools-admin",
     "tools-mobility",
     "tools-groups",
+    "tools-memory",
+    "tools-verification",
 ]
 
 # Individual tool categories
@@ -91,6 +93,8 @@ tools-admin = ["tools-coaches"]  # admin tools depend on coach tools
 tools-mobility = []        # stretching exercises, yoga poses, mobility recommendations
 tools-store = []           # store MCP tools (browse, search, install coaches)
 tools-groups = ["dep:pierre-groups"]  # group coaching tools (create, join, manage, analytics)
+tools-memory = []          # coach-authored memory: notes, followups, fact recall (Tier 3 harness)
+tools-verification = ["dep:pierre-evals"]  # Tier 5.5 bullshit detector: verify_claim tool + dispatch hook
 
 # Convenience bundles for common deployments
 tools-fitness-core = ["tools-connection", "tools-data", "tools-analytics"]
@@ -186,6 +190,8 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
 pierre-cache = { version = "0.3.0", path = "../pierre-cache", features = ["redis"] }
 pierre-a2a = { version = "0.3.0", path = "../pierre-a2a", optional = true }
 pierre-messaging = { version = "0.3.0", path = "../pierre-messaging", optional = true }

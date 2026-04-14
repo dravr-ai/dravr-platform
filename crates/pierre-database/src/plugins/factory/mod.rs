@@ -24,6 +24,7 @@ use pierre_core::config::database::PostgresPoolConfig;
 #[cfg(not(feature = "postgresql"))]
 use tracing::error;
 // Phase 3: Use crate::database::Database directly (eliminates sqlite.rs wrapper)
+use crate::database::system_settings::SystemSetting;
 use crate::database::Database as SqliteDatabase;
 
 /// Supported database types
@@ -367,6 +368,35 @@ impl Database {
             Self::SQLite(db) => db.delete_social_insights_config().await,
             #[cfg(feature = "postgresql")]
             Self::PostgreSQL(db) => db.delete_social_insights_config().await,
+        }
+    }
+
+    /// Read a generic key/value entry from the `system_settings` table.
+    ///
+    /// Used by feature surfaces that persist a single JSON document under
+    /// a stable key (e.g., the Tier 6 harness configuration).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
+        match self {
+            Self::SQLite(db) => db.get_system_setting(key).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.get_system_setting(key).await,
+        }
+    }
+
+    /// Write a generic key/value entry to the `system_settings` table.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails.
+    pub async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
+        match self {
+            Self::SQLite(db) => db.set_system_setting(key, value).await,
+            #[cfg(feature = "postgresql")]
+            Self::PostgreSQL(db) => db.set_system_setting(key, value).await,
         }
     }
 }

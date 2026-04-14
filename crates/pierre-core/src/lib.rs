@@ -46,11 +46,20 @@ pub mod intelligence;
 /// URL redaction utility for safe logging of connection strings
 pub mod redaction;
 
+/// Phase C input sanitization — prompt injection detection for inbound user messages
+pub mod safety;
+
+/// Phase C system-prompt fingerprinting for prompt exfiltration defense
+pub mod prompt_fingerprint;
+
 /// Admin authentication and authorization types
 pub mod admin;
 
 /// UUID parsing, formatting, and generation utilities
 pub mod uuid_utils;
+
+/// Character-based LLM token estimation (single source of truth for the ~4 chars/token heuristic)
+pub mod tokens;
 
 /// LLM provider trait and shared types for pluggable AI model integration
 #[cfg(feature = "llm")]

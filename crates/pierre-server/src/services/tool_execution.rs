@@ -25,8 +25,9 @@ use crate::{
     protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse},
 };
 use pierre_core::llm::tool_simulation;
+use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 // ============================================================================
 // Shared Types
@@ -415,14 +416,20 @@ pub async fn execute_function_calls(
 
 /// Execute a single MCP tool call and return the response.
 ///
-/// Tool execution errors are converted to failed responses so the LLM
-/// can handle them gracefully.
+/// Runs the Sprint C10 post-LLM allowlist check before dispatch so a
+/// prompt-injected tool name that slipped past the catalog filter cannot
+/// actually reach the tool handler. Tool execution errors are converted
+/// to failed responses so the LLM can observe them in the next turn.
 async fn execute_mcp_tool(
     executor: &UniversalExecutor,
     function_call: &FunctionCall,
     user_id: &str,
     tenant_id: TenantId,
 ) -> UniversalResponse {
+    if let Some(blocked) = enforce_tool_allowlist(executor, &function_call.name, tenant_id).await {
+        return blocked;
+    }
+
     let request = UniversalRequest {
         tool_name: function_call.name.clone(),
         parameters: function_call.args.clone(),
@@ -442,6 +449,71 @@ async fn execute_mcp_tool(
             error: Some(format!("Tool execution failed: {e}")),
             metadata: None,
         },
+    }
+}
+
+/// Phase C Sprint C10 post-LLM tool allowlist enforcement.
+///
+/// Queries [`ToolSelectionService::is_tool_enabled`] for `(tenant_id,
+/// tool_name)`. Returns `Some(blocked_response)` when the tenant has
+/// disabled the tool — the caller forwards that as the tool's wire
+/// response so the LLM sees structured feedback rather than silent
+/// failure. Returns `None` when the tool is enabled (or the selection
+/// service cannot resolve an override, in which case we fail-open to
+/// avoid wedging coaches during tool-selection outages).
+///
+/// Tools not known to the tool-selection catalog at all are allowed
+/// through — the pre-LLM catalog already filters the tool list exposed
+/// to the model, so any tool name the LLM produced is one we shipped;
+/// the only failure mode this guards against is a coach being
+/// prompt-injected into calling a tool the tenant has *explicitly
+/// disabled*.
+async fn enforce_tool_allowlist(
+    executor: &UniversalExecutor,
+    tool_name: &str,
+    tenant_id: TenantId,
+) -> Option<UniversalResponse> {
+    let service = executor.resources.tool_selection.as_ref();
+    match service.is_tool_enabled(tenant_id, tool_name).await {
+        Ok(true) => None,
+        Ok(false) => {
+            warn!(
+                tenant_id = %tenant_id,
+                tool_name = %tool_name,
+                "tool_allowlist_block: LLM picked a tool the tenant has disabled — possible prompt injection"
+            );
+            let mut metadata: HashMap<String, serde_json::Value> = HashMap::new();
+            metadata.insert(
+                "blocked_reason".to_owned(),
+                serde_json::Value::String("tool_allowlist".to_owned()),
+            );
+            metadata.insert(
+                "tool_name".to_owned(),
+                serde_json::Value::String(tool_name.to_owned()),
+            );
+            Some(UniversalResponse {
+                success: false,
+                result: None,
+                error: Some(format!(
+                    "Tool '{tool_name}' is disabled for this tenant. \
+                     Pick a different tool or answer from memory."
+                )),
+                metadata: Some(metadata),
+            })
+        }
+        Err(e) => {
+            // Fail-open: tool-selection outages must not wedge every
+            // coach conversation. Log and let the request through so
+            // the existing pre-LLM catalog filter remains the primary
+            // gate.
+            warn!(
+                tenant_id = %tenant_id,
+                tool_name = %tool_name,
+                error = %e,
+                "tool_allowlist_check_failed: falling open to pre-LLM catalog filter"
+            );
+            None
+        }
     }
 }
 

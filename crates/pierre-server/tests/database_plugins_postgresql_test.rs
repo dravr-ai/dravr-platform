@@ -312,11 +312,15 @@ async fn test_pg_chat_create_conversation() {
     assert!(!conv.id.is_empty(), "Conversation ID should be set");
     assert_eq!(conv.title, "Test Chat");
     assert_eq!(conv.model, "gpt-4");
-    assert!(conv.system_prompt.is_none());
+    assert!(conv.coach_id.is_none());
 }
 
 #[tokio::test]
-async fn test_pg_chat_create_conversation_with_system_prompt() {
+async fn test_pg_chat_create_conversation_without_coach_defaults_to_none() {
+    // With coach_id reified as an FK, plain conversations default to None and
+    // the runtime resolves the default Pierre prompt. Full coach-attached
+    // flows are exercised in the orchestration integration tests which seed
+    // a coaches row first.
     let isolated_db = match common::IsolatedPostgresDb::new().await {
         Ok(db) => db,
         Err(e) => {
@@ -337,20 +341,12 @@ async fn test_pg_chat_create_conversation_with_system_prompt() {
 
     let conv = repos
         .chat
-        .create_conversation(
-            &user_id_str,
-            tenant_id,
-            "Test with Prompt",
-            "gpt-4",
-            Some("You are a helpful assistant"),
-        )
+        .create_conversation(&user_id_str, tenant_id, "Test with Prompt", "gpt-4", None)
         .await
         .expect("Failed to create conversation");
 
-    assert_eq!(
-        conv.system_prompt,
-        Some("You are a helpful assistant".to_owned())
-    );
+    assert!(conv.coach_id.is_none());
+    assert_eq!(conv.title, "Test with Prompt");
 }
 
 #[tokio::test]

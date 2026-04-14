@@ -60,19 +60,21 @@ async fn test_create_conversation() {
     assert_eq!(conv.title, "Test Conversation");
     assert_eq!(conv.model, "gemini-1.5-flash");
     assert_eq!(conv.total_tokens, 0);
-    assert!(conv.system_prompt.is_none());
+    assert!(conv.coach_id.is_none());
 }
 
 #[tokio::test]
-async fn test_create_conversation_with_system_prompt() {
+async fn test_create_conversation_without_coach_defaults_to_none() {
+    // Client-provided system_prompt strings were removed when we reified coach_id
+    // on chat_conversations. New conversations default to coach_id = NULL and the
+    // server falls back to the default Pierre prompt at runtime.
     let (router, auth_token) = setup_test_environment().await;
 
     let response = AxumTestRequest::post("/api/chat/conversations")
         .header("authorization", &auth_token)
         .json(&json!({
             "title": "Fitness Chat",
-            "model": "gemini-1.5-pro",
-            "system_prompt": "You are a helpful fitness assistant."
+            "model": "gemini-1.5-pro"
         }))
         .send(router)
         .await;
@@ -82,10 +84,7 @@ async fn test_create_conversation_with_system_prompt() {
     let conv: ConversationResponse = response.json();
     assert_eq!(conv.title, "Fitness Chat");
     assert_eq!(conv.model, "gemini-1.5-pro");
-    assert_eq!(
-        conv.system_prompt,
-        Some("You are a helpful fitness assistant.".to_owned())
-    );
+    assert!(conv.coach_id.is_none());
 }
 
 #[tokio::test]

@@ -134,7 +134,9 @@ pub use user_mcp_token::{
 
 // Chat conversation and message record types
 mod conversation;
-pub use conversation::{AddMessageParams, ConversationRecord, ConversationSummary, MessageRecord};
+pub use conversation::{
+    AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary, MessageRecord,
+};
 
 // Security audit event types
 mod audit;

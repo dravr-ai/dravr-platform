@@ -44,7 +44,7 @@ export interface CoachDeleteConfirmation {
 
 export interface PendingCoachAction {
   prompt: string;
-  systemPrompt?: string;
+  coachId?: string;
 }
 
 export interface CoachFormData {

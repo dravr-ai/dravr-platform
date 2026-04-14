@@ -6,12 +6,18 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::TenantId;
+use pierre_core::models::{CoachRuntimeContext, TenantId};
+use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::{sqlite::SqliteRow, Row};
 use uuid::Uuid;
 
 use super::types::{Coach, CoachVersion};
 use super::{compute_content_hash, row_to_coach, CoachesManager};
+
+/// sqlx row shape for [`CoachRuntimeContext`] lookups.
+/// Ordering matches the SELECT list in [`CoachesManager::get_coach_runtime_context`]:
+/// `system_prompt`, `startup_query`, `data_requirements`, `max_tool_iterations`.
+type CoachRuntimeRow = (String, Option<String>, Option<String>, Option<i32>);
 
 impl CoachesManager {
     // ============================================
@@ -262,7 +268,7 @@ impl CoachesManager {
         let now = Utc::now();
         let tags_json = serde_json::to_string(&tags)?;
         let sample_prompts_json = serde_json::to_string(&sample_prompts)?;
-        let token_count = Self::estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         // Update the coach with the reverted content
         let result = sqlx::query(
@@ -340,109 +346,53 @@ impl CoachesManager {
     }
 
     // ============================================
-    // Startup Query Methods
+    // Coach Runtime Context
     // ============================================
 
     // NOTE: Store methods (submit_for_review, approve_coach, reject_coach,
     // get_published_coaches, install_from_store, uninstall_coach, etc.)
     // have been moved to StoreListingsManager in store_listings.rs
 
-    /// Get the startup query for a coach by matching its system prompt.
+    /// Resolve the full runtime context (system prompt + startup context +
+    /// tool-iteration override) for a coach attached to a conversation.
     ///
-    /// This is used to automatically inject a startup query when a user
-    /// starts a conversation with a coach that has one configured.
-    /// The `system_prompt` is stored in conversations when a coach is selected.
-    ///
-    /// # Arguments
-    ///
-    /// * `system_prompt` - The system prompt to match against coach instructions
-    /// * `tenant_id` - The tenant ID to scope the search
-    ///
-    /// # Returns
-    ///
-    /// The `startup_query` if found, None otherwise.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    /// Get startup context (query + data requirements) by system prompt.
-    ///
-    /// Returns both the startup query and the JSON-serialized data requirements
-    /// for deterministic activity pre-fetching.
+    /// Tenant-scoped: returns the coach if it belongs to the caller's tenant
+    /// or is a system coach. One DB round trip for everything the chat
+    /// pipeline needs per turn.
     ///
     /// # Errors
     ///
     /// Returns an error if database operation fails.
-    pub async fn get_startup_context_by_system_prompt(
+    pub async fn get_coach_runtime_context(
         &self,
-        system_prompt: &str,
+        coach_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+    ) -> AppResult<Option<CoachRuntimeContext>> {
+        let row: Option<CoachRuntimeRow> = sqlx::query_as(
             r"
-            SELECT startup_query, data_requirements
+            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations
             FROM coaches
-            WHERE system_prompt = $1
-              AND (startup_query IS NOT NULL OR data_requirements IS NOT NULL)
+            WHERE id = $1
               AND (tenant_id = $2 OR is_system = 1)
             LIMIT 1
             ",
         )
-        .bind(system_prompt)
+        .bind(coach_id)
         .bind(tenant_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to get startup context: {e}")))?;
+        .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
 
-        Ok(row)
-    }
-
-    /// Convenience method: get startup query only.
-    /// Delegates to `get_startup_context_by_system_prompt` for the query portion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails.
-    pub async fn get_startup_query_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
-        let context = self
-            .get_startup_context_by_system_prompt(system_prompt, tenant_id)
-            .await?;
-        Ok(context.and_then(|(q, _)| q))
-    }
-
-    /// Get the `max_tool_iterations` override for a coach by matching its system prompt.
-    ///
-    /// Used to resolve per-coach tool iteration limits in the chat tool loop.
-    /// Returns `None` if no coach matches or the coach has no override set.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if database operation fails
-    pub async fn get_max_tool_iterations_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<i32>> {
-        let row: Option<(Option<i32>,)> = sqlx::query_as(
-            r"
-            SELECT max_tool_iterations
-            FROM coaches
-            WHERE system_prompt = $1
-              AND (tenant_id = $2 OR is_system = 1)
-            LIMIT 1
-            ",
-        )
-        .bind(system_prompt)
-        .bind(tenant_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to get max_tool_iterations: {e}")))?;
-
-        Ok(row.and_then(|(v,)| v))
+        Ok(row.map(
+            |(system_prompt, startup_query, data_requirements, max_tool_iterations)| {
+                CoachRuntimeContext {
+                    system_prompt,
+                    startup_query,
+                    data_requirements,
+                    max_tool_iterations,
+                }
+            },
+        ))
     }
 }
 

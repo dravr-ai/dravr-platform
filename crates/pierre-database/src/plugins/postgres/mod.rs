@@ -16,6 +16,8 @@ pub mod admin;
 pub mod api_key;
 /// Chat repository implementation
 pub mod chat;
+/// Tier 5.5 claim verdict repository implementation
+pub mod claim_verdicts;
 /// Coaches repository implementation
 pub mod coaches;
 /// Coaching group repository implementation (group CRUD, membership, invites)
@@ -24,6 +26,8 @@ pub mod coaching_groups;
 pub mod encryption;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
+/// Coaching harness memory (compaction, facts, notes, followups, sessions)
+pub mod memory;
 /// Messaging gateway repository implementations
 pub mod messaging;
 /// Mobility repository implementation (stretching exercises and yoga poses)
@@ -464,8 +468,12 @@ impl PostgresDatabase {
 
 // System settings operations for PostgreSQL
 impl PostgresDatabase {
-    /// Get a system setting by key
-    async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
+    /// Get a system setting by key.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    pub async fn get_system_setting(&self, key: &str) -> AppResult<Option<SystemSetting>> {
         use sqlx::Row;
 
         let row = sqlx::query(
@@ -491,8 +499,12 @@ impl PostgresDatabase {
         })
     }
 
-    /// Set a system setting value (upsert)
-    async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
+    /// Set a system setting value (upsert).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database operation fails.
+    pub async fn set_system_setting(&self, key: &str, value: &str) -> AppResult<()> {
         sqlx::query(
             r"
             INSERT INTO system_settings (key, value, created_at, updated_at)

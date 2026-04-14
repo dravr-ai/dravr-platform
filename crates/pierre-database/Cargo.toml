@@ -19,6 +19,7 @@ testing = []
 [dependencies]
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
+pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 
 # Async runtime and traits
 async-trait = "0.1"

@@ -38,12 +38,14 @@ use pierre_core::models::mobility::{
     ActivityMuscleMapping, ListStretchingFilter, ListYogaFilter, StretchingExercise, YogaPose,
 };
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
+use pierre_core::models::CoachRuntimeContext;
 use pierre_core::models::TenantId;
 use pierre_core::models::{
     AdaptedInsight, FriendConnection, FriendStatus, InsightReaction, NotificationPreferences,
     SharedInsight, TrainingPhase, UserSocialSettings,
 };
 use pierre_core::pagination::{Cursor, CursorPage, StoreCursor, StoreSortOrder};
+use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
@@ -483,16 +485,6 @@ impl RecipeRepository for Database {
 // CoachesRepository — helper functions
 // ============================================================================
 
-/// Token estimation constant: average characters per token for system prompts
-const CHARS_PER_TOKEN: usize = 4;
-
-/// Estimate token count for a system prompt (~4 characters per token)
-#[allow(clippy::cast_possible_truncation)]
-const fn estimate_tokens(text: &str) -> u32 {
-    // Token count bounded by reasonable system prompt size (< 100K chars = < 25K tokens)
-    (text.len() / CHARS_PER_TOKEN) as u32
-}
-
 /// Ensure a `coach_assignments` row exists for a user+coach pair.
 ///
 /// Uses `INSERT OR IGNORE` so it is safe to call multiple times.
@@ -791,7 +783,7 @@ impl CoachesRepository for Database {
             .unwrap_or(&existing.sample_prompts);
         let tags_json = serde_json::to_string(tags)?;
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         let startup_query: Option<String> = if request.startup_query.is_some() {
             request
@@ -1169,7 +1161,7 @@ impl CoachesRepository for Database {
         let id = Uuid::new_v4();
         let tags_json = serde_json::to_string(&request.tags)?;
         let sample_prompts_json = serde_json::to_string(&request.sample_prompts)?;
-        let token_count = estimate_tokens(&request.system_prompt);
+        let token_count = estimate_prompt_tokens(&request.system_prompt);
         sqlx::query(
             r"INSERT INTO coaches (
                 id, user_id, tenant_id, title, description, system_prompt,
@@ -1288,7 +1280,7 @@ impl CoachesRepository for Database {
             .unwrap_or(&existing.sample_prompts);
         let tags_json = serde_json::to_string(tags)?;
         let sample_prompts_json = serde_json::to_string(sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
         let result = sqlx::query(
             r"UPDATE coaches SET title = $1, description = $2, system_prompt = $3,
                 category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
@@ -1626,7 +1618,7 @@ impl CoachesRepository for Database {
         let now = Utc::now();
         let tags_json = serde_json::to_string(&tags)?;
         let sample_prompts_json = serde_json::to_string(&sample_prompts)?;
-        let token_count = estimate_tokens(system_prompt);
+        let token_count = estimate_prompt_tokens(system_prompt);
 
         let result = sqlx::query(
             r"UPDATE coaches SET title = $1, description = $2, system_prompt = $3,
@@ -1675,46 +1667,31 @@ impl CoachesRepository for Database {
         Ok(row.get("current_version"))
     }
 
-    async fn get_startup_context_by_system_prompt(
+    async fn get_coach_runtime_context(
         &self,
-        system_prompt: &str,
+        coach_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Option<(Option<String>, Option<String>)>> {
-        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
-            r"SELECT startup_query, data_requirements FROM coaches
-            WHERE system_prompt = $1 AND (startup_query IS NOT NULL OR data_requirements IS NOT NULL)
-              AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
-        ).bind(system_prompt).bind(tenant_id).fetch_optional(self.pool()).await
-        .map_err(|e| AppError::database(format!("Failed to get startup context: {e}")))?;
-        Ok(row)
-    }
-
-    async fn get_startup_query_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<String>> {
-        let context = self
-            .get_startup_context_by_system_prompt(system_prompt, tenant_id)
-            .await?;
-        Ok(context.and_then(|(q, _)| q))
-    }
-
-    async fn get_max_tool_iterations_by_system_prompt(
-        &self,
-        system_prompt: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<Option<i32>> {
-        let row: Option<(Option<i32>,)> = sqlx::query_as(
-            r"SELECT max_tool_iterations FROM coaches
-            WHERE system_prompt = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
+    ) -> AppResult<Option<CoachRuntimeContext>> {
+        type Row = (String, Option<String>, Option<String>, Option<i32>);
+        let row: Option<Row> = sqlx::query_as(
+            r"SELECT system_prompt, startup_query, data_requirements, max_tool_iterations
+            FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
-        .bind(system_prompt)
+        .bind(coach_id)
         .bind(tenant_id)
         .fetch_optional(self.pool())
         .await
-        .map_err(|e| AppError::database(format!("Failed to get max_tool_iterations: {e}")))?;
-        Ok(row.and_then(|(v,)| v))
+        .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
+        Ok(row.map(
+            |(system_prompt, startup_query, data_requirements, max_tool_iterations)| {
+                CoachRuntimeContext {
+                    system_prompt,
+                    startup_query,
+                    data_requirements,
+                    max_tool_iterations,
+                }
+            },
+        ))
     }
 }
 

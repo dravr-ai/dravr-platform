@@ -67,6 +67,13 @@ pub const ACTIVITY_ANALYSIS_PROMPT: &str = include_str!("activity_analysis.md");
 /// Instructs the model to respond as an expert fitness coach with valid JSON.
 pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = include_str!("activity_analysis_system.md");
 
+/// Memory extraction system prompt (Tier 2 semantic user memory)
+///
+/// Instructs the LLM to read one coaching exchange and emit a JSON array
+/// of `Fact` objects describing durable claims the user made about
+/// themselves (preferences, physiology, injuries, goals, schedule, equipment).
+pub const MEMORY_EXTRACTION_PROMPT: &str = include_str!("memory_extraction.md");
+
 /// Get the system prompt for the Pierre fitness assistant
 ///
 /// This is the default system prompt used when starting a new conversation.
@@ -140,4 +147,10 @@ pub const fn get_activity_analysis_prompt() -> &'static str {
 #[must_use]
 pub const fn get_activity_analysis_system_prompt() -> &'static str {
     ACTIVITY_ANALYSIS_SYSTEM_PROMPT
+}
+
+/// Get the Tier 2 memory extraction system prompt.
+#[must_use]
+pub const fn get_memory_extraction_prompt() -> &'static str {
+    MEMORY_EXTRACTION_PROMPT
 }

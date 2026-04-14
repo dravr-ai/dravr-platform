@@ -31,6 +31,13 @@ const ChatTab = lazy(() => import('./ChatTab'));
 const AdminConfiguration = lazy(() => import('./AdminConfiguration'));
 const SystemCoachesTab = lazy(() => import('./SystemCoachesTab'));
 const SystemPromptsTab = lazy(() => import('./SystemPromptsTab'));
+const ClaimVerdictsTab = lazy(() => import('./ClaimVerdictsTab'));
+const HarnessConfigTab = lazy(() => import('./HarnessConfigTab'));
+const MemoryExtractionMonitorTab = lazy(() => import('./MemoryExtractionMonitorTab'));
+const CoachFollowupsTab = lazy(() => import('./CoachFollowupsTab'));
+const CoachNotesAuditTab = lazy(() => import('./CoachNotesAuditTab'));
+const MythBustingTab = lazy(() => import('./MythBustingTab'));
+const CoachGradingTab = lazy(() => import('./CoachGradingTab'));
 const CoachStoreManagement = lazy(() => import('./CoachStoreManagement'));
 const CoachLibraryTab = lazy(() => import('./CoachLibraryTab'));
 const StoreScreen = lazy(() => import('./StoreScreen'));
@@ -157,6 +164,41 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
       <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    ) },
+    { id: 'claim-verdicts', name: 'Claim Verdicts', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.031 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      </svg>
+    ) },
+    { id: 'harness-config', name: 'Harness Config', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z" />
+      </svg>
+    ) },
+    { id: 'memory-worker', name: 'Memory Worker', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10a2 2 0 002 2h12a2 2 0 002-2V7M4 7a2 2 0 012-2h12a2 2 0 012 2M4 7l8 6 8-6" />
+      </svg>
+    ) },
+    { id: 'coach-followups', name: 'Coach Followups', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ) },
+    { id: 'coach-notes-audit', name: 'Coach Notes Audit', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ) },
+    { id: 'myth-busting', name: 'Myth Busting', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l1.664 1.664M21 21l-1.5-1.5m-5.485-1.242L12 17l-3.5-1L9 13.5 7 11l1-2 3 1 2-3.5L15 8l3 1-1.5 2.5L18 14l-3 1 1 3.258m0 0L11 21M3 3l8 8m4 4l4 4M3 3l18 18" />
+      </svg>
+    ) },
+    { id: 'coach-grading', name: 'Coach Grades', section: 'Configuration', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
       </svg>
     ) },
     { id: 'activity', name: 'Activity', section: 'Platform', icon: (
@@ -510,6 +552,41 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         {activeTab === 'platform-settings' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
             <AdminSettings />
+          </Suspense>
+        )}
+        {activeTab === 'claim-verdicts' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <ClaimVerdictsTab />
+          </Suspense>
+        )}
+        {activeTab === 'harness-config' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <HarnessConfigTab />
+          </Suspense>
+        )}
+        {activeTab === 'memory-worker' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <MemoryExtractionMonitorTab />
+          </Suspense>
+        )}
+        {activeTab === 'coach-followups' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <CoachFollowupsTab />
+          </Suspense>
+        )}
+        {activeTab === 'coach-notes-audit' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <CoachNotesAuditTab />
+          </Suspense>
+        )}
+        {activeTab === 'myth-busting' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <MythBustingTab />
+          </Suspense>
+        )}
+        {activeTab === 'coach-grading' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <CoachGradingTab />
           </Suspense>
         )}
         {activeTab === 'prompts' && (

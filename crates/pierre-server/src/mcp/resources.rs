@@ -25,7 +25,9 @@ use crate::config::environment::ServerConfig;
 #[cfg(feature = "contremaitre")]
 use crate::contremaitre::sync::full_sync;
 #[cfg(feature = "contremaitre")]
-use crate::contremaitre::{ContremaitreConfig, PromptRegistry, ToolDescriptionRegistry};
+use crate::contremaitre::{
+    ContremaitreConfig, EvidenceRegistry, PromptRegistry, ToolDescriptionRegistry,
+};
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
 use crate::intelligence::{
@@ -257,6 +259,9 @@ pub struct ServerResources {
     /// Tool description registry for hot-reloadable MCP tool schema overlays
     #[cfg(feature = "contremaitre")]
     pub tool_description_registry: Arc<ToolDescriptionRegistry>,
+    /// Evidence registry for hot-reloadable Tier 5.5 claim verification corpus
+    #[cfg(feature = "contremaitre")]
+    pub evidence_registry: Arc<EvidenceRegistry>,
     /// Contremaitre configuration for GitHub sync and webhook verification
     #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
@@ -268,15 +273,28 @@ pub struct ServerResources {
     pub mint_rate_limiter: Arc<MintRateLimiter>,
 }
 
-/// Initialize prompt and tool description registries, sync from contremaitre if configured.
+/// Initialize prompt, tool description, and evidence registries and sync
+/// from contremaitre when configured.
 #[cfg(feature = "contremaitre")]
-async fn init_contremaitre_registries() -> (Arc<PromptRegistry>, Arc<ToolDescriptionRegistry>) {
+async fn init_contremaitre_registries() -> (
+    Arc<PromptRegistry>,
+    Arc<ToolDescriptionRegistry>,
+    Arc<EvidenceRegistry>,
+) {
     let prompt_registry = Arc::new(PromptRegistry::new());
     let tool_desc_registry = Arc::new(ToolDescriptionRegistry::new());
+    let evidence_registry = Arc::new(EvidenceRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
         let client = config.github_client();
-        match full_sync(&prompt_registry, &tool_desc_registry, &client).await {
+        match full_sync(
+            &prompt_registry,
+            &tool_desc_registry,
+            &evidence_registry,
+            &client,
+        )
+        .await
+        {
             Ok(result) => info!(%result, "Contremaitre sync complete"),
             Err(e) => {
                 warn!(error = %e, "Contremaitre sync failed, using compiled-in defaults");
@@ -286,7 +304,7 @@ async fn init_contremaitre_registries() -> (Arc<PromptRegistry>, Arc<ToolDescrip
         info!("Contremaitre not configured, using compiled-in defaults");
     }
 
-    (prompt_registry, tool_desc_registry)
+    (prompt_registry, tool_desc_registry, evidence_registry)
 }
 
 impl ServerResources {
@@ -473,8 +491,11 @@ impl ServerResources {
 
         // Initialize contremaitre registries (prompts + tool descriptions)
         #[cfg(feature = "contremaitre")]
-        let (contremaitre_prompt_registry, contremaitre_tool_desc_registry) =
-            init_contremaitre_registries().await;
+        let (
+            contremaitre_prompt_registry,
+            contremaitre_tool_desc_registry,
+            contremaitre_evidence_registry,
+        ) = init_contremaitre_registries().await;
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
         #[cfg(feature = "provider-sciotte")]
@@ -542,6 +563,8 @@ impl ServerResources {
             prompt_registry: contremaitre_prompt_registry,
             #[cfg(feature = "contremaitre")]
             tool_description_registry: contremaitre_tool_desc_registry,
+            #[cfg(feature = "contremaitre")]
+            evidence_registry: contremaitre_evidence_registry,
             #[cfg(feature = "contremaitre")]
             contremaitre_config: ContremaitreConfig::from_env(),
             #[cfg(feature = "provider-sciotte")]

@@ -22,6 +22,39 @@ export interface MessagesResponse {
   messages: Message[];
 }
 
+/**
+ * User-facing wire shape for a Tier 5.5 claim verdict attached to a
+ * conversation message. Mirrors the admin row shape but stays inside the
+ * chat domain so the dispatch UI can render chips without going through
+ * the admin permission gate.
+ */
+export interface ChatVerdictRow {
+  id: string;
+  conversation_id: string | null;
+  message_id: string | null;
+  coach_id: string | null;
+  claim_text: string;
+  category:
+    | 'physiological'
+    | 'training_prescription'
+    | 'nutrition'
+    | 'recovery'
+    | 'supplement'
+    | 'injury_rehab';
+  status: 'supported' | 'unsupported' | 'contradicted' | 'rhetorical' | 'unverifiable';
+  evidence_strength: 'strong' | 'mixed' | 'weak' | 'none';
+  confidence: number;
+  layer_fired: 'rhetoric' | 'deterministic' | 'evidence' | 'consistency' | 'judge';
+  explanation: string | null;
+  evidence_refs: string | null;
+  created_at: string;
+}
+
+export interface ChatVerdictsResponse {
+  verdicts: ChatVerdictRow[];
+  total: number;
+}
+
 export interface SendMessageResponse {
   user_message: Message;
   assistant_message: Message;
@@ -35,7 +68,8 @@ export interface SendMessageResponse {
 export interface CreateConversationOptions {
   title?: string;
   model?: string;
-  system_prompt?: string;
+  /** Coach to attach to the conversation; the coach's system_prompt
+   *  is resolved server-side at runtime. */
   coach_id?: string;
 }
 
@@ -102,6 +136,18 @@ export function createChatApi(axios: AxiosInstance, getBaseUrl: () => string) {
     async getConversationMessages(conversationId: string): Promise<MessagesResponse> {
       const response = await axios.get<MessagesResponse>(
         ENDPOINTS.CHAT.MESSAGES(conversationId)
+      );
+      return response.data;
+    },
+
+    /**
+     * Fetch the Tier 5.5 claim verdicts attached to the messages in a
+     * conversation. Returns an empty array if the verification pipeline
+     * has not produced any verdicts yet (or the feature is disabled).
+     */
+    async getConversationVerdicts(conversationId: string): Promise<ChatVerdictsResponse> {
+      const response = await axios.get<ChatVerdictsResponse>(
+        ENDPOINTS.CHAT.VERDICTS(conversationId)
       );
       return response.data;
     },
