@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Dravr — iOS app icon</title>
+  <desc>Deep-forest Boreal Editorial app icon. Primary gradient background with a centred network-of-nodes motif in the four pillar colors.</desc>
+
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00241a"/>
+      <stop offset="100%" style="stop-color:#0d3b2e"/>
+    </linearGradient>
+
+    <linearGradient id="activityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a3d0be"/>
+      <stop offset="100%" style="stop-color:#79a694"/>
+    </linearGradient>
+
+    <linearGradient id="nutritionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c9a76d"/>
+      <stop offset="100%" style="stop-color:#8f6a2e"/>
+    </linearGradient>
+
+    <linearGradient id="recoveryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#9bb3bb"/>
+      <stop offset="100%" style="stop-color:#5e7a82"/>
+    </linearGradient>
+
+    <linearGradient id="mobilityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#b88a96"/>
+      <stop offset="100%" style="stop-color:#7a4d5e"/>
+    </linearGradient>
+
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:0.08"/>
+      <stop offset="100%" style="stop-color:#ffffff;stop-opacity:0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Full-bleed forest background -->
+  <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+  <!-- Subtle radial glow -->
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+
+  <!-- Network of nodes, centred and scaled to ~700px bounding box -->
+  <g transform="translate(512 512) scale(5) translate(-60 -60)">
+    <!-- Connection lines (primary-fixed-dim) -->
+    <g stroke-width="2" opacity="0.35" stroke-linecap="round">
+      <line x1="40" y1="30" x2="52" y2="42" stroke="#a3d0be"/>
+      <line x1="52" y1="42" x2="70" y2="35" stroke="#a3d0be"/>
+      <line x1="52" y1="42" x2="48" y2="55" stroke="#a3d0be"/>
+      <line x1="48" y1="55" x2="75" y2="52" stroke="#a3d0be"/>
+      <line x1="75" y1="52" x2="88" y2="60" stroke="#a3d0be"/>
+      <line x1="48" y1="55" x2="55" y2="72" stroke="#a3d0be"/>
+      <line x1="55" y1="72" x2="35" y2="85" stroke="#a3d0be"/>
+      <line x1="55" y1="72" x2="72" y2="82" stroke="#a3d0be"/>
+      <line x1="70" y1="35" x2="88" y2="60" stroke="#a3d0be" opacity="0.5"/>
+      <line x1="35" y1="85" x2="72" y2="82" stroke="#a3d0be" opacity="0.5"/>
+    </g>
+
+    <!-- Head / shoulder / arm -->
+    <circle cx="40" cy="30" r="7" fill="url(#activityGrad)"/>
+    <circle cx="52" cy="42" r="5" fill="url(#activityGrad)"/>
+    <circle cx="70" cy="35" r="3.5" fill="url(#activityGrad)"/>
+
+    <!-- Core -->
+    <circle cx="48" cy="55" r="7" fill="#a3d0be"/>
+    <circle cx="48" cy="55" r="3.5" fill="#ffffff"/>
+
+    <!-- Nutrition -->
+    <circle cx="75" cy="52" r="4.5" fill="url(#nutritionGrad)"/>
+    <circle cx="88" cy="60" r="3.5" fill="url(#nutritionGrad)"/>
+
+    <!-- Lower body + recovery -->
+    <circle cx="55" cy="72" r="5" fill="url(#recoveryGrad)"/>
+    <circle cx="35" cy="85" r="4" fill="url(#recoveryGrad)"/>
+    <circle cx="72" cy="82" r="4" fill="url(#recoveryGrad)"/>
+
+    <!-- Mobility accent -->
+    <circle cx="82" cy="28" r="2.5" fill="url(#mobilityGrad)"/>
+  </g>
+</svg>

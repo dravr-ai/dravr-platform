@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Dravr — splash centerpiece</title>
+  <desc>Splash artwork: small centred network motif + DRAVR wordmark below. Rendered over the boreal surface (#f9f9f6) as set in app.config.js.</desc>
+
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00241a"/>
+      <stop offset="100%" style="stop-color:#0d3b2e"/>
+    </linearGradient>
+
+    <linearGradient id="activityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3c6658"/>
+      <stop offset="100%" style="stop-color:#234e40"/>
+    </linearGradient>
+
+    <linearGradient id="nutritionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8f6a2e"/>
+      <stop offset="100%" style="stop-color:#6e5020"/>
+    </linearGradient>
+
+    <linearGradient id="recoveryGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5e7a82"/>
+      <stop offset="100%" style="stop-color:#425962"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Transparent background so the app.config backgroundColor shows through -->
+
+  <!-- Node motif centred higher in the canvas (room below for wordmark) -->
+  <g transform="translate(512 420) scale(3) translate(-60 -60)">
+    <g stroke-width="2.5" opacity="0.45" stroke-linecap="round">
+      <line x1="40" y1="30" x2="52" y2="42" stroke="url(#activityGrad)"/>
+      <line x1="52" y1="42" x2="70" y2="35" stroke="url(#activityGrad)"/>
+      <line x1="52" y1="42" x2="48" y2="55" stroke="url(#bgGrad)"/>
+      <line x1="48" y1="55" x2="75" y2="52" stroke="url(#nutritionGrad)"/>
+      <line x1="75" y1="52" x2="88" y2="60" stroke="url(#nutritionGrad)"/>
+      <line x1="48" y1="55" x2="55" y2="72" stroke="url(#bgGrad)"/>
+      <line x1="55" y1="72" x2="35" y2="85" stroke="url(#recoveryGrad)"/>
+      <line x1="55" y1="72" x2="72" y2="82" stroke="url(#recoveryGrad)"/>
+    </g>
+
+    <circle cx="40" cy="30" r="7" fill="url(#activityGrad)"/>
+    <circle cx="52" cy="42" r="5" fill="url(#activityGrad)"/>
+    <circle cx="70" cy="35" r="3.5" fill="url(#activityGrad)"/>
+
+    <circle cx="48" cy="55" r="7" fill="url(#bgGrad)"/>
+    <circle cx="48" cy="55" r="3.5" fill="#f9f9f6"/>
+
+    <circle cx="75" cy="52" r="4.5" fill="url(#nutritionGrad)"/>
+    <circle cx="88" cy="60" r="3.5" fill="url(#nutritionGrad)"/>
+
+    <circle cx="55" cy="72" r="5" fill="url(#recoveryGrad)"/>
+    <circle cx="35" cy="85" r="4" fill="url(#recoveryGrad)"/>
+    <circle cx="72" cy="82" r="4" fill="url(#recoveryGrad)"/>
+  </g>
+
+  <!-- DRAVR wordmark below, letter-spacing 0.15em
+       We approximate Space Grotesk with a generic geometric sans-serif.
+       Inkscape will fall back to an available system font if the named
+       family isn't installed — the visual weight stays consistent. -->
+  <text x="512" y="700"
+        font-family="'Space Grotesk','Avenir Next','Helvetica Neue',sans-serif"
+        font-weight="600" font-size="76" letter-spacing="12"
+        text-anchor="middle" fill="#00241a">DRAVR</text>
+</svg>
