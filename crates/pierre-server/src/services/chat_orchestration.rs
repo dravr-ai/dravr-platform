@@ -177,52 +177,41 @@ const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 
 /// Resolve group context for a user in a conversation.
 ///
-/// Uses conversation's `group_id` if set, otherwise finds group from user membership.
-/// Returns resolved group ID and member snapshots.
+/// Resolve group context strictly from the conversation record's `group_id`.
+///
+/// Group context (member snapshots, group-scoped prompt injection) is opt-in:
+/// a conversation must be explicitly created with `group_id = Some(...)` to
+/// receive it. 1:1 personal conversations — where `group_id` is `None` — never
+/// auto-attach to a group the user happens to belong to. Doing so would leak
+/// another group member's fitness data into a private chat and confuse the
+/// LLM about whose activities the user is asking about.
 #[cfg(feature = "tools-groups")]
 async fn resolve_group_context(
     resources: &Arc<ServerResources>,
-    user_id: &str,
     conversation_group_id: Option<&str>,
     tool_tenant_id: TenantId,
 ) -> AppResult<(Option<String>, Vec<MemberSnapshot>)> {
-    let user_uuid = parse_uuid(user_id).unwrap_or_default();
-
-    // Resolve group: use conversation group_id or find from membership
-    let resolved_group_id = if let Some(gid) = conversation_group_id {
-        Some(gid.to_owned())
-    } else {
-        match resources.repos.groups.list_groups_for_user(user_uuid).await {
-            Ok(groups) if groups.len() == 1 => Some(groups[0].id.to_string()),
-            Ok(_) => None,
-            Err(e) => {
-                tracing::debug!("Failed to check group membership: {e}");
-                None
-            }
-        }
+    let Some(gid) = conversation_group_id else {
+        return Ok((None, Vec::new()));
     };
 
-    // Fetch member snapshots if we have a resolved group
-    let snapshots = if let Some(ref gid) = resolved_group_id {
-        let member_ids: Vec<uuid::Uuid> = resources
-            .repos
-            .groups
-            .list_members(gid)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.user_id)
-            .collect();
-        if member_ids.is_empty() {
-            Vec::new()
-        } else {
-            fetch_member_snapshots(resources, &member_ids, tool_tenant_id).await
-        }
-    } else {
+    let member_ids: Vec<uuid::Uuid> = resources
+        .repos
+        .groups
+        .list_members(gid)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.user_id)
+        .collect();
+
+    let snapshots = if member_ids.is_empty() {
         Vec::new()
+    } else {
+        fetch_member_snapshots(resources, &member_ids, tool_tenant_id).await
     };
 
-    Ok((resolved_group_id, snapshots))
+    Ok((Some(gid.to_owned()), snapshots))
 }
 
 /// Dispatch a user message through the LLM pipeline and return the assistant's text response.
@@ -286,15 +275,15 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         |c| c.system_prompt.clone(),
     );
 
-    // Inject group coaching context before appending messaging constraints.
-    // Resolve group from user membership when conversation has no group_id,
-    // matching the pattern used in chat.rs::inject_group_context_if_applicable.
+    // Inject group coaching context only when the conversation is explicitly
+    // group-scoped (conversation.group_id is Some). Personal 1:1 chats never
+    // inherit group context from the user's membership — see
+    // `resolve_group_context` for rationale.
     #[cfg(feature = "tools-groups")]
     let base_prompt = {
         let group_service = resources.group_service();
         let (resolved_group_id, snapshots) =
-            resolve_group_context(resources, user_id, conv.group_id.as_deref(), tool_tenant_id)
-                .await?;
+            resolve_group_context(resources, conv.group_id.as_deref(), tool_tenant_id).await?;
         let user_uuid = parse_uuid(user_id).unwrap_or_default();
 
         group_service

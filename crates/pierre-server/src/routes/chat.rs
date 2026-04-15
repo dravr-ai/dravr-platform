@@ -498,7 +498,11 @@ impl ChatRoutes {
         augmented
     }
 
-    /// Inject group coaching context into the system prompt if applicable
+    /// Inject group coaching context only when the conversation is explicitly
+    /// group-scoped (`conversation.group_id.is_some()`). Personal 1:1 chats do
+    /// NOT auto-attach to groups the user happens to belong to — doing so
+    /// leaks other members' fitness data into a private conversation and
+    /// confuses the LLM about whose activities are being discussed.
     #[cfg(feature = "tools-groups")]
     async fn inject_group_context_if_applicable(
         augmented: &str,
@@ -507,64 +511,34 @@ impl ChatRoutes {
         user_id: Uuid,
         tenant_id: TenantId,
     ) -> String {
-        let group_service = resources.group_service();
-
-        // If conversation already has a group_id, use it directly
-        let conversation_group_id = conversation.group_id.as_deref();
-
-        // Find groups this user belongs to — for MVP, we check all groups
-        // and inject context if the user is in exactly one active group.
-        // This works because inject_group_context handles disambiguation.
-        let groups = match resources.repos.groups.list_groups_for_user(user_id).await {
-            Ok(g) => g,
-            Err(e) => {
-                tracing::debug!("Failed to check group membership: {e}");
-                return augmented.to_owned();
-            }
-        };
-
-        if groups.is_empty() && conversation_group_id.is_none() {
+        let Some(group_id) = conversation.group_id.as_deref() else {
             return augmented.to_owned();
-        }
-
-        // If conversation has no group_id, resolve from user's groups:
-        // - 1 group → use it directly (skip coach_id lookup which requires non-empty coach_id)
-        // - 2+ groups → let inject_group_context handle disambiguation
-        let resolved_group_id = match conversation_group_id {
-            Some(id) => Some(id.to_owned()),
-            None if groups.len() == 1 => Some(groups[0].id.to_string()),
-            _ => None,
         };
 
-        // Collect member user_ids from groups for snapshot fetching
-        let member_user_ids: Vec<Uuid> = if let Some(ref gid) = resolved_group_id {
-            resources
-                .repos
-                .groups
-                .list_members(gid)
-                .await
-                .unwrap_or_default()
-                .into_iter()
-                .map(|m| m.user_id)
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let member_user_ids: Vec<Uuid> = resources
+            .repos
+            .groups
+            .list_members(group_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.user_id)
+            .collect();
 
-        // Fetch fitness snapshots for group members (graceful fallback to empty)
         let snapshots = if member_user_ids.is_empty() {
             Vec::new()
         } else {
             fetch_member_snapshots(resources, &member_user_ids, tenant_id).await
         };
 
+        let group_service = resources.group_service();
         match group_service
             .inject_group_context(
                 augmented,
                 "",
                 user_id,
                 tenant_id,
-                resolved_group_id.as_deref(),
+                Some(group_id),
                 &snapshots,
             )
             .await
