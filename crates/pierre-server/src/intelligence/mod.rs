@@ -28,8 +28,12 @@ pub use pierre_intelligence::{
 
 /// Location and geographic context
 pub mod location;
+/// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data)
+pub mod routes;
 /// Weather data integration and analysis
 pub mod weather;
+
+pub use routes::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
 
 /// LLM-powered insight quality validation for social sharing
 pub mod insight_validation;

@@ -418,6 +418,10 @@ impl ToolRegistry {
         #[cfg(feature = "tools-analytics")]
         self.register_analytics_tools();
 
+        // Route discovery tools (discover_routes — Overpass API / OSM piste data)
+        #[cfg(feature = "tools-analytics")]
+        self.register_route_tools();
+
         // Goals tools
         #[cfg(feature = "tools-goals")]
         self.register_goals_tools();
@@ -838,6 +842,26 @@ impl ToolRegistry {
 
         info!(
             "Registered sync tools (registry now has {} tools)",
+            self.tools.len()
+        );
+    }
+
+    /// Register route-discovery tools (`discover_routes` — Overpass + OSM piste data)
+    #[cfg(feature = "tools-analytics")]
+    fn register_route_tools(&mut self) {
+        use super::implementations::routes::create_route_tools;
+
+        debug!(
+            "Registering route tools (registry has {} tools)",
+            self.tools.len()
+        );
+
+        for tool in create_route_tools() {
+            self.register_with_category(Arc::from(tool), "analytics");
+        }
+
+        info!(
+            "Registered route tools (registry now has {} tools)",
             self.tools.len()
         );
     }
