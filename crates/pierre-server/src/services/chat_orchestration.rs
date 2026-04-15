@@ -92,7 +92,7 @@ pub async fn create_conversation(
 
 /// Resolve the active LLM model for a messaging dispatch turn.
 ///
-/// Messaging users (Telegram, WhatsApp, Discord, etc.) never pick their
+/// Messaging users (Telegram, `WhatsApp`, Discord, etc.) never pick their
 /// LLM — they always run on the currently configured default. Honouring
 /// the conversation's stored `model` would pin old conversations to
 /// whatever was configured at creation time, so a production config bump
