@@ -17,6 +17,7 @@
 
 use std::env;
 
+use pierre_mcp_server::intelligence::location::LocationService;
 use pierre_mcp_server::intelligence::{RouteDiscoveryService, RouteSource, RouteType};
 use pierre_mcp_server::models::SportType;
 
@@ -126,5 +127,91 @@ async fn test_unsupported_sport_returns_empty() {
         routes.is_empty(),
         "expected empty result for unsupported sport, got {} routes",
         routes.len()
+    );
+}
+
+#[tokio::test]
+async fn test_forward_geocode_prevost_resolves_into_quebec() {
+    if !live_tests_enabled() {
+        eprintln!("skipping live Nominatim test (set DRAVR_LIVE_OVERPASS_TESTS=1 to enable)");
+        return;
+    }
+
+    let mut service = LocationService::new();
+    let result = service
+        .forward_geocode("Prévost, QC")
+        .await
+        .expect("Nominatim should resolve 'Prévost, QC'");
+
+    // Prévost is in the Laurentides region of Québec; expect a roughly
+    // +45.8 lat, -74.1 lon area. Allow a generous tolerance because
+    // Nominatim may return the administrative centroid or a nearby node.
+    assert!(
+        (45.5..=46.2).contains(&result.latitude),
+        "latitude {} outside expected Laurentides range",
+        result.latitude
+    );
+    assert!(
+        (-74.5..=-73.5).contains(&result.longitude),
+        "longitude {} outside expected Laurentides range",
+        result.longitude
+    );
+    assert!(
+        result.display_name.to_lowercase().contains("québec")
+            || result.display_name.to_lowercase().contains("quebec"),
+        "display name '{}' should include Québec",
+        result.display_name
+    );
+}
+
+#[tokio::test]
+async fn test_forward_geocode_cached_second_call_is_instant() {
+    if !live_tests_enabled() {
+        eprintln!("skipping live Nominatim test (set DRAVR_LIVE_OVERPASS_TESTS=1 to enable)");
+        return;
+    }
+
+    let mut service = LocationService::new();
+    let first = service
+        .forward_geocode("Saint-Alexis-des-Monts")
+        .await
+        .expect("first geocode call should succeed");
+
+    // Second call should hit the in-memory cache and return the exact same
+    // coordinates without re-querying Nominatim. We can't directly assert
+    // "didn't hit network", but assert the result is byte-identical and
+    // the call completes in <10ms (network round-trips take >50ms typically).
+    let before = std::time::Instant::now();
+    let second = service
+        .forward_geocode("saint-alexis-des-monts") // different case to prove cache key normalization
+        .await
+        .expect("second geocode call should succeed");
+    let elapsed = before.elapsed();
+
+    assert!(
+        (first.latitude - second.latitude).abs() < f64::EPSILON,
+        "cached call returned different latitude"
+    );
+    assert!(
+        (first.longitude - second.longitude).abs() < f64::EPSILON,
+        "cached call returned different longitude"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_millis(50),
+        "cached call took {elapsed:?} — cache key normalization may be broken"
+    );
+}
+
+#[tokio::test]
+async fn test_forward_geocode_empty_query_rejected() {
+    // No live test needed — empty input is rejected before the HTTP call.
+    let mut service = LocationService::new();
+    let err = service
+        .forward_geocode("   ")
+        .await
+        .expect_err("empty query should be rejected");
+    assert!(
+        err.to_string().to_lowercase().contains("empty"),
+        "error message should mention empty input, got: {err}"
     );
 }
