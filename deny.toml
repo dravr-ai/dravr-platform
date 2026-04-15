@@ -33,6 +33,15 @@ ignore = [
     # Next Review: 2026-01-15 or when rsa 0.10.0 stable released
     "RUSTSEC-2023-0071",
 
+    # -------------------------------------------------------------------------
+    # RUSTSEC-2026-0097: rand unsound with a custom `log` logger using rand::rng()
+    # -------------------------------------------------------------------------
+    # Severity: Unsound (UB only under very specific conditions)
+    # Affected in-tree version: rand 0.8.5 (transitive via jsonwebtoken, rsa,
+    # dravr-enforme). We use `tracing` + `tracing-subscriber`, not a custom
+    # `log::Log` impl, so the preconditions for the unsoundness are not met.
+    # Upgrade blocked on upstream crates (jsonwebtoken rand-0.9, rsa 0.10 stable).
+    "RUSTSEC-2026-0097",
 ]
 
 # Warn on yanked crates
