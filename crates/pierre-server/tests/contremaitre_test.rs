@@ -582,6 +582,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "delete_recipe",
     "detect_patterns",
     "disconnect_provider",
+    "discover_routes",
     "get_active_coach",
     "get_activities",
     "get_activity_intelligence",

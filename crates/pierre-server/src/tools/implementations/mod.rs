@@ -87,3 +87,7 @@ pub mod store;
 /// Sync tools: `refresh_provider_data`, `get_data_freshness`
 #[cfg(feature = "tools-connection")]
 pub mod sync;
+
+/// Route discovery tools: `discover_routes` (Overpass + OSM piste data)
+#[cfg(feature = "tools-analytics")]
+pub mod routes;

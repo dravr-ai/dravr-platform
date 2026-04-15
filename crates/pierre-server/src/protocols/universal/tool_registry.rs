@@ -193,6 +193,10 @@ pub enum ToolId {
     /// Check data freshness for all connected providers
     GetDataFreshness,
 
+    // Route discovery tools (OSM / Overpass / piste data)
+    /// Discover real running, cycling, hiking, or ski routes near a location
+    DiscoverRoutes,
+
     // Admin coach management tools (system coaches - admin only)
     /// List system coaches in tenant (admin only)
     AdminListSystemCoaches,
@@ -310,6 +314,8 @@ impl ToolId {
             // Provider sync/refresh tools
             "refresh_provider_data" => Some(Self::RefreshProviderData),
             "get_data_freshness" => Some(Self::GetDataFreshness),
+            // Route discovery tools (OSM / Overpass)
+            "discover_routes" => Some(Self::DiscoverRoutes),
             // Admin coach management tools (system coaches)
             ADMIN_LIST_SYSTEM_COACHES => Some(Self::AdminListSystemCoaches),
             ADMIN_CREATE_SYSTEM_COACH => Some(Self::AdminCreateSystemCoach),
@@ -409,6 +415,8 @@ impl ToolId {
             // Provider sync/refresh tools
             Self::RefreshProviderData => "refresh_provider_data",
             Self::GetDataFreshness => "get_data_freshness",
+            // Route discovery tools (OSM / Overpass)
+            Self::DiscoverRoutes => "discover_routes",
             // Admin coach management tools
             Self::AdminListSystemCoaches => ADMIN_LIST_SYSTEM_COACHES,
             Self::AdminCreateSystemCoach => ADMIN_CREATE_SYSTEM_COACH,
@@ -505,6 +513,9 @@ impl ToolId {
             Self::SuggestYogaSequence => "Suggest a yoga sequence for recovery",
             Self::RefreshProviderData => "Trigger a data refresh from a connected fitness provider",
             Self::GetDataFreshness => "Check data freshness for all connected providers",
+            Self::DiscoverRoutes => {
+                "Discover real running, cycling, hiking, or ski routes near a location from OSM data"
+            }
             Self::AdminListSystemCoaches => "List all system coaches (admin only)",
             Self::AdminCreateSystemCoach => "Create a system coach (admin only)",
             Self::AdminGetSystemCoach => "Get a specific system coach (admin only)",
