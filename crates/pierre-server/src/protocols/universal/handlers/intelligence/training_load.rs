@@ -447,7 +447,7 @@ pub fn handle_analyze_training_load(
                     }
                 }
 
-                let activity_limit = executor.resources.config.training_load_activity_limit;
+                let activity_limit = executor.resources.config.activity_fetch_limit;
                 match provider.get_activities(Some(activity_limit), None).await {
                     Ok(activities) => {
                         // Report progress before analysis

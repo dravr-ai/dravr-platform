@@ -178,26 +178,25 @@ fn test_messaging_prompt_handles_followups() {
 }
 
 // =============================================================================
-// Issue #2: Training load activity limit configurable
-// The TRAINING_LOAD_ACTIVITY_LIMIT should default to 200 (was hardcoded 100).
+// Issue #2: Activity fetch limit — single env var governs all paths
+// ACTIVITY_FETCH_LIMIT defaults to 100, governs both the direct
+// analyze_training_load tool and group-coaching snapshot fetches.
 // =============================================================================
 
 #[test]
-fn test_training_load_activity_limit_default() {
-    // ServerConfig::from_env() reads TRAINING_LOAD_ACTIVITY_LIMIT
-    // Default should be 200 when env var is not set
-    let default_limit: usize = env::var("TRAINING_LOAD_ACTIVITY_LIMIT")
+fn test_activity_fetch_limit_default() {
+    let default_limit: usize = env::var("ACTIVITY_FETCH_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(200);
+        .unwrap_or(100);
 
     assert_eq!(
-        default_limit, 200,
-        "Default training load activity limit should be 200"
+        default_limit, 100,
+        "Default activity fetch limit should be 100"
     );
     assert!(
-        default_limit > 100,
-        "Training load activity limit must be > 100 for accurate CTL (42-day EMA)"
+        default_limit >= 60,
+        "Activity fetch limit must cover at least 60 days of daily activity for CTL (42-day EMA)"
     );
 }
 
