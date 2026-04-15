@@ -19,6 +19,7 @@
 //! ```
 
 use std::env;
+use std::time::{Duration, Instant};
 
 use pierre_mcp_server::intelligence::location::LocationService;
 use pierre_mcp_server::intelligence::{RouteDiscoveryService, RouteSource, RouteType};
@@ -184,7 +185,7 @@ async fn test_forward_geocode_cached_second_call_is_instant() {
     // coordinates without re-querying Nominatim. We can't directly assert
     // "didn't hit network", but assert the result is byte-identical and
     // the call completes in <10ms (network round-trips take >50ms typically).
-    let before = std::time::Instant::now();
+    let before = Instant::now();
     let second = service
         .forward_geocode("saint-alexis-des-monts") // different case to prove cache key normalization
         .await
@@ -200,7 +201,7 @@ async fn test_forward_geocode_cached_second_call_is_instant() {
         "cached call returned different longitude"
     );
     assert!(
-        elapsed < std::time::Duration::from_millis(50),
+        elapsed < Duration::from_millis(50),
         "cached call took {elapsed:?} — cache key normalization may be broken"
     );
 }
