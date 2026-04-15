@@ -182,9 +182,14 @@ impl FitnessProvider for SciotteProvider {
             .ok_or_else(|| AppError::invalid_input("No sciotte session — please connect first"))?;
 
         let limit = params.limit.unwrap_or(20);
+        // Trait contract mirrors Strava/Fitbit: return list-page summary only.
+        // Detail-page enrichment (HR streams, laps, segments) is an N+1 roundtrip
+        // through the headless browser and unacceptable on interactive paths like
+        // chat orchestration and group snapshots. Callers that need full detail
+        // must invoke the Sciotte scraper directly with `enrich_details: true`.
         let sciotte_params = ActivityParams {
             limit: Some(limit as u32),
-            enrich_details: true,
+            enrich_details: false,
             ..Default::default()
         };
 

@@ -105,9 +105,13 @@ pub struct ServerConfig {
     pub rate_limiting: RateLimitConfig,
     /// Sleep tool operational parameters (activity limits, trend thresholds)
     pub sleep_tool_params: SleepToolParamsConfig,
-    /// Number of activities to fetch for training load analysis (CTL/ATL/TSB).
-    /// Higher values give more accurate CTL (42-day EMA) at the cost of more API calls.
-    pub training_load_activity_limit: usize,
+    /// Maximum number of activities to fetch from a provider in any single request.
+    /// Governs all activity-fetching paths: the direct `analyze_training_load` tool,
+    /// group coaching snapshots, and chat orchestration context building. Higher
+    /// values give more accurate CTL (42-day EMA) at the cost of more API calls and
+    /// longer response latency — every additional activity is one more round-trip on
+    /// providers that require per-activity detail fetches (e.g., headless scrapers).
+    pub activity_fetch_limit: usize,
     /// Goal management and feasibility configuration
     pub goal_management: GoalManagementConfig,
     /// Training zone percentages configuration
@@ -167,10 +171,10 @@ impl ServerConfig {
             cache: CacheConfig::from_env(),
             rate_limiting: RateLimitConfig::from_env(),
             sleep_tool_params: SleepToolParamsConfig::from_env(),
-            training_load_activity_limit: env::var("TRAINING_LOAD_ACTIVITY_LIMIT")
+            activity_fetch_limit: env::var("ACTIVITY_FETCH_LIMIT")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(200),
+                .unwrap_or(100),
             goal_management: GoalManagementConfig::from_env(),
             training_zones: TrainingZonesConfig::from_env(),
             tokio_runtime: TokioRuntimeConfig::from_env(),

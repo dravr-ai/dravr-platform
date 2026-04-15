@@ -31,9 +31,6 @@ use crate::protocols::universal::AuthService;
 /// CTL uses a 42-day exponential moving average, so 60 days gives adequate data.
 const TRAINING_LOAD_LOOKBACK_DAYS: i64 = 60;
 
-/// Maximum activities to fetch per user for snapshot computation
-const MAX_ACTIVITIES_PER_USER: usize = 200;
-
 /// Default time window (minutes) for considering two activities as duplicates
 const DEFAULT_DEDUP_TIME_WINDOW_MINUTES: i64 = 15;
 
@@ -212,13 +209,18 @@ pub(crate) trait ActivityMergeStrategy: Send + Sync {
 /// training load calculation, giving a complete picture of the athlete's workload.
 pub(crate) struct AllProvidersMerge {
     deduplicator: Box<dyn ActivityDeduplicator>,
+    activity_limit: usize,
 }
 
 impl AllProvidersMerge {
-    /// Create with the default time-window deduplicator (env-configured).
-    pub(crate) fn from_env() -> Self {
+    /// Create with the default time-window deduplicator (env-configured) and a
+    /// caller-supplied per-provider activity limit — typically sourced from
+    /// `ServerConfig::activity_fetch_limit` so that a single env variable
+    /// (`ACTIVITY_FETCH_LIMIT`) governs every activity-fetching path.
+    pub(crate) fn new(activity_limit: usize) -> Self {
         Self {
             deduplicator: Box::new(TimeWindowDeduplicator::from_env()),
+            activity_limit,
         }
     }
 }
@@ -236,7 +238,7 @@ impl ActivityMergeStrategy for AllProvidersMerge {
         let now = Utc::now();
         let lookback_start = (now - Duration::days(TRAINING_LOAD_LOOKBACK_DAYS)).timestamp();
         let params = ActivityQueryParams {
-            limit: Some(MAX_ACTIVITIES_PER_USER),
+            limit: Some(self.activity_limit),
             offset: None,
             before: None,
             after: Some(lookback_start),
@@ -521,7 +523,7 @@ async fn fetch_member_activities(
     }
 
     let auth_service = AuthService::new(Arc::clone(resources));
-    let strategy = AllProvidersMerge::from_env();
+    let strategy = AllProvidersMerge::new(resources.config.activity_fetch_limit);
     strategy
         .fetch_and_merge(&auth_service, &providers, user_id, tenant_id)
         .await
