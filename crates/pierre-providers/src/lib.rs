@@ -40,6 +40,9 @@ pub mod fitbit_provider;
 /// Garmin Connect provider implementation
 #[cfg(feature = "provider-garmin")]
 pub mod garmin_provider;
+/// FIFO queue + backpressure limiter gating concurrent Sciotte Chrome scrapes
+#[cfg(feature = "provider-sciotte")]
+pub mod sciotte_limiter;
 /// Sciotte web scraping provider for browser-based activity data extraction
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;

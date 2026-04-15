@@ -41,6 +41,14 @@ env:
   # OAuth credentials (dummy values for CI)
   STRAVA_CLIENT_ID: test_client_id
   STRAVA_CLIENT_SECRET: test_client_secret
+  # Sciotte backpressure limiter — mandatory env vars with no crate defaults.
+  PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+  PIERRE_SCIOTTE_MAX_QUEUE: "8"
+  PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+  PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+  PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+  PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+  PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
 jobs:
   validate-contracts:

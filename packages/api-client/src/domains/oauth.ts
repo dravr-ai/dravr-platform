@@ -4,7 +4,7 @@
 // ABOUTME: OAuth domain API - provider connections and authorization
 // ABOUTME: Handles OAuth flow initiation and connection status
 
-import type { AxiosInstance } from 'axios';
+import type { AxiosInstance, AxiosResponse, AxiosRequestConfig } from 'axios';
 import type {
   ProviderStatus,
   ExtendedProviderStatus,
@@ -12,6 +12,66 @@ import type {
   ApiMetadata,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
+
+// Backpressure retry parameters for the sciotte provider. The platform
+// sheds load with HTTP 503 + `Retry-After` when its Chrome queue is
+// saturated; clients retry with jittered exponential backoff so a
+// thundering herd at t+Retry-After doesn't re-saturate the pod on every
+// synchronized tick. Values are fixed per-release — operators tune the
+// server-side limit via PIERRE_SCIOTTE_* env vars, not the client.
+const SCIOTTE_RETRY_MAX_ATTEMPTS = 3;
+const SCIOTTE_RETRY_BASE_MS = 1000;
+const SCIOTTE_RETRY_JITTER_MS = 500;
+const SCIOTTE_BUSY_STATUS = 503;
+
+interface SciotteBusyErrorShape {
+  response?: {
+    status?: number;
+    headers?: Record<string, string | number | undefined>;
+    data?: { error?: string; reason?: string; retry_after_secs?: number };
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * POST wrapper that retries on HTTP 503 from the sciotte backpressure
+ * limiter. Honours the server's `Retry-After` header as the lower bound
+ * on the delay and adds random jitter so concurrent clients don't
+ * synchronise their retries. Any non-503 error propagates immediately;
+ * the final axios error is re-thrown after `SCIOTTE_RETRY_MAX_ATTEMPTS`
+ * so the caller's existing error handling still surfaces it to the UI.
+ */
+async function postWithSciotteBackpressureRetry<TResponse, TBody>(
+  axios: AxiosInstance,
+  path: string,
+  body: TBody,
+  config: AxiosRequestConfig,
+): Promise<AxiosResponse<TResponse>> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await axios.post<TResponse>(path, body, config);
+    } catch (err) {
+      const typed = err as SciotteBusyErrorShape;
+      const status = typed.response?.status;
+      if (status !== SCIOTTE_BUSY_STATUS || attempt >= SCIOTTE_RETRY_MAX_ATTEMPTS) {
+        throw err;
+      }
+      const retryAfterHeader = typed.response?.headers?.['retry-after'];
+      const retryAfterFromBody = typed.response?.data?.retry_after_secs;
+      const retryAfterSecs =
+        Number(retryAfterHeader ?? retryAfterFromBody ?? 0) || 0;
+      const exponentialMs = SCIOTTE_RETRY_BASE_MS * 2 ** attempt;
+      const jitterMs = Math.random() * SCIOTTE_RETRY_JITTER_MS;
+      const delayMs = Math.max(retryAfterSecs * 1000, exponentialMs) + jitterMs;
+      attempt += 1;
+      await sleep(delayMs);
+    }
+  }
+}
 
 // Re-export for consumers
 export type { ProviderStatus, ExtendedProviderStatus, ProvidersStatusResponse };
@@ -120,11 +180,10 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
       method: 'email' | 'google' | 'apple';
       target: 'strava' | 'garmin';
     }): Promise<SciotteLoginResponse> {
-      const response = await axios.post<SciotteLoginResponse>(
-        '/api/providers/sciotte/login',
-        params,
-        { timeout: 1_200_000 },
-      );
+      const response = await postWithSciotteBackpressureRetry<
+        SciotteLoginResponse,
+        typeof params
+      >(axios, '/api/providers/sciotte/login', params, { timeout: 1_200_000 });
       return response.data;
     },
 
@@ -132,7 +191,11 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
      * Select a 2FA option during Sciotte login.
      */
     async sciotteSelect2FA(optionId: string): Promise<SciotteLoginResponse> {
-      const response = await axios.post<SciotteLoginResponse>(
+      const response = await postWithSciotteBackpressureRetry<
+        SciotteLoginResponse,
+        { option_id: string }
+      >(
+        axios,
         '/api/providers/sciotte/select-2fa',
         { option_id: optionId },
         { timeout: 1_200_000 },
@@ -144,7 +207,11 @@ export function createOAuthApi(axios: AxiosInstance, getBaseUrl: () => string) {
      * Submit OTP code during Sciotte login.
      */
     async sciotteSubmitOTP(code: string): Promise<SciotteLoginResponse> {
-      const response = await axios.post<SciotteLoginResponse>(
+      const response = await postWithSciotteBackpressureRetry<
+        SciotteLoginResponse,
+        { code: string }
+      >(
+        axios,
         '/api/providers/sciotte/submit-otp',
         { code },
         { timeout: 1_200_000 },

@@ -90,6 +90,16 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          # Sciotte backpressure limiter — mandatory env vars with no crate
+          # defaults. Test values are permissive so the integration server
+          # boots cleanly; production values live in Terraform.
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4

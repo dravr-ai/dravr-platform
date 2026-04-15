@@ -19,6 +19,8 @@ use pierre_database::plugins::factory::Database;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "provider-synthetic")]
 use pierre_mcp_server::providers::set_synthetic_database_pool;
+#[cfg(feature = "provider-sciotte")]
+use pierre_mcp_server::routes::auth::init_sciotte_limiter;
 use pierre_mcp_server::{
     cache::factory::Cache,
     config::environment::{LlmProviderType, ServerConfig, TokioRuntimeConfig},
@@ -361,6 +363,14 @@ async fn bootstrap_server(config: ServerConfig, stdio_only: bool) -> Result<()> 
     FeatureConfig::validate()?;
 
     initialize_global_configs(&config)?;
+
+    // Initialize the Sciotte backpressure limiter from PIERRE_SCIOTTE_* env
+    // vars and spawn its watchdog. Fail-fast during startup if any required
+    // variable is missing, malformed, or inconsistent — bad infra must not
+    // silently degrade into unsafe defaults.
+    #[cfg(feature = "provider-sciotte")]
+    init_sciotte_limiter()?;
+
     let (database, auth_manager, jwt_secret) = initialize_core_systems(&config).await?;
     let cache = initialize_cache().await?;
     let server = create_server(database, auth_manager, &jwt_secret, &config, cache).await;

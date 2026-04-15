@@ -18,6 +18,8 @@ resource "google_cloud_run_v2_service" "service" {
       max_instance_count = var.max_instances
     }
 
+    max_instance_request_concurrency = var.max_instance_request_concurrency
+
     # VPC access for private networking (Cloud SQL, Redis, internal services)
     dynamic "vpc_access" {
       for_each = var.vpc_connector_id != null ? [1] : []

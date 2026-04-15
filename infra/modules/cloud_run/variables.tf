@@ -76,6 +76,12 @@ variable "max_instances" {
   default     = 10
 }
 
+variable "max_instance_request_concurrency" {
+  description = "Maximum number of concurrent HTTP requests a single container instance serves. Cloud Run's default is 80, which piles long-running requests (e.g. Chrome-driven scraping) onto one pod and triggers OOM. Lower values force the autoscaler to spread load across more instances sooner — set to the per-pod concurrency ceiling for RAM-constrained workloads."
+  type        = number
+  default     = 80
+}
+
 # -----------------------------------------------------------------------------
 # Networking Configuration
 # -----------------------------------------------------------------------------

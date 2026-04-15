@@ -27,6 +27,9 @@ mod sciotte_hosted;
 mod sciotte_hosted_templates;
 pub(crate) mod types;
 
+#[cfg(feature = "provider-sciotte")]
+pub use sciotte::init_sciotte_limiter;
+
 pub use crate::services::oauth_flow::OAuthService;
 pub use login::AuthService;
 pub use oauth::OAuthRoutes;

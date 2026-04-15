@@ -5,11 +5,7 @@
 // ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap)
 
 import { useCallback, useEffect, useState } from 'react';
-import { pierreApi } from '../services/api';
-
-// Sciotte drives a headless browser through OAuth — give it plenty of time
-// 20-minute timeout — sciotte drives a headless browser through OAuth + 2FA
-const SCIOTTE_TIMEOUT_MS = Number(import.meta.env.VITE_SCIOTTE_TIMEOUT_MS) || 1_200_000;
+import { oauthApi } from '../services/api';
 
 type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
 
@@ -83,12 +79,7 @@ export default function SciotteLoginModal({
       setStatus('Connecting to Strava...');
 
       try {
-        const { data } = await pierreApi.axios.post('/api/providers/sciotte/login', {
-          email,
-          password,
-          method,
-          target,
-        }, { timeout: SCIOTTE_TIMEOUT_MS });
+        const data = await oauthApi.sciotteLogin({ email, password, method, target });
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -104,7 +95,7 @@ export default function SciotteLoginModal({
           setStatus('Enter verification code');
           setOtpCode('');
         } else if (data.status === 'number_match') {
-          setMatchNumber(data.number);
+          setMatchNumber(data.number ?? null);
           setPhase('number-match');
           setStatus('Tap the matching number on your phone');
         } else {
@@ -121,7 +112,7 @@ export default function SciotteLoginModal({
         setIsLoading(false);
       }
     },
-    [email, password, onClose, onConnected]
+    [email, password, method, target, onClose, onConnected]
   );
 
   // 2FA option selection
@@ -134,9 +125,7 @@ export default function SciotteLoginModal({
       setStatus(optionId === 'app' ? 'Check your phone and tap Yes...' : 'Loading...');
 
       try {
-        const { data } = await pierreApi.axios.post('/api/providers/sciotte/select-2fa', {
-          option_id: optionId,
-        }, { timeout: SCIOTTE_TIMEOUT_MS });
+        const data = await oauthApi.sciotteSelect2FA(optionId);
 
         if (data.status === 'connected') {
           setPhase('success');
@@ -148,7 +137,7 @@ export default function SciotteLoginModal({
           setStatus('Enter verification code');
           setOtpCode('');
         } else if (data.status === 'number_match') {
-          setMatchNumber(data.number);
+          setMatchNumber(data.number ?? null);
           setPhase('number-match');
           setStatus('Tap the matching number on your phone');
         } else {
@@ -192,9 +181,7 @@ export default function SciotteLoginModal({
       setStatus('Verifying code...');
 
       try {
-        const { data } = await pierreApi.axios.post('/api/providers/sciotte/submit-otp', {
-          code: otpCode,
-        }, { timeout: SCIOTTE_TIMEOUT_MS });
+        const data = await oauthApi.sciotteSubmitOTP(otpCode);
 
         if (data.status === 'connected') {
           setPhase('success');

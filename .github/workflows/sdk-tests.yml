@@ -114,6 +114,13 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
   sdk-tests:
     name: SDK Test Suite
@@ -205,6 +212,13 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Run SDK E2E tests
         working-directory: sdk
@@ -216,6 +230,13 @@ jobs:
           STRAVA_CLIENT_ID: "test_client_id_ci"
           STRAVA_CLIENT_SECRET: "test_client_secret_ci"
           STRAVA_REDIRECT_URI: "http://localhost:8080/auth/strava/callback"
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "2"
+          PIERRE_SCIOTTE_MAX_QUEUE: "8"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "10"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "300"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "15"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "60"
 
       - name: Upload SDK test results
         if: always()

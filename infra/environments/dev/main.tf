@@ -163,10 +163,11 @@ module "backend" {
   cpu            = var.backend_cpu
   memory         = var.backend_memory
   # Disable CPU throttling so background tasks (Discord Gateway WebSocket) run between requests
-  cpu_idle          = false
-  startup_cpu_boost = true
-  min_instances     = var.backend_min_instances
-  max_instances     = var.backend_max_instances
+  cpu_idle                         = false
+  startup_cpu_boost                = true
+  min_instances                    = var.backend_min_instances
+  max_instances                    = var.backend_max_instances
+  max_instance_request_concurrency = var.backend_max_instance_request_concurrency
 
   # Mount sciotte scripts bucket for hot-swappable JS extraction scripts
   gcs_volumes = {
@@ -248,6 +249,17 @@ module "backend" {
       # Contremaitre prompt hot-reload from GitHub
       CONTREMAITRE_REPO   = "dravr-ai/dravr-contremaitre"
       CONTREMAITRE_BRANCH = "main"
+
+      # Sciotte backpressure limiter — all seven knobs are required at
+      # startup; the crate ships no numeric defaults. See
+      # pierre-providers/src/sciotte_limiter.rs for the semantics of each.
+      PIERRE_SCIOTTE_MAX_CONCURRENT           = tostring(var.backend_sciotte_max_concurrent)
+      PIERRE_SCIOTTE_MAX_QUEUE                = tostring(var.backend_sciotte_max_queue)
+      PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS     = tostring(var.backend_sciotte_acquire_timeout_secs)
+      PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS = tostring(var.backend_sciotte_permit_max_lifetime_secs)
+      PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS   = tostring(var.backend_sciotte_watchdog_interval_secs)
+      PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS    = tostring(var.backend_sciotte_retry_after_hint_secs)
+      PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS  = tostring(var.backend_sciotte_closed_retry_after_secs)
     },
     # Cloud SQL components — entrypoint.sh assembles these into DATABASE_URL
     var.enable_database ? {
