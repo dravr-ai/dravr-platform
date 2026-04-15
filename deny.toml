@@ -33,52 +33,6 @@ ignore = [
     # Next Review: 2026-01-15 or when rsa 0.10.0 stable released
     "RUSTSEC-2023-0071",
 
-    # RUSTSEC-2025-0052: async-std discontinued
-    # Source: chromiumoxide → async-tungstenite → async-std
-    # Used by: dravr-sciotte (Strava scraper Chrome automation)
-    # No upgrade path — chromiumoxide depends on async-std transitively.
-    # Will resolve when chromiumoxide drops async-std or dravr-sciotte moves
-    # to its own repo (planned).
-    "RUSTSEC-2025-0052",
-
-    # -------------------------------------------------------------------------
-    # RUSTSEC-2026-0097: rand unsound with a custom `log` logger using rand::rng()
-    # -------------------------------------------------------------------------
-    # Severity: Unsound (UB only under very specific conditions)
-    # Affected in-tree version: rand 0.8.5 (transitive)
-    #
-    # Exploit preconditions (ALL required):
-    # - rand's `log` AND `thread_rng` features enabled
-    # - Application defines a custom `log::Log` logger
-    # - That custom logger calls `rand::rng()` / `rand::thread_rng()` and
-    #   invokes `RngCore` methods on the returned `ThreadRng`
-    # - The `ThreadRng` reseeds (every 64 kB) during the logger call
-    #
-    # Risk Assessment: NONE for our usage
-    # - We use `tracing` + `tracing-subscriber`, not the `log` crate's
-    #   custom-logger API. No code path defines a `log::Log` impl that
-    #   touches rand.
-    # - rand 0.8.5 enters the tree transitively via jsonwebtoken 10.3.0,
-    #   rsa 0.9.10 (num-bigint-dig), and dravr-enforme 0.1.3. None of those
-    #   enable rand's `log` feature.
-    # - rand 0.9.3 (the other in-tree version, patched via
-    #   `cargo update -p rand`) is used by tungstenite 0.28.0 / chromiumoxide
-    #   and is already in the advisory's safe range.
-    #
-    # Upgrade path: blocked on upstream
-    # - jsonwebtoken needs to publish a rand-0.9+ version
-    # - rsa 0.10 stable needs to release (currently RC)
-    # - dravr-enforme needs a release bumping rand to 0.9
-    # - Our own six pierre-* crates would then need a rand 0.8 → 0.9 API
-    #   migration (`thread_rng()` → `rng()`, `gen_range` → `random_range`,
-    #   distribution API changes — breaking across auth/database/groups/
-    #   providers/server/core)
-    #
-    # Status: Accepted until upstream eliminates rand 0.8 transitively
-    # Review Date: 2026-04-11
-    # Next Review: when rsa 0.10 stable OR jsonwebtoken rand-0.9 release lands
-    "RUSTSEC-2026-0097",
-
 ]
 
 # Warn on yanked crates
@@ -138,8 +92,7 @@ skip = [
     { crate = "dravr-riviere", reason = "pierre-core uses git v0.1.0, dravr-enforme uses crates.io v0.2.0 — will converge" },
 ]
 # Skip tree checking for these dependencies
-# dravr-sciotte: all crates.io versions yanked, must use git dep which triggers wildcard ban
-skip-tree = [{ crate = "dravr-sciotte@0.4.4", depth = 1 }]
+skip-tree = []
 
 # ============================================================================
 # Source Validation - Only Allow Trusted Registries
