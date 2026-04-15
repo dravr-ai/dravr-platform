@@ -309,52 +309,9 @@ out tags center {MAX_ROUTES_PER_QUERY};"#,
         let mut failures: Vec<String> = Vec::with_capacity(self.overpass_mirrors.len());
 
         for mirror in &self.overpass_mirrors {
-            debug!(mirror, "Querying Overpass mirror");
-
-            let response = match self
-                .client
-                .post(mirror)
-                .header(USER_AGENT, user_agent())
-                .form(&[("data", query)])
-                .send()
-                .await
-            {
-                Ok(resp) => resp,
-                Err(e) => {
-                    let reason = format!("{mirror}: network error: {e}");
-                    warn!(mirror, error = %e, "Overpass mirror network error");
-                    failures.push(reason);
-                    continue;
-                }
-            };
-
-            if !response.status().is_success() {
-                let status = response.status();
-                let body = response.text().await.unwrap_or_default();
-                // Keep the body in the per-mirror diagnostic but truncate so
-                // three mirrors' worth of HTML error pages don't flood logs.
-                let truncated: String = body.chars().take(200).collect();
-                let reason = format!("{mirror}: HTTP {status}: {truncated}");
-                warn!(mirror, %status, "Overpass mirror returned error");
-                failures.push(reason);
-                continue;
-            }
-
-            match response.json::<OverpassResponse>().await {
-                Ok(data) => {
-                    debug!(
-                        mirror,
-                        element_count = data.elements.len(),
-                        "Overpass mirror answered successfully"
-                    );
-                    return Ok(data.elements);
-                }
-                Err(e) => {
-                    let reason = format!("{mirror}: parse error: {e}");
-                    warn!(mirror, error = %e, "Failed to parse Overpass response");
-                    failures.push(reason);
-                    continue;
-                }
+            match self.try_mirror(mirror, query).await {
+                Ok(elements) => return Ok(elements),
+                Err(reason) => failures.push(reason),
             }
         }
 
@@ -362,6 +319,49 @@ out tags center {MAX_ROUTES_PER_QUERY};"#,
             "All Overpass mirrors failed: {}",
             failures.join(" | ")
         )))
+    }
+
+    /// Query a single Overpass mirror and return its parsed elements.
+    ///
+    /// Returns `Ok(elements)` on success, or `Err(reason)` describing why
+    /// this mirror failed so the caller can accumulate a diagnostic across
+    /// the full mirror list before surfacing a single error to the LLM.
+    async fn try_mirror(&self, mirror: &str, query: &str) -> Result<Vec<OverpassElement>, String> {
+        debug!(mirror, "Querying Overpass mirror");
+
+        let response = self
+            .client
+            .post(mirror)
+            .header(USER_AGENT, user_agent())
+            .form(&[("data", query)])
+            .send()
+            .await
+            .map_err(|e| {
+                warn!(mirror, error = %e, "Overpass mirror network error");
+                format!("{mirror}: network error: {e}")
+            })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            // Keep the body in the per-mirror diagnostic but truncate so
+            // three mirrors' worth of HTML error pages don't flood logs.
+            let truncated: String = body.chars().take(200).collect();
+            warn!(mirror, %status, "Overpass mirror returned error");
+            return Err(format!("{mirror}: HTTP {status}: {truncated}"));
+        }
+
+        let data = response.json::<OverpassResponse>().await.map_err(|e| {
+            warn!(mirror, error = %e, "Failed to parse Overpass response");
+            format!("{mirror}: parse error: {e}")
+        })?;
+
+        debug!(
+            mirror,
+            element_count = data.elements.len(),
+            "Overpass mirror answered successfully"
+        );
+        Ok(data.elements)
     }
 
     async fn query_overpass(
