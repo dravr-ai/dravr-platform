@@ -170,8 +170,9 @@ impl McpTool for DiscoverRoutesTool {
             .get("radius_meters")
             .and_then(Value::as_u64)
             .and_then(|v| u32::try_from(v).ok())
-            .map(|v| v.clamp(MIN_RADIUS_METERS, MAX_RADIUS_METERS))
-            .unwrap_or(DEFAULT_RADIUS_METERS);
+            .map_or(DEFAULT_RADIUS_METERS, |v| {
+                v.clamp(MIN_RADIUS_METERS, MAX_RADIUS_METERS)
+            });
 
         info!(
             latitude,
@@ -205,7 +206,7 @@ impl McpTool for DiscoverRoutesTool {
 
 /// Serialize a [`DiscoveredRoute`] into the LLM-facing JSON shape.
 ///
-/// Kept tight — the LLM doesn't need the enum's snake_case wrapper and
+/// Kept tight — the LLM doesn't need the enum's `snake_case` wrapper and
 /// benefits from a flat structure when it wants to read a specific field.
 fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
     json!({
@@ -221,7 +222,7 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
 
 /// Parse the LLM-supplied sport string into the typed [`SportType`].
 ///
-/// Accepts both snake_case (matching the [`SportType`] serde representation)
+/// Accepts both `snake_case` (matching the [`SportType`] serde representation)
 /// and a handful of common aliases so the LLM's tool-call args don't have to
 /// match the enum exactly. Unknown values fall back to [`SportType::Run`]
 /// in the caller — we return `None` here so the caller can apply its default.

@@ -90,6 +90,32 @@ pub async fn create_conversation(
     Ok(CreateConversationResult { conversation })
 }
 
+/// Resolve the active LLM model for a messaging dispatch turn.
+///
+/// Messaging users (Telegram, WhatsApp, Discord, etc.) never pick their
+/// LLM — they always run on the currently configured default. Honouring
+/// the conversation's stored `model` would pin old conversations to
+/// whatever was configured at creation time, so a production config bump
+/// (e.g. `PIERRE_LLM_MODEL` sonnet → opus) would only take effect for new
+/// conversations, leaving long-lived chats silently stuck on the old SKU.
+/// Web chat has its own dispatch path that respects explicit per-request
+/// model selection.
+///
+/// Emits an INFO log on each override so operators can see migrations in
+/// Cloud Logging without having to grep DB state.
+fn resolve_messaging_model(conversation_id: &str, stored_model: &str) -> String {
+    let active_model = LlmProviderType::model_from_env().unwrap_or_else(|| stored_model.to_owned());
+    if active_model != stored_model {
+        info!(
+            conversation_id = %conversation_id,
+            stored_model = %stored_model,
+            active_model = %active_model,
+            "Overriding stored conversation model with current env default for messaging dispatch"
+        );
+    }
+    active_model
+}
+
 /// Verify conversation ownership and persist user message.
 ///
 /// Business rules:
@@ -248,23 +274,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
 
     let conv = msg_result.conversation;
 
-    // Resolve the model to use for this turn. Messaging users (Telegram,
-    // WhatsApp, Discord, etc.) never pick their LLM — they always run on
-    // the currently configured default. Honouring `conv.model` would pin
-    // old conversations to whatever was configured at creation time, so a
-    // production config bump (e.g. PIERRE_LLM_MODEL sonnet → opus) would
-    // only take effect for NEW conversations, leaving long-lived chats
-    // silently stuck on the old SKU. Web chat has its own dispatch path
-    // that respects explicit per-request model selection.
-    let active_model = LlmProviderType::model_from_env().unwrap_or_else(|| conv.model.clone());
-    if active_model != conv.model {
-        info!(
-            conversation_id = %conversation_id,
-            stored_model = %conv.model,
-            active_model = %active_model,
-            "Overriding stored conversation model with current env default for messaging dispatch"
-        );
-    }
+    let active_model = resolve_messaging_model(conversation_id, &conv.model);
 
     // Tier 4: ensure a long-lived coach session exists for (user, coach) and
     // attach it to the conversation. Idempotent and best-effort.

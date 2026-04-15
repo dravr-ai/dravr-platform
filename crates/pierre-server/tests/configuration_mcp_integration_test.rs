@@ -228,9 +228,10 @@ async fn test_configuration_tools_count_in_total() {
     // Tier 3 harness added 4 memory tools (coach_note_add, coach_followup_schedule,
     //     remember_fact, recall_user_memory)
     // Tier 5.5 harness added 1 verification tool (verify_claim)
+    // Route discovery added 1 tool (discover_routes)
     assert_eq!(
-        fitness_tools, 74,
-        "Expected exactly 74 non-configuration tools"
+        fitness_tools, 75,
+        "Expected exactly 75 non-configuration tools"
     );
-    assert_eq!(tools.len(), 80, "Expected total of 80 tools"); // 74 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 81, "Expected total of 81 tools"); // 75 non-configuration + 6 configuration
 }
