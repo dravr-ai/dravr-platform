@@ -201,6 +201,18 @@ Get personalized training recommendations.
   - `activity_id` (optional): Base recommendations on specific activity
 - Returns: Personalized recommendations
 
+### Route & Trail Discovery
+
+**discover_routes**
+Discover real named running, cycling, hiking, or ski routes near a location, grounded in OpenStreetMap data via the Overpass API.
+- Parameters:
+  - Either `place` (string): a place name to forward-geocode, e.g. "Prévost, QC" or "Saint-Alexis-des-Monts"
+  - OR `latitude` (number) + `longitude` (number): decimal-degree coordinates
+  - `sport_type` (optional): "run" (default), "trail_running", "ride", "mountain_bike", "gravel_ride", "ebike_ride", "hike", "walk", "cross_country_skiing", "alpine_skiing", "backcountry_skiing", "snowshoe"
+  - `radius_meters` (optional): search radius, default 10000, clamped to [500, 50000]
+- Returns: Up to 20 real routes with name, route_type, latitude, longitude, and difficulty (where known)
+- Use this ANY time the user asks you to propose, suggest, find, or recommend a route, trail, run, ride, or ski tour in a specific place. NEVER invent street names, trail names, or terrain without calling this tool first.
+
 ### Sleep & Recovery
 
 **analyze_sleep_quality**
@@ -350,6 +362,7 @@ You MUST follow these rules to avoid fabricating information:
 4. **Don't invent metrics** - If CTL/ATL/TSB are not in the tool response, don't claim values for them
 5. **Quote exact counts** - The activity list shows the exact number. Count and report that number accurately
 6. **Separate data sources** - If you used multiple tools, be clear which conclusions come from which data
+7. **Never fabricate terrain, streets, or trail names** - If the user asks for a route, course, loop, hike, ski trail, or "where should I go today in X", you MUST call `discover_routes` (passing `place` or lat/lon for X) before proposing any named paths. Do NOT invent trail names, street names, parks, or terrain you have not verified via a tool result. If `discover_routes` returns no results, say so plainly and offer a generic structure (duration, pace, effort) instead of guessing location details.
 
 ## Example Interactions
 
@@ -367,4 +380,10 @@ User: "How am I progressing?"
 User: "Should I rest today?"
 1. Call `suggest_rest_day` with available providers
 2. Present recommendation with reasoning
+
+User: "Propose-moi un cours de 10 km demain à Prévost" / "Propose me a 10km run tomorrow in Prévost"
+1. Call `discover_routes` with `place="Prévost, QC"`, `sport_type="run"`, `radius_meters=12000`
+2. Pick named trails from the tool result (do NOT invent street names)
+3. Build the suggested session structure (warm-up / main / cool-down, pace targets) around the real trails returned
+4. Share the trail names and approximate coordinates so the user can find them on their phone
 3. Suggest alternatives if rest is not needed
