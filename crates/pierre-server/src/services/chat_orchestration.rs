@@ -248,6 +248,24 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
 
     let conv = msg_result.conversation;
 
+    // Resolve the model to use for this turn. Messaging users (Telegram,
+    // WhatsApp, Discord, etc.) never pick their LLM — they always run on
+    // the currently configured default. Honouring `conv.model` would pin
+    // old conversations to whatever was configured at creation time, so a
+    // production config bump (e.g. PIERRE_LLM_MODEL sonnet → opus) would
+    // only take effect for NEW conversations, leaving long-lived chats
+    // silently stuck on the old SKU. Web chat has its own dispatch path
+    // that respects explicit per-request model selection.
+    let active_model = LlmProviderType::model_from_env().unwrap_or_else(|| conv.model.clone());
+    if active_model != conv.model {
+        info!(
+            conversation_id = %conversation_id,
+            stored_model = %conv.model,
+            active_model = %active_model,
+            "Overriding stored conversation model with current env default for messaging dispatch"
+        );
+    }
+
     // Tier 4: ensure a long-lived coach session exists for (user, coach) and
     // attach it to the conversation. Idempotent and best-effort.
     let conv = ensure_coach_session_attached(resources, conv, conversation_tenant_id).await;
@@ -358,7 +376,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         provider: &provider,
         executor,
         tools: &tools,
-        model: &conv.model,
+        model: &active_model,
         user_id,
         tenant_id: tool_tenant_id,
         max_iterations: MESSAGING_MAX_TOOL_ITERATIONS,
@@ -422,7 +440,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         token_count,
         finish_reason: result.finish_reason.as_deref(),
         prompt_tokens,
-        model: Some(&conv.model),
+        model: Some(&active_model),
     };
     let (assistant_msg, _updated_conv) =
         persist_assistant_response(database, &assistant_params, conversation_tenant_id).await?;
@@ -455,7 +473,7 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         content: result.content,
         usage: result.usage,
         tool_calls_count: result.tool_calls_count,
-        model: conv.model,
+        model: active_model,
         provider_name,
     })
 }
