@@ -27,7 +27,7 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use tokio::sync::Mutex as TokioMutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use serde_json::Value;
@@ -1588,13 +1588,24 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     {
         Ok(result) => result,
         Err(e) => {
-            warn!(
+            // Correlation ID is surfaced in the user-facing reply and the log
+            // record so an operator receiving a Slack alert can grep Cloud
+            // Logging for the full error chain without access to conversation
+            // IDs (which are PII-adjacent).
+            let correlation_id = Uuid::new_v4();
+            error!(
+                correlation_id = %correlation_id,
                 error = %e,
+                channel = %dispatch.channel,
                 conversation_id = %dispatch.session.conversation,
                 "LLM dispatch failed for messaging"
             );
             analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
-            send_error_reply(&dispatch, "Désolé, je rencontre un problème technique en ce moment. Réessaie dans quelques instants!").await;
+            let user_message = format!(
+                "Pierre est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {short_id})",
+                short_id = &correlation_id.to_string()[..8]
+            );
+            send_error_reply(&dispatch, &user_message).await;
             return;
         }
     };

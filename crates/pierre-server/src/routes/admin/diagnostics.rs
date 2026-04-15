@@ -12,6 +12,9 @@
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Extension, Json};
+use serde_json::json;
+use tracing::error;
+use uuid::Uuid;
 
 use crate::{
     admin::models::{AdminPermission, ValidatedAdminToken},
@@ -38,4 +41,39 @@ pub async fn handle_tool_schema_size(
     let estimate = registry.total_schema_token_estimate();
 
     Ok((StatusCode::OK, Json(estimate)))
+}
+
+/// POST /admin/diagnostics/tronc-canary
+///
+/// Emits a synthetic ERROR-level tracing event tagged with a fresh correlation
+/// ID. The dravr-tronc error notification layer listens for `Level::ERROR`
+/// events and forwards them to Slack (`SLACK_ERROR_CHANNEL`) and email
+/// (`NOTIFY_EMAIL_TO`). A scheduled workflow hits this endpoint every few
+/// hours and an operator confirms the canary message lands in the channel.
+/// If the canary stops arriving, the alerting pipeline is broken BEFORE the
+/// next real production outage surfaces the gap.
+///
+/// Returns the correlation ID so the caller can grep Cloud Logging or Slack
+/// to confirm the event round-tripped.
+pub async fn handle_tronc_canary(
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+) -> AppResult<impl IntoResponse> {
+    admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+
+    let correlation_id = Uuid::new_v4();
+    error!(
+        correlation_id = %correlation_id,
+        event = "tronc-canary",
+        "Slack alert pipeline health check (synthetic error, no action required)"
+    );
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({
+            "status": "emitted",
+            "correlation_id": correlation_id,
+            "event": "tronc-canary",
+            "message": "Synthetic ERROR event emitted — confirm it lands in Slack and email alert channels",
+        })),
+    ))
 }
