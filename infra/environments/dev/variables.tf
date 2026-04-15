@@ -216,15 +216,15 @@ variable "frontend_base_url" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances"
+  description = "CPU allocation for backend instances. 2 vCPU gives Chrome-driven sciotte scraping the headroom it needs alongside the Pierre server itself."
   type        = string
-  default     = "1"
+  default     = "2"
 }
 
 variable "backend_memory" {
-  description = "Memory allocation for backend instances"
+  description = "Memory allocation for backend instances. 2Gi fits ~4 concurrent Chrome processes (each ~250Mi) plus Pierre's working set with headroom."
   type        = string
-  default     = "512Mi"
+  default     = "2Gi"
 }
 
 variable "backend_min_instances" {
@@ -234,9 +234,57 @@ variable "backend_min_instances" {
 }
 
 variable "backend_max_instances" {
-  description = "Maximum backend instances"
+  description = "Maximum backend instances. 15 × 4-concurrency = 60 concurrent Chrome slots at fleet peak — enough to absorb a 50-user onboarding burst with room to spare."
+  type        = number
+  default     = 15
+}
+
+variable "backend_max_instance_request_concurrency" {
+  description = "Maximum concurrent requests per backend container. Set to 4 to match PIERRE_SCIOTTE_MAX_CONCURRENT so Cloud Run spreads sciotte traffic across instances instead of piling onto one pod (default 80 causes OOM under burst load)."
+  type        = number
+  default     = 4
+}
+
+variable "backend_sciotte_max_concurrent" {
+  description = "Hard cap on concurrent Chrome-driven sciotte scrapes per instance. Used as PIERRE_SCIOTTE_MAX_CONCURRENT env var. Must match backend_max_instance_request_concurrency."
+  type        = number
+  default     = 4
+}
+
+variable "backend_sciotte_max_queue" {
+  description = "Combined cap on running + waiting sciotte requests per instance before fast-rejecting with 503. Used as PIERRE_SCIOTTE_MAX_QUEUE env var."
+  type        = number
+  default     = 20
+}
+
+variable "backend_sciotte_acquire_timeout_secs" {
+  description = "Maximum seconds a sciotte request waits for a permit before being rejected. Used as PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS env var."
   type        = number
   default     = 10
+}
+
+variable "backend_sciotte_permit_max_lifetime_secs" {
+  description = "Maximum seconds a sciotte permit can stay parked across a multi-step OTP/2FA flow before the watchdog evicts it. Used as PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS env var."
+  type        = number
+  default     = 300
+}
+
+variable "backend_sciotte_watchdog_interval_secs" {
+  description = "Interval at which the sciotte watchdog scans for stale parked permits. Used as PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS env var."
+  type        = number
+  default     = 15
+}
+
+variable "backend_sciotte_retry_after_hint_secs" {
+  description = "`Retry-After` header value emitted on sciotte queue-full / timeout rejections. Used as PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS env var."
+  type        = number
+  default     = 5
+}
+
+variable "backend_sciotte_closed_retry_after_secs" {
+  description = "`Retry-After` header value emitted when the sciotte limiter is closed (shutdown). Used as PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS env var."
+  type        = number
+  default     = 60
 }
 
 # -----------------------------------------------------------------------------

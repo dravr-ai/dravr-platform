@@ -117,6 +117,21 @@ export ADMIN_TOKEN_CACHE_TTL_SECS="300"  # Default: 300 (5 minutes)
 export PIERRE_DEFAULT_PROVIDER=strava
 
 # ----------------------------------------------------------------------------
+# Sciotte Backpressure Limiter (REQUIRED — no crate defaults)
+# ----------------------------------------------------------------------------
+# The sciotte provider wraps a Chrome-driven scraper with a FIFO-fair
+# backpressure limiter. All seven variables below are mandatory at startup
+# — init_sciotte_limiter() fails fast if any is missing. Production values
+# live in Terraform; these are sane dev defaults.
+export PIERRE_SCIOTTE_MAX_CONCURRENT=2            # concurrent Chrome scrapes
+export PIERRE_SCIOTTE_MAX_QUEUE=8                 # running + waiting cap
+export PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS=10     # wait before returning 503
+export PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS=300 # parked-permit TTL (OTP/2FA)
+export PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS=15    # watchdog tick interval
+export PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS=5      # Retry-After on 503
+export PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS=60   # Retry-After on shutdown
+
+# ----------------------------------------------------------------------------
 # Strava Provider Configuration
 # ----------------------------------------------------------------------------
 # OAuth Credentials (required for Strava OAuth)

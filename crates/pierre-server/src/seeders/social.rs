@@ -351,14 +351,14 @@ async fn seed_admin_friend_connections(
 
     let friends_to_create = user_ids.len().min(8);
 
-    for demo_user_id in user_ids.iter().take(friends_to_create) {
+    for seed_user_id in user_ids.iter().take(friends_to_create) {
         let days_ago: i64 = rng.gen_range(1..15);
         let created_at = Utc::now() - Duration::days(days_ago);
         let accepted_at = Utc::now() - Duration::days(days_ago - 1);
 
         let conn = SeedFriendConnection {
             id: Uuid::new_v4(),
-            initiator_id: *demo_user_id,
+            initiator_id: *seed_user_id,
             receiver_id: *admin_id,
             status: "accepted".to_owned(),
             created_at,

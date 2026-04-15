@@ -29,7 +29,7 @@ use pierre_database::RepositoryRegistry;
 use tracing::info;
 use uuid::Uuid;
 
-/// Password for demo users (not the admin — admin password comes from env/CLI)
+/// Password assigned to seed users (not the admin — admin password comes from env/CLI)
 const DEMO_USER_PASSWORD: &str = "DemoUser123!";
 
 /// CLI arguments for the bootstrap seeder.
