@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![allow(missing_docs)]
+
 //! Route discovery tests.
 //!
 //! The live tests make real requests to the public Overpass API. They are
@@ -21,9 +24,9 @@ use pierre_mcp_server::intelligence::location::LocationService;
 use pierre_mcp_server::intelligence::{RouteDiscoveryService, RouteSource, RouteType};
 use pierre_mcp_server::models::SportType;
 
-/// Prévost, Québec — the exact reference point from ChefFamille's Telegram
-/// prompt that motivated the route discovery work. Nominatim resolves this
-/// to roughly 45.87, -74.08. Well-trafficked OSM area with named trails.
+/// Prévost, Québec — reference point for route-discovery integration tests.
+/// Nominatim resolves this to roughly 45.87, -74.08. Well-trafficked OSM area
+/// with named trails.
 const PREVOST_QC_LAT: f64 = 45.87;
 const PREVOST_QC_LON: f64 = -74.08;
 
