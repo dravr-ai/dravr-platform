@@ -342,6 +342,18 @@ export RATE_LIMITER_STALE_ENTRY_TIMEOUT_SECS="120"
 # export PIERRE_ADMIN_API_KEY_MONTHLY_LIMIT=""        # Default: from constants
 
 # ============================================================================
+# ACTIVITY FETCH CONFIGURATION
+# ============================================================================
+
+# Maximum activities fetched from a provider in any single request.
+# Governs the direct analyze_training_load tool, group coaching snapshots,
+# and chat orchestration context. Lower values favour interactive latency
+# (slow paths like headless scrapers pay one round-trip per activity);
+# higher values give more accurate CTL/ATL/TSB but increase tail latency.
+# Default when unset: pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT.
+export ACTIVITY_FETCH_LIMIT="20"
+
+# ============================================================================
 # CACHE CONFIGURATION
 # ============================================================================
 

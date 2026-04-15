@@ -11,6 +11,7 @@
 
 use crate::config::IntelligenceConfig;
 use crate::errors::{AppError, AppResult};
+use pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT;
 use serde::{Deserialize, Serialize};
 use std::env;
 use tracing::{info, warn};
@@ -174,7 +175,7 @@ impl ServerConfig {
             activity_fetch_limit: env::var("ACTIVITY_FETCH_LIMIT")
                 .ok()
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(100),
+                .unwrap_or(DEFAULT_ACTIVITIES_LIMIT),
             goal_management: GoalManagementConfig::from_env(),
             training_zones: TrainingZonesConfig::from_env(),
             tokio_runtime: TokioRuntimeConfig::from_env(),
