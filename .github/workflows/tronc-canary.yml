@@ -1,0 +1,57 @@
+# ABOUTME: Scheduled Slack alert pipeline canary — emits a synthetic ERROR every 6h
+# ABOUTME: Operator monitors #dev-dravr-errors for the canary; stale canary = broken alerting
+
+name: "Monitor: Tronc Slack Canary"
+
+on:
+  schedule:
+    # Every 6 hours at :17 (avoid the :00 fleet spike)
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: tronc-canary
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  canary:
+    name: Emit tronc canary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check secret availability
+        id: check
+        run: |
+          if [ -n "$CANARY_TOKEN" ] && [ -n "$CANARY_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CANARY_ADMIN_TOKEN or CANARY_BASE_URL secret not set — skipping canary"
+          fi
+        env:
+          CANARY_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          CANARY_URL: ${{ secrets.CANARY_BASE_URL }}
+
+      - name: Emit canary event
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          echo "POST ${CANARY_URL}/admin/diagnostics/tronc-canary"
+          RESPONSE=$(curl -sS -X POST \
+              -H "Authorization: Bearer ${CANARY_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -w "\nHTTP %{http_code}" \
+              "${CANARY_URL}/admin/diagnostics/tronc-canary")
+          echo "${RESPONSE}"
+          if ! echo "${RESPONSE}" | grep -q "HTTP 200"; then
+              echo "::error::Canary emission failed"
+              exit 1
+          fi
+          echo "Canary emitted — verify #dev-dravr-errors for the synthetic ERROR event"
+        env:
+          CANARY_TOKEN: ${{ secrets.CANARY_ADMIN_TOKEN }}
+          CANARY_URL: ${{ secrets.CANARY_BASE_URL }}

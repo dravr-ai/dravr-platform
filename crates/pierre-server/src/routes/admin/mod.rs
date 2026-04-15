@@ -426,6 +426,10 @@ impl AdminRoutes {
                 "/admin/diagnostics/tool-schema-size",
                 get(diagnostics::handle_tool_schema_size),
             )
+            .route(
+                "/admin/diagnostics/tronc-canary",
+                post(diagnostics::handle_tronc_canary),
+            )
             .with_state(context)
     }
 
