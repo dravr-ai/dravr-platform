@@ -53,7 +53,7 @@ pub async fn create(
         create_new_admin_user(repos, &email, &password, &display_name, super_admin).await?;
     }
 
-    display_admin_user_success(&email, &display_name, &password, super_admin);
+    display_admin_user_success(&email, &display_name, super_admin);
     initialize_admin_jwt_secret(repos).await?;
 
     println!("\nSuccess Admin user is ready to use!");

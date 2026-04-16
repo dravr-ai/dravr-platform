@@ -704,6 +704,54 @@ else
 fi
 
 # ============================================================================
+# LOG REDACTION ENFORCEMENT (CLAUDE.md "Logging Hygiene")
+# ============================================================================
+# Catches the exact regressions that triggered the 2026-04-16 Cloud Run DB-URL
+# leak. See "Canonical Redaction Helpers" and "Forbidden Logging Patterns" in
+# .claude/CLAUDE.md for the policy this enforces.
+
+echo ""
+echo -e "${BLUE}==== Log Redaction Enforcement ====${NC}"
+
+# Check 1: Database URL logged without redact_url on the same line.
+# Any info!/warn!/error!/println!/eprintln!/debug! line that references a
+# database URL variable or "Database URL" label MUST also call redact_url.
+DB_URL_LEAKS=$(rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*(Database URL|database_url|connection_string)' crates/*/src/ -g '!**/redaction.rs' 2>/dev/null | rg -v 'redact_url' | wc -l | tr -d ' ')
+if [ "$DB_URL_LEAKS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $DB_URL_LEAKS log line(s) referencing a database URL without redact_url():${NC}"
+    rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*(Database URL|database_url|connection_string)' crates/*/src/ -g '!**/redaction.rs' -n | rg -v 'redact_url' | head -10
+    fail_validation "Wrap database URLs with pierre_core::redaction::redact_url before logging"
+else
+    pass_validation "No unredacted database URL log lines"
+fi
+
+# Check 2: Direct interpolation of variables named after secrets.
+# Catches info!("...{password}..."), error!("...{client_secret}..."), etc.
+# Allowlisted: the secret_fingerprint diagnostic pattern (logs length + hash, not the value).
+SECRET_VAR_LEAKS=$(rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(password|client_secret|jwt_secret|encryption_key|access_token|refresh_token)(:|\})' crates/*/src/ 2>/dev/null | rg -v 'secret_fingerprint|secret_length' | wc -l | tr -d ' ')
+if [ "$SECRET_VAR_LEAKS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $SECRET_VAR_LEAKS log line(s) interpolating a secret-named variable directly:${NC}"
+    rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(password|client_secret|jwt_secret|encryption_key|access_token|refresh_token)(:|\})' crates/*/src/ -n | rg -v 'secret_fingerprint|secret_length' | head -10
+    fail_validation "Log a fingerprint (SHA256 prefix) or length instead of the raw secret"
+fi
+if [ "$SECRET_VAR_LEAKS" -eq 0 ]; then
+    pass_validation "No direct secret-variable interpolation in log macros"
+fi
+
+# Check 3: Debug formatting of sensitive config structs via inline capture.
+# {config:?}, {config:#?}, {oauth_config:?}, etc. would dump every nested secret.
+# Positional-arg forms ("{:?}", config) are not caught here — the type-level
+# follow-up (secrecy crate) is the complete fix for that class of leak.
+CONFIG_DEBUG_LEAKS=$(rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(server_config|database_config|oauth_config|firebase_config|weather_config|oauth2_server_config|config):#?\?\}' crates/*/src/ 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CONFIG_DEBUG_LEAKS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $CONFIG_DEBUG_LEAKS log line(s) debug-formatting a config struct that contains secrets:${NC}"
+    rg '^\s*(info|warn|error|debug|trace|println|eprintln)!.*\{(server_config|database_config|oauth_config|firebase_config|weather_config|oauth2_server_config|config):#?\?\}' crates/*/src/ -n | head -10
+    fail_validation "ServerConfig/DatabaseConfig/OAuthProviderConfig derive Debug but contain secrets — log only the specific fields you need"
+else
+    pass_validation "No config-struct debug formatting in log macros"
+fi
+
+# ============================================================================
 # VALIDATION RESULTS TABLE
 # ============================================================================
 

@@ -55,6 +55,7 @@ mod helpers;
 
 use clap::{Parser, Subcommand};
 use pierre_auth::key_management::KeyManager;
+use pierre_core::redaction::redact_url;
 use pierre_database::plugins::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -253,7 +254,7 @@ async fn main() -> Result<()> {
     info!("Two-tier key management system initialized for pierre-cli");
 
     // Initialize database
-    info!("Connecting to database: {}", database_url);
+    info!("Connecting to database: {}", redact_url(&database_url));
     let mut database = Database::new(
         &database_url,
         database_encryption_key.to_vec(),

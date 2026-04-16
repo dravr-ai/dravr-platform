@@ -74,7 +74,10 @@ impl McpRequestProcessor {
             "Failed to process MCP request: {} | Request: method={}, jsonrpc={}, id={:?}",
             e, request.method, request.jsonrpc, request.id
         );
-        error!("Request params: {:?}", request.params);
+        error!(
+            "Request params shape: {}",
+            Self::param_shape(request.params.as_ref())
+        );
         error!("Full error details: {:#}", e);
 
         McpResponse {
@@ -86,6 +89,28 @@ impl McpRequestProcessor {
                 message: "Internal server error".to_owned(),
                 data: None,
             }),
+        }
+    }
+
+    /// Render a safe one-line description of the request params for error logs.
+    ///
+    /// Tool inputs can contain user-supplied secrets (API keys pasted into a prompt,
+    /// OAuth codes, passwords). Logging the full payload at error-level would leak
+    /// them. This helper returns the top-level key names for object params and a
+    /// type label for other shapes — enough to triage failures without exposing values.
+    fn param_shape(params: Option<&serde_json::Value>) -> String {
+        match params {
+            None => "none".to_owned(),
+            Some(serde_json::Value::Object(map)) => {
+                let mut keys: Vec<&str> = map.keys().map(String::as_str).collect();
+                keys.sort_unstable();
+                format!("object keys=[{}]", keys.join(","))
+            }
+            Some(serde_json::Value::Array(arr)) => format!("array len={}", arr.len()),
+            Some(serde_json::Value::String(_)) => "string".to_owned(),
+            Some(serde_json::Value::Number(_)) => "number".to_owned(),
+            Some(serde_json::Value::Bool(_)) => "bool".to_owned(),
+            Some(serde_json::Value::Null) => "null".to_owned(),
         }
     }
 
