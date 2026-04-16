@@ -67,6 +67,8 @@ jobs:
           tags: ${{ steps.tags.outputs.server_tag }}
           cache-from: type=gha,scope=server
           cache-to: type=gha,mode=max,scope=server
+          build-args: |
+            GIT_COMMIT_SHA=${{ github.sha }}
           secrets: |
             "git_token=${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}"
 
@@ -103,8 +105,6 @@ jobs:
           service: ${{ vars.GCP_DEV_SERVICE_NAME }}-api
           region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           image: ${{ steps.tags.outputs.server_tag }}@${{ steps.server.outputs.digest }}
-          env_vars: |
-            GIT_COMMIT_SHA=${{ github.sha }}
 
       - name: Deploy frontend to Cloud Run (dev)
         if: (inputs.component == 'frontend' || inputs.component == 'both') && steps.frontend.outcome == 'success'
