@@ -9,7 +9,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use std::fmt::Write as _;
 use std::sync::Arc;
 
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
@@ -392,6 +392,26 @@ pub async fn dispatch_and_get_response_with_tool_tenant(
         max_iterations: MESSAGING_MAX_TOOL_ITERATIONS,
     };
     let mut result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
+
+    // Copilot CLI sometimes surfaces auth/entitlement failures as streamed
+    // assistant content instead of JSON-RPC errors, which bypasses embacle's
+    // error path and leaks the raw operator-facing message to end users.
+    // Convert a known-signature match into an external-service error so the
+    // messaging ingress fallback fires with a user-facing message.
+    if let Some(signature) =
+        super::provider_error_filter::detect_leaked_provider_error(&result.content)
+    {
+        warn!(
+            conversation_id = %conversation_id,
+            signature = %signature,
+            content_len = result.content.len(),
+            "Provider CLI error text detected in assistant reply; converting to dispatch failure"
+        );
+        return Err(AppError::external_service(
+            "LLM runner",
+            format!("Provider CLI error leaked into assistant content: {signature}"),
+        ));
+    }
 
     info!(
         conversation_id = %conversation_id,
