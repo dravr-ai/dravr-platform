@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use clap::Subcommand;
+use pierre_core::redaction::redact_url;
 use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::errors::AppResult;
 use pierre_mcp_server::seeders;
@@ -52,7 +53,10 @@ pub async fn dispatch(action: SeedCommand, database_url: &str) -> AppResult<()> 
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {
-    info!("Connecting to database for seeding: {database_url}");
+    info!(
+        "Connecting to database for seeding: {}",
+        redact_url(database_url)
+    );
     let db = Database::init_for_seeding(database_url).await?;
     let repos = db.repositories();
 
