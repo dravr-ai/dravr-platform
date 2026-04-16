@@ -15,6 +15,7 @@
 use clap::{error::ErrorKind, Parser};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
+use pierre_core::redaction::redact_url;
 use pierre_database::plugins::factory::Database;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "provider-synthetic")]
@@ -433,7 +434,7 @@ async fn initialize_database(
     );
     info!(
         "Database URL: {}",
-        &config.database.url.to_connection_string()
+        redact_url(&config.database.url.to_connection_string())
     );
     Ok(database)
 }
