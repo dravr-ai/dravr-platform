@@ -60,8 +60,11 @@ RUN apt-get update && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install GitHub Copilot CLI (required for copilot_headless LLM provider via embacle)
+# Pinned version for reproducible builds; bump deliberately after validating model compatibility
+# (e.g. claude-opus-4.7 requires CLI >=1.0.30).
 # After install: remove npm and its transitive deps (node-tar CVEs) since npm is not needed at runtime
-RUN npm install -g @github/copilot-linux-x64 \
+ARG COPILOT_CLI_VERSION=1.0.30
+RUN npm install -g "@github/copilot-linux-x64@${COPILOT_CLI_VERSION}" \
     && NPM_PREFIX="$(npm prefix -g)" \
     && ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot \
     && copilot --version \
