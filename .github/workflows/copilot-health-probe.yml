@@ -51,7 +51,12 @@ jobs:
         env:
           PINNED: ${{ steps.pinned.outputs.version }}
         run: |
+          # Mirror the Dockerfile install: the npm package ships a binary named
+          # `copilot-linux-x64`; symlink it to `copilot` so the probe command matches
+          # what runs inside the Cloud Run container.
           npm install -g "@github/copilot-linux-x64@${PINNED}"
+          NPM_PREFIX="$(npm prefix -g)"
+          sudo ln -sf "$NPM_PREFIX/bin/copilot-linux-x64" /usr/local/bin/copilot
           copilot --version
 
       - name: Fetch token from Secret Manager
