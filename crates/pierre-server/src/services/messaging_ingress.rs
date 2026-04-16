@@ -245,6 +245,32 @@ async fn handle_linking_command(
     }
 }
 
+/// Hydrate the analytics consent cache for a messaging user on cache miss
+///
+/// The cache is in-memory and empties on every Cloud Run cold start, so each
+/// fresh pod needs to learn each user's durable `analytics_consent` value from
+/// the database before their events will be captured. Once hydrated the entry
+/// persists for the life of the pod and `/privacy on|off` commands keep it
+/// current via `set_consent`.
+async fn hydrate_analytics_consent(resources: &ServerResources, user_id: &str) {
+    let hashed_user = hash_id(user_id);
+    if analytics().has_consent_cached(&hashed_user) {
+        return;
+    }
+    let Ok(parsed) = Uuid::parse_str(user_id) else {
+        return;
+    };
+    match resources.repos.users.get_global(parsed).await {
+        Ok(Some(user)) => {
+            analytics().hydrate_consent(&hashed_user, user.analytics_consent);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(error = %e, user_id = %user_id, "Failed to load user for analytics consent hydration");
+        }
+    }
+}
+
 /// Resolve a messaging session for a linked channel user
 ///
 /// Looks up the channel link to find the Pierre user, then looks up or creates
@@ -279,6 +305,8 @@ async fn resolve_linked_session(
         if let Err(e) = db.touch_session(&session_id).await {
             warn!(error = %e, session_id = %session_id, "Failed to touch session");
         }
+
+        hydrate_analytics_consent(resources, &user_id).await;
 
         return Ok(Some(ResolvedSession {
             session_id,
@@ -335,6 +363,8 @@ async fn resolve_linked_session(
         user_id = %user_id,
         "Created messaging session for linked user"
     );
+
+    hydrate_analytics_consent(resources, &user_id).await;
 
     analytics().track_session_started(
         channel_type,

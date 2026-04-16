@@ -351,6 +351,10 @@ pub(super) async fn handle_session(
         .map_err(|e| AppError::database(format!("Failed to fetch user: {e}")))?
         .ok_or_else(|| AppError::not_found(format!("User {user_id}")))?;
 
+    // Warm the analytics consent cache from the durable user record so PostHog
+    // events are not silently dropped after a Cloud Run cold start
+    analytics().hydrate_consent(&hash_id(&user_id.to_string()), user.analytics_consent);
+
     // Preserve active_tenant_id from existing JWT, or look up user's default tenant
     let active_tenant_id = if let Some(tid) = auth_result.active_tenant_id {
         Some(tid.to_string())
