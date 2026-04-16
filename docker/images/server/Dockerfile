@@ -95,6 +95,10 @@ USER appuser
 # Set working directory
 WORKDIR /app
 
+# Git commit SHA baked into the image at build time (survives Terraform reconciliation)
+ARG GIT_COMMIT_SHA=unknown
+ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
+
 # Server runtime configuration
 ENV RUST_LOG=info
 ENV ENCRYPTION_KEY_PATH=./data/encryption.key
