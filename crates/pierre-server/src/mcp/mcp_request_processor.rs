@@ -76,7 +76,7 @@ impl McpRequestProcessor {
         );
         error!(
             "Request params shape: {}",
-            Self::param_shape(&request.params)
+            Self::param_shape(request.params.as_ref())
         );
         error!("Full error details: {:#}", e);
 
@@ -98,7 +98,7 @@ impl McpRequestProcessor {
     /// OAuth codes, passwords). Logging the full payload at error-level would leak
     /// them. This helper returns the top-level key names for object params and a
     /// type label for other shapes — enough to triage failures without exposing values.
-    fn param_shape(params: &Option<serde_json::Value>) -> String {
+    fn param_shape(params: Option<&serde_json::Value>) -> String {
         match params {
             None => "none".to_owned(),
             Some(serde_json::Value::Object(map)) => {
