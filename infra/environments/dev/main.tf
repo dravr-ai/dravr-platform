@@ -210,11 +210,11 @@ module "backend" {
       AUTO_APPROVE_DOMAINS = "dravr.ai"
 
       # LLM provider configuration (copilot_headless via embacle + GitHub Copilot CLI).
-      # Primary = claude-opus-4.7 (high-reasoning Opus variant, not the -fast SKU).
+      # Primary = claude-opus-4.6 (high-reasoning Opus variant, not the -fast SKU).
       # Fallback = claude-sonnet-4.6 in case Opus is unavailable or rate-limited.
       PIERRE_LLM_PROVIDER       = "copilot_headless"
-      PIERRE_LLM_MODEL          = "claude-opus-4.7"
-      PIERRE_LLM_DEFAULT_MODEL  = "claude-opus-4.7"
+      PIERRE_LLM_MODEL          = "claude-opus-4.6"
+      PIERRE_LLM_DEFAULT_MODEL  = "claude-opus-4.6"
       PIERRE_LLM_FALLBACK_MODEL = "claude-sonnet-4.6"
 
       # Disable backups in Cloud Run (ephemeral filesystem)
