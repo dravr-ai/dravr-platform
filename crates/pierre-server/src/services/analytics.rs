@@ -152,6 +152,20 @@ pub trait AnalyticsTracker: Send + Sync {
 
     /// Update the consent cache for a user (called on consent change and session start)
     fn set_consent(&self, user_id: &str, enabled: bool);
+
+    /// Returns `true` if the cache already has a known consent value for this user.
+    ///
+    /// Used by hydration callsites to skip a database fetch when the pod has already
+    /// seen this user since the last cold start.
+    fn has_consent_cached(&self, user_id: &str) -> bool;
+
+    /// Populate the consent cache from a durable source (typically the users table)
+    /// only if the user is not already cached.
+    ///
+    /// Unlike `set_consent`, this never overwrites an existing entry — so an in-memory
+    /// consent flip made via `/privacy on|off` cannot be clobbered by a later hydration
+    /// call that read a stale row from the database.
+    fn hydrate_consent(&self, user_id: &str, enabled: bool);
 }
 
 // =============================================================================
@@ -177,6 +191,10 @@ impl AnalyticsTracker for NoopAnalyticsTracker {
     fn alias(&self, _: &str, _: &str) {}
     fn identify(&self, _: &str, _: Value) {}
     fn set_consent(&self, _: &str, _: bool) {}
+    fn has_consent_cached(&self, _: &str) -> bool {
+        false
+    }
+    fn hydrate_consent(&self, _: &str, _: bool) {}
 }
 
 // =============================================================================
@@ -470,5 +488,15 @@ impl AnalyticsTracker for PostHogTracker {
 
     fn set_consent(&self, user_id: &str, enabled: bool) {
         self.consent_cache.insert(user_id.to_owned(), enabled);
+    }
+
+    fn has_consent_cached(&self, user_id: &str) -> bool {
+        self.consent_cache.contains_key(user_id)
+    }
+
+    fn hydrate_consent(&self, user_id: &str, enabled: bool) {
+        self.consent_cache
+            .entry(user_id.to_owned())
+            .or_insert(enabled);
     }
 }
