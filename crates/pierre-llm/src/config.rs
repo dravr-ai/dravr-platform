@@ -162,7 +162,7 @@ impl LlmProviderType {
             // These fallbacks are only used for the conversation DB label when
             // RunnerConfig.model is None (no env override).
             Self::ClaudeCode => Some("opus".to_owned()),
-            Self::Copilot => Some("claude-opus-4.7".to_owned()),
+            Self::Copilot => Some("claude-opus-4.6".to_owned()),
             Self::CursorAgent => Some("sonnet-4".to_owned()),
             Self::OpenCode => Some("anthropic/claude-sonnet-4".to_owned()),
             Self::GeminiCli => Some("gemini-2.5-pro".to_owned()),
