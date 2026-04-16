@@ -12,6 +12,7 @@ use super::DatabaseProvider;
 use async_trait::async_trait;
 use pierre_core::config::social::SocialInsightsConfig;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::redaction::redact_url;
 use std::sync::Arc;
 use tracing::{debug, info};
 
@@ -196,7 +197,7 @@ impl Database {
     ) -> AppResult<Self> {
         debug!(
             "Detecting database type from URL: {}",
-            redact_database_url(database_url)
+            redact_url(database_url)
         );
         let db_type = detect_database_type(database_url)?;
         info!("Detected database type: {:?}", db_type);
@@ -399,27 +400,6 @@ impl Database {
             Self::PostgreSQL(db) => db.set_system_setting(key, value).await,
         }
     }
-}
-
-/// Redact credentials from a database URL for safe logging.
-///
-/// Replaces `user:password@` with `user:***@` in connection strings.
-/// `SQLite` URLs and URLs without credentials are returned unchanged.
-fn redact_database_url(url: &str) -> String {
-    // Only redact postgres-style URLs that may contain credentials
-    if let Some(scheme_end) = url.find("://") {
-        let after_scheme = &url[scheme_end + 3..];
-        // Look for user:password@host pattern
-        if let Some(at_pos) = after_scheme.find('@') {
-            let userinfo = &after_scheme[..at_pos];
-            if let Some(colon_pos) = userinfo.find(':') {
-                let username = &userinfo[..colon_pos];
-                let rest = &after_scheme[at_pos..];
-                return format!("{}://{username}:***{rest}", &url[..scheme_end]);
-            }
-        }
-    }
-    url.to_owned()
 }
 
 /// Automatically detect database type from connection string.

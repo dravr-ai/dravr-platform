@@ -386,6 +386,17 @@ The session startup hook outputs `CI_MONITORING=gh` or `CI_MONITORING=fallback` 
 - PII (email, IP, user agent) in logs MUST be at DEBUG level or redacted at INFO+
 - Log levels for security events: WARN for auth failures, ERROR for breaches
 
+### Canonical Redaction Helpers
+- URL credentials: use `pierre_core::redaction::redact_url` — the only allowed redactor. Do NOT write a new one.
+- HTTP request/response PII: use the `middleware::redaction` layer — already installed, do not bypass.
+- Email masking: use `middleware::redaction::mask_email` for operator-visible logs that must include an email.
+- "Is this secret loaded?" diagnostics: mirror `OAuthProviderConfig::secret_fingerprint` (SHA256 first 8 hex chars + length). Never log the raw value to "confirm it's set".
+
+### Forbidden Logging Patterns (enforced by `scripts/ci/architectural-validation.sh`)
+- `info!`/`warn!`/`error!`/`debug!`/`trace!`/`println!`/`eprintln!` lines referencing `Database URL`, `database_url`, or `connection_string` without also calling `redact_url` on the same line.
+- Direct interpolation of variables named `password`, `client_secret`, `jwt_secret`, `encryption_key`, `access_token`, or `refresh_token` in log macros (e.g. `info!("...{password}...")`).
+- `{:?}` / `{:#?}` inline-capture debug formatting of `ServerConfig`, `DatabaseConfig`, `DatabaseUrl`, `OAuthProviderConfig`, `FirebaseConfig`, `WeatherServiceConfig`, or `OAuth2ServerConfig`. These structs derive `Debug` for developer ergonomics but contain secrets — log only the specific fields you need.
+
 ### Template & Query Safety
 - NEVER use `format!()` to build SQL queries — always use parameterized queries (`$1`, `$2`)
 - HTML rendered server-side MUST escape all user-supplied values (use `html_escape::encode_text`)

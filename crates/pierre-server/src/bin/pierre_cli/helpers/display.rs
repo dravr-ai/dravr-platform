@@ -29,6 +29,8 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
     }
 
     println!("\nKey YOUR JWT TOKEN (SAVE THIS NOW):");
+    println!("WARNING: This token grants admin API access. Do not paste it into shared");
+    println!("         terminals, chat threads, or CI logs. It will not be shown again.");
     println!("{}", "=".repeat(80));
     println!("{}", token.jwt_token);
     println!("{}", "=".repeat(80));
@@ -66,7 +68,7 @@ pub fn display_generated_token(token: &GeneratedAdminToken) {
 }
 
 /// Display admin user creation success message
-pub fn display_admin_user_success(email: &str, name: &str, password: &str, super_admin: bool) {
+pub fn display_admin_user_success(email: &str, name: &str, super_admin: bool) {
     let role_str = if super_admin { "Super Admin" } else { "Admin" };
     println!("\nSuccess {role_str} User Created Successfully!");
     println!("{}", "=".repeat(50));
@@ -84,7 +86,7 @@ pub fn display_admin_user_success(email: &str, name: &str, password: &str, super
     println!("\nKey LOGIN CREDENTIALS:");
     println!("{}", "=".repeat(50));
     println!("   Email: {email}");
-    println!("   Password: {password}");
+    println!("   Password: (the one you just entered — not echoed for security)");
 
     println!("\nWARNING IMPORTANT SECURITY NOTES:");
     println!("• Change the default password in production!");
