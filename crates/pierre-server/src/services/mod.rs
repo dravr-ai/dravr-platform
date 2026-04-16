@@ -31,6 +31,9 @@ pub mod tenant_admin;
 /// Chat orchestration: conversation creation, message persistence, LLM dispatch coordination
 pub mod chat_orchestration;
 
+/// Detects LLM-provider CLI error text that leaked into assistant replies
+pub mod provider_error_filter;
+
 /// Chat verdict service: maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
 
