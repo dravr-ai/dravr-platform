@@ -16,7 +16,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
-use tracing::{debug, instrument, trace};
+use tracing::{debug, info, instrument, trace, warn};
 
 /// Geographic location data with rich context
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,6 +329,7 @@ impl LocationService {
             "{}/search?q={encoded}&format=json&limit=1&addressdetails=0",
             self.base_url
         );
+        info!(url = %url, "forward_geocode: dispatching Nominatim request");
 
         let response = self
             .client
@@ -337,28 +338,54 @@ impl LocationService {
             .send()
             .await
             .map_err(|e| {
+                warn!(error = %e, url = %url, "forward_geocode: HTTP send failed");
                 AppError::external_service(
                     "Nominatim",
                     format!("Forward geocoding request failed: {e}"),
                 )
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            warn!(
+                status = %status,
+                body_len = body.len(),
+                body_preview = %body.chars().take(200).collect::<String>(),
+                "forward_geocode: Nominatim returned non-success status"
+            );
             return Err(AppError::external_service(
                 "Nominatim",
                 format!("Forward geocoding API returned status: {status}"),
             ));
         }
 
-        let results: Vec<NominatimSearchResult> = response.json().await.map_err(|e| {
+        let body_text = response.text().await.map_err(|e| {
+            warn!(error = %e, "forward_geocode: reading response body failed");
             AppError::external_service(
                 "Nominatim",
-                format!("Failed to parse forward geocoding response: {e}"),
+                format!("Failed to read forward geocoding response: {e}"),
             )
         })?;
+        info!(
+            body_len = body_text.len(),
+            body_preview = %body_text.chars().take(200).collect::<String>(),
+            "forward_geocode: Nominatim responded"
+        );
+        let results: Vec<NominatimSearchResult> =
+            serde_json::from_str(&body_text).map_err(|e| {
+                warn!(error = %e, body_len = body_text.len(), "forward_geocode: JSON parse failed");
+                AppError::external_service(
+                    "Nominatim",
+                    format!("Failed to parse forward geocoding response: {e}"),
+                )
+            })?;
 
         let first = results.into_iter().next().ok_or_else(|| {
+            warn!(
+                query = %trimmed,
+                "forward_geocode: Nominatim returned zero matches"
+            );
             AppError::not_found(format!("no geocoding match for place '{trimmed}'"))
         })?;
 

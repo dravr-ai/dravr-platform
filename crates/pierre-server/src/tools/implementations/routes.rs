@@ -265,9 +265,15 @@ async fn resolve_center(args: &Value) -> Result<ResolvedCenter, Value> {
                 longitude,
                 display_name: Some(display_name),
             }),
-            Err(e) if e.code == ErrorCode::ResourceNotFound => Err(json!({
-                "error": format!("no place matched '{place}'. Try a more specific name (city, region, country) or pass latitude/longitude directly."),
-            })),
+            Err(e) if e.code == ErrorCode::ResourceNotFound => {
+                warn!(
+                    place,
+                    "discover_routes: Nominatim returned no matches for place"
+                );
+                Err(json!({
+                    "error": format!("no place matched '{place}'. Try a more specific name (city, region, country) or pass latitude/longitude directly."),
+                }))
+            }
             Err(e) => {
                 warn!(error = %e, place, "forward geocoding failed");
                 Err(json!({
