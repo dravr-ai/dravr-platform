@@ -37,6 +37,9 @@ use crate::mcp::resources::ServerResources;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::analytics::{analytics, hash_id};
 use crate::services::chat_orchestration;
+use crate::services::chat_pipeline::{
+    self, ChannelProfile, DispatchResult, PipelineHooks, TurnInput,
+};
 use crate::services::usage_counter::UsageCounterService;
 
 /// Outcome of persisting a single inbound message
@@ -77,6 +80,23 @@ fn extract_thread_id(metadata: &Value) -> Option<String> {
         .get("message_thread_id")
         .and_then(Value::as_i64)
         .map(|id| id.to_string())
+}
+
+/// Build a [`ChannelProfile`] for the originating messaging channel.
+///
+/// All four supported messaging channels currently share the same knobs
+/// (env-override model policy, five tool-loop iterations, messaging
+/// context prompt appended). Channel-specific overrides can be added by
+/// branching inside this helper without touching pipeline code.
+fn build_messaging_profile(dispatch: &PendingDispatch) -> ChannelProfile {
+    let suffix = dispatch.resources.messaging_context_prompt();
+    match dispatch.channel_type {
+        ChannelType::Telegram => ChannelProfile::telegram(suffix),
+        ChannelType::WhatsApp => ChannelProfile::whatsapp(suffix),
+        ChannelType::Discord => ChannelProfile::discord(suffix),
+        ChannelType::Slack => ChannelProfile::slack(suffix),
+        ChannelType::Messenger => ChannelProfile::messenger(suffix),
+    }
 }
 
 /// Data needed to dispatch a message through the LLM pipeline after HTTP 200
@@ -1606,13 +1626,19 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let hashed_tenant = hash_id(&dispatch.channel_tenant_id.to_string());
     let hashed_user = hash_id(&dispatch.session.user_id);
 
-    let dispatch_result = match chat_orchestration::dispatch_and_get_response_with_tool_tenant(
+    let profile = build_messaging_profile(&dispatch);
+    let turn_input = TurnInput {
+        conversation_id: dispatch.session.conversation.clone(),
+        user_id: dispatch.session.user_id.clone(),
+        conversation_tenant_id: dispatch.channel_tenant_id,
+        tool_tenant_id: dispatch.user_tenant_id,
+        content: dispatch.text_content.clone(),
+    };
+    let dispatch_result = match chat_pipeline::run(
         &dispatch.resources,
-        &dispatch.session.conversation,
-        &dispatch.session.user_id,
-        dispatch.channel_tenant_id,
-        dispatch.user_tenant_id,
-        &dispatch.text_content,
+        turn_input,
+        &profile,
+        &PipelineHooks::none(),
     )
     .await
     {
@@ -1751,7 +1777,7 @@ fn estimate_or_extract_messaging_tokens(
 /// Record LLM usage to the `llm_usage` table after a messaging dispatch
 async fn record_messaging_llm_usage(
     dispatch: &PendingDispatch,
-    result: &chat_orchestration::DispatchResult,
+    result: &DispatchResult,
     execution_time_ms: u64,
 ) {
     let tenant_id_str = dispatch.channel_tenant_id.to_string();
@@ -1794,10 +1820,7 @@ async fn record_messaging_llm_usage(
 }
 
 /// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch
-async fn increment_messaging_usage_counters(
-    dispatch: &PendingDispatch,
-    result: &chat_orchestration::DispatchResult,
-) {
+async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: &DispatchResult) {
     let Some(ref admin_config) = dispatch.resources.admin_config else {
         return;
     };
