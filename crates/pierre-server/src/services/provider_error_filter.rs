@@ -39,6 +39,7 @@ const PROVIDER_ERROR_SIGNATURES: &[&str] = &[
 ///
 /// Callers should convert `Some(signature)` into an error so the messaging
 /// layer's user-facing fallback message fires.
+#[must_use]
 pub fn detect_leaked_provider_error(content: &str) -> Option<&'static str> {
     PROVIDER_ERROR_SIGNATURES
         .iter()
