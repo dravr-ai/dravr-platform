@@ -43,13 +43,15 @@ use chrono::{DateTime, Utc};
 use super::manifest::compute_sha256;
 use super::registry::PromptSource;
 
-/// Default locale used when a caller does not specify one or when the
-/// requested locale is missing from the registry. Currently French because
-/// the majority user base is francophone; change this constant (and add the
-/// corresponding compiled-in defaults) when that shifts.
+/// Default locale used when a caller does not specify one.
+///
+/// Also used when the requested locale is missing from the registry.
+/// Currently French because the majority user base is francophone; change
+/// this constant (and add the corresponding compiled-in defaults) when
+/// that shifts.
 pub const DEFAULT_LOCALE: &str = "fr";
 
-/// Key: LLM dispatch failed, user-facing apology with correlation short_id.
+/// Key: LLM dispatch failed, user-facing apology with correlation `short_id`.
 pub const KEY_ERROR_GENERIC: &str = "messaging.error.generic";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
@@ -295,9 +297,11 @@ fn compiled_in_fallback(key: &str, locale: &str) -> Option<&'static str> {
         .map(|(_, _, content)| *content)
 }
 
-/// Substitute positional placeholders `{0}`, `{1}`, … in `template` with the
-/// matching entries in `args`. Placeholders without a corresponding argument
-/// are left literally in the output. Surplus args are ignored.
+/// Substitute positional placeholders `{0}`, `{1}`, … in `template`.
+///
+/// Matches each placeholder with the corresponding entry in `args`.
+/// Placeholders without a corresponding argument are left literally in
+/// the output. Surplus args are ignored.
 ///
 /// Chosen over handlebars/minijinja per the 2026-04-15 audit gist decision
 /// (Option B — zero new dependencies, unambiguous indexing).
