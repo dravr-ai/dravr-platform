@@ -2002,6 +2002,19 @@ pub trait MessagingRepository: Send + Sync {
     /// Update the last message timestamp on a session
     async fn touch_session(&self, session_id: &str) -> AppResult<()>;
 
+    /// Repoint a session at a fresh Pierre conversation.
+    ///
+    /// Used by the self-heal path when a session's `pierre_conversation_id`
+    /// is NULL (the referenced conversation was deleted and the FK
+    /// `ON DELETE SET NULL` fired) or the conversation has otherwise become
+    /// unreachable. Creates no conversation itself — the caller provides a
+    /// fresh conversation id.
+    async fn set_session_conversation(
+        &self,
+        session_id: &str,
+        pierre_conversation_id: &str,
+    ) -> AppResult<()>;
+
     // ── Messages ──
 
     /// Store an inbound or outbound message (idempotent via `channel_message_id`)

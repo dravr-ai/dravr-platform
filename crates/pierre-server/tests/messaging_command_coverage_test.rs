@@ -187,12 +187,13 @@ mod coverage {
     }
 
     async fn create_link_and_session(
-        db: &dyn MessagingRepository,
+        resources: &ServerResources,
         tenant_id: TenantId,
         user_id: Uuid,
         channel: TestChannel,
         sender_id: &str,
     ) {
+        let db: &dyn MessagingRepository = &*resources.repos.messaging;
         let link_id = Uuid::new_v4().to_string();
         db.create_channel_link(&CreateChannelLinkParams {
             id: &link_id,
@@ -205,8 +206,23 @@ mod coverage {
         .await
         .unwrap();
 
+        // Seed a real chat_conversation so pierre_conversation_id satisfies its
+        // FK against chat_conversations(id).
+        let conversation = resources
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                tenant_id,
+                "Coverage Test Conversation",
+                "test-model",
+                None,
+            )
+            .await
+            .unwrap();
+        let conversation_id = conversation.id;
+
         let session_id = Uuid::new_v4().to_string();
-        let conversation_id = Uuid::new_v4().to_string();
         db.create_session(&CreateSessionParams {
             id: &session_id,
             user_id: &user_id.to_string(),
@@ -320,7 +336,7 @@ mod coverage {
         for channel in TestChannel::ALL {
             upsert_config_for_channel(db, tenant_id, channel, &secrets).await;
             create_link_and_session(
-                db,
+                &resources,
                 tenant_id,
                 user_id,
                 channel,
@@ -380,7 +396,7 @@ mod coverage {
 
         upsert_config_for_channel(db, tenant_id, TestChannel::Telegram, &secrets).await;
         create_link_and_session(
-            db,
+            &resources,
             tenant_id,
             user_id,
             TestChannel::Telegram,

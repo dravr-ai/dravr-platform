@@ -287,6 +287,27 @@ impl MessagingRepository for PostgresDatabase {
         Ok(())
     }
 
+    async fn set_session_conversation(
+        &self,
+        session_id: &str,
+        pierre_conversation_id: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_sessions
+            SET pierre_conversation_id = $1
+            WHERE id = $2
+            ",
+        )
+        .bind(pierre_conversation_id)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update session conversation: {e}")))?;
+
+        Ok(())
+    }
+
     // ── Messages ──
 
     async fn insert_message(&self, params: &InsertMessageParams<'_>) -> AppResult<bool> {
