@@ -49,6 +49,7 @@ use std::time::Instant;
 use pierre_core::models::{AddMessageParams, CoachRuntimeContext};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT;
 use tracing::{debug, info, warn};
 
 use crate::config::LlmProviderType;
@@ -457,6 +458,13 @@ async fn assemble_prompt_and_messages(
         || resources.pierre_system_prompt(),
         |c| c.system_prompt.clone(),
     );
+
+    // Stage 7a.1: Append mandatory tool-discipline rules. Custom coach
+    // personas may inherit the "never fabricate data" instruction but
+    // not know which tools to call instead; this block is non-overridable
+    // and ensures discover_routes fires for every route/trail/course
+    // request and get_activities fires for every activity reference.
+    let base_prompt = format!("{base_prompt}\n\n{TOOL_DISCIPLINE_PROMPT}");
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.

@@ -9,7 +9,9 @@
 
 use std::env;
 
-use pierre_llm::prompts::{get_messaging_context_prompt, get_pierre_system_prompt};
+use pierre_llm::prompts::{
+    get_messaging_context_prompt, get_pierre_system_prompt, get_tool_discipline_prompt,
+};
 use pierre_mcp_server::intelligence::MetricType;
 use pierre_mcp_server::models::{ActivityBuilder, SportType};
 
@@ -257,5 +259,72 @@ fn test_activity_intelligence_fallback_on_not_found() {
         format!("{code:?}"),
         "ResourceNotFound",
         "ErrorCode::ResourceNotFound must exist for activity fallback"
+    );
+}
+
+// =============================================================================
+// Issue #11 (2026-04-17): Custom coach personas refuse route requests
+// A user asked "Donne moi un trajet a St-Alexis" to a coach whose custom
+// system_prompt contained the anti-hallucination rule but no knowledge of
+// the discover_routes tool. The coach refused ("Je ne veux pas t'inventer
+// des noms de routes") instead of calling the tool that would return real
+// OSM-backed routes.
+//
+// Fix: append a mandatory tool-discipline block to every rendered system
+// prompt in chat_pipeline::assemble_prompt_and_messages so custom coach
+// personas inherit the non-overridable rules for discover_routes and
+// get_activities.
+// =============================================================================
+
+#[test]
+fn test_tool_discipline_prompt_mandates_discover_routes() {
+    let prompt = get_tool_discipline_prompt();
+
+    assert!(
+        !prompt.is_empty(),
+        "TOOL_DISCIPLINE_PROMPT must be non-empty"
+    );
+    assert!(
+        prompt.contains("discover_routes"),
+        "Tool-discipline prompt must mention discover_routes by name"
+    );
+    assert!(
+        prompt.contains("MUST"),
+        "Tool-discipline prompt must use mandatory language"
+    );
+    assert!(
+        prompt.contains("running route") || prompt.contains("trail") || prompt.contains("ski"),
+        "Tool-discipline prompt must enumerate the sport types that trigger discover_routes"
+    );
+}
+
+#[test]
+fn test_tool_discipline_prompt_covers_get_activities() {
+    let prompt = get_tool_discipline_prompt();
+
+    assert!(
+        prompt.contains("get_activities"),
+        "Tool-discipline prompt must mention get_activities for activity references"
+    );
+    assert!(
+        prompt.contains("last activity") || prompt.contains("recent training"),
+        "Tool-discipline prompt must explicitly address the 'last activity' / 'recent training' trigger"
+    );
+}
+
+#[test]
+fn test_tool_discipline_prompt_forbids_gratuitous_connection_check() {
+    let prompt = get_tool_discipline_prompt();
+
+    assert!(
+        prompt.contains("get_connection_status"),
+        "Tool-discipline prompt must mention get_connection_status explicitly"
+    );
+    assert!(
+        prompt
+            .to_lowercase()
+            .contains("do not call get_connection_status")
+            || prompt.contains("Do **not** call `get_connection_status`"),
+        "Tool-discipline prompt must forbid gratuitous connection checks"
     );
 }

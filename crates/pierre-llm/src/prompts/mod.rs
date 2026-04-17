@@ -43,6 +43,17 @@ pub const INSIGHT_GENERATION_PROMPT: &str = include_str!("insight_generation.md"
 /// keep responses concise and mobile-friendly.
 pub const MESSAGING_CONTEXT_PROMPT: &str = include_str!("messaging_context.md");
 
+/// Mandatory tool-discipline prompt
+///
+/// Appended to **every** system prompt — including custom coach prompts —
+/// so the LLM cannot opt out of calling `discover_routes` for route
+/// requests or `get_activities` for activity references. Resolves the
+/// failure mode where custom coach personas inherited the
+/// "never fabricate data" instruction but lacked knowledge of the tools
+/// that make compliance possible, forcing the LLM to refuse requests
+/// rather than satisfy them with real tool-sourced data.
+pub const TOOL_DISCIPLINE_PROMPT: &str = include_str!("tool_discipline.md");
+
 /// Recommendation analysis user prompt template
 ///
 /// Contains the user-facing prompt for generating training recommendations.
@@ -117,6 +128,16 @@ pub const fn get_insight_generation_prompt() -> &'static str {
 #[must_use]
 pub const fn get_messaging_context_prompt() -> &'static str {
     MESSAGING_CONTEXT_PROMPT
+}
+
+/// Get the mandatory tool-discipline prompt.
+///
+/// Appended to every system prompt in `chat_pipeline::run` so custom
+/// coach personas inherit the non-overridable rules for calling
+/// `discover_routes` and `get_activities`.
+#[must_use]
+pub const fn get_tool_discipline_prompt() -> &'static str {
+    TOOL_DISCIPLINE_PROMPT
 }
 
 /// Get the recommendation analysis user prompt template
