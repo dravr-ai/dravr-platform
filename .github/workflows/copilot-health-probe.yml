@@ -82,10 +82,16 @@ jobs:
           PROBE_HOME=$(mktemp -d)
           OUTPUT_FILE=$(mktemp)
 
+          # Pin the probe to the primary model so we detect entitlement drift
+          # on the specific SKU Pierre uses, not the Copilot CLI default.
+          # Must stay in sync with PIERRE_LLM_MODEL in infra/environments/dev/main.tf.
+          PROBE_MODEL="claude-opus-4.7"
+
           # Run a trivial prompt; success means auth + entitlement + network all OK.
           # --allow-all-tools avoids interactive permission prompts.
           set +e
-          HOME="$PROBE_HOME" timeout 90 copilot -p "ping" --allow-all-tools \
+          HOME="$PROBE_HOME" timeout 120 copilot -p "Reply with exactly one word: pong" \
+            --model "$PROBE_MODEL" --allow-all-tools \
             > "$OUTPUT_FILE" 2>&1
           EXIT_CODE=$?
           set -e
@@ -113,6 +119,7 @@ jobs:
             echo "failed=$FAILED"
             echo "exit_code=$EXIT_CODE"
             echo "reason=${REASON:-OK}"
+            echo "model=$PROBE_MODEL"
             echo 'output<<ENDOFOUTPUT'
             echo "$REDACTED"
             echo 'ENDOFOUTPUT'
@@ -132,6 +139,7 @@ jobs:
         env:
           PROBE_REASON: ${{ steps.probe.outputs.reason }}
           PROBE_EXIT_CODE: ${{ steps.probe.outputs.exit_code }}
+          PROBE_MODEL: ${{ steps.probe.outputs.model }}
           PROBE_OUTPUT: ${{ steps.probe.outputs.output }}
         with:
           script: |
@@ -151,6 +159,7 @@ jobs:
               ``,
               `- **Reason**: ${reason}`,
               `- **Exit code**: \`${exitCode}\``,
+              `- **Model probed**: \`${process.env.PROBE_MODEL}\``,
               `- **Secret**: \`dravr-mcp-server-copilot-github-token\` (latest version)`,
               ``,
               `## Probe output (token-redacted)`,
