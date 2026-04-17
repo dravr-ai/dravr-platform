@@ -34,6 +34,9 @@ pub mod chat_orchestration;
 /// Detects LLM-provider CLI error text that leaked into assistant replies
 pub mod provider_error_filter;
 
+/// Unified chat pipeline: single orchestrator for every chat turn.
+pub mod chat_pipeline;
+
 /// Chat verdict service: maps Tier 5.5 ClaimVerdict rows into chat-facing wire shapes
 pub mod chat_verdicts;
 

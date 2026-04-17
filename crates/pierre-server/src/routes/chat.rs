@@ -10,12 +10,11 @@
 //! sending messages, and streaming AI responses. All handlers require JWT authentication.
 
 use super::chat_tool_loop::{self, ToolLoopParams};
-use crate::models::ConnectionType;
 use crate::models::TenantId;
-use crate::protocols::universal::UniversalResponse;
-#[cfg(feature = "tools-groups")]
-use crate::services::group_fitness::fetch_member_snapshots;
-use crate::services::prompt_leak;
+use crate::services::chat_pipeline;
+use crate::services::chat_pipeline::stages::persistence::{
+    persist_assistant_response, persist_user_message,
+};
 use crate::{
     errors::AppError,
     llm::{ChatMessage, ChatProvider, FunctionDeclaration, Tool},
@@ -35,16 +34,15 @@ use axum::{
     Json, Router,
 };
 use pierre_auth::auth::AuthResult;
-use pierre_core::models::coaches::DataRequirements;
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{AddMessageParams, CoachRuntimeContext};
+use pierre_core::models::AddMessageParams;
 use pierre_core::tokens::estimate_chat_tokens;
-use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, fmt::Write, sync::Arc, time::Instant};
-use tracing::{debug, info, warn};
+use std::{borrow::Cow, sync::Arc, time::Instant};
+use tracing::{debug, warn};
 use uuid::Uuid;
 // ============================================================================
 // Constants
@@ -132,18 +130,6 @@ fn parse_insight_json_response(raw_content: &str) -> String {
         raw_content.len()
     );
     raw_content.to_owned()
-}
-
-/// Extract text content from a `UniversalResponse` for pre-fetched data injection.
-///
-/// Handles both string results and JSON object results by serializing to
-/// a compact representation suitable for LLM context.
-fn extract_prefetch_content(response: &UniversalResponse) -> String {
-    match &response.result {
-        Some(serde_json::Value::String(s)) => s.clone(),
-        Some(value) => serde_json::to_string(value).unwrap_or_default(),
-        None => String::new(),
-    }
 }
 
 // ============================================================================
@@ -372,336 +358,6 @@ impl ChatRoutes {
         Ok(tenants
             .first()
             .map_or_else(|| TenantId::from(user_id), |t| t.id))
-    }
-
-    /// Resolve the coach runtime context (system prompt + startup query +
-    /// data requirements + tool-iteration override) for a conversation.
-    ///
-    /// Returns `None` when the conversation has no coach attached. Errors
-    /// from the lookup are logged and swallowed — callers fall back to the
-    /// default Pierre prompt.
-    async fn resolve_coach_context(
-        conversation: &ConversationRecord,
-        resources: &ServerResources,
-        tenant_id: TenantId,
-    ) -> Option<CoachRuntimeContext> {
-        let coach_id = conversation.coach_id.as_deref()?;
-        match resources
-            .repos
-            .coaches
-            .get_coach_runtime_context(coach_id, tenant_id)
-            .await
-        {
-            Ok(Some(ctx)) => Some(ctx),
-            Ok(None) => {
-                warn!(
-                    coach_id = coach_id,
-                    "Conversation references a coach that no longer exists; \
-                     falling back to default Pierre prompt"
-                );
-                None
-            }
-            Err(e) => {
-                warn!("Failed to resolve coach runtime context: {e}");
-                None
-            }
-        }
-    }
-
-    /// Get the system prompt text for a conversation given an already-fetched
-    /// coach context. Falls back to the default Pierre system prompt when no
-    /// coach is attached (from the contremaitre registry or compiled-in).
-    fn get_system_prompt_text(
-        coach_ctx: Option<&CoachRuntimeContext>,
-        resources: &ServerResources,
-    ) -> String {
-        coach_ctx.map_or_else(
-            || resources.pierre_system_prompt(),
-            |c| c.system_prompt.clone(),
-        )
-    }
-
-    /// Build provider context string for inclusion in system prompt
-    ///
-    /// Uses `provider_connections` as the single source of truth for which providers
-    /// are connected, so the LLM doesn't ask users to connect already-available providers.
-    async fn build_provider_context(resources: &Arc<ServerResources>, user_id: Uuid) -> String {
-        // Get all provider connections (cross-tenant view, single source of truth)
-        let Ok(connections) = resources
-            .repos
-            .provider_connections
-            .get_for_user(user_id, None)
-            .await
-        else {
-            return String::new();
-        };
-
-        // Filter out providers that aren't registered in the current runtime
-        // (e.g., synthetic providers excluded from production builds)
-        let connections: Vec<_> = connections
-            .into_iter()
-            .filter(|c| resources.provider_registry.is_supported(&c.provider))
-            .collect();
-
-        if connections.is_empty() {
-            return String::new();
-        }
-
-        let mut context = String::from("\n\n## Connected Fitness Data Providers\n\n");
-        context.push_str("The user has the following data sources available:\n");
-        for conn in &connections {
-            let label = if conn.connection_type == ConnectionType::Synthetic {
-                Cow::Owned(format!("{} (test data)", conn.provider))
-            } else {
-                Cow::Borrowed(conn.provider.as_str())
-            };
-            // Write trait used to avoid format_push_string lint
-            let _ = writeln!(context, "- ✓ {label}");
-        }
-        context.push_str("\nUse the connected providers to fetch activity data. ");
-        context
-            .push_str("Do NOT ask the user to connect providers that are already connected above.");
-
-        context
-    }
-
-    /// Get augmented system prompt with provider context and group coaching context
-    async fn get_augmented_system_prompt(
-        conversation: &ConversationRecord,
-        coach_ctx: Option<&CoachRuntimeContext>,
-        resources: &Arc<ServerResources>,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> String {
-        let base_prompt = Self::get_system_prompt_text(coach_ctx, resources);
-        let provider_context = Self::build_provider_context(resources, user_id).await;
-
-        let mut augmented = if provider_context.is_empty() {
-            base_prompt
-        } else {
-            format!("{base_prompt}{provider_context}")
-        };
-
-        // Inject group coaching context if the user is in a group with this coach
-        #[cfg(feature = "tools-groups")]
-        {
-            augmented = Self::inject_group_context_if_applicable(
-                &augmented,
-                conversation,
-                resources,
-                user_id,
-                tenant_id,
-            )
-            .await;
-        }
-
-        augmented
-    }
-
-    /// Inject group coaching context only when the conversation is explicitly
-    /// group-scoped (`conversation.group_id.is_some()`). Personal 1:1 chats do
-    /// NOT auto-attach to groups the user happens to belong to — doing so
-    /// leaks other members' fitness data into a private conversation and
-    /// confuses the LLM about whose activities are being discussed.
-    #[cfg(feature = "tools-groups")]
-    async fn inject_group_context_if_applicable(
-        augmented: &str,
-        conversation: &ConversationRecord,
-        resources: &Arc<ServerResources>,
-        user_id: Uuid,
-        tenant_id: TenantId,
-    ) -> String {
-        let Some(group_id) = conversation.group_id.as_deref() else {
-            return augmented.to_owned();
-        };
-
-        let member_user_ids: Vec<Uuid> = resources
-            .repos
-            .groups
-            .list_members(group_id)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.user_id)
-            .collect();
-
-        let snapshots = if member_user_ids.is_empty() {
-            Vec::new()
-        } else {
-            fetch_member_snapshots(resources, &member_user_ids, tenant_id).await
-        };
-
-        let group_service = resources.group_service();
-        match group_service
-            .inject_group_context(
-                augmented,
-                "",
-                user_id,
-                tenant_id,
-                Some(group_id),
-                &snapshots,
-            )
-            .await
-        {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::debug!("Group context injection failed: {e}");
-                augmented.to_owned()
-            }
-        }
-    }
-
-    /// Get startup context for a coach conversation if applicable.
-    ///
-    /// Returns the startup query and optionally parsed `DataRequirements` for
-    /// deterministic activity pre-fetching.
-    ///
-    /// Returns `Some((query, data_requirements))` only if:
-    /// - This is the first message in the conversation (`history_len == 1`)
-    /// - The conversation has a resolved coach context
-    /// - The coach has a `startup_query` or `data_requirements` configured
-    fn get_startup_context_if_applicable(
-        history_len: usize,
-        coach_ctx: Option<&CoachRuntimeContext>,
-    ) -> Option<(Option<String>, Option<DataRequirements>)> {
-        if history_len != 1 {
-            return None;
-        }
-
-        let ctx = coach_ctx?;
-
-        let query = ctx.startup_query.clone();
-        let data_reqs =
-            ctx.data_requirements.as_ref().and_then(|json| {
-                match serde_json::from_str::<DataRequirements>(json) {
-                    Ok(dr) => {
-                        info!("Found data_requirements for coach context assembly");
-                        Some(dr)
-                    }
-                    Err(e) => {
-                        warn!("Failed to parse data_requirements JSON: {e}");
-                        None
-                    }
-                }
-            });
-
-        if query.is_none() && data_reqs.is_none() {
-            return None;
-        }
-
-        if let Some(q) = &query {
-            info!(
-                "Found startup query for coach conversation: {}",
-                &q[..q.len().min(50)]
-            );
-        }
-
-        Some((query, data_reqs))
-    }
-
-    /// Pre-fetch activity data based on structured `DataRequirements`.
-    ///
-    /// Calls `get_activities` deterministically with exact parameters from the coach
-    /// definition, bypassing LLM interpretation. Returns the activity data as a
-    /// formatted string for injection into the conversation context.
-    async fn prefetch_activity_context(
-        executor: &Arc<UniversalExecutor>,
-        user_id: &str,
-        tenant_id: TenantId,
-        data_reqs: &DataRequirements,
-    ) -> Option<String> {
-        use crate::protocols::universal::handlers::fitness_api::handle_get_activities;
-        use crate::protocols::universal::UniversalRequest;
-
-        let activities_req = data_reqs.activities.as_ref()?;
-
-        // Build parameters JSON matching what handle_get_activities expects
-        let mut params = serde_json::json!({
-            "limit": activities_req.count,
-            "mode": activities_req.mode,
-            "format": activities_req.format,
-            "analysis_type": activities_req.analysis_type,
-        });
-
-        // Add sport_type filter if specified (single sport type for now)
-        if let Some(sport_type) = activities_req.sport_types.first() {
-            params["sport_type"] = serde_json::Value::String(String::clone(sport_type));
-        }
-
-        // Add time_frame as 'after' timestamp
-        if let Some(seconds) = activities_req.time_frame_seconds() {
-            let after = chrono::Utc::now().timestamp() - seconds;
-            params["after"] = serde_json::Value::Number(serde_json::Number::from(after));
-        }
-
-        let request = UniversalRequest {
-            tool_name: "get_activities".to_owned(),
-            parameters: params,
-            user_id: user_id.to_owned(),
-            protocol: "chat".to_owned(),
-            tenant_id: Some(tenant_id.to_string()),
-            progress_token: None,
-            cancellation_token: None,
-            progress_reporter: None,
-        };
-
-        match handle_get_activities(executor, request).await {
-            Ok(response) => {
-                let content = extract_prefetch_content(&response);
-                info!(
-                    content_len = content.len(),
-                    "Pre-fetched activity context for coach"
-                );
-                Some(content)
-            }
-            Err(e) => {
-                warn!("Failed to pre-fetch activity context: {e}");
-                None
-            }
-        }
-    }
-
-    /// Inject startup context (pre-fetched data + analysis query) into LLM messages.
-    ///
-    /// When a coach has `data_requirements`, activity data is fetched deterministically
-    /// and injected as system context. The startup query becomes the analysis instruction.
-    /// Without `data_requirements`, the startup query is injected as-is for the LLM
-    /// to interpret (tool-calling fallback).
-    async fn inject_startup_context(
-        executor: &Arc<UniversalExecutor>,
-        llm_messages: &mut Vec<ChatMessage>,
-        history: &[MessageRecord],
-        coach_ctx: Option<&CoachRuntimeContext>,
-        user_id_str: &str,
-        tenant_id: TenantId,
-    ) {
-        let Some((startup_query, data_reqs)) =
-            Self::get_startup_context_if_applicable(history.len(), coach_ctx)
-        else {
-            return;
-        };
-
-        if let Some(data_reqs) = &data_reqs {
-            // Full context assembly: pre-fetch activity data deterministically
-            if let Some(activity_context) =
-                Self::prefetch_activity_context(executor, user_id_str, tenant_id, data_reqs).await
-            {
-                let context_msg = format!(
-                    "The following activity data has been pre-loaded for your analysis:\n\n\
-                     {activity_context}"
-                );
-                llm_messages.insert(1, ChatMessage::system(&context_msg));
-            }
-
-            // Inject the startup query as the analysis instruction (after data context)
-            if let Some(query) = &startup_query {
-                let insert_pos = llm_messages.len().saturating_sub(1);
-                llm_messages.insert(insert_pos, ChatMessage::user(query));
-            }
-        } else if let Some(query) = &startup_query {
-            // No data_requirements: inject startup query for LLM tool-calling
-            llm_messages.insert(1, ChatMessage::user(query));
-        }
     }
 
     /// Get LLM provider based on `PIERRE_LLM_PROVIDER` environment variable
@@ -1161,8 +817,13 @@ impl ChatRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// Send a message and get a response (non-streaming) with MCP tool execution
-    #[allow(clippy::cognitive_complexity)]
+    /// Send a message and get a response (non-streaming) with MCP tool execution.
+    ///
+    /// Insight-generation requests (prompts starting with
+    /// `INSIGHT_PROMPT_PREFIX`) take a dedicated inline path — no coach, no
+    /// tools, no memory — because they run on the insight-generation
+    /// system prompt and expect JSON output. All other turns go through
+    /// [`crate::services::chat_pipeline::run`].
     async fn send_message(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,
@@ -1174,7 +835,7 @@ impl ChatRoutes {
         let user_id_str = auth.user_id.to_string();
         let tenant_id_str = tenant_id.to_string();
 
-        // Pre-chat quota check: verify message and token quotas before LLM dispatch
+        // Pre-chat quota check: verify message and token quotas before LLM dispatch.
         let usage_warning = Self::check_pre_chat_quotas(
             &resources,
             &tenant_id_str,
@@ -1184,8 +845,132 @@ impl ChatRoutes {
         )
         .await?;
 
-        // Verify ownership and persist user message (crash-safe: saved before LLM dispatch)
-        let msg_result = chat_orchestration::persist_user_message(
+        // Insight-generation requests bypass the unified pipeline (different
+        // prompt, no coach, no tools, JSON response shape).
+        if request.content.starts_with(INSIGHT_PROMPT_PREFIX) {
+            return Self::send_insight_message(
+                resources,
+                conversation_id,
+                user_id_str,
+                tenant_id,
+                tenant_id_str,
+                request,
+                usage_warning,
+            )
+            .await;
+        }
+
+        let turn_input = chat_pipeline::TurnInput {
+            conversation_id: conversation_id.clone(),
+            user_id: user_id_str.clone(),
+            conversation_tenant_id: tenant_id,
+            tool_tenant_id: tenant_id,
+            content: request.content.clone(),
+        };
+        let profile = chat_pipeline::ChannelProfile::web_chat();
+
+        let start_time = Instant::now();
+        let dispatch = chat_pipeline::run(
+            &resources,
+            turn_input,
+            &profile,
+            &chat_pipeline::PipelineHooks::none(),
+        )
+        .await?;
+
+        // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
+        #[allow(clippy::cast_possible_truncation)]
+        let execution_time_ms = start_time.elapsed().as_millis() as u64;
+
+        // Extract tokens for usage recording — use real values from the LLM
+        // when available, fall back to character-based estimation otherwise.
+        let (prompt_tokens, completion_tokens) =
+            Self::tokens_from_dispatch(&dispatch, &request.content);
+
+        // Record LLM usage for cost tracking and quota enforcement.
+        let provider = Self::get_llm_provider().await?;
+        Self::record_llm_usage(
+            &resources,
+            &RecordLlmUsageParams {
+                tenant_id,
+                user_id: &user_id_str,
+                conversation_id: &conversation_id,
+                provider: &provider,
+                model: &dispatch.model,
+                prompt_tokens,
+                completion_tokens,
+                tool_calls_count: dispatch.tool_calls_count,
+                execution_time_ms,
+                is_insight_request: false,
+            },
+        )
+        .await;
+
+        let total_tokens_used =
+            i64::from(prompt_tokens.unwrap_or(0)) + i64::from(completion_tokens.unwrap_or(0));
+        Self::increment_usage_counters(
+            &resources,
+            &tenant_id_str,
+            &user_id_str,
+            total_tokens_used,
+            dispatch.tool_calls_count,
+        )
+        .await;
+
+        let response = ChatCompletionResponse {
+            user_message: MessageResponse {
+                id: dispatch.user_message.id.clone(),
+                role: dispatch.user_message.role.clone(),
+                content: dispatch.user_message.content.clone(),
+                token_count: dispatch.user_message.token_count,
+                created_at: dispatch.user_message.created_at,
+            },
+            assistant_message: MessageResponse {
+                id: dispatch.assistant_message.id.clone(),
+                role: dispatch.assistant_message.role.clone(),
+                content: dispatch.assistant_message.content.clone(),
+                token_count: dispatch.assistant_message.token_count,
+                created_at: dispatch.assistant_message.created_at,
+            },
+            conversation_updated_at: dispatch.conversation.updated_at.clone(),
+            model: dispatch.model.clone(),
+            execution_time_ms,
+            activity_list: dispatch.activity_list.clone(),
+        };
+
+        // Notify user when a coach conversation produces a response.
+        #[cfg(feature = "client-notifications")]
+        Self::notify_coach_response(
+            &resources,
+            &dispatch.conversation,
+            auth.user_id,
+            tenant_id,
+            &conversation_id,
+        );
+
+        let mut http_response = (StatusCode::OK, Json(response)).into_response();
+        Self::apply_usage_warning_headers(&mut http_response, usage_warning);
+        Ok(http_response)
+    }
+
+    /// Dispatch an insight-generation request.
+    ///
+    /// Insight requests do not go through the unified chat pipeline — they
+    /// run on the dedicated insight-generation prompt, skip coach context
+    /// and tools entirely, and expect the LLM to emit structured JSON that
+    /// is parsed out of the raw reply.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_insight_message(
+        resources: Arc<ServerResources>,
+        conversation_id: String,
+        user_id_str: String,
+        tenant_id: TenantId,
+        tenant_id_str: String,
+        request: SendMessageRequest,
+        usage_warning: Option<(&'static str, i64, i64, String)>,
+    ) -> Result<Response, AppError> {
+        // Verify ownership and persist user message.
+        let msg_result = persist_user_message(
             resources.repos.chat.as_ref(),
             &conversation_id,
             &user_id_str,
@@ -1193,94 +978,26 @@ impl ChatRoutes {
             &request.content,
         )
         .await?;
-
         let conv = msg_result.conversation;
         let user_msg = msg_result.message;
 
-        // Get conversation history for LLM context
-        let history = chat_orchestration::get_conversation_history(
-            resources.repos.chat.as_ref(),
-            &conversation_id,
-            &user_id_str,
-        )
-        .await?;
+        let insight_prompt = resources.insight_generation_prompt();
+        let analysis_content = request
+            .content
+            .strip_prefix(INSIGHT_PROMPT_PREFIX)
+            .unwrap_or(&request.content)
+            .trim_start_matches(':')
+            .trim();
+        let mut llm_messages = vec![
+            ChatMessage::system(insight_prompt),
+            ChatMessage::user(analysis_content),
+        ];
 
-        // Check if this is an insight generation request
-        // These use a dedicated prompt optimized for clean, shareable output
-        let is_insight_request = request.content.starts_with(INSIGHT_PROMPT_PREFIX);
-
-        // Resolve coach runtime context once and reuse for prompt, startup, and
-        // tool-iteration decisions — single DB round trip per turn.
-        let coach_ctx = if is_insight_request {
-            None
-        } else {
-            Self::resolve_coach_context(&conv, &resources, tenant_id).await
-        };
-
-        let mut prompt_guard_opt: Option<prompt_leak::PromptGuard> = None;
-        let mut llm_messages = if is_insight_request {
-            let insight_prompt = resources.insight_generation_prompt();
-            let analysis_content = request
-                .content
-                .strip_prefix(INSIGHT_PROMPT_PREFIX)
-                .unwrap_or(&request.content)
-                .trim_start_matches(':')
-                .trim();
-            vec![
-                ChatMessage::system(insight_prompt),
-                ChatMessage::user(analysis_content),
-            ]
-        } else {
-            let system_prompt_text = Self::get_augmented_system_prompt(
-                &conv,
-                coach_ctx.as_ref(),
-                &resources,
-                auth.user_id,
-                tenant_id,
-            )
-            .await;
-            let guard = prompt_leak::harden_system_prompt(
-                tenant_id,
-                conv.coach_id.as_deref(),
-                &system_prompt_text,
-            );
-            let msgs =
-                chat_orchestration::build_llm_messages(Some(&guard.hardened_prompt), &history);
-            prompt_guard_opt = Some(guard);
-            msgs
-        };
-
-        // Create MCP executor for tool calls (Arc for sharing with SDK tool handler closures)
-        // Created early because prefetch_activity_context needs it
+        let tools = Self::build_mcp_tools();
+        let provider = Self::get_llm_provider().await?;
         let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 
-        // Inject startup context if this is the first message in a coach conversation
-        if !is_insight_request {
-            Self::inject_startup_context(
-                &executor,
-                &mut llm_messages,
-                &history,
-                coach_ctx.as_ref(),
-                &user_id_str,
-                tenant_id,
-            )
-            .await;
-        }
-
-        // Build MCP tools for function calling
-        let tools = Self::build_mcp_tools();
-
-        // Get LLM provider
-        let provider = Self::get_llm_provider().await?;
-
-        // Resolve max tool iterations: coach setting > admin config > default
-        let max_iterations =
-            Self::resolve_max_tool_iterations(&resources, coach_ctx.as_ref(), tenant_id).await;
-
-        // Track execution time for the entire LLM + tool loop
         let start_time = Instant::now();
-
-        // Run multi-turn tool execution loop
         let tool_params = ToolLoopParams {
             provider: &provider,
             executor: Arc::clone(&executor),
@@ -1288,43 +1005,17 @@ impl ChatRoutes {
             model: &conv.model,
             user_id: &user_id_str,
             tenant_id,
-            max_iterations,
+            max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
         };
         let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
 
-        info!(
-            content_len = result.content.len(),
-            content_preview = %result.content.chars().take(300).collect::<String>(),
-            tool_calls = result.tool_calls_count,
-            finish_reason = ?result.finish_reason,
-            has_usage = result.usage.is_some(),
-            "Tool loop completed"
-        );
-
-        // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
         #[allow(clippy::cast_possible_truncation)]
         let execution_time_ms = start_time.elapsed().as_millis() as u64;
 
-        // Extract token counts from usage, falling back to character-based estimation
-        // when the provider doesn't return real counts (e.g., CLI-based providers)
         let (prompt_tokens, token_count) = Self::extract_or_estimate_tokens(&result, &llm_messages);
 
-        // Sprint C9/C11: scan the LLM reply for verbatim system-prompt
-        // leaks and for the hidden canary. Only runs for coach-driven
-        // conversations — insight requests skip the guard block.
-        if let Some(ref guard) = prompt_guard_opt {
-            prompt_leak::scan_assistant_reply(
-                guard,
-                &result.content,
-                tenant_id,
-                conv.coach_id.as_deref(),
-            );
-        }
+        let final_content = Self::post_process_content(&result.content, true);
 
-        // Process content: parse insight JSON if applicable
-        let final_content = Self::post_process_content(&result.content, is_insight_request);
-
-        // Persist assistant response with full token usage and model name
         let assistant_params = AddMessageParams {
             conversation_id: &conversation_id,
             user_id: &user_id_str,
@@ -1335,14 +1026,10 @@ impl ChatRoutes {
             prompt_tokens,
             model: Some(&conv.model),
         };
-        let (assistant_msg, updated_conv) = chat_orchestration::persist_assistant_response(
-            resources.repos.chat.as_ref(),
-            &assistant_params,
-            tenant_id,
-        )
-        .await?;
+        let (assistant_msg, updated_conv) =
+            persist_assistant_response(resources.repos.chat.as_ref(), &assistant_params, tenant_id)
+                .await?;
 
-        // Record LLM usage for cost tracking and quota enforcement
         Self::record_llm_usage(
             &resources,
             &RecordLlmUsageParams {
@@ -1355,12 +1042,11 @@ impl ChatRoutes {
                 completion_tokens: token_count,
                 tool_calls_count: result.tool_calls_count,
                 execution_time_ms,
-                is_insight_request,
+                is_insight_request: true,
             },
         )
         .await;
 
-        // Increment usage counters after successful LLM call
         let total_tokens_used =
             i64::from(prompt_tokens.unwrap_or(0)) + i64::from(token_count.unwrap_or(0));
         Self::increment_usage_counters(
@@ -1393,15 +1079,30 @@ impl ChatRoutes {
             activity_list: result.activity_list,
         };
 
-        // Notify user when a coach conversation produces a response
-        #[cfg(feature = "client-notifications")]
-        Self::notify_coach_response(&resources, &conv, auth.user_id, tenant_id, &conversation_id);
-
-        // Build response with usage warning headers
         let mut http_response = (StatusCode::OK, Json(response)).into_response();
         Self::apply_usage_warning_headers(&mut http_response, usage_warning);
-
         Ok(http_response)
+    }
+
+    /// Resolve prompt/completion token counts from a pipeline dispatch result.
+    ///
+    /// Prefers real provider-reported counts from [`TokenUsage`]. When the
+    /// provider does not report usage (CLI-based providers such as
+    /// Copilot headless), falls back to character-based estimation on the
+    /// user's input for the prompt side and on the assistant reply for
+    /// the completion side — matching what the inline dispatch used to do.
+    fn tokens_from_dispatch(
+        dispatch: &chat_pipeline::DispatchResult,
+        user_content: &str,
+    ) -> (Option<u32>, Option<u32>) {
+        dispatch.usage.as_ref().map_or_else(
+            || {
+                let (prompt_est, completion_est) =
+                    estimate_chat_tokens(user_content, &dispatch.content);
+                (Some(prompt_est), Some(completion_est))
+            },
+            |usage| (Some(usage.prompt_tokens), Some(usage.completion_tokens)),
+        )
     }
 
     /// Fire-and-forget notification when a coach conversation produces a response.
@@ -1568,46 +1269,6 @@ impl ChatRoutes {
         } else {
             raw_content.to_owned()
         }
-    }
-
-    /// Resolve the maximum tool iterations for this conversation
-    ///
-    /// Resolution hierarchy: coach `max_tool_iterations` > admin config > default (10).
-    /// Uses the coach runtime context already resolved for this turn.
-    async fn resolve_max_tool_iterations(
-        resources: &Arc<ServerResources>,
-        coach_ctx: Option<&CoachRuntimeContext>,
-        _tenant_id: TenantId,
-    ) -> usize {
-        if let Some(iterations) = coach_ctx.and_then(|c| c.max_tool_iterations) {
-            #[allow(clippy::cast_sign_loss)]
-            let value = iterations.max(1) as usize;
-            debug!(
-                max_tool_iterations = value,
-                "Using coach-level tool iteration limit"
-            );
-            return value;
-        }
-
-        // Try admin config override
-        if let Some(ref admin_config) = resources.admin_config {
-            if let Ok(Some(val)) = admin_config
-                .get_value("tool_execution.max_iterations", None)
-                .await
-            {
-                if let Some(config_val) = val.as_i64() {
-                    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-                    let value = (config_val.max(1) as usize).min(50);
-                    debug!(
-                        max_tool_iterations = value,
-                        "Using admin config tool iteration limit"
-                    );
-                    return value;
-                }
-            }
-        }
-
-        DEFAULT_MAX_TOOL_ITERATIONS
     }
 
     /// Increment usage counters after a successful LLM call
