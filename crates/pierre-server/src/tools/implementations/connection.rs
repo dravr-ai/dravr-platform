@@ -23,16 +23,30 @@ use serde_json::{json, Map, Value};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_database::plugins::TenantRepository;
 
 use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
 use crate::models::TenantId;
-use crate::protocols::universal::auth_service::AuthService;
+use crate::providers::backend_resolver::{self, BackendKind};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+
+/// User-facing provider names reported by `get_connection_status`.
+///
+/// Mirror backends (`sciotte`, `sciotte_garmin`) never appear here — they
+/// are coalesced into the user-facing provider they serve.
+const USER_FACING_PROVIDERS: &[&str] = &[
+    oauth_providers::STRAVA,
+    oauth_providers::FITBIT,
+    oauth_providers::GARMIN,
+    oauth_providers::WHOOP,
+    oauth_providers::TERRA,
+    oauth_providers::COROS,
+];
 
 /// Annotations for tools that interact with external OAuth services
 fn open_world_annotations() -> ToolAnnotations {
@@ -219,11 +233,52 @@ impl McpTool for ConnectProviderTool {
             )
                 })?;
 
+        // Mirror backends are internal — refuse to initiate OAuth
+        // against them. The LLM should never hand the user a "sciotte"
+        // flow as a connection option.
+        if backend_resolver::is_mirror_backend(provider) {
+            return Ok(ToolResult::error(json!({
+                "error": format!(
+                    "Unknown provider '{provider}'. Use 'strava' or 'garmin' instead."
+                )
+            })));
+        }
+
         if !registry.is_supported(provider) {
-            let supported = registry.supported_providers().join(", ");
+            let supported = USER_FACING_PROVIDERS.join(", ");
             return Ok(ToolResult::error(json!({
                 "error": format!("Provider '{}' is not supported. Supported providers: {}", provider, supported)
             })));
+        }
+
+        // If the user has already opted into the mirror (sciotte) backend
+        // for this provider, refuse to mint an OAuth URL. Re-login must
+        // happen through the same mirror flow.
+        if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
+            if let Some(tid) = context.tenant_id.map(TenantId::from) {
+                if let Ok(Some(_)) = repos
+                    .oauth_tokens
+                    .get_token(context.user_id, tid, mirror)
+                    .await
+                {
+                    info!(
+                        user_id = %context.user_id,
+                        provider = provider,
+                        mirror = mirror,
+                        "Refusing OAuth connect: user has mirror backend active, \
+                         they must re-authenticate through the mirror flow"
+                    );
+                    return Ok(ToolResult::error(json!({
+                        "provider": provider,
+                        "backend": "mirror",
+                        "requires_mirror_reauth": true,
+                        "error": format!(
+                            "{provider} is already connected via direct login (email + password). \
+                             Re-authenticate through the same flow instead of proposing a fresh OAuth connection."
+                        )
+                    })));
+                }
+            }
         }
 
         // Validate redirect URL if provided
@@ -382,20 +437,36 @@ impl McpTool for GetConnectionStatusTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let registry = context.provider_registry();
-        let auth_service = AuthService::new(context.resources.clone());
-        let tenant_id_str = context.tenant_id.map(|id| id.to_string());
+        let tenant_id = context.tenant_id.map(TenantId::from);
 
         if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
-            // Single provider mode
-            let is_connected = matches!(
-                auth_service
-                    .get_valid_token(context.user_id, specific_provider, tenant_id_str.as_deref())
-                    .await,
-                Ok(Some(_))
-            );
+            // Mirror backends are internal-only — refuse to expose them
+            // so the LLM cannot enumerate them as user-visible options.
+            if backend_resolver::is_mirror_backend(specific_provider) {
+                return Ok(ToolResult::ok(json!({
+                    "provider": specific_provider,
+                    "status": "disconnected",
+                    "connected": false,
+                    "backend": "none",
+                    "note": "Unknown provider. Use 'strava' or 'garmin' instead."
+                })));
+            }
 
-            let status = if is_connected {
+            let (connected, backend_kind) = match (tenant_id, canonical_name(specific_provider)) {
+                (Some(tid), Some(canonical)) => {
+                    let s = backend_resolver::coalesced_status(
+                        &context.resources.repos,
+                        context.user_id,
+                        tid,
+                        canonical,
+                    )
+                    .await;
+                    (s.connected, s.backend_kind)
+                }
+                _ => (false, BackendKind::None),
+            };
+
+            let status = if connected {
                 "connected"
             } else {
                 "disconnected"
@@ -404,35 +475,59 @@ impl McpTool for GetConnectionStatusTool {
             Ok(ToolResult::ok(json!({
                 "provider": specific_provider,
                 "status": status,
-                "connected": is_connected
+                "connected": connected,
+                "backend": backend_kind.as_str()
             })))
         } else {
-            // Multi-provider mode - check all supported providers
+            // Multi-provider mode - report only user-facing providers.
+            // Mirror backends (sciotte/sciotte_garmin) are coalesced into
+            // strava/garmin so the LLM never sees the internal name.
             let mut providers_status = Map::new();
 
-            for provider in registry.supported_providers() {
-                let is_connected = matches!(
-                    auth_service
-                        .get_valid_token(context.user_id, provider, tenant_id_str.as_deref())
-                        .await,
-                    Ok(Some(_))
-                );
+            for user_facing in USER_FACING_PROVIDERS {
+                let s = match tenant_id {
+                    Some(tid) => {
+                        backend_resolver::coalesced_status(
+                            &context.resources.repos,
+                            context.user_id,
+                            tid,
+                            user_facing,
+                        )
+                        .await
+                    }
+                    None => backend_resolver::CoalescedStatus {
+                        user_facing,
+                        connected: false,
+                        backend_kind: BackendKind::None,
+                    },
+                };
 
-                let status = if is_connected {
+                let status_str = if s.connected {
                     "connected"
                 } else {
                     "disconnected"
                 };
 
                 providers_status.insert(
-                    provider.to_owned(),
-                    json!({ "connected": is_connected, "status": status }),
+                    (*user_facing).to_owned(),
+                    json!({
+                        "connected": s.connected,
+                        "status": status_str,
+                        "backend": s.backend_kind.as_str()
+                    }),
                 );
             }
 
             Ok(ToolResult::ok(json!({ "providers": providers_status })))
         }
     }
+}
+
+/// Canonicalise a user-supplied provider name into a `&'static str` from
+/// `USER_FACING_PROVIDERS`, or `None` if it isn't a recognised user-facing
+/// provider.
+fn canonical_name(name: &str) -> Option<&'static str> {
+    USER_FACING_PROVIDERS.iter().copied().find(|p| *p == name)
 }
 
 // ============================================================================
