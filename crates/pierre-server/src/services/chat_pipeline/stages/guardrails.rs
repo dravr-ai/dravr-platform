@@ -17,13 +17,20 @@
 //! Uses a safe default profile; per-tenant overrides are a pending Tier 6
 //! admin GUI follow-up.
 
+use std::sync::Arc;
+
 use crate::config::text_guardrails::{GuardrailOutcome, GuardrailRejection, TextGuardrails};
+use crate::contremaitre::messaging_strings::{
+    DEFAULT_LOCALE, KEY_GUARDRAIL_BLOCKED_TOPIC, KEY_GUARDRAIL_TOO_LONG,
+};
+use crate::mcp::resources::ServerResources;
 
 /// Apply the safe-default text guardrails to an assistant reply.
 ///
 /// Returns the (possibly disclaimer-prepended) reply, or a graceful
-/// fallback string when guardrails reject the response.
-pub fn apply_text_guardrails(reply: &str) -> String {
+/// fallback string from the `messaging_strings_registry` when guardrails
+/// reject the response.
+pub fn apply_text_guardrails(resources: &Arc<ServerResources>, reply: &str) -> String {
     let rules = TextGuardrails::safe_default();
     match rules.apply(reply) {
         GuardrailOutcome::Allowed(text) => text,
@@ -33,15 +40,15 @@ pub fn apply_text_guardrails(reply: &str) -> String {
                 cap,
                 "guardrails: trimming over-long response to safe fallback"
             );
-            "I have a longer response prepared but it exceeds the configured length cap. \
-             Want me to break it into a shorter summary?"
-                .to_owned()
+            resources
+                .messaging_strings_registry
+                .get(KEY_GUARDRAIL_TOO_LONG, DEFAULT_LOCALE)
         }
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             tracing::warn!(topic, "guardrails: blocked topic in coach response");
-            "I'd rather not get into that here. Let's stay focused on your training and \
-             recovery. Is there something specific I can help with?"
-                .to_owned()
+            resources
+                .messaging_strings_registry
+                .get(KEY_GUARDRAIL_BLOCKED_TOPIC, DEFAULT_LOCALE)
         }
     }
 }

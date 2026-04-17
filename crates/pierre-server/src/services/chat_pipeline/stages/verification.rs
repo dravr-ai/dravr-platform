@@ -22,6 +22,9 @@ use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_evals::{VerificationConfig, VerificationFallback};
 use pierre_memory::claims::ClaimStatus;
 
+use crate::contremaitre::messaging_strings::{
+    format_template, DEFAULT_LOCALE, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
+};
 use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::services::claim_verification::{resolve_corpus, verify_reply_with_config_and_corpus};
@@ -89,21 +92,23 @@ pub async fn apply_claim_verification(
     }
 
     match config.fallback_behavior {
-        VerificationFallback::Warn => format!(
-            "{reply}\n\n---\n⚠️ Heads up — I'm not fully confident in {} claim(s) above. \
-             Ask me to back them up if you want the evidence.",
-            problems.len()
-        ),
+        VerificationFallback::Warn => {
+            let suffix_template = resources
+                .messaging_strings_registry
+                .get(KEY_VERIFICATION_WARN_SUFFIX, DEFAULT_LOCALE);
+            let count = problems.len().to_string();
+            let suffix = format_template(&suffix_template, &[&count]);
+            format!("{reply}\n\n---\n{suffix}")
+        }
         VerificationFallback::Silent => reply.to_owned(),
         VerificationFallback::Block => {
             tracing::warn!(
                 flagged_claims = problems.len(),
                 "Tier 5.5 block fallback fired — replacing reply"
             );
-            "I started to answer, but a couple of the claims I was about to make \
-             didn't match the evidence I trust. Let me reword that — can you \
-             ask me again with a bit more context on what you're trying to figure out?"
-                .to_owned()
+            resources
+                .messaging_strings_registry
+                .get(KEY_VERIFICATION_BLOCK_FALLBACK, DEFAULT_LOCALE)
         }
     }
 }

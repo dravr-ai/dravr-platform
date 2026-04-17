@@ -341,6 +341,7 @@ async fn handle_manual_sync(
         &resources.tool_description_registry,
         &resources.evidence_registry,
         &resources.cageux_config_registry,
+        &resources.messaging_strings_registry,
         &client,
     )
     .await?;

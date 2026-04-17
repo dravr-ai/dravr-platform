@@ -26,6 +26,8 @@ pub mod evidence_registry;
 pub mod github;
 /// Manifest parsing and SHA-256 hash computation for change detection
 pub mod manifest;
+/// Hot-reloadable user-facing messaging strings (channel replies, errors)
+pub mod messaging_strings;
 /// In-memory prompt registry with compiled-in fallback
 pub mod registry;
 /// Startup and webhook-triggered sync engine
@@ -39,5 +41,6 @@ pub use config::ContremaitreConfig;
 pub use errors::ContremaitreError;
 pub use evidence_registry::EvidenceRegistry;
 pub use manifest::Manifest;
+pub use messaging_strings::MessagingStringsRegistry;
 pub use registry::PromptRegistry;
 pub use tool_descriptions::ToolDescriptionRegistry;

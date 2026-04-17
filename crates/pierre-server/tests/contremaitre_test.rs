@@ -14,7 +14,12 @@ use std::collections::{HashMap, HashSet};
 use pierre_mcp_server::contremaitre::errors::ContremaitreError;
 use pierre_mcp_server::contremaitre::manifest::{
     compute_sha256, parse_manifest, Manifest, ManifestConfig, ManifestEntry, ManifestEvidence,
-    ManifestPrompts, ManifestTools,
+    ManifestPrompts, ManifestStrings, ManifestTools,
+};
+use pierre_mcp_server::contremaitre::messaging_strings::{
+    format_template, MessagingStringsRegistry, DEFAULT_LOCALE, EN_EMPTY_REPLY,
+    EN_VERIFICATION_BLOCK_FALLBACK, FR_EMPTY_REPLY, FR_VERIFICATION_BLOCK_FALLBACK,
+    KEY_EMPTY_REPLY, KEY_VERIFICATION_BLOCK_FALLBACK, KEY_VERIFICATION_WARN_SUFFIX,
 };
 use pierre_mcp_server::contremaitre::registry::{PromptRegistry, PromptSource};
 use pierre_mcp_server::contremaitre::tool_descriptions::{
@@ -124,6 +129,7 @@ fn test_manifest_round_trip() {
         tools: ManifestTools::default(),
         evidence: ManifestEvidence::default(),
         config: ManifestConfig::default(),
+        strings: ManifestStrings::default(),
     };
 
     let json = serde_json::to_string(&manifest).expect("serialize");
@@ -699,4 +705,117 @@ fn test_expected_tools_list_is_sorted() {
         EXPECTED_TOOLS,
         "EXPECTED_TOOLS must stay alphabetically sorted for stable diffs"
     );
+}
+
+// ── Messaging-strings registry tests ──────────────────────────────────
+
+#[test]
+fn test_messaging_registry_seeds_six_keys_in_fr_and_en() {
+    let reg = MessagingStringsRegistry::new();
+    assert_eq!(reg.key_count(), 6, "expected 6 distinct message keys");
+    assert_eq!(
+        reg.entry_count(),
+        12,
+        "expected 6 keys × 2 locales (fr + en) = 12 entries"
+    );
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "fr"), FR_EMPTY_REPLY);
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), EN_EMPTY_REPLY);
+    assert_eq!(
+        reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "fr"),
+        FR_VERIFICATION_BLOCK_FALLBACK
+    );
+    assert_eq!(
+        reg.get(KEY_VERIFICATION_BLOCK_FALLBACK, "en"),
+        EN_VERIFICATION_BLOCK_FALLBACK
+    );
+}
+
+#[test]
+fn test_messaging_registry_locale_fallback_to_default_locale() {
+    // A locale with no entry falls back to DEFAULT_LOCALE ("fr").
+    let reg = MessagingStringsRegistry::new();
+    assert_eq!(
+        reg.get(KEY_EMPTY_REPLY, "de"),
+        FR_EMPTY_REPLY,
+        "unknown locale should fall back to DEFAULT_LOCALE content"
+    );
+    assert_eq!(DEFAULT_LOCALE, "fr");
+}
+
+#[test]
+fn test_messaging_registry_unknown_key_falls_back_to_empty_string() {
+    let reg = MessagingStringsRegistry::new();
+    assert_eq!(reg.get("messaging.does_not_exist", "fr"), "");
+    assert_eq!(reg.get("messaging.does_not_exist", "en"), "");
+}
+
+#[test]
+fn test_messaging_registry_update_replaces_compiled_in_entry() {
+    let reg = MessagingStringsRegistry::new();
+    let new_content = "replaced".to_owned();
+    let sha = compute_sha256(new_content.as_bytes());
+    reg.update(KEY_EMPTY_REPLY, "fr", new_content.clone(), sha.clone());
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "fr"), new_content);
+    assert_eq!(
+        reg.sha256(KEY_EMPTY_REPLY, "fr").as_deref(),
+        Some(sha.as_str())
+    );
+    // English entry for the same key must stay untouched.
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), EN_EMPTY_REPLY);
+}
+
+#[test]
+fn test_messaging_registry_update_adds_new_locale() {
+    let reg = MessagingStringsRegistry::new();
+    let spanish = "¡Hola!".to_owned();
+    let sha = compute_sha256(spanish.as_bytes());
+    reg.update(KEY_EMPTY_REPLY, "es", spanish.clone(), sha);
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "es"), spanish);
+    assert_eq!(
+        reg.entry_count(),
+        13,
+        "adding a new locale should grow the total entry count"
+    );
+}
+
+#[test]
+fn test_format_template_substitutes_positional_args() {
+    assert_eq!(format_template("ref: {0}", &["abc12345"]), "ref: abc12345");
+    assert_eq!(
+        format_template("{0} claim(s), {1} total", &["3", "7"]),
+        "3 claim(s), 7 total"
+    );
+}
+
+#[test]
+fn test_format_template_preserves_unmatched_placeholders() {
+    assert_eq!(
+        format_template("{0} and {1}", &["only-one"]),
+        "only-one and {1}"
+    );
+}
+
+#[test]
+fn test_format_template_preserves_non_placeholder_braces() {
+    assert_eq!(
+        format_template("JSON: {\"k\": \"v\"}", &[]),
+        "JSON: {\"k\": \"v\"}"
+    );
+}
+
+#[test]
+fn test_format_template_handles_empty_args_with_placeholder() {
+    assert_eq!(format_template("ref: {0}", &[]), "ref: {0}");
+}
+
+#[test]
+fn test_warn_suffix_formats_with_count_fr_and_en() {
+    let reg = MessagingStringsRegistry::new();
+    let fr_rendered = format_template(&reg.get(KEY_VERIFICATION_WARN_SUFFIX, "fr"), &["3"]);
+    assert!(fr_rendered.contains("3 affirmation"));
+    assert!(fr_rendered.starts_with("⚠️"));
+
+    let en_rendered = format_template(&reg.get(KEY_VERIFICATION_WARN_SUFFIX, "en"), &["3"]);
+    assert!(en_rendered.contains("3 claim"));
+    assert!(en_rendered.starts_with("⚠️"));
 }

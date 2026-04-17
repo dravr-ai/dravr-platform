@@ -27,7 +27,8 @@ use crate::config::environment::ServerConfig;
 use crate::contremaitre::sync::full_sync;
 #[cfg(feature = "contremaitre")]
 use crate::contremaitre::{
-    ContremaitreConfig, EvidenceRegistry, PromptRegistry, ToolDescriptionRegistry,
+    ContremaitreConfig, EvidenceRegistry, MessagingStringsRegistry, PromptRegistry,
+    ToolDescriptionRegistry,
 };
 use crate::email::ResendEmailService;
 use crate::errors::{AppError, AppResult};
@@ -269,6 +270,9 @@ pub struct ServerResources {
     /// Evidence registry for hot-reloadable Tier 5.5 claim verification corpus
     #[cfg(feature = "contremaitre")]
     pub evidence_registry: Arc<EvidenceRegistry>,
+    /// Messaging strings registry for hot-reloadable user-facing canned replies
+    #[cfg(feature = "contremaitre")]
+    pub messaging_strings_registry: Arc<MessagingStringsRegistry>,
     /// Contremaitre configuration for GitHub sync and webhook verification
     #[cfg(feature = "contremaitre")]
     pub contremaitre_config: Option<ContremaitreConfig>,
@@ -294,10 +298,12 @@ async fn init_contremaitre_registries(
     Arc<PromptRegistry>,
     Arc<ToolDescriptionRegistry>,
     Arc<EvidenceRegistry>,
+    Arc<MessagingStringsRegistry>,
 ) {
     let prompt_registry = Arc::new(PromptRegistry::new());
     let tool_desc_registry = Arc::new(ToolDescriptionRegistry::new());
     let evidence_registry = Arc::new(EvidenceRegistry::new());
+    let messaging_strings_registry = Arc::new(MessagingStringsRegistry::new());
 
     if let Some(config) = ContremaitreConfig::from_env() {
         let client = config.github_client();
@@ -306,6 +312,7 @@ async fn init_contremaitre_registries(
             &tool_desc_registry,
             &evidence_registry,
             cageux_config_registry,
+            &messaging_strings_registry,
             &client,
         )
         .await
@@ -319,7 +326,12 @@ async fn init_contremaitre_registries(
         info!("Contremaitre not configured, using compiled-in defaults");
     }
 
-    (prompt_registry, tool_desc_registry, evidence_registry)
+    (
+        prompt_registry,
+        tool_desc_registry,
+        evidence_registry,
+        messaging_strings_registry,
+    )
 }
 
 impl ServerResources {
@@ -520,6 +532,7 @@ impl ServerResources {
             contremaitre_prompt_registry,
             contremaitre_tool_desc_registry,
             contremaitre_evidence_registry,
+            contremaitre_messaging_strings_registry,
         ) = init_contremaitre_registries(&cageux_config_registry).await;
 
         // Cache-backed nonce store + rate limiter for channel-initiated provider links
@@ -591,6 +604,8 @@ impl ServerResources {
             tool_description_registry: contremaitre_tool_desc_registry,
             #[cfg(feature = "contremaitre")]
             evidence_registry: contremaitre_evidence_registry,
+            #[cfg(feature = "contremaitre")]
+            messaging_strings_registry: contremaitre_messaging_strings_registry,
             #[cfg(feature = "contremaitre")]
             contremaitre_config: ContremaitreConfig::from_env(),
             #[cfg(feature = "provider-sciotte")]
