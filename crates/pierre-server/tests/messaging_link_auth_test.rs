@@ -29,6 +29,30 @@ use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
+/// Seed a tenant by creating an owner user and the tenant record. Returns the
+/// (owner_user_id, tenant_id). The tenant must exist before any `messaging_*`
+/// row referencing its id is inserted (FK constraint).
+async fn seed_tenant_with_owner(resources: &ServerResources) -> (Uuid, TenantId) {
+    let email = format!("owner-{}@test.local", Uuid::new_v4());
+    let user = User::new(email, "hash".to_owned(), Some("Tenant Owner".to_owned()));
+    let user_id = user.id;
+    resources.repos.users.create(&user).await.unwrap();
+
+    let tenant_id = TenantId::new();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: "Link Auth Test Tenant".to_owned(),
+        slug: format!("link-auth-test-{tenant_id}"),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: user_id,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    resources.repos.tenants.create(&tenant).await.unwrap();
+    (user_id, tenant_id)
+}
+
 /// Create a webhook-initiated link state (no `user_id`) and return the code
 async fn create_channel_initiated_link_state(
     db: &dyn MessagingRepository,
@@ -60,21 +84,16 @@ async fn create_channel_initiated_link_state(
     code
 }
 
-/// Create a tenant with the given ID and the user as owner.
-///
-/// `TenantRepository::create` automatically inserts the owner into `tenant_users`.
+/// Assign an already-created user to an existing tenant by updating the
+/// user's `tenant_id` column. The tenant must already exist (see
+/// `seed_tenant_with_owner`).
 async fn add_user_to_tenant(resources: &ServerResources, user_id: Uuid, tenant_id: TenantId) {
-    let tenant = Tenant {
-        id: tenant_id,
-        name: "Link Auth Test Tenant".to_owned(),
-        slug: format!("link-auth-test-{tenant_id}"),
-        domain: None,
-        plan: "starter".to_owned(),
-        owner_user_id: user_id,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-    };
-    resources.repos.tenants.create(&tenant).await.unwrap();
+    resources
+        .repos
+        .users
+        .update_tenant_id(user_id, tenant_id)
+        .await
+        .unwrap();
 }
 
 /// Create a test user with bcrypt-hashed password and return the `user_id`
@@ -107,7 +126,7 @@ async fn create_test_user_with_password(
 async fn test_link_page_renders_for_valid_code() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -141,7 +160,7 @@ async fn test_link_page_renders_for_valid_code() {
 async fn test_link_page_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -191,7 +210,7 @@ async fn test_link_page_nonexistent_code() {
 async fn test_link_auth_login_success() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -234,7 +253,7 @@ async fn test_link_auth_login_success() {
 async fn test_link_auth_wrong_password() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -279,7 +298,7 @@ async fn test_link_auth_wrong_password() {
 async fn test_link_auth_register_success() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -322,7 +341,7 @@ async fn test_link_auth_register_success() {
 async fn test_link_auth_expired_code() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -363,7 +382,7 @@ async fn test_link_auth_expired_code() {
 async fn test_link_auth_double_submit() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code = create_channel_initiated_link_state(
         db,
@@ -429,7 +448,7 @@ async fn test_link_auth_double_submit() {
 async fn test_link_auth_register_duplicate_email() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (_owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
 
     let code =
         create_channel_initiated_link_state(db, tenant_id, "telegram", "tg-dup-email", None, false)
@@ -469,8 +488,8 @@ async fn test_link_auth_register_duplicate_email() {
 async fn test_link_auth_cross_tenant_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_a = TenantId::from(Uuid::new_v4());
-    let tenant_b = TenantId::from(Uuid::new_v4());
+    let (_owner_a, tenant_a) = seed_tenant_with_owner(&resources).await;
+    let (_owner_b, tenant_b) = seed_tenant_with_owner(&resources).await;
 
     // Link state belongs to tenant A
     let code = create_channel_initiated_link_state(
@@ -518,7 +537,8 @@ async fn test_link_auth_cross_tenant_rejected() {
 async fn test_link_callback_channel_mismatch_rejected() {
     let resources = common::create_test_server_resources().await.unwrap();
     let db: &dyn MessagingRepository = &*resources.repos.messaging;
-    let tenant_id = TenantId::from(Uuid::new_v4());
+    let (owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+    let owner_id_str = owner_id.to_string();
 
     // Create a link state for "slack"
     let code = Uuid::new_v4().to_string();
@@ -526,7 +546,7 @@ async fn test_link_callback_channel_mismatch_rejected() {
     let params = CreateLinkStateParams {
         id: &Uuid::new_v4().to_string(),
         tenant_id,
-        user_id: Some("user-mismatch"),
+        user_id: Some(&owner_id_str),
         channel_type: "slack",
         code: &code,
         method: "deep_link",

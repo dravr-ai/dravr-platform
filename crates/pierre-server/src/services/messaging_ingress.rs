@@ -316,14 +316,40 @@ async fn resolve_linked_session(
             .as_str()
             .ok_or_else(|| AppError::internal("Session missing id field"))?
             .to_owned();
-        let conversation = session["pierre_conversation_id"]
-            .as_str()
-            .ok_or_else(|| AppError::internal("Session missing pierre_conversation_id field"))?
-            .to_owned();
         let user_id = session["user_id"]
             .as_str()
             .ok_or_else(|| AppError::internal("Session missing user_id field"))?
             .to_owned();
+
+        // Self-heal: if the session has no conversation (the chat_conversations row
+        // was deleted and the FK ON DELETE SET NULL fired, or the row is otherwise
+        // unreachable), forge a fresh one and repoint the session before returning.
+        // Without this, dispatch_and_respond would fail on every message for this
+        // channel user until they manually re-link.
+        let conversation = match session["pierre_conversation_id"].as_str() {
+            Some(id) => id.to_owned(),
+            None => {
+                warn!(
+                    session_id = %session_id,
+                    user_id = %user_id,
+                    channel_type = %channel_type,
+                    "Session has no pierre_conversation_id; self-healing with a fresh conversation"
+                );
+                let title = format!("Messaging: {channel_type}");
+                let conversation = chat_orchestration::create_conversation(
+                    resources.repos.chat.as_ref(),
+                    &user_id,
+                    tenant_id,
+                    &title,
+                    None,
+                    None,
+                )
+                .await?;
+                let new_id = conversation.conversation.id.clone();
+                db.set_session_conversation(&session_id, &new_id).await?;
+                new_id
+            }
+        };
 
         if let Err(e) = db.touch_session(&session_id).await {
             warn!(error = %e, session_id = %session_id, "Failed to touch session");

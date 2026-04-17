@@ -325,6 +325,32 @@ impl Database {
         Ok(())
     }
 
+    /// Repoint a session at a fresh Pierre conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database update fails
+    pub async fn set_session_conversation_impl(
+        &self,
+        session_id: &str,
+        pierre_conversation_id: &str,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r"
+            UPDATE messaging_sessions
+            SET pierre_conversation_id = ?
+            WHERE id = ?
+            ",
+        )
+        .bind(pierre_conversation_id)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update session conversation: {e}")))?;
+
+        Ok(())
+    }
+
     // ── Messages ──
 
     /// Insert a message with idempotency (INSERT OR IGNORE on `channel_message_id`)
@@ -1262,6 +1288,15 @@ impl MessagingRepository for Database {
 
     async fn touch_session(&self, session_id: &str) -> AppResult<()> {
         self.touch_session_impl(session_id).await
+    }
+
+    async fn set_session_conversation(
+        &self,
+        session_id: &str,
+        pierre_conversation_id: &str,
+    ) -> AppResult<()> {
+        self.set_session_conversation_impl(session_id, pierre_conversation_id)
+            .await
     }
 
     async fn insert_message(&self, params: &InsertMessageParams<'_>) -> AppResult<bool> {

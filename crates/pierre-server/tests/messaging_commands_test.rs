@@ -115,9 +115,25 @@ mod command_tests {
         .await
         .unwrap();
 
-        // Create messaging session
+        // Create a real chat_conversation so pierre_conversation_id satisfies its
+        // FK. Before the messaging_* FK migration, tests passed a random UUID
+        // that never existed; now the column references chat_conversations(id).
+        let conversation = resources
+            .repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                tenant_id,
+                "Cmd Test Conversation",
+                "test-model",
+                None,
+            )
+            .await
+            .unwrap();
+        let conversation_id = conversation.id;
+
+        // Create messaging session linked to the conversation
         let session_id = Uuid::new_v4().to_string();
-        let conversation_id = Uuid::new_v4().to_string();
         db.create_session(&CreateSessionParams {
             id: &session_id,
             user_id: &user_id.to_string(),

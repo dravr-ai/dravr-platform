@@ -17,12 +17,16 @@
     clippy::redundant_closure_for_method_calls
 )]
 
-use pierre_database::plugins::{
-    factory::Database, CreateSessionParams, InsertMessageParams, UpsertChannelConfigParams,
+use chrono::Utc;
+use pierre_database::{
+    plugins::{
+        factory::Database, CreateSessionParams, InsertMessageParams, UpsertChannelConfigParams,
+    },
+    DatabaseProvider,
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
-use pierre_mcp_server::models::TenantId;
+use pierre_mcp_server::models::{Tenant, TenantId, User};
 use uuid::Uuid;
 
 /// Create an in-memory `SQLite` database for testing
@@ -30,33 +34,68 @@ async fn create_test_db() -> Database {
     let encryption_key = b"test_encryption_key_32_bytes_long".to_vec();
 
     #[cfg(feature = "postgresql")]
-    {
-        Database::new(
-            "sqlite::memory:",
-            encryption_key,
-            &PostgresPoolConfig::default(),
-        )
-        .await
-        .expect("Failed to create test database")
-    }
+    let db = Database::new(
+        "sqlite::memory:",
+        encryption_key,
+        &PostgresPoolConfig::default(),
+    )
+    .await
+    .expect("Failed to create test database");
 
     #[cfg(not(feature = "postgresql"))]
-    {
-        Database::new("sqlite::memory:", encryption_key)
-            .await
-            .expect("Failed to create test database")
-    }
+    let db = Database::new("sqlite::memory:", encryption_key)
+        .await
+        .expect("Failed to create test database");
+
+    db.migrate().await.expect("Failed to run migrations");
+    db
 }
 
+/// Seed a real user and tenant so FK constraints on messaging_* tables are satisfied.
+/// Returns (user_uuid, tenant_id); stringify user_uuid when passing to messaging params.
+async fn seed_user(db: &Database) -> (Uuid, TenantId) {
+    let email = format!("user-{}@test.local", Uuid::new_v4());
+    let user = User::new(
+        email,
+        "hash_not_verified_in_tests".to_owned(),
+        Some("Test User".to_owned()),
+    );
+    let user_id = user.id;
+    db.repositories().users.create(&user).await.unwrap();
+
+    let tenant_id = TenantId::new();
+    let now = Utc::now();
+    let tenant = Tenant {
+        id: tenant_id,
+        name: format!("Test Tenant {tenant_id}"),
+        slug: tenant_id.to_string(),
+        domain: None,
+        plan: "starter".to_owned(),
+        owner_user_id: user_id,
+        created_at: now,
+        updated_at: now,
+    };
+    db.repositories().tenants.create(&tenant).await.unwrap();
+
+    (user_id, tenant_id)
+}
+
+/// Seed only a tenant (with a throwaway owner user).
+async fn seed_tenant(db: &Database) -> TenantId {
+    let (_, tenant_id) = seed_user(db).await;
+    tenant_id
+}
+
+/// Fresh tenant id for tables that have no FK to tenants (e.g. `messaging_channel_configs`).
 fn test_tenant_id() -> TenantId {
-    TenantId::from(Uuid::new_v4())
+    TenantId::new()
 }
 
 /// Create a session for FK relationships (messages reference sessions)
-async fn create_test_session(db: &Database, session_id: &str, tenant_id: TenantId) {
+async fn create_test_session(db: &Database, session_id: &str, tenant_id: TenantId, user_id: &str) {
     let params = CreateSessionParams {
         id: session_id,
-        user_id: "test-user",
+        user_id,
         tenant_id,
         channel_type: "whatsapp",
         channel_user_id: &format!("ch_user_{session_id}"),
@@ -76,9 +115,10 @@ async fn create_test_message(
     msg_id: &str,
     session_id: &str,
     tenant_id: TenantId,
+    user_id: &str,
     channel_message_id: &str,
 ) {
-    create_test_session(db, session_id, tenant_id).await;
+    create_test_session(db, session_id, tenant_id, user_id).await;
     let params = InsertMessageParams {
         id: msg_id,
         tenant_id,
@@ -339,12 +379,13 @@ async fn test_tenant_isolation_channel_config() {
 #[tokio::test]
 async fn test_create_and_lookup_session() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let session_id = Uuid::new_v4().to_string();
 
     let params = CreateSessionParams {
         id: &session_id,
-        user_id: "user-123",
+        user_id: &user_id,
         tenant_id,
         channel_type: "telegram",
         channel_user_id: "tg_user_100",
@@ -371,12 +412,13 @@ async fn test_create_and_lookup_session() {
 #[tokio::test]
 async fn test_touch_session_updates_timestamp() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let session_id = Uuid::new_v4().to_string();
 
     let params = CreateSessionParams {
         id: &session_id,
-        user_id: "user-123",
+        user_id: &user_id,
         tenant_id,
         channel_type: "slack",
         channel_user_id: "U1234",
@@ -400,13 +442,14 @@ async fn test_touch_session_updates_timestamp() {
 #[tokio::test]
 async fn test_session_tenant_isolation() {
     let db = create_test_db().await;
-    let tenant_a = test_tenant_id();
-    let tenant_b = test_tenant_id();
+    let (user_uuid, tenant_a) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let tenant_b = seed_tenant(&db).await;
     let session_id = Uuid::new_v4().to_string();
 
     let params = CreateSessionParams {
         id: &session_id,
-        user_id: "user-123",
+        user_id: &user_id,
         tenant_id: tenant_a,
         channel_type: "whatsapp",
         channel_user_id: "wa_user_42",
@@ -436,11 +479,12 @@ async fn test_session_tenant_isolation() {
 #[tokio::test]
 async fn test_insert_message_returns_true_on_first_insert() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let msg_id = Uuid::new_v4().to_string();
 
     // Create session first (FK constraint)
-    create_test_session(&db, "session-1", tenant_id).await;
+    create_test_session(&db, "session-1", tenant_id, &user_id).await;
 
     let params = InsertMessageParams {
         id: &msg_id,
@@ -468,11 +512,12 @@ async fn test_insert_message_returns_true_on_first_insert() {
 #[tokio::test]
 async fn test_insert_duplicate_message_returns_false() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let msg_id_1 = Uuid::new_v4().to_string();
     let msg_id_2 = Uuid::new_v4().to_string();
 
-    create_test_session(&db, "session-dup", tenant_id).await;
+    create_test_session(&db, "session-dup", tenant_id, &user_id).await;
 
     let params1 = InsertMessageParams {
         id: &msg_id_1,
@@ -521,9 +566,10 @@ async fn test_insert_duplicate_message_returns_false() {
 #[tokio::test]
 async fn test_get_session_messages() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
 
-    create_test_session(&db, "session-abc", tenant_id).await;
+    create_test_session(&db, "session-abc", tenant_id, &user_id).await;
 
     // Insert 3 messages for the same session
     for i in 0..3 {
@@ -561,9 +607,10 @@ async fn test_get_session_messages() {
 #[tokio::test]
 async fn test_get_session_messages_pagination() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
 
-    create_test_session(&db, "session-pag", tenant_id).await;
+    create_test_session(&db, "session-pag", tenant_id, &user_id).await;
 
     for i in 0..5 {
         let msg_id = Uuid::new_v4().to_string();
@@ -623,11 +670,20 @@ async fn test_get_session_messages_pagination() {
 #[tokio::test]
 async fn test_insert_delivery_receipt() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let receipt_id = Uuid::new_v4().to_string();
 
     // Create session + message first (FK constraint)
-    create_test_message(&db, "msg-rcpt", "session-rcpt", tenant_id, "CM_RCPT1").await;
+    create_test_message(
+        &db,
+        "msg-rcpt",
+        "session-rcpt",
+        tenant_id,
+        &user_id,
+        "CM_RCPT1",
+    )
+    .await;
 
     db.repositories()
         .messaging
@@ -649,11 +705,12 @@ async fn test_insert_delivery_receipt() {
 #[tokio::test]
 async fn test_enqueue_and_get_pending_outbound() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let queue_id = Uuid::new_v4().to_string();
 
     // Create session + message first (FK constraint)
-    create_test_message(&db, "msg-q1", "session-q1", tenant_id, "CM_Q1").await;
+    create_test_message(&db, "msg-q1", "session-q1", tenant_id, &user_id, "CM_Q1").await;
 
     db.repositories()
         .messaging
@@ -681,11 +738,12 @@ async fn test_enqueue_and_get_pending_outbound() {
 #[tokio::test]
 async fn test_update_outbound_status() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let queue_id = Uuid::new_v4().to_string();
 
     // Create session + message first (FK constraint)
-    create_test_message(&db, "msg-q2", "session-q2", tenant_id, "CM_Q2").await;
+    create_test_message(&db, "msg-q2", "session-q2", tenant_id, &user_id, "CM_Q2").await;
 
     db.repositories()
         .messaging
@@ -722,12 +780,13 @@ async fn test_update_outbound_status() {
 #[tokio::test]
 async fn test_outbound_queue_tenant_isolation() {
     let db = create_test_db().await;
-    let tenant_a = test_tenant_id();
-    let tenant_b = test_tenant_id();
+    let (user_uuid, tenant_a) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let tenant_b = seed_tenant(&db).await;
     let queue_id = Uuid::new_v4().to_string();
 
     // Create session + message in tenant A (FK constraint)
-    create_test_message(&db, "msg-q3", "session-q3", tenant_a, "CM_Q3").await;
+    create_test_message(&db, "msg-q3", "session-q3", tenant_a, &user_id, "CM_Q3").await;
 
     db.repositories()
         .messaging
@@ -748,11 +807,12 @@ async fn test_outbound_queue_tenant_isolation() {
 #[tokio::test]
 async fn test_retry_worker_dead_letters_invalid_tenant() {
     let db = create_test_db().await;
-    let tenant_id = test_tenant_id();
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
     let queue_id = Uuid::new_v4().to_string();
 
     // Create session + message (FK constraint)
-    create_test_message(&db, "msg-dlq", "session-dlq", tenant_id, "CM_DLQ").await;
+    create_test_message(&db, "msg-dlq", "session-dlq", tenant_id, &user_id, "CM_DLQ").await;
 
     // Enqueue an outbound message
     db.repositories()
