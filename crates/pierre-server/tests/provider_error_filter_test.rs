@@ -3,6 +3,7 @@
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use pierre_mcp_server::services::provider_error_filter::detect_leaked_provider_error;
