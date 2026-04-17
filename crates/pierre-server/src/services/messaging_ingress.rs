@@ -32,6 +32,9 @@ use uuid::Uuid;
 
 use serde_json::Value;
 
+use crate::contremaitre::messaging_strings::{
+    format_template, DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC,
+};
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::routes::messaging::linking::generate_link_code;
@@ -1657,10 +1660,12 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
                 "LLM dispatch failed for messaging"
             );
             analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
-            let user_message = format!(
-                "Pierre est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {short_id})",
-                short_id = &correlation_id.to_string()[..8]
-            );
+            let short_id = correlation_id.to_string()[..8].to_owned();
+            let template = dispatch
+                .resources
+                .messaging_strings_registry
+                .get(KEY_ERROR_GENERIC, DEFAULT_LOCALE);
+            let user_message = format_template(&template, &[&short_id]);
             send_error_reply(&dispatch, &user_message).await;
             return;
         }
@@ -1693,11 +1698,11 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
             conversation_id = %dispatch.session.conversation,
             "LLM returned empty response, sending fallback"
         );
-        send_error_reply(
-            &dispatch,
-            "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?",
-        )
-        .await;
+        let empty_reply = dispatch
+            .resources
+            .messaging_strings_registry
+            .get(KEY_EMPTY_REPLY, DEFAULT_LOCALE);
+        send_error_reply(&dispatch, &empty_reply).await;
         return;
     }
 

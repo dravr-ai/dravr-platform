@@ -91,6 +91,7 @@ fn collect_changed_paths(event: &PushEvent) -> Vec<String> {
                 || p.starts_with("tools/")
                 || p.starts_with("evidence/")
                 || p.starts_with("config/")
+                || p.starts_with("strings/")
         })
         .collect()
 }
@@ -132,6 +133,7 @@ fn spawn_selective_sync(
     let tool_desc_registry = Arc::clone(&resources.tool_description_registry);
     let evidence_registry = Arc::clone(&resources.evidence_registry);
     let cageux_config_registry = Arc::clone(&resources.cageux_config_registry);
+    let messaging_strings_registry = Arc::clone(&resources.messaging_strings_registry);
     let client = config.github_client();
 
     tokio::spawn(async move {
@@ -140,6 +142,7 @@ fn spawn_selective_sync(
             &tool_desc_registry,
             &evidence_registry,
             &cageux_config_registry,
+            &messaging_strings_registry,
             &client,
             &filtered_paths,
         )

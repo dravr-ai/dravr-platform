@@ -17,7 +17,7 @@ use super::errors::ContremaitreError;
 /// enabling efficient change detection without downloading file contents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
-    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence + config)
+    /// Schema version (1 = prompts only, 2 = prompts + tools, 3 = adds evidence + config, 4 = adds strings)
     pub version: u32,
     /// All prompt entries grouped by type
     pub prompts: ManifestPrompts,
@@ -37,6 +37,14 @@ pub struct Manifest {
     /// without a schema bump because every entry is optional.
     #[serde(default)]
     pub config: ManifestConfig,
+    /// User-facing messaging strings keyed by flat dotted key (version 4+).
+    ///
+    /// Entries map dotted keys like `messaging.error.generic` to Markdown
+    /// files under `strings/` in the contremaitre repo. Absent on v1–v3
+    /// manifests so older repos keep deserializing without an explicit
+    /// `strings: {}`.
+    #[serde(default)]
+    pub strings: ManifestStrings,
 }
 
 /// Prompt entries grouped by type: system prompts and coach personas.
@@ -51,6 +59,22 @@ pub struct ManifestPrompts {
 /// Top-level manifest structure (version 2+) adds tool description entries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ManifestTools(pub HashMap<String, ManifestEntry>);
+
+/// User-facing messaging strings (version 4+).
+///
+/// Two-level structure: outer key is the flat dotted message identifier
+/// (e.g. `messaging.error.generic`), inner key is a BCP-47 locale code
+/// (e.g. `fr`, `en`). Each leaf entry references a Markdown file under
+/// `strings/messaging/<locale>/<key>.md` in the contremaitre repo.
+///
+/// The stored string may contain `{0}`, `{1}`, … positional placeholders
+/// resolved at render time by
+/// [`super::messaging_strings::format_template`]. Lookups fall back from
+/// the requested locale to
+/// [`super::messaging_strings::DEFAULT_LOCALE`] then to the compiled-in
+/// default.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ManifestStrings(pub HashMap<String, HashMap<String, ManifestEntry>>);
 
 /// Tier 5.5 evidence entries (version 3+).
 ///
@@ -98,9 +122,9 @@ pub fn parse_manifest(json: &str) -> Result<Manifest, ContremaitreError> {
     let manifest: Manifest =
         serde_json::from_str(json).map_err(|e| ContremaitreError::ManifestParse(e.to_string()))?;
 
-    if manifest.version == 0 || manifest.version > 3 {
+    if manifest.version == 0 || manifest.version > 4 {
         return Err(ContremaitreError::ManifestParse(format!(
-            "unsupported manifest version: {} (expected 1, 2, or 3)",
+            "unsupported manifest version: {} (expected 1, 2, 3, or 4)",
             manifest.version
         )));
     }

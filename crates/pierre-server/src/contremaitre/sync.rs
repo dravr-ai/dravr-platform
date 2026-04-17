@@ -13,6 +13,7 @@ use super::errors::ContremaitreError;
 use super::evidence_registry::{parse_evidence_markdown, EvidenceRegistry};
 use super::github::GitHubContentsClient;
 use super::manifest::{compute_sha256, ManifestConfig, ManifestEntry};
+use super::messaging_strings::MessagingStringsRegistry;
 use super::registry::PromptRegistry;
 use super::tool_descriptions::{parse_tool_yaml, ToolDescriptionRegistry};
 use crate::cageux_config::CageuxConfigRegistry;
@@ -200,6 +201,7 @@ pub async fn full_sync(
     tool_desc_registry: &ToolDescriptionRegistry,
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
+    messaging_strings_registry: &MessagingStringsRegistry,
     client: &GitHubContentsClient,
 ) -> Result<SyncResult, ContremaitreError> {
     info!("Starting contremaitre full sync");
@@ -213,23 +215,28 @@ pub async fn full_sync(
     let evidence_result =
         sync_all_evidence(evidence_registry, client, &manifest.evidence.0).await?;
     let cageux_result = sync_cageux_config(cageux_config_registry, client, &manifest.config).await;
+    let strings_result =
+        sync_all_messaging_strings(messaging_strings_registry, client, &manifest.strings.0).await?;
 
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
             + tool_result.synced
             + evidence_result.synced
-            + cageux_result.synced,
+            + cageux_result.synced
+            + strings_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + tool_result.skipped
             + evidence_result.skipped
-            + cageux_result.skipped,
+            + cageux_result.skipped
+            + strings_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + tool_result.failed
             + evidence_result.failed
-            + cageux_result.failed,
+            + cageux_result.failed
+            + strings_result.failed,
     };
 
     info!(
@@ -239,6 +246,7 @@ pub async fn full_sync(
         tools_synced = tool_result.synced,
         evidence_synced = evidence_result.synced,
         cageux_synced = cageux_result.synced,
+        strings_synced = strings_result.synced,
         "Contremaitre full sync complete"
     );
 
@@ -349,6 +357,7 @@ pub async fn selective_sync(
     tool_desc_registry: &ToolDescriptionRegistry,
     evidence_registry: &EvidenceRegistry,
     cageux_config_registry: &CageuxConfigRegistry,
+    messaging_strings_registry: &MessagingStringsRegistry,
     client: &GitHubContentsClient,
     changed_paths: &[String],
 ) -> Result<SyncResult, ContremaitreError> {
@@ -389,22 +398,33 @@ pub async fn selective_sync(
     )
     .await;
 
+    let strings_result = sync_changed_messaging_strings(
+        messaging_strings_registry,
+        client,
+        &manifest.strings.0,
+        &changed_set,
+    )
+    .await?;
+
     let result = SyncResult {
         synced: system_result.synced
             + coach_result.synced
             + tool_result.synced
             + evidence_result.synced
-            + cageux_result.synced,
+            + cageux_result.synced
+            + strings_result.synced,
         skipped: system_result.skipped
             + coach_result.skipped
             + tool_result.skipped
             + evidence_result.skipped
-            + cageux_result.skipped,
+            + cageux_result.skipped
+            + strings_result.skipped,
         failed: system_result.failed
             + coach_result.failed
             + tool_result.failed
             + evidence_result.failed
-            + cageux_result.failed,
+            + cageux_result.failed
+            + strings_result.failed,
     };
 
     info!(
@@ -715,6 +735,107 @@ async fn fetch_and_apply_cageux_config(
                 error = %e,
                 "failed to download cageux config overlay"
             );
+            SyncOutcome::Failed
+        }
+    }
+}
+
+// =============================================================================
+// Messaging-strings sync (user-facing canned replies — locale-aware, hot-reloadable)
+// =============================================================================
+
+/// Nested `key → locale → entry` shape used by the manifest's strings tree.
+/// Aliased to keep [`sync_all_messaging_strings`] and
+/// [`sync_changed_messaging_strings`] signatures under the `type_complexity`
+/// threshold.
+type MessagingStringsTree = HashMap<String, HashMap<String, ManifestEntry>>;
+
+/// Sync every localized messaging string listed in the manifest, skipping
+/// `(key, locale)` pairs whose hash already matches the registry.
+async fn sync_all_messaging_strings(
+    registry: &MessagingStringsRegistry,
+    client: &GitHubContentsClient,
+    manifest_strings: &MessagingStringsTree,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (key, per_locale) in manifest_strings {
+        for (locale, entry) in per_locale {
+            if registry.sha256(key, locale).as_deref() == Some(&entry.sha256) {
+                debug!(key, locale, "messaging string unchanged, skipping");
+                result.skipped += 1;
+                continue;
+            }
+            let outcome =
+                fetch_and_apply_messaging_string(registry, client, key, locale, entry).await;
+            accumulate_outcome(&mut result, outcome);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Sync only the localized messaging strings whose repo path appears in
+/// `changed_set` (selective sync from a webhook push).
+async fn sync_changed_messaging_strings(
+    registry: &MessagingStringsRegistry,
+    client: &GitHubContentsClient,
+    manifest_strings: &MessagingStringsTree,
+    changed_set: &HashSet<&str>,
+) -> Result<SyncResult, ContremaitreError> {
+    let mut result = SyncResult {
+        synced: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    for (key, per_locale) in manifest_strings {
+        for (locale, entry) in per_locale {
+            if !changed_set.contains(entry.path.as_str()) {
+                continue;
+            }
+            let outcome =
+                fetch_and_apply_messaging_string(registry, client, key, locale, entry).await;
+            accumulate_outcome(&mut result, outcome);
+        }
+    }
+
+    Ok(result)
+}
+
+/// Download a single `(key, locale)` messaging-string Markdown file and
+/// install it in the registry. The stored content is the file bytes
+/// verbatim — any `{0}`, `{1}` placeholders are resolved later at render
+/// time by [`super::messaging_strings::format_template`].
+async fn fetch_and_apply_messaging_string(
+    registry: &MessagingStringsRegistry,
+    client: &GitHubContentsClient,
+    key: &str,
+    locale: &str,
+    entry: &ManifestEntry,
+) -> SyncOutcome {
+    match client.read_file(&entry.path).await {
+        Ok(file) => {
+            let actual_sha = compute_sha256(file.content.as_bytes());
+            if actual_sha != entry.sha256 {
+                warn!(
+                    key,
+                    locale,
+                    expected = entry.sha256,
+                    actual = actual_sha,
+                    "manifest hash mismatch for messaging string, using downloaded content"
+                );
+            }
+            registry.update(key, locale, file.content, actual_sha);
+            info!(key, locale, "synced messaging string from contremaitre");
+            SyncOutcome::Synced
+        }
+        Err(e) => {
+            warn!(key, locale, error = %e, "failed to sync messaging string");
             SyncOutcome::Failed
         }
     }

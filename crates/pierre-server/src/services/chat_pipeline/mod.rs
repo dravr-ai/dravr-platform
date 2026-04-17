@@ -565,7 +565,7 @@ async fn post_process_assistant_reply(
     );
 
     // Stage 16: Tier 6 text guardrails.
-    let mut content = apply_text_guardrails(&raw_content);
+    let mut content = apply_text_guardrails(resources, &raw_content);
 
     // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
     #[cfg(feature = "tools-verification")]
