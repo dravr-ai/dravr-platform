@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth_service::AuthService;
+use super::handlers::handle_discover_routes;
 use super::handlers::{
     handle_activate_coach, handle_admin_assign_coach, handle_admin_create_system_coach,
     handle_admin_delete_system_coach, handle_admin_get_system_coach,
@@ -522,6 +523,13 @@ impl UniversalExecutor {
         ));
     }
 
+    fn register_route_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::DiscoverRoutes,
+            |executor, request| Box::pin(handle_discover_routes(executor, request)),
+        ));
+    }
+
     fn register_all_tools(registry: &mut ToolRegistry) {
         Self::register_strava_tools(registry);
         Self::register_connection_tools(registry);
@@ -534,6 +542,7 @@ impl UniversalExecutor {
         Self::register_coaches_tools(registry);
         Self::register_mobility_tools(registry);
         Self::register_health_data_tools(registry);
+        Self::register_route_tools(registry);
     }
 
     /// Execute a tool with type-safe routing (no string matching!)

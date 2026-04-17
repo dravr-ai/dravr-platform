@@ -26,6 +26,8 @@ pub mod nutrition;
 pub mod provider_helpers;
 /// Recipe management tool handlers ("Combat des Chefs" architecture)
 pub mod recipes;
+/// Route discovery tool handlers (`discover_routes` — Overpass + OSM piste data)
+pub mod routes;
 /// Sleep quality and recovery analysis tool handlers
 pub mod sleep_recovery;
 
@@ -131,3 +133,6 @@ pub use health_data::{
     handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
     handle_list_data_sources,
 };
+
+/// Re-export route discovery handler
+pub use routes::handle_discover_routes;
