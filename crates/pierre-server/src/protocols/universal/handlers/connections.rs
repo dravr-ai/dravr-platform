@@ -8,16 +8,33 @@ use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
 use crate::models::TenantId;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
+use crate::providers::backend_resolver::{self, BackendKind};
 use crate::utils::uuid::parse_user_id_for_protocol;
 use chrono::{Duration, Utc};
 use pierre_auth::oauth2_client::OAuthClientState;
 use pierre_auth::tenant::{TenantContext, TenantRole};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::env;
 use std::future::Future;
 use std::pin::Pin;
 use tracing::{error, info, warn};
+
+/// User-facing provider names reported by `get_connection_status`.
+///
+/// Mirror backends (`sciotte`, `sciotte_garmin`) never appear here — they
+/// are coalesced into the user-facing provider they serve (`strava`,
+/// `garmin`). Any user-facing provider added to `ProviderRegistry` must
+/// also be added here so the LLM sees it.
+const USER_FACING_PROVIDERS: &[&str] = &[
+    oauth_providers::STRAVA,
+    oauth_providers::FITBIT,
+    oauth_providers::GARMIN,
+    oauth_providers::WHOOP,
+    oauth_providers::TERRA,
+    oauth_providers::COROS,
+];
 
 /// Handle `get_connection_status` tool - check OAuth connection status
 #[must_use]
@@ -38,17 +55,44 @@ pub fn handle_get_connection_status(
         // Parse user ID from request
         let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
+        // Parse tenant_id once; None if the caller didn't supply one or it
+        // isn't a valid UUID. A missing tenant means we cannot check any
+        // token row, so we report everything as disconnected.
+        let tenant_id_parsed: Option<TenantId> = request
+            .tenant_id
+            .as_deref()
+            .and_then(|t| t.parse::<TenantId>().ok());
+
         // Check if a specific provider is requested
         if let Some(specific_provider) = request.parameters.get("provider").and_then(Value::as_str)
         {
-            // Single provider mode
-            let is_connected = matches!(
-                executor
-                    .auth_service
-                    .get_valid_token(user_uuid, specific_provider, request.tenant_id.as_deref())
-                    .await,
-                Ok(Some(_))
-            );
+            // Mirror backends are internal-only — refuse to expose them.
+            // The LLM should always ask in terms of user-facing providers.
+            if backend_resolver::is_mirror_backend(specific_provider) {
+                return Ok(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!(
+                        "Unknown provider '{specific_provider}'. Use 'strava' or 'garmin' instead.",
+                    )),
+                    metadata: None,
+                });
+            }
+
+            let (is_connected, backend_kind) =
+                match (tenant_id_parsed, user_facing_canonical(specific_provider)) {
+                    (Some(tid), Some(canonical)) => {
+                        let status = backend_resolver::coalesced_status(
+                            &executor.resources.repos,
+                            user_uuid,
+                            tid,
+                            canonical,
+                        )
+                        .await;
+                        (status.connected, status.backend_kind)
+                    }
+                    _ => (false, BackendKind::None),
+                };
 
             let status = if is_connected {
                 "connected"
@@ -61,7 +105,8 @@ pub fn handle_get_connection_status(
                 result: Some(json!({
                     "provider": specific_provider,
                     "status": status,
-                    "connected": is_connected
+                    "connected": is_connected,
+                    "backend": backend_kind.as_str()
                 })),
                 error: None,
                 metadata: Some({
@@ -79,30 +124,42 @@ pub fn handle_get_connection_status(
                 }),
             })
         } else {
-            // Multi-provider mode - check all supported providers from registry
-            let providers_to_check = executor.resources.provider_registry.supported_providers();
+            // Multi-provider mode - report only user-facing providers.
+            // sciotte/sciotte_garmin are coalesced into strava/garmin so the
+            // LLM cannot see the internal backend name and cannot offer it
+            // to end users as a separate option.
             let mut providers_status = Map::new();
 
-            for provider in providers_to_check {
-                let is_connected = matches!(
-                    executor
-                        .auth_service
-                        .get_valid_token(user_uuid, provider, request.tenant_id.as_deref())
-                        .await,
-                    Ok(Some(_))
-                );
+            for user_facing in USER_FACING_PROVIDERS {
+                let status = match tenant_id_parsed {
+                    Some(tid) => {
+                        backend_resolver::coalesced_status(
+                            &executor.resources.repos,
+                            user_uuid,
+                            tid,
+                            user_facing,
+                        )
+                        .await
+                    }
+                    None => backend_resolver::CoalescedStatus {
+                        user_facing,
+                        connected: false,
+                        backend_kind: BackendKind::None,
+                    },
+                };
 
-                let status = if is_connected {
+                let status_str = if status.connected {
                     "connected"
                 } else {
                     "disconnected"
                 };
 
                 providers_status.insert(
-                    provider.to_owned(),
+                    (*user_facing).to_owned(),
                     json!({
-                        "connected": is_connected,
-                        "status": status
+                        "connected": status.connected,
+                        "status": status_str,
+                        "backend": status.backend_kind.as_str()
                     }),
                 );
             }
@@ -125,6 +182,18 @@ pub fn handle_get_connection_status(
             })
         }
     })
+}
+
+/// Canonicalise a provider name into its static user-facing entry from
+/// `USER_FACING_PROVIDERS`, or `None` if the name is not a recognised
+/// user-facing provider.
+///
+/// `coalesced_status` requires a `&'static str` so the returned struct
+/// outlives the request; matching against the static list gives us one.
+/// Unknown names return `None` so callers can report them as disconnected
+/// instead of silently aliasing into a different provider's status.
+fn user_facing_canonical(name: &str) -> Option<&'static str> {
+    USER_FACING_PROVIDERS.iter().copied().find(|p| *p == name)
 }
 
 /// Handle `disconnect_provider` tool - disconnect user from OAuth provider
@@ -340,16 +409,78 @@ pub fn handle_connect_provider(
 
         // Extract and validate provider parameter
         let Some(provider) = request.parameters.get("provider").and_then(|v| v.as_str()) else {
-            let supported = registry.supported_providers().join(", ");
+            let supported = USER_FACING_PROVIDERS.join(", ");
             return Ok(connection_error(format!(
                 "Missing required 'provider' parameter. Supported providers: {supported}"
             )));
         };
+        // Mirror backends are internal — the LLM should never be able to
+        // initiate an OAuth-style "connect" flow against them.
+        if backend_resolver::is_mirror_backend(provider) {
+            return Ok(connection_error(format!(
+                "Unknown provider '{provider}'. Use 'strava' or 'garmin' instead.",
+            )));
+        }
         if !registry.is_supported(provider) {
-            let supported = registry.supported_providers().join(", ");
+            let supported = USER_FACING_PROVIDERS.join(", ");
             return Ok(connection_error(format!(
                 "Provider '{provider}' is not supported. Supported providers: {supported}"
             )));
+        }
+
+        // If the user has already opted into the sciotte mirror backend
+        // for this provider, refuse to mint an OAuth URL. Re-login must
+        // happen through the same sciotte flow — switching to OAuth would
+        // silently strand the existing mirror session and contradict the
+        // user's stated preference.
+        if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
+            if let Some(tenant_str) = request.tenant_id.as_deref() {
+                if let Ok(tid) = tenant_str.parse::<TenantId>() {
+                    if let Ok(Some(_)) = repos.oauth_tokens.get_token(user_uuid, tid, mirror).await
+                    {
+                        info!(
+                            user_id = %user_uuid,
+                            provider = provider,
+                            mirror = mirror,
+                            "Refusing OAuth connect: user has mirror backend active, \
+                             they must re-authenticate through the mirror flow"
+                        );
+                        return Ok(UniversalResponse {
+                            success: false,
+                            result: Some(json!({
+                                "provider": provider,
+                                "backend": "mirror",
+                                "requires_mirror_reauth": true,
+                                "message": format!(
+                                    "Your {provider} connection uses a direct login (email + password), \
+                                     not OAuth. If it has stopped working, re-authenticate through the \
+                                     same flow — do not propose a fresh OAuth connection."
+                                )
+                            })),
+                            error: Some(format!(
+                                "{provider} is already connected via direct login; \
+                                 OAuth reconnection is blocked."
+                            )),
+                            metadata: Some({
+                                let mut map = HashMap::new();
+                                map.insert(
+                                    "user_id".to_owned(),
+                                    Value::String(user_uuid.to_string()),
+                                );
+                                map.insert(
+                                    "provider".to_owned(),
+                                    Value::String(provider.to_owned()),
+                                );
+                                map.insert(
+                                    "backend".to_owned(),
+                                    Value::String("mirror".to_owned()),
+                                );
+                                map
+                            }),
+                        });
+                    }
+                }
+            }
         }
 
         // Extract and validate optional redirect_url for mobile OAuth flows

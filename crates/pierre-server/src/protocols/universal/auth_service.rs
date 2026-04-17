@@ -11,6 +11,7 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::models::{TenantId, UserOAuthToken};
 use crate::protocols::universal::UniversalResponse;
+use crate::providers::backend_resolver;
 #[cfg(feature = "provider-synthetic")]
 use crate::providers::synthetic_provider::SyntheticProvider;
 use crate::providers::{CoreFitnessProvider, OAuth2Credentials};
@@ -257,20 +258,39 @@ impl AuthService {
     /// Create authenticated provider with proper tenant-aware credentials
     /// Returns configured provider ready for API calls
     ///
+    /// The `requested_provider` is the name the caller asked for (typically a
+    /// user-facing name like "strava" or "garmin"). When the user has a
+    /// sciotte* row in the database the resolver swaps that for the mirror
+    /// backend — callers never need to know about that distinction.
+    ///
     /// # Errors
     /// Returns `UniversalResponse` error if provider is unsupported or authentication fails
     pub async fn create_authenticated_provider(
         &self,
-        provider_name: &str,
+        requested_provider: &str,
         user_id: Uuid,
         tenant_id: Option<&str>,
     ) -> Result<Box<dyn CoreFitnessProvider>, UniversalResponse> {
+        // Resolve the user-facing provider to the backend that actually
+        // serves the request (OAuth or sciotte mirror). A sciotte row in
+        // the DB wins over OAuth, even when its session is stale — the
+        // user's stated preference is to keep using the mirror.
+        let tenant_id_parsed = tenant_id.and_then(|t| t.parse::<TenantId>().ok());
+        let effective_provider = backend_resolver::resolve_backend(
+            &self.resources.repos,
+            user_id,
+            tenant_id_parsed,
+            requested_provider,
+        )
+        .await;
+        let provider_name = effective_provider.as_str();
+
         // Check if provider is supported by the registry
         if !self.resources.provider_registry.is_supported(provider_name) {
             return Err(UniversalResponse {
                 success: false,
                 result: None,
-                error: Some(format!("Unsupported provider: {provider_name}")),
+                error: Some(format!("Unsupported provider: {requested_provider}")),
                 metadata: None,
             });
         }
@@ -288,7 +308,7 @@ impl AuthService {
             return Ok(Box::new(provider));
         }
 
-        // Get valid token for the provider (with automatic refresh if needed)
+        // Get valid token for the (resolved) provider with automatic refresh.
         match self
             .get_valid_token(user_id, provider_name, tenant_id)
             .await
@@ -297,14 +317,20 @@ impl AuthService {
                 self.create_provider_with_token(provider_name, token_data, user_id, tenant_id)
                     .await
             }
-            Ok(None) => Err(UniversalResponse {
-                success: false,
-                result: None,
-                error: Some(
-                    format!("No valid {provider_name} token found. Please connect your {provider_name} account."),
-                ),
-                metadata: None,
-            }),
+            Ok(None) => {
+                // Report the failure in terms of the user-facing provider
+                // so the LLM never mentions "sciotte" in an error it
+                // forwards to the user.
+                let user_facing = backend_resolver::user_facing_name(provider_name);
+                Err(UniversalResponse {
+                    success: false,
+                    result: None,
+                    error: Some(format!(
+                        "No valid {user_facing} token found. Please reconnect your {user_facing} account."
+                    )),
+                    metadata: None,
+                })
+            }
             Err(e) => Err(UniversalResponse {
                 success: false,
                 result: None,

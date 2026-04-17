@@ -6,9 +6,11 @@
 
 //! # Fitness Data Provider System
 //!
-//! This module provides a unified, extensible system for integrating with fitness data providers
-//! like Strava, Fitbit, and others. The architecture is designed around clean abstractions that
-//! support multi-tenancy, OAuth2 authentication, and consistent error handling.
+//! A unified, extensible system for integrating with fitness data providers
+//! like Strava, Fitbit, and others.
+//!
+//! The architecture is designed around clean abstractions that support
+//! multi-tenancy, OAuth2 authentication, and consistent error handling.
 //!
 //! ## Architecture
 //!
@@ -58,6 +60,11 @@ pub use pierre_providers::{activity_iterator, circuit_breaker, core, http_client
 
 // Local modules that remain in the main crate (database/cache/config dependencies)
 
+/// Routes user-facing provider names to the right backend.
+///
+/// Hides mirror-backend names (sciotte*) from LLM-visible output and
+/// prefers the mirror when a sciotte row exists.
+pub mod backend_resolver;
 /// Caching decorator for transparent API response caching
 pub mod caching_provider;
 /// Provider error types and result aliases
