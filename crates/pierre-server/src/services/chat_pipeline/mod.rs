@@ -459,13 +459,6 @@ async fn assemble_prompt_and_messages(
         |c| c.system_prompt.clone(),
     );
 
-    // Stage 7a.1: Append mandatory tool-discipline rules. Custom coach
-    // personas may inherit the "never fabricate data" instruction but
-    // not know which tools to call instead; this block is non-overridable
-    // and ensures discover_routes fires for every route/trail/course
-    // request and get_activities fires for every activity reference.
-    let base_prompt = format!("{base_prompt}\n\n{TOOL_DISCIPLINE_PROMPT}");
-
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
@@ -531,6 +524,15 @@ async fn assemble_prompt_and_messages(
         Some(suffix) => format!("{base_prompt}\n\n{suffix}"),
         None => base_prompt,
     };
+
+    // Stage 7g.1: Append mandatory tool-discipline rules at the very end of
+    // the system prompt, immediately before the user turn. LLMs
+    // (claude-opus-4.7 especially) recency-bias heavily — mid-prompt rules
+    // get drowned out by 20 KB of coach persona + provider context.
+    // Keeping this block last ensures the tool-call format and
+    // "no narration" constraint are the freshest instructions when the
+    // model starts generating.
+    let raw_system_prompt = format!("{raw_system_prompt}\n\n{TOOL_DISCIPLINE_PROMPT}");
 
     // Stage 7h: Harden the prompt with a per-turn canary.
     let prompt_guard = prompt_leak::harden_system_prompt(
