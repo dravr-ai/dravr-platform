@@ -710,13 +710,21 @@ fn test_expected_tools_list_is_sorted() {
 // ── Messaging-strings registry tests ──────────────────────────────────
 
 #[test]
-fn test_messaging_registry_seeds_six_keys_in_fr_and_en() {
+fn test_messaging_registry_seeds_all_compiled_locales() {
+    // After the 2026-04-18 rollout the registry ships FR/EN/ES/DE/PT
+    // defaults for every key — pin those two shapes (keys × locales) so
+    // a future accidental drop from the COMPILED_IN table fails here.
     let reg = MessagingStringsRegistry::new();
-    assert_eq!(reg.key_count(), 6, "expected 6 distinct message keys");
+    let key_count = reg.key_count();
+    let entry_count = reg.entry_count();
+    assert!(
+        key_count >= 6,
+        "registry lost keys: expected >= 6, got {key_count}"
+    );
     assert_eq!(
-        reg.entry_count(),
-        12,
-        "expected 6 keys × 2 locales (fr + en) = 12 entries"
+        entry_count,
+        key_count * 5,
+        "every registered key must ship FR/EN/ES/DE/PT (5 locales)"
     );
     assert_eq!(reg.get(KEY_EMPTY_REPLY, "fr"), FR_EMPTY_REPLY);
     assert_eq!(reg.get(KEY_EMPTY_REPLY, "en"), EN_EMPTY_REPLY);
@@ -732,10 +740,11 @@ fn test_messaging_registry_seeds_six_keys_in_fr_and_en() {
 
 #[test]
 fn test_messaging_registry_locale_fallback_to_default_locale() {
-    // A locale with no entry falls back to DEFAULT_LOCALE ("fr").
+    // A locale with no entry falls back to DEFAULT_LOCALE ("fr"). German is a
+    // compiled-in locale now, so probe with an unassigned BCP-47 short code.
     let reg = MessagingStringsRegistry::new();
     assert_eq!(
-        reg.get(KEY_EMPTY_REPLY, "de"),
+        reg.get(KEY_EMPTY_REPLY, "zz"),
         FR_EMPTY_REPLY,
         "unknown locale should fall back to DEFAULT_LOCALE content"
     );
@@ -766,15 +775,19 @@ fn test_messaging_registry_update_replaces_compiled_in_entry() {
 
 #[test]
 fn test_messaging_registry_update_adds_new_locale() {
+    // Spanish is compiled in now, so exercise the grow-path with an unseeded
+    // locale ("ja") to prove update() wires a fresh (key, locale) into the
+    // registry instead of replacing an existing entry.
     let reg = MessagingStringsRegistry::new();
-    let spanish = "¡Hola!".to_owned();
-    let sha = compute_sha256(spanish.as_bytes());
-    reg.update(KEY_EMPTY_REPLY, "es", spanish.clone(), sha);
-    assert_eq!(reg.get(KEY_EMPTY_REPLY, "es"), spanish);
+    let before = reg.entry_count();
+    let japanese = "こんにちは".to_owned();
+    let sha = compute_sha256(japanese.as_bytes());
+    reg.update(KEY_EMPTY_REPLY, "ja", japanese.clone(), sha);
+    assert_eq!(reg.get(KEY_EMPTY_REPLY, "ja"), japanese);
     assert_eq!(
         reg.entry_count(),
-        13,
-        "adding a new locale should grow the total entry count"
+        before + 1,
+        "adding a new locale should grow the total entry count by one"
     );
 }
 
