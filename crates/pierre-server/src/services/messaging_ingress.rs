@@ -1567,7 +1567,15 @@ async fn resolve_or_prompt(
             Ok(None)
         }
         Err(e) => {
-            warn!(error = %e, sender_id = %message.sender_id, "Failed to resolve messaging session, skipping message");
+            // Error-level: the user sent a message and got no reply — this is a
+            // production incident, not a warning. Triggers the dravr-tronc
+            // Slack notifier so operators see the outage within seconds.
+            error!(
+                error = %e,
+                sender_id = %message.sender_id,
+                channel = %channel_type,
+                "Failed to resolve messaging session, dropping message"
+            );
             Err(())
         }
     }

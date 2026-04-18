@@ -208,17 +208,20 @@ impl MessagingRepository for PostgresDatabase {
     async fn create_session(&self, params: &CreateSessionParams<'_>) -> AppResult<()> {
         let now = Utc::now();
 
+        // Casts: migration 20260417000001 converted user_id and tenant_id to
+        // UUID. The bind sites still send text, so the SQL casts ($2::uuid,
+        // $3::uuid) bridge the wire types without touching call-site plumbing.
         sqlx::query(
             r"
             INSERT INTO messaging_sessions
                 (id, user_id, tenant_id, channel_type, channel_user_id,
                  channel_conversation_id, pierre_conversation_id, last_message_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7, $8, $8)
             ",
         )
         .bind(params.id)
         .bind(params.user_id)
-        .bind(params.tenant_id)
+        .bind(params.tenant_id.to_string())
         .bind(params.channel_type)
         .bind(params.channel_user_id)
         .bind(params.channel_conversation_id)
@@ -237,12 +240,19 @@ impl MessagingRepository for PostgresDatabase {
         channel_type: &str,
         channel_user_id: &str,
     ) -> AppResult<Option<Value>> {
+        // Casts: migration 20260417000001 converted messaging_sessions.tenant_id
+        // and user_id to UUID. SQL casts keep the Rust String/TenantId bind
+        // sites stable while letting Postgres compare against UUID columns.
         let row = sqlx::query(
             r"
-            SELECT id, user_id, tenant_id, channel_type, channel_user_id,
-                   channel_conversation_id, pierre_conversation_id, last_message_at, created_at
+            SELECT id,
+                   user_id::text   AS user_id,
+                   tenant_id::text AS tenant_id,
+                   channel_type, channel_user_id,
+                   channel_conversation_id, pierre_conversation_id,
+                   last_message_at, created_at
             FROM messaging_sessions
-            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
             ",
         )
         .bind(tenant_id.to_string())
