@@ -67,9 +67,9 @@ pub async fn delegate_to_handler(
         Ok(response) => Ok(universal_response_to_tool_result(tool_name, Ok(response))),
         // Protocol-level failure (missing required arg, invalid tenant, auth
         // denied, …) bubbles back as AppError so the caller's Result semantics
-        // match what the legacy UniversalExecutor dispatch used to return
-        // directly from the handler. Without this, a `.is_err()` check at the
-        // tool call site becomes false positives for every validation failure.
+        // match what the UniversalExecutor dispatch returns directly from the
+        // handler. Without this, a `.is_err()` check at the tool call site
+        // becomes false positives for every validation failure.
         Err(e) => Err(protocol_error_to_app_error(tool_name, e)),
     }
 }
@@ -80,7 +80,9 @@ pub async fn delegate_to_handler(
 /// internally" (maps to `AppError::internal`).
 fn protocol_error_to_app_error(tool_name: &'static str, e: ProtocolError) -> AppError {
     match e {
-        ProtocolError::InvalidRequest(msg) => AppError::invalid_input(format!("{tool_name}: {msg}")),
+        ProtocolError::InvalidRequest(msg) => {
+            AppError::invalid_input(format!("{tool_name}: {msg}"))
+        }
         ProtocolError::InvalidParameters(msg) => {
             AppError::invalid_input(format!("{tool_name}: {msg}"))
         }
@@ -94,25 +96,22 @@ fn protocol_error_to_app_error(tool_name: &'static str, e: ProtocolError) -> App
 
 /// Build a [`UniversalRequest`] from the tool-execution context + tool args.
 ///
-/// Fails fast when the context has no tenant — handlers rely on tenant
-/// isolation and silently defaulting would be a multi-tenancy bug.
+/// `tenant_id` is threaded through when present — not required at this layer
+/// because some read-only catalog tools (yoga pose lookups, stretching
+/// exercise catalogs, etc.) are tenant-agnostic. Per-tool tenant enforcement
+/// is the responsibility of the handler, which has the schema + semantics
+/// to decide whether tenant scoping applies.
 fn build_universal_request(
     ctx: &ToolExecutionContext,
     args: Value,
     tool_name: &'static str,
 ) -> AppResult<UniversalRequest> {
-    let tenant_id = ctx.tenant_id.ok_or_else(|| {
-        AppError::auth_invalid(format!(
-            "{tool_name}: tool execution context missing tenant_id"
-        ))
-    })?;
-
     Ok(UniversalRequest {
         tool_name: tool_name.to_owned(),
         parameters: args,
         user_id: ctx.user_id.to_string(),
         protocol: "chat".to_owned(),
-        tenant_id: Some(tenant_id.to_string()),
+        tenant_id: ctx.tenant_id.map(|t| t.to_string()),
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
