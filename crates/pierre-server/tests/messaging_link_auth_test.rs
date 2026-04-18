@@ -30,7 +30,7 @@ use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
 /// Seed a tenant by creating an owner user and the tenant record. Returns the
-/// (owner_user_id, tenant_id). The tenant must exist before any `messaging_*`
+/// `(owner_user_id, tenant_id)`. The tenant must exist before any `messaging_*`
 /// row referencing its id is inserted (FK constraint).
 async fn seed_tenant_with_owner(resources: &ServerResources) -> (Uuid, TenantId) {
     let email = format!("owner-{}@test.local", Uuid::new_v4());
