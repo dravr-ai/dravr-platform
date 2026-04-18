@@ -197,7 +197,12 @@ impl UniversalExecutor {
 
         match tool.execute(args, &context).await {
             Ok(tool_result) => Ok(tool_result_to_universal_response(&tool_name, tool_result)),
-            Err(e) => Err(ProtocolError::InternalError(format!("{tool_name}: {e}"))),
+            // Map AppError back onto the pre-unification ProtocolError shape
+            // so callers that distinguish "missing required arg" (Err) from
+            // "tool ran, returned a failure payload" (Ok with success=false)
+            // keep the behaviour they had when UniversalExecutor owned the
+            // handler dispatch directly.
+            Err(e) => Err(app_error_to_protocol_error(&tool_name, e)),
         }
     }
 
@@ -205,6 +210,28 @@ impl UniversalExecutor {
     #[must_use]
     pub fn has_tool(&self, tool_name: &str) -> bool {
         self.resources.tool_registry.get(tool_name).is_some()
+    }
+}
+
+/// Map an [`AppError`] thrown by an `McpTool::execute` body back to the
+/// [`ProtocolError`] variant the legacy `UniversalExecutor` dispatch used
+/// to return directly.
+///
+/// Validation-class errors (missing required arg, bad tenant id, auth
+/// failure) flow to `ProtocolError::InvalidRequest` / `::AuthenticationFailed`
+/// so callers that `.is_err()` on the result keep their pre-unification
+/// contract. Other failures flow to `::InternalError`.
+fn app_error_to_protocol_error(
+    tool_name: &str,
+    e: crate::errors::AppError,
+) -> ProtocolError {
+    use pierre_core::errors::ErrorCode;
+    match e.code {
+        ErrorCode::InvalidInput
+        | ErrorCode::AuthRequired
+        | ErrorCode::AuthInvalid
+        | ErrorCode::AuthExpired => ProtocolError::InvalidRequest(format!("{tool_name}: {e}")),
+        _ => ProtocolError::InternalError(format!("{tool_name}: {e}")),
     }
 }
 

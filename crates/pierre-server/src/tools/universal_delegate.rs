@@ -60,8 +60,36 @@ pub async fn delegate_to_handler(
 ) -> AppResult<ToolResult> {
     let request = build_universal_request(ctx, args, tool_name)?;
     let executor = UniversalExecutor::new(ctx.resources.clone());
-    let outcome = handler(&executor, request).await;
-    Ok(universal_response_to_tool_result(tool_name, outcome))
+    match handler(&executor, request).await {
+        // Success path: map UniversalResponse → ToolResult (success OR business
+        // error like "no activities found" that the handler chose to surface as
+        // `success: false`).
+        Ok(response) => Ok(universal_response_to_tool_result(tool_name, Ok(response))),
+        // Protocol-level failure (missing required arg, invalid tenant, auth
+        // denied, …) bubbles back as AppError so the caller's Result semantics
+        // match what the legacy UniversalExecutor dispatch used to return
+        // directly from the handler. Without this, a `.is_err()` check at the
+        // tool call site becomes false positives for every validation failure.
+        Err(e) => Err(protocol_error_to_app_error(tool_name, e)),
+    }
+}
+
+/// Map a [`ProtocolError`] surfaced by a handler into the [`AppError`] shape
+/// `McpTool::execute` callers expect — preserving the distinction between
+/// "invalid input" (maps to `AppError::invalid_input`) and "something broke
+/// internally" (maps to `AppError::internal`).
+fn protocol_error_to_app_error(tool_name: &'static str, e: ProtocolError) -> AppError {
+    match e {
+        ProtocolError::InvalidRequest(msg) => AppError::invalid_input(format!("{tool_name}: {msg}")),
+        ProtocolError::InvalidParameters(msg) => {
+            AppError::invalid_input(format!("{tool_name}: {msg}"))
+        }
+        ProtocolError::ToolNotFound { tool_id, .. } => {
+            AppError::invalid_input(format!("{tool_name}: tool not found ({tool_id})"))
+        }
+        ProtocolError::InternalError(msg) => AppError::internal(format!("{tool_name}: {msg}")),
+        other => AppError::internal(format!("{tool_name}: {other}")),
+    }
 }
 
 /// Build a [`UniversalRequest`] from the tool-execution context + tool args.
