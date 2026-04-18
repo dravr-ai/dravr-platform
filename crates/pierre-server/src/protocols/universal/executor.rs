@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth_service::AuthService;
-use super::handlers::handle_discover_routes;
+use super::handlers::{bridge_mcp_tool, handle_discover_routes};
 use super::handlers::{
     handle_activate_coach, handle_admin_assign_coach, handle_admin_create_system_coach,
     handle_admin_delete_system_coach, handle_admin_get_system_coach,
@@ -37,6 +37,15 @@ use super::handlers::{
     handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
     handle_list_data_sources,
 };
+use crate::tools::implementations::analytics::AnalyzeWeatherImpactTool;
+use crate::tools::implementations::fitness_config::{
+    DeleteFitnessConfigTool, GetFitnessConfigTool, ListFitnessConfigsTool, SetFitnessConfigTool,
+};
+use crate::tools::implementations::memory::{
+    CoachFollowupScheduleTool, CoachNoteAddTool, RecallUserMemoryTool, RememberFactTool,
+};
+use crate::tools::implementations::sync::{GetDataFreshnessTool, RefreshProviderDataTool};
+use crate::tools::implementations::verification::VerifyClaimTool;
 use pierre_intelligence::IntelligenceConfig;
 
 use super::tool_registry::{ToolId, ToolInfo, ToolRegistry};
@@ -530,7 +539,151 @@ impl UniversalExecutor {
         ));
     }
 
-    fn register_all_tools(registry: &mut ToolRegistry) {
+    // Orphan tools: tools with an `McpTool` impl in `tools/implementations/`
+    // that had no UniversalExecutor handler before the 2026-04-18
+    // exhaustiveness-test sweep. Each is wired through `bridge_mcp_tool` so
+    // the existing `McpTool::execute` logic becomes the single source of
+    // truth for both the MCP protocol path and the chat/tool-loop path.
+
+    fn register_weather_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::AnalyzeWeatherImpact,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    AnalyzeWeatherImpactTool,
+                    "analyze_weather_impact",
+                )
+            },
+        ));
+    }
+
+    fn register_fitness_config_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::GetFitnessConfig,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    GetFitnessConfigTool,
+                    "get_fitness_config",
+                )
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::SetFitnessConfig,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    SetFitnessConfigTool,
+                    "set_fitness_config",
+                )
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::ListFitnessConfigs,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    ListFitnessConfigsTool,
+                    "list_fitness_configs",
+                )
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::DeleteFitnessConfig,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    DeleteFitnessConfigTool,
+                    "delete_fitness_config",
+                )
+            },
+        ));
+    }
+
+    fn register_provider_sync_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::RefreshProviderData,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    RefreshProviderDataTool,
+                    "refresh_provider_data",
+                )
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::GetDataFreshness,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    GetDataFreshnessTool,
+                    "get_data_freshness",
+                )
+            },
+        ));
+    }
+
+    fn register_memory_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::CoachNoteAdd,
+            |executor, request| {
+                bridge_mcp_tool(executor, request, CoachNoteAddTool, "coach_note_add")
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::CoachFollowupSchedule,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    CoachFollowupScheduleTool,
+                    "coach_followup_schedule",
+                )
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::RememberFact,
+            |executor, request| {
+                bridge_mcp_tool(executor, request, RememberFactTool, "remember_fact")
+            },
+        ));
+        registry.register(ToolInfo::async_tool(
+            ToolId::RecallUserMemory,
+            |executor, request| {
+                bridge_mcp_tool(
+                    executor,
+                    request,
+                    RecallUserMemoryTool,
+                    "recall_user_memory",
+                )
+            },
+        ));
+    }
+
+    fn register_verification_tools(registry: &mut ToolRegistry) {
+        registry.register(ToolInfo::async_tool(
+            ToolId::VerifyClaim,
+            |executor, request| bridge_mcp_tool(executor, request, VerifyClaimTool, "verify_claim"),
+        ));
+    }
+
+    /// Register every tool handler into `registry`.
+    ///
+    /// Exposed publicly (behind `#[doc(hidden)]`) so integration tests can
+    /// assert every [`ToolId`] variant has a registered handler without
+    /// spinning up a full [`ServerResources`] instance. This is strictly a
+    /// test-support hook — callers should construct a `UniversalExecutor`
+    /// via [`UniversalExecutor::new`] for normal use.
+    #[doc(hidden)]
+    pub fn register_all_tools(registry: &mut ToolRegistry) {
         Self::register_strava_tools(registry);
         Self::register_connection_tools(registry);
         Self::register_configuration_tools(registry);
@@ -543,6 +696,11 @@ impl UniversalExecutor {
         Self::register_mobility_tools(registry);
         Self::register_health_data_tools(registry);
         Self::register_route_tools(registry);
+        Self::register_weather_tools(registry);
+        Self::register_fitness_config_tools(registry);
+        Self::register_provider_sync_tools(registry);
+        Self::register_memory_tools(registry);
+        Self::register_verification_tools(registry);
     }
 
     /// Execute a tool with type-safe routing (no string matching!)
