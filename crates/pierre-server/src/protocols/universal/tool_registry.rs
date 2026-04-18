@@ -21,7 +21,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 /// Type-safe tool identifier that replaces string-based routing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum ToolId {
     // Core Strava API tools
     /// Get user's fitness activities with optional filtering

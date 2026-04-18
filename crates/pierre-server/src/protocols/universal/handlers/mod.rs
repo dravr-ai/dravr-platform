@@ -18,6 +18,8 @@ pub mod goals;
 pub mod health_data;
 /// Activity intelligence and analysis tool handlers
 pub mod intelligence;
+/// Generic bridge from `McpTool` trait impls into `UniversalExecutor` handlers
+pub mod mcp_bridge;
 /// Mobility tool handlers (stretching exercises, yoga poses)
 pub mod mobility;
 /// Nutrition analysis and USDA database tool handlers
@@ -136,3 +138,6 @@ pub use health_data::{
 
 /// Re-export route discovery handler
 pub use routes::handle_discover_routes;
+
+/// Re-export the generic MCP-to-UniversalExecutor bridge
+pub use mcp_bridge::bridge_mcp_tool;
