@@ -556,16 +556,19 @@ impl MessagingRepository for PostgresDatabase {
             .map(|dt| dt.with_timezone(&Utc))
             .map_err(|e| AppError::invalid_input(format!("Invalid expires_at timestamp: {e}")))?;
 
+        // Casts: migration 20260417000001 converted tenant_id and user_id to
+        // UUID. SQL casts ($2::uuid, $3::uuid) bridge the wire types so the
+        // call sites can keep binding via TenantId/String.
         sqlx::query(
             r"
             INSERT INTO messaging_link_states
                 (id, tenant_id, user_id, channel_type, code, method, used,
                  channel_user_id, sender_name, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8, $9, $10)
+            VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, FALSE, $7, $8, $9, $10)
             ",
         )
         .bind(params.id)
-        .bind(params.tenant_id)
+        .bind(params.tenant_id.to_string())
         .bind(params.user_id)
         .bind(params.channel_type)
         .bind(params.code)
@@ -591,13 +594,17 @@ impl MessagingRepository for PostgresDatabase {
         let now = Utc::now();
         let tenant_id_str = tenant_id.to_string();
 
-        // Check if the code exists for this tenant (before attempting consumption)
+        // Check if the code exists for this tenant (before attempting consumption).
+        // Casts: migration 20260417000001 stores tenant_id/user_id as UUID.
         let existing = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, code, method, used,
                    channel_user_id, sender_name, expires_at, created_at
             FROM messaging_link_states
-            WHERE code = $1 AND tenant_id = $2
+            WHERE code = $1 AND tenant_id = $2::uuid
             ",
         )
         .bind(code)
@@ -625,7 +632,7 @@ impl MessagingRepository for PostgresDatabase {
             r"
             UPDATE messaging_link_states
             SET used = TRUE
-            WHERE code = $1 AND tenant_id = $2 AND used = FALSE AND expires_at > $3
+            WHERE code = $1 AND tenant_id = $2::uuid AND used = FALSE AND expires_at > $3
             ",
         )
         .bind(code)
@@ -658,9 +665,13 @@ impl MessagingRepository for PostgresDatabase {
     async fn get_link_state(&self, code: &str) -> AppResult<Option<Value>> {
         let now = Utc::now();
 
+        // Cast tenant_id/user_id UUID columns back to text for json serialization.
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, code, method, used,
                    channel_user_id, sender_name, expires_at, created_at
             FROM messaging_link_states
             WHERE code = $1 AND used = FALSE AND expires_at > $2
@@ -697,7 +708,10 @@ impl MessagingRepository for PostgresDatabase {
 
         let existing = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, code, method, used,
                    channel_user_id, sender_name, expires_at, created_at
             FROM messaging_link_states
             WHERE code = $1
@@ -735,7 +749,7 @@ impl MessagingRepository for PostgresDatabase {
         let result = sqlx::query(
             r"
             UPDATE messaging_link_states
-            SET user_id = $1, used = TRUE
+            SET user_id = $1::uuid, used = TRUE
             WHERE code = $2 AND used = FALSE AND user_id IS NULL AND expires_at > $3
             ",
         )
@@ -769,15 +783,18 @@ impl MessagingRepository for PostgresDatabase {
     async fn create_channel_link(&self, params: &CreateChannelLinkParams<'_>) -> AppResult<()> {
         let now = Utc::now();
 
+        // Casts: migration 20260417000001 converted tenant_id and user_id to
+        // UUID. SQL casts ($2::uuid, $3::uuid) bridge the wire types so the
+        // call sites can keep binding via TenantId/String.
         sqlx::query(
             r"
             INSERT INTO messaging_channel_links
                 (id, tenant_id, user_id, channel_type, channel_user_id, display_name, linked_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2::uuid, $3::uuid, $4, $5, $6, $7)
             ",
         )
         .bind(params.id)
-        .bind(params.tenant_id)
+        .bind(params.tenant_id.to_string())
         .bind(params.user_id)
         .bind(params.channel_type)
         .bind(params.channel_user_id)
@@ -811,9 +828,12 @@ impl MessagingRepository for PostgresDatabase {
     ) -> AppResult<Option<Value>> {
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, channel_user_id, display_name, linked_at
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, channel_user_id, display_name, linked_at
             FROM messaging_channel_links
-            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
             ",
         )
         .bind(tenant_id.to_string())
@@ -845,9 +865,12 @@ impl MessagingRepository for PostgresDatabase {
     ) -> AppResult<Vec<Value>> {
         let rows = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, channel_user_id, display_name, linked_at
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, channel_user_id, display_name, linked_at
             FROM messaging_channel_links
-            WHERE tenant_id = $1 AND user_id = $2
+            WHERE tenant_id = $1::uuid AND user_id = $2::uuid
             ORDER BY linked_at
             ",
         )
@@ -884,7 +907,7 @@ impl MessagingRepository for PostgresDatabase {
         let result = sqlx::query(
             r"
             DELETE FROM messaging_channel_links
-            WHERE tenant_id = $1 AND user_id = $2 AND channel_type = $3
+            WHERE tenant_id = $1::uuid AND user_id = $2::uuid AND channel_type = $3
             ",
         )
         .bind(tenant_id.to_string())
@@ -906,7 +929,7 @@ impl MessagingRepository for PostgresDatabase {
         let tid = tenant_id.to_string();
 
         sqlx::query(
-            "DELETE FROM messaging_sessions WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3",
+            "DELETE FROM messaging_sessions WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3",
         )
         .bind(&tid)
         .bind(channel_type)
@@ -916,7 +939,7 @@ impl MessagingRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to delete sessions: {e}")))?;
 
         sqlx::query(
-            "DELETE FROM messaging_channel_links WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3",
+            "DELETE FROM messaging_channel_links WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3",
         )
         .bind(&tid)
         .bind(channel_type)
@@ -926,7 +949,7 @@ impl MessagingRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to delete channel link: {e}")))?;
 
         sqlx::query(
-            "UPDATE messaging_link_states SET used = 1 WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3 AND used = 0",
+            "UPDATE messaging_link_states SET used = TRUE WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3 AND used = FALSE",
         )
         .bind(&tid)
         .bind(channel_type)
@@ -948,11 +971,14 @@ impl MessagingRepository for PostgresDatabase {
     ) -> AppResult<Option<Value>> {
         let row = sqlx::query(
             r"
-            SELECT id, tenant_id, user_id, channel_type, code, method, used,
+            SELECT id,
+                   tenant_id::text AS tenant_id,
+                   user_id::text   AS user_id,
+                   channel_type, code, method, used,
                    channel_user_id, sender_name, otp_step, email, otp_hash,
                    otp_attempts, expires_at, created_at
             FROM messaging_link_states
-            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
               AND otp_step IS NOT NULL AND used = FALSE AND expires_at > CURRENT_TIMESTAMP
             ORDER BY created_at DESC
             LIMIT 1
@@ -1038,7 +1064,7 @@ impl MessagingRepository for PostgresDatabase {
             r"
             UPDATE messaging_link_states
             SET used = TRUE
-            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+            WHERE tenant_id = $1::uuid AND channel_type = $2 AND channel_user_id = $3
               AND otp_step IS NOT NULL AND used = FALSE
             ",
         )
