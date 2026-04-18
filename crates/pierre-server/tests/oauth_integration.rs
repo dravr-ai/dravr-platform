@@ -261,6 +261,7 @@ async fn test_oauth_authorization_url_generation() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database
         .repositories()
@@ -761,6 +762,7 @@ async fn test_connection_status_no_providers() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&user).await.unwrap();
 
@@ -1227,6 +1229,7 @@ async fn test_disconnect_provider() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     server_context
         .data()
@@ -1317,6 +1320,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database
         .repositories()

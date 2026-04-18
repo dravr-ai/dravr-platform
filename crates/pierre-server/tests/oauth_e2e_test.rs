@@ -475,6 +475,7 @@ async fn test_oauth_callback_error_handling() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database
         .repositories()
@@ -522,6 +523,7 @@ async fn test_oauth_callback_error_handling() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let test_user_id = database
         .repositories()
@@ -777,6 +779,7 @@ async fn test_oauth_state_csrf_protection() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database
         .repositories()

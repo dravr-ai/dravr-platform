@@ -845,6 +845,7 @@ async fn test_login_with_correct_credentials() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     server_resources
         .repos

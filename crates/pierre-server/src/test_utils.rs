@@ -32,6 +32,7 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 
@@ -58,6 +59,7 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 
@@ -84,6 +86,7 @@ pub fn create_test_pending_user(email: &str, display_name: Option<String>) -> Us
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 
@@ -125,5 +128,6 @@ pub fn create_test_user_with_fields(
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }

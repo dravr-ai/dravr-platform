@@ -1405,6 +1405,60 @@ impl MessagingRepository for Database {
             .await
     }
 
+    async fn get_channel_link_locale(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<String>> {
+        let locale: Option<Option<String>> = sqlx::query_scalar(
+            r"
+            SELECT locale
+            FROM messaging_channel_links
+            WHERE tenant_id = ?1 AND channel_type = ?2 AND channel_user_id = ?3
+            ",
+        )
+        .bind(tenant_id.0.to_string())
+        .bind(channel_type)
+        .bind(channel_user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to get channel link locale: {e}")))?;
+
+        Ok(locale.flatten())
+    }
+
+    async fn set_channel_link_locale(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        channel_type: &str,
+        locale: Option<&str>,
+    ) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE messaging_channel_links
+               SET locale = ?1
+             WHERE tenant_id = ?2 AND user_id = ?3 AND channel_type = ?4
+            ",
+        )
+        .bind(locale)
+        .bind(tenant_id.0.to_string())
+        .bind(user_id)
+        .bind(channel_type)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set channel link locale: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!(
+                "Channel link for user {user_id} on {channel_type}"
+            )));
+        }
+
+        Ok(())
+    }
+
     async fn logout_channel_sender(
         &self,
         tenant_id: TenantId,

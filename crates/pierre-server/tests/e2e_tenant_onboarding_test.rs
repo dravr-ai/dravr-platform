@@ -100,6 +100,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     let beta_admin = User {
@@ -122,6 +123,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     database.repositories().users.create(&acme_admin).await?;
@@ -462,6 +464,7 @@ async fn setup_multitenant_scenario(
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     database.repositories().users.create(&user).await?;

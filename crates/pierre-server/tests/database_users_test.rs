@@ -44,6 +44,7 @@ async fn test_create_and_get_user() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     // Create user
@@ -98,6 +99,7 @@ async fn test_last_active_update() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     UserRepository::create(&db, &user)
@@ -149,6 +151,7 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 

@@ -609,6 +609,7 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     repos

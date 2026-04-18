@@ -43,6 +43,12 @@ pub struct TurnInput {
     pub tool_tenant_id: TenantId,
     /// Raw user message content.
     pub content: String,
+    /// BCP-47 short locale resolved upstream (messaging ingress / web chat).
+    ///
+    /// `None` means the caller did not plumb a locale and pipeline stages
+    /// should fall back to the registry's `DEFAULT_LOCALE`. Web chat may
+    /// leave this `None` until the web-side locale picker lands.
+    pub locale: Option<String>,
 }
 
 /// Read-only view of the current turn available to hooks and stages.
@@ -59,6 +65,8 @@ pub struct TurnContext {
     pub conversation_tenant_id: TenantId,
     /// Echoes `TurnInput::tool_tenant_id`.
     pub tool_tenant_id: TenantId,
+    /// Echoes `TurnInput::locale`; `None` triggers the registry default.
+    pub locale: Option<String>,
 }
 
 impl TurnContext {
@@ -70,6 +78,7 @@ impl TurnContext {
             user_id: input.user_id.clone(),
             conversation_tenant_id: input.conversation_tenant_id,
             tool_tenant_id: input.tool_tenant_id,
+            locale: input.locale.clone(),
         }
     }
 }

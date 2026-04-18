@@ -186,6 +186,7 @@ impl IntegrationTestServer {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
 
         let repos = self.resources.database.repositories();
@@ -250,6 +251,7 @@ impl IntegrationTestServer {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
 
         let repos = self.resources.database.repositories();

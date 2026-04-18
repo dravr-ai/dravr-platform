@@ -233,6 +233,7 @@ impl AuthService {
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
+                locale: user.locale.clone(),
             },
         })
     }
@@ -496,6 +497,7 @@ impl AuthService {
             auth_provider: claims.provider.clone(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
 
         self.data.repos().users.create(&new_user).await?;
@@ -590,6 +592,7 @@ impl AuthService {
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
+                locale: user.locale.clone(),
             },
         })
     }
@@ -670,6 +673,7 @@ impl AuthService {
                 user_status: user.user_status.to_string(),
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
+                locale: user.locale.clone(),
             },
         })
     }

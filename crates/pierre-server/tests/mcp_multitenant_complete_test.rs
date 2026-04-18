@@ -237,6 +237,7 @@ impl MultiTenantMcpClient {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
         let repos = database.repositories();
         repos.users.create(&test_user).await?;

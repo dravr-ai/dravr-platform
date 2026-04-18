@@ -580,6 +580,7 @@ async fn test_get_activities_with_expired_token() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -669,6 +670,7 @@ async fn test_connection_status_with_oauth_manager() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -747,6 +749,7 @@ async fn test_analyze_activity_token_refresh() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -845,6 +848,7 @@ async fn test_concurrent_token_operations() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -927,6 +931,7 @@ async fn test_oauth_provider_init_failure() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

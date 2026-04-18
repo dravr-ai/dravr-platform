@@ -49,6 +49,7 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     UserRepository::create(db, &user)
         .await

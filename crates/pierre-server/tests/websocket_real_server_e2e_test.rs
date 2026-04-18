@@ -125,6 +125,7 @@ impl TestServer {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
 
         self.database.repositories().users.create(&user).await?;

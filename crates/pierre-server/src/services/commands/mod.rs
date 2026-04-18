@@ -42,6 +42,14 @@ pub struct PlatformCommandContext {
     pub raw_text: String,
     /// Server resources for accessing repos, services, etc.
     pub resources: Arc<ServerResources>,
+    /// Resolved BCP-47 locale for this command turn.
+    ///
+    /// Populated once in the messaging ingress before dispatch by walking
+    /// `messaging_channel_links.locale` (per-channel override) →
+    /// `users.locale` → `DEFAULT_LOCALE` (currently `"fr"`). Handlers pass
+    /// this to `MessagingStringsRegistry::render` for every user-facing
+    /// string.
+    pub locale: String,
 }
 
 /// Handler for a slash command.

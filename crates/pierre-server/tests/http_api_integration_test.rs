@@ -88,6 +88,7 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

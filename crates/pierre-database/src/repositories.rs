@@ -167,6 +167,12 @@ pub trait UserRepository: Send + Sync {
     async fn has_synthetic_activities(&self, user_id: Uuid) -> AppResult<bool>;
     /// Update user's analytics consent preference
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()>;
+    /// Update the user's preferred locale (BCP-47 short code, e.g. `"fr"`, `"en"`).
+    ///
+    /// Called by the user-profile PATCH endpoint. The column has `NOT NULL
+    /// DEFAULT 'fr'` so an unset user always resolves to French; this method
+    /// overrides that default with an explicit choice.
+    async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()>;
 }
 
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)
@@ -2119,6 +2125,32 @@ pub trait MessagingRepository: Send + Sync {
         user_id: &str,
         channel_type: &str,
     ) -> AppResult<bool>;
+
+    /// Read the optional per-channel-link locale override.
+    ///
+    /// Returns `Some("en")` when the user has explicitly set a locale for
+    /// this specific channel, `None` when they inherit their `users.locale`.
+    /// Resolution order in `messaging_ingress` is: this value → `users.locale`
+    /// → `DEFAULT_LOCALE`.
+    async fn get_channel_link_locale(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<Option<String>>;
+
+    /// Set or clear the per-channel-link locale override.
+    ///
+    /// Pass `None` to clear the override and inherit from `users.locale`.
+    /// Pass `Some("en")`/`Some("fr")`/etc. to pin the channel to a specific
+    /// locale regardless of the user-level setting.
+    async fn set_channel_link_locale(
+        &self,
+        tenant_id: TenantId,
+        user_id: &str,
+        channel_type: &str,
+        locale: Option<&str>,
+    ) -> AppResult<()>;
 
     /// Logout a channel sender: delete their channel link, sessions, and OTP states.
     /// Identified by channel identity (`sender_id`), not `user_id`.

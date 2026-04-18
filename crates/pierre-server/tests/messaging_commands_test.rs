@@ -385,6 +385,7 @@ mod command_tests {
             args: vec![],
             raw_text: "/privacy on".to_owned(),
             resources: Arc::clone(&resources),
+            locale: "en".to_owned(),
         };
 
         let response = PrivacyOnHandler.execute(&ctx).await.unwrap();
@@ -433,6 +434,7 @@ mod command_tests {
             args: vec![],
             raw_text: "/privacy off".to_owned(),
             resources: Arc::clone(&resources),
+            locale: "en".to_owned(),
         };
 
         let response = PrivacyOffHandler.execute(&ctx).await.unwrap();
@@ -464,6 +466,7 @@ mod command_tests {
             args: vec![],
             raw_text: "/privacy".to_owned(),
             resources: Arc::clone(&resources),
+            locale: "en".to_owned(),
         };
 
         // Default state: consent disabled

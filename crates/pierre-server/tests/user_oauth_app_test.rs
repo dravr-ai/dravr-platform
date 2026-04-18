@@ -75,6 +75,7 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&user).await?;
     Ok(user_id)

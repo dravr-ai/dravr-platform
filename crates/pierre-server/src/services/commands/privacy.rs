@@ -9,6 +9,10 @@ use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
 use tracing::info;
 
+use crate::contremaitre::messaging_strings::{
+    KEY_PRIVACY_OFF_CONFIRMATION, KEY_PRIVACY_ON_CONFIRMATION, KEY_PRIVACY_STATUS_DISABLED,
+    KEY_PRIVACY_STATUS_ENABLED, KEY_PRIVACY_STATUS_LINE,
+};
 use crate::services::analytics::{analytics, hash_id};
 
 use super::{CommandHandler, PlatformCommandContext};
@@ -27,16 +31,15 @@ impl CommandHandler for PrivacyStatusHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {}", ctx.user_id)))?;
 
-        let status = if user.analytics_consent {
-            "enabled"
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+        let status_word_key = if user.analytics_consent {
+            KEY_PRIVACY_STATUS_ENABLED
         } else {
-            "disabled"
+            KEY_PRIVACY_STATUS_DISABLED
         };
-
-        let text = format!(
-            "Analytics consent is currently <b>{status}</b>.\n\n\
-             Use <code>/privacy on</code> to enable or <code>/privacy off</code> to disable anonymous analytics."
-        );
+        let status_word = reg.render(status_word_key, locale, &[]);
+        let text = reg.render(KEY_PRIVACY_STATUS_LINE, locale, &[&status_word]);
 
         Ok(CommandResponse::text(text))
     }
@@ -59,9 +62,11 @@ impl CommandHandler for PrivacyOnHandler {
 
         info!(user_id = %ctx.user_id, "Analytics consent enabled via /privacy on");
 
-        let text = "Analytics consent has been <b>enabled</b>. \
-                    Thank you for helping us improve Pierre!\n\n\
-                    Use <code>/privacy off</code> to opt out at any time.";
+        let text = ctx.resources.messaging_strings_registry.render(
+            KEY_PRIVACY_ON_CONFIRMATION,
+            ctx.locale.as_str(),
+            &[],
+        );
 
         Ok(CommandResponse::text(text))
     }
@@ -84,9 +89,11 @@ impl CommandHandler for PrivacyOffHandler {
 
         info!(user_id = %ctx.user_id, "Analytics consent disabled via /privacy off");
 
-        let text = "Analytics consent has been <b>disabled</b>. \
-                    No anonymous usage data will be collected.\n\n\
-                    Use <code>/privacy on</code> to opt back in at any time.";
+        let text = ctx.resources.messaging_strings_registry.render(
+            KEY_PRIVACY_OFF_CONFIRMATION,
+            ctx.locale.as_str(),
+            &[],
+        );
 
         Ok(CommandResponse::text(text))
     }

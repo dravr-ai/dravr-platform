@@ -129,6 +129,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     let user_id = database.repositories().users.create(&test_user).await?;
@@ -526,6 +527,7 @@ async fn create_test_pending_user(database: &Database) -> Result<uuid::Uuid> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&test_user).await?;
     Ok(test_user_id)

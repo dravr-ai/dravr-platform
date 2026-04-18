@@ -33,7 +33,12 @@ use uuid::Uuid;
 use serde_json::Value;
 
 use crate::contremaitre::messaging_strings::{
-    format_template, DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC,
+    format_template, DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC, KEY_LINK_CANCELLED,
+    KEY_LINK_EMAIL_NOT_CONFIGURED, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_FALLBACK_PROMPT,
+    KEY_LINK_GENERIC_ERROR, KEY_LINK_IDENTITY_COLLISION, KEY_LINK_INCORRECT_CODE,
+    KEY_LINK_INITIAL_PROMPT, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
+    KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
+    KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
 };
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
@@ -131,6 +136,11 @@ pub(crate) struct PendingDispatch {
     channel_message_id: String,
     /// Forum topic thread ID (Telegram Topics `message_thread_id`)
     thread_id: Option<String>,
+    /// Resolved BCP-47 locale for this turn, threaded into `TurnInput` so the
+    /// chat pipeline's guardrail / verification / empty-reply fallbacks speak
+    /// the user's language. Populated via [`resolve_messaging_locale`] when
+    /// the dispatch is enqueued.
+    locale: String,
 }
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -177,6 +187,19 @@ fn detect_linking_code(channel_type: ChannelType, content: &MessageContent) -> L
     LinkingAction::Normal
 }
 
+/// Enumerated failure reasons from [`execute_link_code`].
+///
+/// Held as a structured variant (rather than a pre-formatted `String`) so the
+/// user-facing translation can happen at the outer boundary where the
+/// `MessagingStringsRegistry` is available.
+enum DeepLinkError {
+    /// `consume_link_state` returned an error — expired or already used code.
+    SessionExpired(String),
+    /// Creating the channel link row failed (most commonly a uniqueness
+    /// collision on the `(tenant, channel_type, channel_user_id)` triple).
+    IdentityCollision(String),
+}
+
 /// Consume a link code and create the permanent channel link, returning the user ID
 async fn execute_link_code(
     db: &dyn MessagingRepository,
@@ -184,11 +207,11 @@ async fn execute_link_code(
     channel: &str,
     sender_id: &str,
     code: &str,
-) -> Result<String, String> {
+) -> Result<String, DeepLinkError> {
     let link_state = db
         .consume_link_state(code, tenant_id)
         .await
-        .map_err(|e| format!("Link code is invalid or expired: {e}"))?;
+        .map_err(|e| DeepLinkError::SessionExpired(e.to_string()))?;
 
     let user_id = link_state["user_id"]
         .as_str()
@@ -207,21 +230,24 @@ async fn execute_link_code(
 
     db.create_channel_link(&link_params)
         .await
-        .map_err(|e| format!("Failed to link your account: {e}"))?;
+        .map_err(|e| DeepLinkError::IdentityCollision(e.to_string()))?;
 
     Ok(user_id)
 }
 
 /// Consume a link code and create the permanent channel link
 ///
-/// Returns a user-facing message describing the result.
+/// Returns a user-facing message describing the result, translated through
+/// the messaging-strings registry.
 async fn consume_and_link(
+    resources: &ServerResources,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel: &str,
     sender_id: &str,
     code: &str,
 ) -> String {
+    let reg = &resources.messaging_strings_registry;
     match execute_link_code(db, tenant_id, channel, sender_id, code).await {
         Ok(user_id) => {
             info!(channel = %channel, user_id = %user_id, channel_user_id = %sender_id, "Channel linked via deep link");
@@ -230,14 +256,16 @@ async fn consume_and_link(
             let hashed_channel_id = hash_id(&format!("{channel}:{sender_id}"));
             analytics().alias(&hashed_channel_id, &hashed_user);
             analytics().track_linking_completed(channel, &hashed_tenant, &hashed_user, "deep_link");
-            "Your account has been linked successfully! You can now chat with Pierre \
-             through this channel.\n\nType \"logout\" anytime to disconnect."
-                .to_owned()
+            reg.get(KEY_LINK_SUCCESS, DEFAULT_LOCALE)
         }
-        Err(msg) => {
-            warn!(error = %msg, "Channel linking failed");
-            analytics().track_linking_failed(channel, &hash_id(&tenant_id.to_string()), &msg);
-            msg
+        Err(err) => {
+            let (key, detail) = match &err {
+                DeepLinkError::SessionExpired(d) => (KEY_LINK_SESSION_EXPIRED, d.as_str()),
+                DeepLinkError::IdentityCollision(d) => (KEY_LINK_IDENTITY_COLLISION, d.as_str()),
+            };
+            warn!(error = %detail, "Channel linking failed");
+            analytics().track_linking_failed(channel, &hash_id(&tenant_id.to_string()), detail);
+            reg.get(key, DEFAULT_LOCALE)
         }
     }
 }
@@ -254,7 +282,7 @@ async fn handle_linking_command(
 ) -> OutgoingMessage {
     let db: &dyn MessagingRepository = resources.repos.messaging.as_ref();
     let channel_type = ChannelType::from_str(channel).unwrap_or(ChannelType::Telegram);
-    let response_text = consume_and_link(db, tenant_id, channel, sender_id, code).await;
+    let response_text = consume_and_link(resources, db, tenant_id, channel, sender_id, code).await;
 
     OutgoingMessage {
         channel_type,
@@ -457,6 +485,7 @@ async fn resolve_linked_session(
 /// Generates a 32-character cryptographic code with a 10-minute TTL, stores it
 /// in the database, and constructs a message with a clickable URL for the user.
 async fn create_link_and_prompt(
+    resources: &ServerResources,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -482,15 +511,13 @@ async fn create_link_and_prompt(
 
     if let Err(e) = db.create_link_state(&params).await {
         warn!(error = %e, "Failed to create link state for unlinked user");
-        // Fall back to a generic prompt if DB fails
+        let body = resources
+            .messaging_strings_registry
+            .get(KEY_LINK_FALLBACK_PROMPT, DEFAULT_LOCALE);
         return OutgoingMessage {
             channel_type,
             recipient_id: sender_id.to_owned(),
-            content: MessageContent::Text {
-                body: "To chat with Pierre, please link your account first. \
-                       Visit the Pierre web app to connect this channel."
-                    .to_owned(),
-            },
+            content: MessageContent::Text { body },
             correlation_id: Uuid::new_v4(),
             reply_to: None,
             thread_id: None,
@@ -500,11 +527,10 @@ async fn create_link_and_prompt(
     let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8081".to_owned());
     let link_url = format!("{base_url}/messaging/link/{code}");
 
-    let body = format!(
-        "Hi! To chat with Pierre, link your account first:\n\
-         {link_url}\n\n\
-         This link expires in 10 minutes."
-    );
+    let template = resources
+        .messaging_strings_registry
+        .get(KEY_LINK_INITIAL_PROMPT, DEFAULT_LOCALE);
+    let body = format_template(&template, &[&link_url]);
 
     OutgoingMessage {
         channel_type,
@@ -563,8 +589,9 @@ async fn handle_logout(
     otp_reply(
         channel_type,
         sender_id,
-        "You've been logged out from Pierre. Send a message anytime to link your account again."
-            .to_owned(),
+        resources
+            .messaging_strings_registry
+            .get(KEY_LINK_LOGOUT_COMPLETE, DEFAULT_LOCALE),
     )
 }
 
@@ -653,7 +680,9 @@ async fn handle_otp_flow(
             return Some(otp_reply(
                 channel_type,
                 sender_id,
-                "Linking cancelled. Send a message anytime to start again.".to_owned(),
+                resources
+                    .messaging_strings_registry
+                    .get(KEY_LINK_CANCELLED, DEFAULT_LOCALE),
             ));
         }
         // No active flow, cancel is just a normal message
@@ -726,14 +755,13 @@ async fn validate_email_user(
                 .frontend_url
                 .as_deref()
                 .unwrap_or(&resources.config.base_url);
+            let template = resources
+                .messaging_strings_registry
+                .get(KEY_LINK_NO_ACCOUNT, DEFAULT_LOCALE);
             return Err(otp_reply(
                 channel_type,
                 sender_id,
-                format!(
-                    "No Pierre account found with that email. \
-                     You can register at {register_url} and then try again, \
-                     or type \"cancel\" to stop."
-                ),
+                format_template(&template, &[register_url]),
             ));
         }
         Err(e) => {
@@ -741,7 +769,9 @@ async fn validate_email_user(
             return Err(otp_reply(
                 channel_type,
                 sender_id,
-                "Something went wrong. Please try again later.".to_owned(),
+                resources
+                    .messaging_strings_registry
+                    .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
             ));
         }
     };
@@ -755,7 +785,9 @@ async fn validate_email_user(
             return Err(otp_reply(
                 channel_type,
                 sender_id,
-                "Something went wrong. Please try again later.".to_owned(),
+                resources
+                    .messaging_strings_registry
+                    .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
             ));
         }
     };
@@ -764,8 +796,9 @@ async fn validate_email_user(
         return Err(otp_reply(
             channel_type,
             sender_id,
-            "This account is not associated with any organization. Please contact support."
-                .to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_NO_TENANT, DEFAULT_LOCALE),
         ));
     }
 
@@ -795,7 +828,9 @@ async fn generate_and_send_otp(
         return Err(otp_reply(
             channel_type,
             sender_id,
-            "Something went wrong. Please try again later.".to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         ));
     }
 
@@ -806,7 +841,9 @@ async fn generate_and_send_otp(
         return Err(otp_reply(
             channel_type,
             sender_id,
-            "Email delivery is not configured. Please contact your administrator.".to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_EMAIL_NOT_CONFIGURED, DEFAULT_LOCALE),
         ));
     };
 
@@ -818,7 +855,9 @@ async fn generate_and_send_otp(
         return Err(otp_reply(
             channel_type,
             sender_id,
-            "Failed to send the verification email. Please try again later.".to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_EMAIL_SEND_FAILED, DEFAULT_LOCALE),
         ));
     }
 
@@ -841,8 +880,9 @@ async fn handle_email_step(
         return otp_reply(
             channel_type,
             sender_id,
-            "That doesn't look like an email address. Please type your Pierre account email."
-                .to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_INVALID_EMAIL, DEFAULT_LOCALE),
         );
     }
 
@@ -866,13 +906,13 @@ async fn handle_email_step(
         "OTP code sent for channel linking"
     );
 
+    let template = resources
+        .messaging_strings_registry
+        .get(KEY_LINK_OTP_SENT, DEFAULT_LOCALE);
     otp_reply(
         channel_type,
         sender_id,
-        format!(
-            "I've sent a 6-digit code to {masked}. Please type it here within 10 minutes.\n\
-             Type \"cancel\" to stop."
-        ),
+        format_template(&template, &[&masked]),
     )
 }
 
@@ -881,6 +921,7 @@ async fn handle_email_step(
 /// Invalidates the linking session if max attempts are reached, otherwise
 /// returns the remaining attempt count.
 async fn handle_otp_mismatch(
+    resources: &ServerResources,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -900,20 +941,20 @@ async fn handle_otp_mismatch(
         return otp_reply(
             channel_type,
             sender_id,
-            "Too many incorrect attempts. The linking session has been cancelled. \
-             Send a message to start again."
-                .to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_TOO_MANY_ATTEMPTS, DEFAULT_LOCALE),
         );
     }
 
-    let remaining = MAX_OTP_ATTEMPTS - attempts;
+    let remaining = (MAX_OTP_ATTEMPTS - attempts).to_string();
+    let template = resources
+        .messaging_strings_registry
+        .get(KEY_LINK_INCORRECT_CODE, DEFAULT_LOCALE);
     otp_reply(
         channel_type,
         sender_id,
-        format!(
-            "Incorrect code. You have {remaining} attempt(s) remaining. \
-             Please try again or type \"cancel\" to stop."
-        ),
+        format_template(&template, &[&remaining]),
     )
 }
 
@@ -930,7 +971,10 @@ async fn create_verified_channel_link(
         return Err(otp_reply(
             params.channel_type,
             params.sender_id,
-            "Something went wrong verifying your account. Please try again.".to_owned(),
+            params
+                .resources
+                .messaging_strings_registry
+                .get(KEY_LINK_VERIFICATION_ERROR, DEFAULT_LOCALE),
         ));
     };
 
@@ -953,7 +997,10 @@ async fn create_verified_channel_link(
         return Err(otp_reply(
             params.channel_type,
             params.sender_id,
-            "Failed to link your account. This channel identity may already be linked.".to_owned(),
+            params
+                .resources
+                .messaging_strings_registry
+                .get(KEY_LINK_IDENTITY_COLLISION, DEFAULT_LOCALE),
         ));
     }
 
@@ -978,8 +1025,10 @@ async fn handle_otp_verification_step(
         return otp_reply(
             params.channel_type,
             params.sender_id,
-            "Please type the 6-digit code sent to your email, or type \"cancel\" to stop."
-                .to_owned(),
+            params
+                .resources
+                .messaging_strings_registry
+                .get(KEY_LINK_OTP_PROMPT, DEFAULT_LOCALE),
         );
     }
 
@@ -997,13 +1046,17 @@ async fn handle_otp_verification_step(
             return otp_reply(
                 params.channel_type,
                 params.sender_id,
-                "Your linking session has expired. Send a message to start again.".to_owned(),
+                params
+                    .resources
+                    .messaging_strings_registry
+                    .get(KEY_LINK_SESSION_EXPIRED, DEFAULT_LOCALE),
             );
         }
     };
 
     if input_hash != stored_hash {
         return handle_otp_mismatch(
+            params.resources,
             db_msg,
             params.tenant_id,
             params.channel_type,
@@ -1036,9 +1089,10 @@ async fn handle_otp_verification_step(
     otp_reply(
         params.channel_type,
         params.sender_id,
-        "Your account has been linked successfully! You can now chat with Pierre through \
-         this channel.\n\nType \"logout\" anytime to disconnect."
-            .to_owned(),
+        params
+            .resources
+            .messaging_strings_registry
+            .get(KEY_LINK_SUCCESS, DEFAULT_LOCALE),
     )
 }
 
@@ -1049,6 +1103,7 @@ async fn handle_otp_verification_step(
 /// represent the "awaiting email" state, and `awaiting_otp` with a non-empty email for
 /// the "awaiting OTP code" state.
 async fn start_otp_flow(
+    resources: &ServerResources,
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
     channel_type: ChannelType,
@@ -1082,7 +1137,9 @@ async fn start_otp_flow(
         return otp_reply(
             channel_type,
             sender_id,
-            "Something went wrong. Please try again later.".to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         );
     }
 
@@ -1093,7 +1150,9 @@ async fn start_otp_flow(
         return otp_reply(
             channel_type,
             sender_id,
-            "Something went wrong. Please try again later.".to_owned(),
+            resources
+                .messaging_strings_registry
+                .get(KEY_LINK_GENERIC_ERROR, DEFAULT_LOCALE),
         );
     }
 
@@ -1208,6 +1267,8 @@ async fn try_handle_slash_command(
         let user_uuid = parse_uuid(&session.user_id).ok()?;
         let fallback_tenant = TenantId::from_uuid(user_uuid);
         let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
+        let locale =
+            resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
 
         let ctx = PlatformCommandContext {
             user_id: user_uuid,
@@ -1216,6 +1277,7 @@ async fn try_handle_slash_command(
             args: parsed.args,
             raw_text: parsed.raw_text,
             resources: Arc::clone(resources),
+            locale,
         };
 
         // Use conversation_id (group chat) when available, fall back to sender_id
@@ -1427,6 +1489,18 @@ async fn persist_single_message(
     // that OAuth connections and data queries match.
     let user_tenant_id = resolve_user_tenant(resources, &session.user_id, tenant_id).await;
 
+    // Resolve the user's preferred locale once per dispatch so every
+    // downstream stage (guardrails, verification, empty-reply) speaks the
+    // same language. Uses the channel-link override first, then the user
+    // profile, then the registry default.
+    let locale = match Uuid::parse_str(&session.user_id) {
+        Ok(uuid) => {
+            resolve_messaging_locale(resources, user_tenant_id, uuid, channel, &message.sender_id)
+                .await
+        }
+        Err(_) => DEFAULT_LOCALE.to_owned(),
+    };
+
     // Extract text content for LLM dispatch, then run the Phase C input
     // sanitization scanner. Verbatim user text is preserved in the stored
     // message above for audit/compliance; only the LLM-bound copy gets the
@@ -1452,6 +1526,7 @@ async fn persist_single_message(
                     text_content: sanitized,
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
+                    locale: locale.clone(),
                 },
             )))
         },
@@ -1507,6 +1582,7 @@ async fn send_unlinked_user_prompt(
     let mut prompt = if resources.email_service.is_some() {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
         start_otp_flow(
+            resources,
             db,
             tenant_id,
             channel_type,
@@ -1517,6 +1593,7 @@ async fn send_unlinked_user_prompt(
     } else {
         info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL (no email service)");
         create_link_and_prompt(
+            resources,
             db,
             tenant_id,
             channel_type,
@@ -1662,6 +1739,47 @@ async fn resolve_user_tenant(
     }
 }
 
+/// Resolve the user-facing locale for a messaging turn.
+///
+/// Walks the documented fallback chain:
+///
+/// 1. `messaging_channel_links.locale` for `(tenant, channel, channel_user_id)`
+///    — explicit per-channel override (user set Telegram to EN while keeping
+///    the web app in FR, for example)
+/// 2. `users.locale` — the profile-wide preference edited from the Settings UI
+/// 3. [`crate::contremaitre::messaging_strings::DEFAULT_LOCALE`] — hard-coded
+///    French fallback
+///
+/// Never fails: any DB error silently degrades to the next rung. Called once
+/// per command/dispatch so handlers and chat-pipeline stages work with a
+/// single resolved `String` instead of re-querying.
+pub async fn resolve_messaging_locale(
+    resources: &ServerResources,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    channel_type: &str,
+    channel_user_id: &str,
+) -> String {
+    if let Ok(Some(override_locale)) = resources
+        .repos
+        .messaging
+        .get_channel_link_locale(tenant_id, channel_type, channel_user_id)
+        .await
+    {
+        if !override_locale.trim().is_empty() {
+            return override_locale;
+        }
+    }
+
+    if let Ok(Some(user)) = resources.repos.users.get_global(user_id).await {
+        if !user.locale.trim().is_empty() {
+            return user.locale;
+        }
+    }
+
+    DEFAULT_LOCALE.to_owned()
+}
+
 /// Per-conversation dispatch locks ensuring sequential LLM processing.
 ///
 /// Without this, concurrent webhook calls for the same conversation race:
@@ -1693,6 +1811,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         conversation_tenant_id: dispatch.channel_tenant_id,
         tool_tenant_id: dispatch.user_tenant_id,
         content: dispatch.text_content.clone(),
+        locale: Some(dispatch.locale.clone()),
     };
     let dispatch_result = match chat_pipeline::run(
         &dispatch.resources,
@@ -1721,7 +1840,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
             let template = dispatch
                 .resources
                 .messaging_strings_registry
-                .get(KEY_ERROR_GENERIC, DEFAULT_LOCALE);
+                .get(KEY_ERROR_GENERIC, &dispatch.locale);
             let user_message = format_template(&template, &[&short_id]);
             send_error_reply(&dispatch, &user_message).await;
             return;
@@ -1758,7 +1877,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         let empty_reply = dispatch
             .resources
             .messaging_strings_registry
-            .get(KEY_EMPTY_REPLY, DEFAULT_LOCALE);
+            .get(KEY_EMPTY_REPLY, &dispatch.locale);
         send_error_reply(&dispatch, &empty_reply).await;
         return;
     }

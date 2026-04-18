@@ -54,6 +54,7 @@ fn generate_test_user() -> User {
         auth_provider: "email".to_owned(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 

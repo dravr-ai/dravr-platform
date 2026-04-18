@@ -250,6 +250,7 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     // Test instrumented database operation (has #[tracing::instrument])

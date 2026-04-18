@@ -4,11 +4,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::fmt::Write;
-
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
+
+#[cfg(feature = "tools-groups")]
+use crate::contremaitre::messaging_strings::KEY_GROUP_INVITE_BODY;
+#[cfg(not(feature = "tools-groups"))]
+use crate::contremaitre::messaging_strings::KEY_GROUP_INVITE_UNAVAILABLE;
+use crate::contremaitre::messaging_strings::{
+    KEY_GROUP_INVITE_FORBIDDEN, KEY_GROUP_LEAVE_PROMPT, KEY_GROUP_LIST_EMPTY,
+    KEY_GROUP_LIST_HEADER, KEY_GROUP_LIST_ITEM, KEY_GROUP_MEMBERS_HEADER, KEY_GROUP_MEMBERS_ITEM,
+    KEY_GROUP_MEMBERS_UNKNOWN, KEY_GROUP_NOT_A_MEMBER, KEY_GROUP_PEER_SHARING_OFF,
+    KEY_GROUP_PEER_SHARING_ON, KEY_GROUP_STATUS_SUMMARY,
+};
 
 use super::{CommandHandler, PlatformCommandContext};
 
@@ -18,6 +27,9 @@ pub struct GroupListHandler;
 #[async_trait]
 impl CommandHandler for GroupListHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         let groups = ctx
             .resources
             .repos
@@ -26,16 +38,25 @@ impl CommandHandler for GroupListHandler {
             .await?;
 
         if groups.is_empty() {
-            return Ok(CommandResponse::text(
-                "You are not a member of any groups.\nCreate or join a group via the web or mobile app.",
-            ));
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_LIST_EMPTY,
+                locale,
+                &[],
+            )));
         }
 
         let mut text = String::with_capacity(256);
-        let _ = writeln!(text, "Your Groups ({}):\n", groups.len());
+        let count = groups.len().to_string();
+        text.push_str(&reg.render(KEY_GROUP_LIST_HEADER, locale, &[&count]));
         for g in &groups {
+            let member_count = g.member_count.to_string();
             let role = g.my_role.as_str();
-            let _ = writeln!(text, "- {} ({} members) [{}]", g.name, g.member_count, role);
+            text.push_str(&reg.render(
+                KEY_GROUP_LIST_ITEM,
+                locale,
+                &[&g.name, &member_count, role],
+            ));
+            text.push('\n');
         }
 
         Ok(CommandResponse::text(text))
@@ -48,6 +69,9 @@ pub struct GroupStatusHandler;
 #[async_trait]
 impl CommandHandler for GroupStatusHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         let groups = ctx
             .resources
             .repos
@@ -57,7 +81,7 @@ impl CommandHandler for GroupStatusHandler {
 
         let group = groups
             .first()
-            .ok_or_else(|| AppError::not_found("You are not a member of any group"))?;
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
 
         let member_count = ctx
             .resources
@@ -67,15 +91,19 @@ impl CommandHandler for GroupStatusHandler {
             .await
             .unwrap_or(0);
 
-        let text = format!(
-            "{} Stats:\n\
-             - Members: {}\n\
-             - Active: {}\n\
-             - Peer sharing: {}",
-            group.name,
-            member_count,
-            group.member_count,
-            if group.peer_data_sharing { "on" } else { "off" }
+        let peer_sharing_key = if group.peer_data_sharing {
+            KEY_GROUP_PEER_SHARING_ON
+        } else {
+            KEY_GROUP_PEER_SHARING_OFF
+        };
+        let peer_sharing = reg.render(peer_sharing_key, locale, &[]);
+        let mc = member_count.to_string();
+        let active = group.member_count.to_string();
+
+        let text = reg.render(
+            KEY_GROUP_STATUS_SUMMARY,
+            locale,
+            &[&group.name, &mc, &active, &peer_sharing],
         );
 
         Ok(CommandResponse::text(text))
@@ -88,6 +116,9 @@ pub struct GroupMembersHandler;
 #[async_trait]
 impl CommandHandler for GroupMembersHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         let groups = ctx
             .resources
             .repos
@@ -97,7 +128,7 @@ impl CommandHandler for GroupMembersHandler {
 
         let group = groups
             .first()
-            .ok_or_else(|| AppError::not_found("You are not a member of any group"))?;
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
 
         let members = ctx
             .resources
@@ -107,11 +138,14 @@ impl CommandHandler for GroupMembersHandler {
             .await?;
 
         let mut text = String::with_capacity(256);
-        let _ = writeln!(text, "{} Members ({}):\n", group.name, members.len());
+        let count = members.len().to_string();
+        text.push_str(&reg.render(KEY_GROUP_MEMBERS_HEADER, locale, &[&group.name, &count]));
+        let unknown = reg.render(KEY_GROUP_MEMBERS_UNKNOWN, locale, &[]);
         for m in &members {
-            let name = m.display_name.as_deref().unwrap_or("Unknown");
+            let name = m.display_name.as_deref().unwrap_or(unknown.as_str());
             let role = m.role.as_str();
-            let _ = writeln!(text, "- {name} [{role}]");
+            text.push_str(&reg.render(KEY_GROUP_MEMBERS_ITEM, locale, &[name, role]));
+            text.push('\n');
         }
 
         Ok(CommandResponse::text(text))
@@ -124,6 +158,9 @@ pub struct GroupInviteHandler;
 #[async_trait]
 impl CommandHandler for GroupInviteHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         let groups = ctx
             .resources
             .repos
@@ -133,7 +170,7 @@ impl CommandHandler for GroupInviteHandler {
 
         let group = groups
             .first()
-            .ok_or_else(|| AppError::not_found("You are not a member of any group"))?;
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
 
         // Check admin role
         let member = ctx
@@ -145,9 +182,11 @@ impl CommandHandler for GroupInviteHandler {
             .ok_or_else(|| AppError::not_found("Membership not found"))?;
 
         if !member.role.can_manage_members() {
-            return Ok(CommandResponse::text(
-                "Only admins and owners can generate invite links.",
-            ));
+            return Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_INVITE_FORBIDDEN,
+                locale,
+                &[],
+            )));
         }
 
         #[cfg(feature = "tools-groups")]
@@ -158,16 +197,23 @@ impl CommandHandler for GroupInviteHandler {
                 .create_invite(group.id, ctx.user_id, ctx.tenant_id, Some(7), None)
                 .await?;
 
-            let text = format!(
-                "Invite link for {}:\nhttps://app.dravr.ai/groups/join/{}\n\nCode: {}\nValid for 7 days.",
-                group.name, invite.code, invite.code
+            let text = reg.render(
+                KEY_GROUP_INVITE_BODY,
+                locale,
+                &[&group.name, &invite.code, &invite.code],
             );
 
             return Ok(CommandResponse::text(text));
         }
 
         #[cfg(not(feature = "tools-groups"))]
-        Ok(CommandResponse::text("Group invites not available."))
+        {
+            Ok(CommandResponse::text(reg.render(
+                KEY_GROUP_INVITE_UNAVAILABLE,
+                locale,
+                &[],
+            )))
+        }
     }
 }
 
@@ -177,6 +223,9 @@ pub struct GroupLeaveHandler;
 #[async_trait]
 impl CommandHandler for GroupLeaveHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         let groups = ctx
             .resources
             .repos
@@ -186,13 +235,9 @@ impl CommandHandler for GroupLeaveHandler {
 
         let group = groups
             .first()
-            .ok_or_else(|| AppError::not_found("You are not a member of any group"))?;
+            .ok_or_else(|| AppError::not_found(reg.render(KEY_GROUP_NOT_A_MEMBER, locale, &[])))?;
 
-        let text = format!(
-            "Are you sure you want to leave {}?\n\
-             Type \"YES\" to confirm.",
-            group.name
-        );
+        let text = reg.render(KEY_GROUP_LEAVE_PROMPT, locale, &[&group.name]);
 
         Ok(CommandResponse::with_confirmation(text))
     }

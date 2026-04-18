@@ -68,6 +68,7 @@ async fn create_test_user(db: &Database) -> Uuid {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     db.repositories()
@@ -358,6 +359,7 @@ async fn test_database_trait_abstraction() {
                 auth_provider: String::new(),
                 analytics_consent: false,
                 analytics_consent_at: None,
+                locale: "fr".to_owned(),
             };
 
             db_clone.repositories().users.create(&user).await
@@ -410,6 +412,7 @@ async fn test_system_stats() {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
 
         db.repositories()

@@ -31,8 +31,8 @@ use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csr
 use super::types::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
     LoginRequest, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
-    RefreshTokenRequest, RegisterRequest, SessionResponse, UpdateProfileRequest,
-    UpdateProfileResponse, UserInfo, UserStatsResponse,
+    RefreshTokenRequest, RegisterRequest, SessionResponse, UpdateLocaleRequest,
+    UpdateProfileRequest, UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
 use crate::services::analytics::{analytics, hash_id};
@@ -406,6 +406,7 @@ pub(super) async fn handle_session(
             user_status: user.user_status.to_string(),
             tenant_id: tenant_id_for_response,
             created_at: user.created_at.to_rfc3339(),
+            locale: user.locale,
         },
         access_token: jwt_token,
         csrf_token,
@@ -462,6 +463,7 @@ pub(super) async fn handle_update_profile(
             user_status: updated_user.user_status.to_string(),
             tenant_id: None,
             created_at: updated_user.created_at.to_rfc3339(),
+            locale: updated_user.locale,
         },
     };
 
@@ -897,6 +899,51 @@ pub(super) async fn handle_analytics_consent(
     Ok((
         StatusCode::OK,
         Json(json!({ "message": "Analytics consent updated", "enabled": request.enabled })),
+    )
+        .into_response())
+}
+
+/// Supported BCP-47 short locales.
+///
+/// Matches the set compiled into `MessagingStringsRegistry::new()`. The
+/// PATCH handler rejects anything outside this set so the frontend can't
+/// persist a locale that would silently fall back to French at every
+/// registry lookup.
+const SUPPORTED_LOCALES: &[&str] = &["fr", "en", "es", "de", "pt"];
+
+/// Handle locale preference update for authenticated users
+///
+/// Persists the user's preferred locale on the `users` table. Validates
+/// the value against the compiled-in set so downstream registry lookups
+/// always match an actual translation.
+pub(super) async fn handle_update_locale(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateLocaleRequest>,
+) -> Result<Response, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let user_id = auth.user_id;
+
+    let locale = request.locale.trim().to_ascii_lowercase();
+    if !SUPPORTED_LOCALES.contains(&locale.as_str()) {
+        return Err(AppError::invalid_input(format!(
+            "Unsupported locale: {}. Supported: {}",
+            request.locale,
+            SUPPORTED_LOCALES.join(", ")
+        )));
+    }
+
+    resources
+        .repos
+        .users
+        .update_locale(user_id, &locale)
+        .await?;
+
+    info!(user_id = %user_id, locale = %locale, "User locale updated");
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "message": "Locale updated", "locale": locale })),
     )
         .into_response())
 }

@@ -43,6 +43,7 @@ async fn test_strava_token_storage() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     UserRepository::create(&db, &user)
@@ -146,6 +147,7 @@ async fn test_fitbit_token_storage() {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     UserRepository::create(&db, &user)
