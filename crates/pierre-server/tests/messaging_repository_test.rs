@@ -51,8 +51,8 @@ async fn create_test_db() -> Database {
     db
 }
 
-/// Seed a real user and tenant so FK constraints on messaging_* tables are satisfied.
-/// Returns (user_uuid, tenant_id); stringify user_uuid when passing to messaging params.
+/// Seed a real user and tenant so FK constraints on `messaging_*` tables are satisfied.
+/// Returns `(user_uuid, tenant_id)`; stringify `user_uuid` when passing to messaging params.
 async fn seed_user(db: &Database) -> (Uuid, TenantId) {
     let email = format!("user-{}@test.local", Uuid::new_v4());
     let user = User::new(

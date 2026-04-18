@@ -294,6 +294,40 @@ async fn hydrate_analytics_consent(resources: &ServerResources, user_id: &str) {
     }
 }
 
+/// Create a fresh `chat_conversation` and repoint the session at it.
+///
+/// Called from `resolve_linked_session` when a session's `pierre_conversation_id`
+/// is NULL (FK `ON DELETE SET NULL` fired after the referenced conversation was
+/// deleted). Returns the new conversation id.
+async fn forge_fresh_session_conversation(
+    resources: &ServerResources,
+    db: &dyn MessagingRepository,
+    session_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+    channel_type: &str,
+) -> Result<String, AppError> {
+    warn!(
+        session_id = %session_id,
+        user_id = %user_id,
+        channel_type = %channel_type,
+        "Session has no pierre_conversation_id; self-healing with a fresh conversation"
+    );
+    let title = format!("Messaging: {channel_type}");
+    let conversation = chat_orchestration::create_conversation(
+        resources.repos.chat.as_ref(),
+        user_id,
+        tenant_id,
+        &title,
+        None,
+        None,
+    )
+    .await?;
+    let new_id = conversation.conversation.id.clone();
+    db.set_session_conversation(session_id, &new_id).await?;
+    Ok(new_id)
+}
+
 /// Resolve a messaging session for a linked channel user
 ///
 /// Looks up the channel link to find the Pierre user, then looks up or creates
@@ -326,29 +360,18 @@ async fn resolve_linked_session(
         // unreachable), forge a fresh one and repoint the session before returning.
         // Without this, dispatch_and_respond would fail on every message for this
         // channel user until they manually re-link.
-        let conversation = match session["pierre_conversation_id"].as_str() {
-            Some(id) => id.to_owned(),
-            None => {
-                warn!(
-                    session_id = %session_id,
-                    user_id = %user_id,
-                    channel_type = %channel_type,
-                    "Session has no pierre_conversation_id; self-healing with a fresh conversation"
-                );
-                let title = format!("Messaging: {channel_type}");
-                let conversation = chat_orchestration::create_conversation(
-                    resources.repos.chat.as_ref(),
-                    &user_id,
-                    tenant_id,
-                    &title,
-                    None,
-                    None,
-                )
-                .await?;
-                let new_id = conversation.conversation.id.clone();
-                db.set_session_conversation(&session_id, &new_id).await?;
-                new_id
-            }
+        let conversation = if let Some(id) = session["pierre_conversation_id"].as_str() {
+            id.to_owned()
+        } else {
+            forge_fresh_session_conversation(
+                resources,
+                db,
+                &session_id,
+                &user_id,
+                tenant_id,
+                channel_type,
+            )
+            .await?
         };
 
         if let Err(e) = db.touch_session(&session_id).await {
