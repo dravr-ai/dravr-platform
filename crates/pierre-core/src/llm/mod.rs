@@ -70,6 +70,10 @@ impl From<RunnerError> for AppError {
                 ErrorCode::InvalidInput,
                 format!("Content blocked by guardrail: {}", err.message),
             ),
+            ErrorKind::ModelUnavailable => Self::new(
+                ErrorCode::ResourceUnavailable,
+                format!("Model unavailable: {}", err.message),
+            ),
         }
     }
 }

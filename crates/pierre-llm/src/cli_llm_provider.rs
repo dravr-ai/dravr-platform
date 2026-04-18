@@ -71,59 +71,59 @@ impl CliLlmProvider {
         match provider_env.to_lowercase().as_str() {
             "claude_code" | "claude-code" => {
                 let config = build_runner_config(CliRunnerType::ClaudeCode)?;
-                Ok(Self::build_cli(CliRunnerType::ClaudeCode, config).await)
+                Ok(Self::build_cli(CliRunnerType::ClaudeCode, config))
             }
             "cursor_agent" | "cursor-agent" => {
                 let config = build_runner_config(CliRunnerType::CursorAgent)?;
-                Ok(Self::build_cli(CliRunnerType::CursorAgent, config).await)
+                Ok(Self::build_cli(CliRunnerType::CursorAgent, config))
             }
             "opencode" | "open_code" => {
                 let config = build_runner_config(CliRunnerType::OpenCode)?;
-                Ok(Self::build_cli(CliRunnerType::OpenCode, config).await)
+                Ok(Self::build_cli(CliRunnerType::OpenCode, config))
             }
             "copilot" | "github_copilot" | "github-copilot" => {
                 let config = build_runner_config(CliRunnerType::Copilot)?;
-                Ok(Self::build_cli(CliRunnerType::Copilot, config).await)
+                Ok(Self::build_cli(CliRunnerType::Copilot, config))
             }
-            "copilot_headless" | "copilot-headless" => Ok(Self::build_headless().await),
+            "copilot_headless" | "copilot-headless" => Ok(Self::build_headless()),
             "gemini_cli" | "gemini-cli" => {
                 let config = build_runner_config(CliRunnerType::GeminiCli)?;
-                Ok(Self::build_cli(CliRunnerType::GeminiCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::GeminiCli, config))
             }
             "codex_cli" | "codex-cli" | "codex" => {
                 let config = build_runner_config(CliRunnerType::CodexCli)?;
-                Ok(Self::build_cli(CliRunnerType::CodexCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::CodexCli, config))
             }
             "goose_cli" | "goose-cli" | "goose" => {
                 let config = build_runner_config(CliRunnerType::GooseCli)?;
-                Ok(Self::build_cli(CliRunnerType::GooseCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::GooseCli, config))
             }
             "cline_cli" | "cline-cli" | "cline" => {
                 let config = build_runner_config(CliRunnerType::ClineCli)?;
-                Ok(Self::build_cli(CliRunnerType::ClineCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::ClineCli, config))
             }
             "continue_cli" | "continue-cli" | "continue" => {
                 let config = build_runner_config(CliRunnerType::ContinueCli)?;
-                Ok(Self::build_cli(CliRunnerType::ContinueCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::ContinueCli, config))
             }
             "warp_cli" | "warp-cli" | "warp" | "oz" => {
                 let config = build_runner_config(CliRunnerType::WarpCli)?;
-                Ok(Self::build_cli(CliRunnerType::WarpCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::WarpCli, config))
             }
             "kiro_cli" | "kiro-cli" | "kiro" => {
                 let config = build_runner_config(CliRunnerType::KiroCli)?;
-                Ok(Self::build_cli(CliRunnerType::KiroCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::KiroCli, config))
             }
             "kilo_cli" | "kilo-cli" | "kilo" => {
                 let config = build_runner_config(CliRunnerType::KiloCli)?;
-                Ok(Self::build_cli(CliRunnerType::KiloCli, config).await)
+                Ok(Self::build_cli(CliRunnerType::KiloCli, config))
             }
             "openai_api" | "openai-api" | "openai" => Ok(Self::build_openai_api().await?),
             "cli" => {
                 debug!("PIERRE_LLM_PROVIDER=cli, auto-detecting installed CLI runner");
                 let (runner_type, base_config) = embacle::discover_runner()?;
                 let config = merge_env_overrides(base_config);
-                Ok(Self::build_cli(runner_type, config).await)
+                Ok(Self::build_cli(runner_type, config))
             }
             _ => Err(AppError::config(format!(
                 "PIERRE_LLM_PROVIDER={provider_env} is not an embacle runner type; \
@@ -134,17 +134,18 @@ impl CliLlmProvider {
     }
 
     /// Create a provider for a specific CLI runner type with an explicit config
-    pub async fn from_runner_type(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
-        Self::build_cli(runner_type, config).await
+    #[must_use]
+    pub fn from_runner_type(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
+        Self::build_cli(runner_type, config)
     }
 
     /// Build a CLI subprocess runner
-    async fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
+    fn build_cli(runner_type: CliRunnerType, config: RunnerConfig) -> Self {
         let binary_path = config.binary_path.clone();
 
         let runner: Box<dyn EmbacleLlmProvider> = match runner_type {
             CliRunnerType::ClaudeCode => Box::new(ClaudeCodeRunner::new(config)),
-            CliRunnerType::Copilot => Box::new(CopilotRunner::new(config).await),
+            CliRunnerType::Copilot => Box::new(CopilotRunner::new(config)),
             CliRunnerType::CursorAgent => Box::new(CursorAgentRunner::new(config)),
             CliRunnerType::OpenCode => Box::new(OpenCodeRunner::new(config)),
             CliRunnerType::GeminiCli => Box::new(GeminiCliRunner::new(config)),
@@ -156,7 +157,7 @@ impl CliLlmProvider {
             CliRunnerType::KiroCli => Box::new(KiroCliRunner::new(config)),
             CliRunnerType::KiloCli => Box::new(KiloCliRunner::new(config)),
             CliRunnerType::CopilotHeadless => {
-                return Self::build_headless().await;
+                return Self::build_headless();
             }
         };
 
@@ -184,7 +185,7 @@ impl CliLlmProvider {
     /// Build a Copilot Headless (ACP) runner (NDJSON JSON-RPC via `copilot --acp`)
     ///
     /// `PIERRE_LLM_MODEL` overrides the headless-specific `COPILOT_HEADLESS_MODEL` env var.
-    async fn build_headless() -> Self {
+    fn build_headless() -> Self {
         let mut config = CopilotHeadlessConfig::from_env();
 
         // PIERRE_LLM_MODEL is the unified model override (highest priority)
@@ -196,7 +197,7 @@ impl CliLlmProvider {
 
         info!(model = %config.model, "Creating Copilot Headless runner (copilot --acp)");
 
-        let headless = Arc::new(CopilotHeadlessRunner::with_config(config).await);
+        let headless = Arc::new(CopilotHeadlessRunner::with_config(config));
 
         Self {
             runner: Box::new(HeadlessRunnerAdapter(Arc::clone(&headless))),
