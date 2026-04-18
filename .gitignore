@@ -119,3 +119,9 @@ pierre_mcp_server-integration/
 *.tfstate
 *.tfstate.backup
 *.tfplan
+# Saved plan binaries without .tfplan extension (e.g. tfplan-opus-model)
+infra/**/tfplan
+infra/**/tfplan-*
+
+# Claude Code
+.claude/scheduled_tasks.lock
