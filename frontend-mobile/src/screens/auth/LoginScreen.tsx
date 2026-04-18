@@ -1,11 +1,10 @@
 // ABOUTME: Login screen with email/password and Google Sign-In authentication
-// ABOUTME: Professional dark theme UI with glassmorphism matching web design
+// ABOUTME: Boreal Editorial hero backdrop with floating glass form card
 
 import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-
   ScrollView,
   TouchableOpacity,
   Alert,
@@ -13,12 +12,14 @@ import {
   ActivityIndicator,
   type ImageStyle,
   type ViewStyle,
+  type TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button, Input } from '../../components/ui';
-import { colors, spacing, glassCard, buttonGlow, gradients } from '../../constants/theme';
+import { colors, spacing, glassCard, buttonGlow, BOREAL_LIGHT } from '../../constants/theme';
 import {
   isFirebaseEnabled,
   useGoogleAuth,
@@ -137,58 +138,111 @@ export function LoginScreen() {
     }
   };
 
-  // Logo style (pixel-specific dimensions)
-  const logoStyle: ImageStyle = { width: 120, height: 120, marginBottom: spacing.md };
-
-  // Glassmorphism card style
-  const cardStyle: ViewStyle = {
-    ...glassCard,
-    borderRadius: 16,
-    overflow: 'hidden',
+  // Editorial hero wordmark — "DRAVR" in Space Grotesk with brand letter-spacing
+  const wordmarkStyle: TextStyle = {
+    fontFamily: 'SpaceGrotesk_SemiBold',
+    fontSize: 28,
+    letterSpacing: 4.2, // ≈ 0.15em on 28px
+    color: '#a3d0be', // primaryFixedDim — reads on deep-forest backdrop
   };
 
-  // Button with glow effect
+  // Editorial over-line ("The Technical Naturalist") — tiny tracked label
+  const kickerStyle: TextStyle = {
+    fontFamily: 'Inter_Medium',
+    fontSize: 11,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    color: '#a3d0be',
+    opacity: 0.85,
+  };
+
+  // Hero headline — editorial display typography
+  const heroHeadlineStyle: TextStyle = {
+    fontFamily: 'SpaceGrotesk_SemiBold',
+    fontSize: 28,
+    lineHeight: 34,
+    color: '#ffffff',
+  };
+
+  const heroLeadStyle: TextStyle = {
+    fontFamily: 'PlusJakartaSans',
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#a3d0be',
+  };
+
+  // Logo style (pixel-specific dimensions)
+  const logoStyle: ImageStyle = { width: 48, height: 48 };
+
+  // Elevated card surface — sits above the forest backdrop
+  const cardStyle: ViewStyle = {
+    ...glassCard,
+    backgroundColor: BOREAL_LIGHT.surfaceContainerLowest, // pure white
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowOpacity: 0.18,
+    shadowRadius: 32,
+  };
+
+  // Button with ambient shadow
   const glowButtonStyle: ViewStyle = {
     ...buttonGlow,
     marginTop: spacing.md,
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-background-primary" testID="login-screen">
+    <View className="flex-1" testID="login-screen" style={{ backgroundColor: BOREAL_LIGHT.primary }}>
+      {/* Full-bleed Boreal hero backdrop — 145° primary → primary-container */}
+      <LinearGradient
+        colors={['#00241a', '#0d3b2e']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+      />
+      <StatusBar style="light" />
+      <SafeAreaView className="flex-1" edges={['top', 'bottom']}>
         <ScrollView
-          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
+          contentContainerStyle={{ flexGrow: 1, paddingHorizontal: spacing.lg, paddingVertical: spacing.xl }}
           keyboardShouldPersistTaps="handled"
           automaticallyAdjustKeyboardInsets
           testID="login-scroll-view"
         >
-          {/* Glassmorphism Card Container */}
-          <View style={cardStyle}>
-            {/* Gradient accent bar at top */}
-            <LinearGradient
-              colors={gradients.violetCyan as [string, string]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ height: 3, width: '100%' }}
-            />
+          {/* Editorial hero band — brand moment at the top */}
+          <View style={{ marginTop: spacing.md, marginBottom: spacing.xl }}>
+            <View className="flex-row items-center" style={{ gap: spacing.sm, marginBottom: spacing.lg }}>
+              <Image
+                source={require('../../../assets/dravr-logo.png')}
+                style={logoStyle}
+                resizeMode="contain"
+              />
+              <Text style={wordmarkStyle}>DRAVR</Text>
+            </View>
+            <Text style={kickerStyle}>The Technical Naturalist</Text>
+            <Text style={[heroHeadlineStyle, { marginTop: spacing.sm, marginBottom: spacing.sm }]}>
+              Fitness intelligence,{'\n'}rendered in ink.
+            </Text>
+            <Text style={heroLeadStyle}>
+              Every session, meal, and hour of recovery — a single, legible story.
+            </Text>
+          </View>
 
-            <View className="px-6 py-8">
-              {/* Logo and Header */}
-              <View className="items-center mb-6">
-                <Image
-                  source={require('../../../assets/dravr-logo.png')}
-                  style={logoStyle}
-                  resizeMode="contain"
-                />
-                <Text className="text-xl font-bold text-text-primary mb-1">
-                  Welcome to Dravr
+          {/* Floating form card — white surface over the forest hero */}
+          <View style={cardStyle}>
+            <View className="px-6 py-7">
+              <View className="mb-5">
+                <Text
+                  className="text-text-primary"
+                  style={{ fontFamily: 'SpaceGrotesk_SemiBold', fontSize: 24, marginBottom: 4 }}
+                >
+                  Sign in
                 </Text>
-                <Text className="text-sm text-text-secondary text-center leading-[20px]">
-                  Your AI-powered fitness intelligence companion
+                <Text className="text-text-secondary text-sm">
+                  Welcome back. Enter your credentials to continue.
                 </Text>
               </View>
 
               {/* Login Form */}
-              <View className="mb-4">
+              <View className="mb-2">
                 <Input
                   label="Email"
                   placeholder="you@example.com"
@@ -261,15 +315,43 @@ export function LoginScreen() {
               </View>
 
               {/* Register Link */}
-              <View className="flex-row justify-center items-center gap-1 pt-2">
+              <View className="flex-row justify-center items-center gap-1 pt-4">
                 <Text className="text-sm text-text-secondary">Don't have an account?</Text>
                 <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-                  <Text className="text-sm font-semibold text-primary-500">Create one</Text>
+                  <Text className="text-sm font-semibold text-text-accent">Create one</Text>
                 </TouchableOpacity>
               </View>
             </View>
           </View>
+
+          {/* Footer band — fitness pillars */}
+          <View
+            className="flex-row items-center justify-center"
+            style={{ gap: spacing.md, marginTop: spacing.xl, opacity: 0.7 }}
+          >
+            {['Activity', 'Nutrition', 'Recovery', 'Mobility'].map((pillar, i) => (
+              <React.Fragment key={pillar}>
+                {i > 0 && (
+                  <Text style={{ color: '#a3d0be', opacity: 0.5 }} aria-hidden>
+                    ·
+                  </Text>
+                )}
+                <Text
+                  style={{
+                    fontFamily: 'Inter_Medium',
+                    fontSize: 10,
+                    letterSpacing: 1.2,
+                    textTransform: 'uppercase',
+                    color: '#a3d0be',
+                  }}
+                >
+                  {pillar}
+                </Text>
+              </React.Fragment>
+            ))}
+          </View>
         </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }

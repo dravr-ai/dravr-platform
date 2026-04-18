@@ -93,15 +93,15 @@ const sizeClasses: Record<ButtonSize, string> = {
 const textBaseClasses = 'font-semibold';
 
 const textVariantClasses: Record<ButtonVariant, string> = {
-  primary: 'text-text-primary',
+  primary: 'text-on-primary',
   secondary: 'text-text-primary',
   ghost: 'text-primary-500',
-  danger: 'text-text-primary',
-  gradient: 'text-text-primary',
-  pill: 'text-text-primary',
-  activity: 'text-text-primary',
-  nutrition: 'text-text-primary',
-  recovery: 'text-text-primary',
+  danger: 'text-on-error',
+  gradient: 'text-on-primary',
+  pill: 'text-on-primary',
+  activity: 'text-on-primary',
+  nutrition: 'text-on-primary',
+  recovery: 'text-on-primary',
 };
 
 const textSizeClasses: Record<ButtonSize, string> = {
@@ -156,7 +156,7 @@ export function Button({
     >
       {loading ? (
         <ActivityIndicator
-          color={['primary', 'gradient', 'pill', 'danger', 'activity', 'nutrition', 'recovery'].includes(variant) ? colors.text.primary : colors.primary[500]}
+          color={['primary', 'gradient', 'pill', 'danger', 'activity', 'nutrition', 'recovery'].includes(variant) ? '#ffffff' : colors.primary[500]}
           size="small"
         />
       ) : (
