@@ -14,39 +14,15 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use std::env;
+use serde_json::Value;
 
-use chrono::{Duration, Utc};
-use serde_json::{json, Map, Value};
-use tracing::{error, info, warn};
-use uuid::Uuid;
-
-use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_database::plugins::TenantRepository;
-
-use crate::constants::oauth_config::AUTHORIZATION_EXPIRES_MINUTES;
-use crate::errors::{AppError, AppResult, ErrorCode};
+use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::models::TenantId;
-use crate::providers::backend_resolver::{self, BackendKind};
+use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-
-/// User-facing provider names reported by `get_connection_status`.
-///
-/// Mirror backends (`sciotte`, `sciotte_garmin`) never appear here — they
-/// are coalesced into the user-facing provider they serve.
-const USER_FACING_PROVIDERS: &[&str] = &[
-    oauth_providers::STRAVA,
-    oauth_providers::FITBIT,
-    oauth_providers::GARMIN,
-    oauth_providers::WHOOP,
-    oauth_providers::TERRA,
-    oauth_providers::COROS,
-];
+use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for tools that interact with external OAuth services
 fn open_world_annotations() -> ToolAnnotations {
@@ -75,88 +51,6 @@ fn destructive_annotations() -> ToolAnnotations {
         idempotent_hint: Some(true),
         ..ToolAnnotations::default()
     }
-}
-use pierre_auth::oauth2_client::OAuthClientState;
-use pierre_auth::tenant::{TenantContext, TenantRole};
-
-// ============================================================================
-// Helper functions for connection tools
-// ============================================================================
-
-/// Validate redirect URL scheme for mobile OAuth flows
-fn validate_redirect_url(url: &str) -> bool {
-    url.starts_with("pierre://")
-        || url.starts_with("exp://")
-        || url.starts_with("http://localhost")
-        || url.starts_with("https://")
-}
-
-/// Build OAuth state string with optional redirect URL
-fn build_oauth_state(user_id: Uuid, redirect_url: Option<&str>) -> String {
-    redirect_url.map_or_else(
-        || format!("{}:{}", user_id, Uuid::new_v4()),
-        |url| {
-            let encoded_url = URL_SAFE_NO_PAD.encode(url.as_bytes());
-            format!("{}:{}:{}", user_id, Uuid::new_v4(), encoded_url)
-        },
-    )
-}
-
-/// Build tenant context from user and request context
-async fn build_tenant_context(
-    tenants: &dyn TenantRepository,
-    user_id: Uuid,
-    user_default_tenant_id: Option<TenantId>,
-    context_tenant_id: Option<TenantId>,
-) -> AppResult<TenantContext> {
-    // Prefer context tenant (from JWT active_tenant_id), fall back to DB-resolved default
-    let tenant_id = context_tenant_id
-        .or(user_default_tenant_id)
-        .ok_or_else(|| AppError::auth_invalid("User does not belong to any tenant"))?;
-
-    let tenant_name = tenants
-        .get_by_id(tenant_id)
-        .await
-        .map_or_else(|_| "Unknown Tenant".to_owned(), |t| t.name);
-
-    Ok(TenantContext {
-        tenant_id,
-        user_id,
-        tenant_name,
-        user_role: TenantRole::Member,
-    })
-}
-
-/// Build successful OAuth authorization response
-fn build_oauth_success_response(provider: &str, url: &str, state: &str) -> ToolResult {
-    ToolResult::ok(json!({
-        "provider": provider,
-        "authorization_url": url,
-        "state": state,
-        "instructions": format!(
-            "To connect your {} account:\n\
-             1. Visit the authorization URL\n\
-             2. Log in to {} and approve the connection\n\
-             3. You will be redirected back to complete the connection\n\
-             4. Once connected, you can access your {} data through Pierre",
-            provider, provider, provider
-        ),
-        "expires_in_minutes": AUTHORIZATION_EXPIRES_MINUTES,
-        "status": "pending_authorization"
-    }))
-}
-
-/// Build OAuth error response
-fn build_oauth_error_response(provider: &str, error: &AppError) -> ToolResult {
-    ToolResult::error(json!({
-        "error": format!(
-            "Failed to generate authorization URL: {}. \
-             Please check that OAuth credentials are configured for provider '{}'.",
-            error, provider
-        ),
-        "error_type": "oauth_configuration_error",
-        "provider": provider
-    }))
 }
 
 // ============================================================================
@@ -218,174 +112,13 @@ impl McpTool for ConnectProviderTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let registry = context.provider_registry();
-        let repos = &context.resources.repos;
-
-        // Extract and validate provider parameter
-        let provider =
-            args.get("provider")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    let supported = registry.supported_providers().join(", ");
-                    AppError::new(
-                ErrorCode::MissingRequiredField,
-                format!("Missing required 'provider' parameter. Supported providers: {supported}"),
-            )
-                })?;
-
-        // Mirror backends are internal — refuse to initiate OAuth
-        // against them. The LLM should never hand the user a "sciotte"
-        // flow as a connection option.
-        if backend_resolver::is_mirror_backend(provider) {
-            return Ok(ToolResult::error(json!({
-                "error": format!(
-                    "Unknown provider '{provider}'. Use 'strava' or 'garmin' instead."
-                )
-            })));
-        }
-
-        if !registry.is_supported(provider) {
-            let supported = USER_FACING_PROVIDERS.join(", ");
-            return Ok(ToolResult::error(json!({
-                "error": format!("Provider '{}' is not supported. Supported providers: {}", provider, supported)
-            })));
-        }
-
-        // If the user has already opted into the mirror (sciotte) backend
-        // for this provider, refuse to mint an OAuth URL. Re-login must
-        // happen through the same mirror flow.
-        if let Some(mirror) = backend_resolver::mirror_backend_for(provider) {
-            if let Some(tid) = context.tenant_id.map(TenantId::from) {
-                if let Ok(Some(_)) = repos
-                    .oauth_tokens
-                    .get_token(context.user_id, tid, mirror)
-                    .await
-                {
-                    info!(
-                        user_id = %context.user_id,
-                        provider = provider,
-                        mirror = mirror,
-                        "Refusing OAuth connect: user has mirror backend active, \
-                         they must re-authenticate through the mirror flow"
-                    );
-                    return Ok(ToolResult::error(json!({
-                        "provider": provider,
-                        "backend": "mirror",
-                        "requires_mirror_reauth": true,
-                        "error": format!(
-                            "{provider} is already connected via direct login (email + password). \
-                             Re-authenticate through the same flow instead of proposing a fresh OAuth connection."
-                        )
-                    })));
-                }
-            }
-        }
-
-        // Validate redirect URL if provided
-        let redirect_url = args.get("redirect_url").and_then(Value::as_str);
-        if let Some(url) = redirect_url {
-            if !validate_redirect_url(url) {
-                return Ok(ToolResult::error(json!({
-                    "error": "Invalid redirect_url scheme. Allowed schemes: pierre://, exp://, http://localhost, https://"
-                })));
-            }
-        }
-
-        // SECURITY: Global lookup — connection tool, tenant resolved from user's membership
-        repos
-            .users
-            .get_global(context.user_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::new(
-                    ErrorCode::ResourceNotFound,
-                    format!("User {} not found", context.user_id),
-                )
-            })?;
-
-        // Resolve user's default tenant from tenant_users junction table (fallback)
-        let user_default_tenant_id = repos
-            .tenants
-            .list_for_user(context.user_id)
-            .await
-            .ok()
-            .and_then(|t| t.first().map(|tenant| tenant.id));
-
-        let tenant_context = build_tenant_context(
-            repos.tenants.as_ref(),
-            context.user_id,
-            user_default_tenant_id,
-            context.tenant_id.map(TenantId::from),
+        delegate_to_handler(
+            context,
+            args,
+            "connect_provider",
+            handlers::handle_connect_provider,
         )
-        .await?;
-
-        // Build OAuth state and generate authorization URL
-        let state = build_oauth_state(context.user_id, redirect_url);
-
-        match context
-            .resources
-            .tenant_oauth_client
-            .get_authorization_url(
-                &tenant_context,
-                provider,
-                &state,
-                context.resources.repos.tenants.as_ref(),
-                context.resources.repos.oauth_tokens.as_ref(),
-            )
-            .await
-        {
-            Ok(url) => {
-                // Store state server-side for CSRF protection with 10-minute TTL
-                let now = Utc::now();
-                let base_url = env::var("BASE_URL").unwrap_or_else(|_| {
-                    format!("http://localhost:{}", context.resources.config.http_port)
-                });
-                let oauth_callback_uri = format!("{base_url}/api/oauth/callback/{provider}");
-                let client_state = OAuthClientState {
-                    state: state.clone(),
-                    provider: provider.to_owned(),
-                    user_id: Some(context.user_id),
-                    tenant_id: context
-                        .tenant_id
-                        .as_ref()
-                        .map(ToString::to_string)
-                        .or_else(|| Some(tenant_context.tenant_id.to_string())),
-                    redirect_uri: oauth_callback_uri,
-                    scope: None,
-                    pkce_code_verifier: None,
-                    created_at: now,
-                    expires_at: now + Duration::minutes(i64::from(AUTHORIZATION_EXPIRES_MINUTES)),
-                    used: false,
-                };
-
-                if let Err(e) = repos
-                    .oauth_client_state
-                    .store_oauth_client_state(&client_state)
-                    .await
-                {
-                    warn!("Failed to store OAuth state for CSRF protection: {}", e);
-                    return Ok(build_oauth_error_response(
-                        provider,
-                        &AppError::internal(format!("Failed to initiate OAuth flow: {e}")),
-                    ));
-                }
-
-                let flow_type = if redirect_url.is_some() {
-                    " (mobile flow)"
-                } else {
-                    ""
-                };
-                info!(
-                    "Generated OAuth URL for user {} provider {}{}",
-                    context.user_id, provider, flow_type
-                );
-                Ok(build_oauth_success_response(provider, &url, &state))
-            }
-            Err(e) => {
-                error!("OAuth URL generation failed for {}: {}", provider, e);
-                Ok(build_oauth_error_response(provider, &e))
-            }
-        }
+        .await
     }
 }
 
@@ -437,97 +170,14 @@ impl McpTool for GetConnectionStatusTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let tenant_id = context.tenant_id.map(TenantId::from);
-
-        if let Some(specific_provider) = args.get("provider").and_then(Value::as_str) {
-            // Mirror backends are internal-only — refuse to expose them
-            // so the LLM cannot enumerate them as user-visible options.
-            if backend_resolver::is_mirror_backend(specific_provider) {
-                return Ok(ToolResult::ok(json!({
-                    "provider": specific_provider,
-                    "status": "disconnected",
-                    "connected": false,
-                    "backend": "none",
-                    "note": "Unknown provider. Use 'strava' or 'garmin' instead."
-                })));
-            }
-
-            let (connected, backend_kind) = match (tenant_id, canonical_name(specific_provider)) {
-                (Some(tid), Some(canonical)) => {
-                    let s = backend_resolver::coalesced_status(
-                        &context.resources.repos,
-                        context.user_id,
-                        tid,
-                        canonical,
-                    )
-                    .await;
-                    (s.connected, s.backend_kind)
-                }
-                _ => (false, BackendKind::None),
-            };
-
-            let status = if connected {
-                "connected"
-            } else {
-                "disconnected"
-            };
-
-            Ok(ToolResult::ok(json!({
-                "provider": specific_provider,
-                "status": status,
-                "connected": connected,
-                "backend": backend_kind.as_str()
-            })))
-        } else {
-            // Multi-provider mode - report only user-facing providers.
-            // Mirror backends (sciotte/sciotte_garmin) are coalesced into
-            // strava/garmin so the LLM never sees the internal name.
-            let mut providers_status = Map::new();
-
-            for user_facing in USER_FACING_PROVIDERS {
-                let s = match tenant_id {
-                    Some(tid) => {
-                        backend_resolver::coalesced_status(
-                            &context.resources.repos,
-                            context.user_id,
-                            tid,
-                            user_facing,
-                        )
-                        .await
-                    }
-                    None => backend_resolver::CoalescedStatus {
-                        user_facing,
-                        connected: false,
-                        backend_kind: BackendKind::None,
-                    },
-                };
-
-                let status_str = if s.connected {
-                    "connected"
-                } else {
-                    "disconnected"
-                };
-
-                providers_status.insert(
-                    (*user_facing).to_owned(),
-                    json!({
-                        "connected": s.connected,
-                        "status": status_str,
-                        "backend": s.backend_kind.as_str()
-                    }),
-                );
-            }
-
-            Ok(ToolResult::ok(json!({ "providers": providers_status })))
-        }
+        delegate_to_handler(
+            context,
+            args,
+            "get_connection_status",
+            handlers::handle_get_connection_status,
+        )
+        .await
     }
-}
-
-/// Canonicalise a user-supplied provider name into a `&'static str` from
-/// `USER_FACING_PROVIDERS`, or `None` if it isn't a recognised user-facing
-/// provider.
-fn canonical_name(name: &str) -> Option<&'static str> {
-    USER_FACING_PROVIDERS.iter().copied().find(|p| *p == name)
 }
 
 // ============================================================================
@@ -576,43 +226,13 @@ impl McpTool for DisconnectProviderTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let registry = context.provider_registry();
-
-        // Extract provider from parameters (required)
-        let provider =
-            args.get("provider")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    let supported = registry.supported_providers().join(", ");
-                    AppError::new(
-                ErrorCode::MissingRequiredField,
-                format!("Missing required 'provider' parameter. Supported providers: {supported}"),
-            )
-                })?;
-
-        // Require tenant_id to disconnect a provider — "default" fallback is invalid for UUID-based tenant IDs
-        let tenant_id = context.tenant_id.map(TenantId::from).ok_or_else(|| {
-            AppError::auth_invalid("tenant_id is required to disconnect a provider")
-        })?;
-
-        // Disconnect by deleting the token directly
-        match context
-            .resources
-            .repos
-            .oauth_tokens
-            .delete_token(context.user_id, tenant_id, provider)
-            .await
-        {
-            Ok(()) => Ok(ToolResult::ok(json!({
-                "provider": provider,
-                "status": "disconnected",
-                "message": format!("Successfully disconnected from {}", provider)
-            }))),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to disconnect from {}: {}", provider, e),
-                "provider": provider
-            }))),
-        }
+        delegate_to_handler(
+            context,
+            args,
+            "disconnect_provider",
+            handlers::handle_disconnect_provider,
+        )
+        .await
     }
 }
 

@@ -30,7 +30,6 @@ use crate::errors::{AppError, AppResult};
 use crate::jsonrpc::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::mcp::schema::ProgressNotification;
 use crate::protocols::converter::ProtocolConverter;
-use crate::protocols::universal::tool_registry::ToolId;
 use crate::protocols::universal::types::{CancellationToken, ProgressReporter};
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::providers::ProviderRegistry;
@@ -696,7 +695,9 @@ impl MultiTenantMcpServer {
         auth_result: &AuthResult,
     ) -> McpResponse {
         // Validate tool is known
-        if let Some(error_response) = Self::validate_known_tool(tool_name, request_id.clone()) {
+        if let Some(error_response) =
+            Self::validate_known_tool(tool_name, resources, request_id.clone())
+        {
             return error_response;
         }
 
@@ -743,10 +744,18 @@ impl MultiTenantMcpServer {
         .await
     }
 
-    /// Validate that tool name is registered in the Universal protocol `ToolId` registry
-    /// All tools registered in `ToolId` enum are automatically routed through Universal Protocol
-    fn validate_known_tool(tool_name: &str, request_id: Value) -> Option<McpResponse> {
-        if ToolId::from_name(tool_name).is_some() {
+    /// Validate that the tool name resolves in the shared [`ToolRegistry`].
+    ///
+    /// Post-unification (2026-04-18): every tool — MCP protocol or chat
+    /// pipeline — lives in `resources.tool_registry`. A lookup miss is the
+    /// single source of truth for "unknown tool"; there is no fallback
+    /// enum to consult.
+    fn validate_known_tool(
+        tool_name: &str,
+        resources: &Arc<ServerResources>,
+        request_id: Value,
+    ) -> Option<McpResponse> {
+        if resources.tool_registry.get(tool_name).is_some() {
             None
         } else {
             Some(McpResponse {

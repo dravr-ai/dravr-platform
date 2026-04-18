@@ -29,31 +29,34 @@ use tracing::warn;
 ///
 /// # Errors
 /// Returns `ProtocolError` if catalog serialization fails
+#[must_use]
 pub fn handle_get_configuration_catalog(
     _executor: &UniversalToolExecutor,
-    _request: &UniversalRequest,
-) -> Result<UniversalResponse, ProtocolError> {
-    // Build configuration catalog
-    let catalog = CatalogBuilder::build();
+    _request: UniversalRequest,
+) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    Box::pin(async move {
+        // Build configuration catalog
+        let catalog = CatalogBuilder::build();
 
-    Ok(UniversalResponse {
-        success: true,
-        result: Some(serde_json::json!({
-            "catalog": catalog
-        })),
-        error: None,
-        metadata: Some({
-            let mut map = HashMap::new();
-            map.insert(
-                "catalog_type".to_owned(),
-                serde_json::Value::String("complete".to_owned()),
-            );
-            map.insert(
-                "parameter_count".to_owned(),
-                serde_json::Value::Number(catalog.total_parameters.into()),
-            );
-            map
-        }),
+        Ok(UniversalResponse {
+            success: true,
+            result: Some(serde_json::json!({
+                "catalog": catalog
+            })),
+            error: None,
+            metadata: Some({
+                let mut map = HashMap::new();
+                map.insert(
+                    "catalog_type".to_owned(),
+                    serde_json::Value::String("complete".to_owned()),
+                );
+                map.insert(
+                    "parameter_count".to_owned(),
+                    serde_json::Value::Number(catalog.total_parameters.into()),
+                );
+                map
+            }),
+        })
     })
 }
 
@@ -61,39 +64,42 @@ pub fn handle_get_configuration_catalog(
 ///
 /// # Errors
 /// Returns `ProtocolError` if profiles serialization fails
+#[must_use]
 pub fn handle_get_configuration_profiles(
     _executor: &UniversalToolExecutor,
-    _request: &UniversalRequest,
-) -> Result<UniversalResponse, ProtocolError> {
-    // Get available profile templates and transform to expected structure
-    let profile_templates = ProfileTemplates::all();
+    _request: UniversalRequest,
+) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    Box::pin(async move {
+        // Get available profile templates and transform to expected structure
+        let profile_templates = ProfileTemplates::all();
 
-    let profiles: Vec<serde_json::Value> = profile_templates
-        .into_iter()
-        .map(|(name, profile)| {
-            serde_json::json!({
-                "name": name,
-                "profile": profile,
-                "description": format!("Configuration profile: {name}")
+        let profiles: Vec<serde_json::Value> = profile_templates
+            .into_iter()
+            .map(|(name, profile)| {
+                serde_json::json!({
+                    "name": name,
+                    "profile": profile,
+                    "description": format!("Configuration profile: {name}")
+                })
             })
-        })
-        .collect();
+            .collect();
 
-    Ok(UniversalResponse {
-        success: true,
-        result: Some(serde_json::json!({
-            "profiles": profiles,
-            "total_count": profiles.len()
-        })),
-        error: None,
-        metadata: Some({
-            let mut map = HashMap::new();
-            map.insert(
-                "profile_count".to_owned(),
-                serde_json::Value::Number(profiles.len().into()),
-            );
-            map
-        }),
+        Ok(UniversalResponse {
+            success: true,
+            result: Some(serde_json::json!({
+                "profiles": profiles,
+                "total_count": profiles.len()
+            })),
+            error: None,
+            metadata: Some({
+                let mut map = HashMap::new();
+                map.insert(
+                    "profile_count".to_owned(),
+                    serde_json::Value::Number(profiles.len().into()),
+                );
+                map
+            }),
+        })
     })
 }
 
@@ -427,69 +433,74 @@ fn calculate_power_zones_from_ftp(ftp: u32, config: &TrainingZonesConfig) -> ser
 ///
 /// # Errors
 /// Returns `ProtocolError` if VO2 max parameter is missing or zones serialization fails
+#[must_use]
 pub fn handle_calculate_personalized_zones(
     executor: &UniversalToolExecutor,
-    request: &UniversalRequest,
-) -> Result<UniversalResponse, ProtocolError> {
-    let params = extract_zone_parameters(request)?;
-    let user_profile = create_user_profile(&params);
-    let (zones, zone_calculations) = calculate_heart_rate_zones(&params);
+    request: UniversalRequest,
+) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    Box::pin(async move {
+        let params = extract_zone_parameters(&request)?;
+        let user_profile = create_user_profile(&params);
+        let (zones, zone_calculations) = calculate_heart_rate_zones(&params);
 
-    // Calculate personalized pace zones from VO2 max
-    let pace_zones =
-        calculate_pace_zones_from_vo2max(params.vo2_max, &executor.resources.config.training_zones);
+        // Calculate personalized pace zones from VO2 max
+        let pace_zones = calculate_pace_zones_from_vo2max(
+            params.vo2_max,
+            &executor.resources.config.training_zones,
+        );
 
-    // Get FTP from parameters (optional) - if not provided, use default estimate
-    let ftp = request
-        .parameters
-        .get("ftp")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|f| u32::try_from(f).ok())
-        .unwrap_or(DEFAULT_ESTIMATED_FTP);
+        // Get FTP from parameters (optional) - if not provided, use default estimate
+        let ftp = request
+            .parameters
+            .get("ftp")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|f| u32::try_from(f).ok())
+            .unwrap_or(DEFAULT_ESTIMATED_FTP);
 
-    // Calculate power zones using FTP (either provided or default estimate)
-    let power_zones_result =
-        calculate_power_zones_from_ftp(ftp, &executor.resources.config.training_zones);
+        // Calculate power zones using FTP (either provided or default estimate)
+        let power_zones_result =
+            calculate_power_zones_from_ftp(ftp, &executor.resources.config.training_zones);
 
-    Ok(UniversalResponse {
-        success: true,
-        result: Some(serde_json::json!({
-            "user_profile": user_profile,
-            "personalized_zones": {
-                "heart_rate_zones": zones,
-                "pace_zones": pace_zones,
-                "power_zones": power_zones_result,
-                "estimated_ftp": ftp
-            },
-            "zone_calculations": zone_calculations
-        })),
-        error: None,
-        metadata: Some({
-            let mut map = HashMap::new();
-            // Only include vo2_max if it's a valid f64 value
-            if let Some(vo2_number) = serde_json::Number::from_f64(params.vo2_max) {
-                map.insert("vo2_max".to_owned(), serde_json::Value::Number(vo2_number));
-            } else {
-                warn!(
-                    vo2_max = params.vo2_max,
-                    "Invalid VO2 max value (NaN/Infinity), omitting from metadata"
-                );
-            }
-            map.insert(
-                "zone_count".to_owned(),
-                serde_json::Value::Number(TRAINING_ZONE_COUNT.into()),
-            );
-            map.insert("ftp_used".to_owned(), serde_json::Value::Number(ftp.into()));
-            map.insert(
-                "ftp_source".to_owned(),
-                serde_json::Value::String(if request.parameters.get("ftp").is_some() {
-                    "provided".to_owned()
+        Ok(UniversalResponse {
+            success: true,
+            result: Some(serde_json::json!({
+                "user_profile": user_profile,
+                "personalized_zones": {
+                    "heart_rate_zones": zones,
+                    "pace_zones": pace_zones,
+                    "power_zones": power_zones_result,
+                    "estimated_ftp": ftp
+                },
+                "zone_calculations": zone_calculations
+            })),
+            error: None,
+            metadata: Some({
+                let mut map = HashMap::new();
+                // Only include vo2_max if it's a valid f64 value
+                if let Some(vo2_number) = serde_json::Number::from_f64(params.vo2_max) {
+                    map.insert("vo2_max".to_owned(), serde_json::Value::Number(vo2_number));
                 } else {
-                    "default_estimate".to_owned()
-                }),
-            );
-            map
-        }),
+                    warn!(
+                        vo2_max = params.vo2_max,
+                        "Invalid VO2 max value (NaN/Infinity), omitting from metadata"
+                    );
+                }
+                map.insert(
+                    "zone_count".to_owned(),
+                    serde_json::Value::Number(TRAINING_ZONE_COUNT.into()),
+                );
+                map.insert("ftp_used".to_owned(), serde_json::Value::Number(ftp.into()));
+                map.insert(
+                    "ftp_source".to_owned(),
+                    serde_json::Value::String(if request.parameters.get("ftp").is_some() {
+                        "provided".to_owned()
+                    } else {
+                        "default_estimate".to_owned()
+                    }),
+                );
+                map
+            }),
+        })
     })
 }
 
@@ -762,91 +773,94 @@ fn validate_parameter_relationships(
 ///
 /// # Errors
 /// Returns `ProtocolError` if configuration parameter is missing
+#[must_use]
 pub fn handle_validate_configuration(
     _executor: &UniversalToolExecutor,
-    request: &UniversalRequest,
-) -> Result<UniversalResponse, ProtocolError> {
-    // Extract parameters to validate
-    let parameters = request
-        .parameters
-        .get("parameters")
-        .ok_or_else(|| ProtocolError::InvalidRequest("parameters field required".to_owned()))?;
+    request: UniversalRequest,
+) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    Box::pin(async move {
+        // Extract parameters to validate
+        let parameters = request
+            .parameters
+            .get("parameters")
+            .ok_or_else(|| ProtocolError::InvalidRequest("parameters field required".to_owned()))?;
 
-    // Validate parameters structure and content
-    if parameters.is_object() {
-        let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
+        // Validate parameters structure and content
+        if parameters.is_object() {
+            let param_count = parameters.as_object().map_or(0, serde_json::Map::len);
 
-        // Collect validation errors
-        let mut errors = Vec::new();
+            // Collect validation errors
+            let mut errors = Vec::new();
 
-        if let Some(obj) = parameters.as_object() {
-            // Perform range validations
-            let ranges_valid = validate_parameter_ranges(obj, &mut errors);
+            if let Some(obj) = parameters.as_object() {
+                // Perform range validations
+                let ranges_valid = validate_parameter_ranges(obj, &mut errors);
 
-            // Perform relationship validations
-            let relationships_valid = validate_parameter_relationships(obj, &mut errors);
+                // Perform relationship validations
+                let relationships_valid = validate_parameter_relationships(obj, &mut errors);
 
-            // Check for invalid parameter name/value patterns
-            let mut pattern_valid = true;
-            for (key, value) in obj {
-                if key.contains("invalid") || key.starts_with("invalid.") {
-                    pattern_valid = false;
-                    errors.push(format!("Invalid parameter name: {key}"));
+                // Check for invalid parameter name/value patterns
+                let mut pattern_valid = true;
+                for (key, value) in obj {
+                    if key.contains("invalid") || key.starts_with("invalid.") {
+                        pattern_valid = false;
+                        errors.push(format!("Invalid parameter name: {key}"));
+                    }
+
+                    if value.is_string() && value.as_str() == Some("invalid_value") {
+                        pattern_valid = false;
+                        errors.push(format!("Invalid value for parameter: {key}"));
+                    }
                 }
 
-                if value.is_string() && value.as_str() == Some("invalid_value") {
-                    pattern_valid = false;
-                    errors.push(format!("Invalid value for parameter: {key}"));
-                }
+                let validation_passed = ranges_valid && relationships_valid && pattern_valid;
+
+                return Ok(UniversalResponse {
+                    success: true,
+                    result: Some(serde_json::json!({
+                        "validation_passed": validation_passed,
+                        "parameters_validated": param_count,
+                        "message": if validation_passed {
+                            "Configuration parameters are valid"
+                        } else {
+                            "Configuration validation failed"
+                        },
+                        "errors": if errors.is_empty() { serde_json::Value::Null } else { serde_json::json!(errors) }
+                    })),
+                    error: None,
+                    metadata: None,
+                });
             }
 
-            let validation_passed = ranges_valid && relationships_valid && pattern_valid;
-
-            return Ok(UniversalResponse {
+            Ok(UniversalResponse {
                 success: true,
                 result: Some(serde_json::json!({
-                    "validation_passed": validation_passed,
+                    "validation_passed": true,
                     "parameters_validated": param_count,
-                    "message": if validation_passed {
-                        "Configuration parameters are valid"
-                    } else {
-                        "Configuration validation failed"
-                    },
-                    "errors": if errors.is_empty() { serde_json::Value::Null } else { serde_json::json!(errors) }
+                    "message": "Configuration parameters are valid",
+                    "errors": serde_json::Value::Null
                 })),
                 error: None,
                 metadata: None,
-            });
+            })
+        } else {
+            Ok(UniversalResponse {
+                success: false,
+                result: Some(serde_json::json!({
+                    "validation_passed": false,
+                    "parameters_validated": 0,
+                    "errors": ["Parameters must be a JSON object"]
+                })),
+                error: Some("Validation failed: Parameters must be a JSON object".to_owned()),
+                metadata: Some({
+                    let mut map = HashMap::new();
+                    map.insert(
+                        "error_count".to_owned(),
+                        serde_json::Value::Number(1.into()),
+                    );
+                    map
+                }),
+            })
         }
-
-        Ok(UniversalResponse {
-            success: true,
-            result: Some(serde_json::json!({
-                "validation_passed": true,
-                "parameters_validated": param_count,
-                "message": "Configuration parameters are valid",
-                "errors": serde_json::Value::Null
-            })),
-            error: None,
-            metadata: None,
-        })
-    } else {
-        Ok(UniversalResponse {
-            success: false,
-            result: Some(serde_json::json!({
-                "validation_passed": false,
-                "parameters_validated": 0,
-                "errors": ["Parameters must be a JSON object"]
-            })),
-            error: Some("Validation failed: Parameters must be a JSON object".to_owned()),
-            metadata: Some({
-                let mut map = HashMap::new();
-                map.insert(
-                    "error_count".to_owned(),
-                    serde_json::Value::Number(1.into()),
-                );
-                map
-            }),
-        })
-    }
+    })
 }

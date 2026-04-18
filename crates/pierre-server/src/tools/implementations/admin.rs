@@ -21,135 +21,15 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::Utc;
-use serde_json::{json, Value};
-use uuid::Uuid;
+use serde_json::Value;
 
-use crate::errors::{AppError, AppResult};
+use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema};
-use crate::models::TenantId;
+use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
-use pierre_core::models::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachVisibility, CreateSystemCoachRequest,
-    UpdateCoachRequest,
-};
-use pierre_database::database::repositories::CoachesRepository;
-
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-/// Get coaches repository from context resources
-fn get_coaches_manager(ctx: &ToolExecutionContext) -> &dyn CoachesRepository {
-    ctx.resources.coaches_manager()
-}
-
-/// Get tenant ID from context, defaulting to `user_id` as `TenantId`
-fn get_tenant_id(ctx: &ToolExecutionContext) -> TenantId {
-    ctx.tenant_id
-        .map_or_else(|| TenantId::from(ctx.user_id), TenantId::from)
-}
-
-/// Verify that a target user belongs to the same tenant as the admin.
-///
-/// Prevents cross-tenant operations by checking tenant membership
-/// before allowing assign/unassign/listing operations on a user.
-async fn verify_user_in_tenant(
-    ctx: &ToolExecutionContext,
-    target_user_id: Uuid,
-    tenant_id: TenantId,
-) -> AppResult<()> {
-    let user_tenants = ctx
-        .resources
-        .repos
-        .tenants
-        .list_for_user(target_user_id)
-        .await
-        .map_err(|e| {
-            AppError::database(format!(
-                "Failed to verify tenant membership for user {target_user_id}: {e}"
-            ))
-        })?;
-
-    if !user_tenants.iter().any(|t| t.id == tenant_id) {
-        return Err(AppError::auth_invalid(format!(
-            "User {target_user_id} does not belong to this tenant"
-        )));
-    }
-
-    Ok(())
-}
-
-/// Format a system coach for JSON response
-///
-/// System coaches do not have per-user preference fields directly.
-/// Those live in `coach_assignments` per user.
-fn format_system_coach(coach: &Coach) -> Value {
-    json!({
-        "id": coach.id.to_string(),
-        "title": coach.title,
-        "description": coach.description,
-        "system_prompt": coach.system_prompt,
-        "category": coach.category.as_str(),
-        "tags": coach.tags,
-        "sample_prompts": coach.sample_prompts,
-        "token_count": coach.token_count,
-        "visibility": coach.visibility.as_str(),
-        "created_at": coach.created_at.to_rfc3339(),
-        "updated_at": coach.updated_at.to_rfc3339(),
-    })
-}
-
-/// Format a system coach summary for list response
-fn format_system_coach_summary(coach: &Coach) -> Value {
-    json!({
-        "id": coach.id.to_string(),
-        "title": coach.title,
-        "description": coach.description,
-        "category": coach.category.as_str(),
-        "tags": coach.tags,
-        "visibility": coach.visibility.as_str(),
-        "updated_at": coach.updated_at.to_rfc3339(),
-    })
-}
-
-/// Format a coach assignment for JSON response
-fn format_assignment(assignment: &CoachAssignment) -> Value {
-    json!({
-        "user_id": assignment.user_id,
-        "user_email": assignment.user_email,
-        "assigned_at": assignment.assigned_at,
-        "assigned_by": assignment.assigned_by,
-    })
-}
-
-/// Parse category from string
-fn parse_category(category_str: &str) -> AppResult<CoachCategory> {
-    match category_str.to_lowercase().as_str() {
-        "training" => Ok(CoachCategory::Training),
-        "nutrition" => Ok(CoachCategory::Nutrition),
-        "recovery" => Ok(CoachCategory::Recovery),
-        "recipes" => Ok(CoachCategory::Recipes),
-        "custom" => Ok(CoachCategory::Custom),
-        other => Err(AppError::invalid_input(format!(
-            "Invalid category '{other}'. Must be: training, nutrition, recovery, recipes, custom"
-        ))),
-    }
-}
-
-/// Parse visibility from string
-fn parse_visibility(visibility_str: &str) -> AppResult<CoachVisibility> {
-    match visibility_str.to_lowercase().as_str() {
-        "tenant" => Ok(CoachVisibility::Tenant),
-        "global" => Ok(CoachVisibility::Global),
-        "private" => Ok(CoachVisibility::Private),
-        other => Err(AppError::invalid_input(format!(
-            "Invalid visibility '{other}'. Must be: tenant, global, private"
-        ))),
-    }
-}
+use crate::tools::universal_delegate::delegate_to_handler;
 
 // ============================================================================
 // AdminListSystemCoachesTool - List all system coaches
@@ -199,38 +79,14 @@ impl McpTool for AdminListSystemCoachesTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        tracing::debug!(user_id = %ctx.user_id, "Admin listing system coaches");
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let coaches = manager.list_system_coaches(tenant_id).await?;
-
-        // Apply pagination (manager returns all, we slice here)
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map_or(50, |v| v.min(200)) as usize;
-        #[allow(clippy::cast_possible_truncation)]
-        let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
-
-        let total = coaches.len();
-        let paginated: Vec<_> = coaches
-            .iter()
-            .skip(offset)
-            .take(limit)
-            .map(format_system_coach_summary)
-            .collect();
-
-        Ok(ToolResult::ok(json!({
-            "coaches": paginated,
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-            "retrieved_at": Utc::now().to_rfc3339(),
-        })))
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_list_system_coaches",
+            handlers::handle_admin_list_system_coaches,
+        )
+        .await
     }
 }
 
@@ -321,66 +177,14 @@ impl McpTool for AdminCreateSystemCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        tracing::debug!(user_id = %ctx.user_id, "Admin creating system coach");
-
-        let title = args
-            .get("title")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("title is required"))?;
-
-        let system_prompt = args
-            .get("system_prompt")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("system_prompt is required"))?;
-
-        let description = args.get("description").and_then(Value::as_str);
-
-        let category_str = args
-            .get("category")
-            .and_then(Value::as_str)
-            .unwrap_or("custom");
-        let category = parse_category(category_str)?;
-
-        let tags: Vec<String> = args
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let visibility_str = args
-            .get("visibility")
-            .and_then(Value::as_str)
-            .unwrap_or("tenant");
-        let visibility = parse_visibility(visibility_str)?;
-
-        let request = CreateSystemCoachRequest {
-            title: title.to_owned(),
-            description: description.map(String::from),
-            system_prompt: system_prompt.to_owned(),
-            category,
-            tags,
-            sample_prompts: Vec::new(),
-            visibility,
-        };
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let coach = manager
-            .create_system_coach(ctx.user_id, tenant_id, &request)
-            .await?;
-
-        Ok(ToolResult::ok(json!({
-            "coach": format_system_coach(&coach),
-            "message": format!("System coach '{}' created successfully", coach.title),
-            "created_at": Utc::now().to_rfc3339(),
-        })))
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_create_system_coach",
+            handlers::handle_admin_create_system_coach,
+        )
+        .await
     }
 }
 
@@ -424,34 +228,14 @@ impl McpTool for AdminGetSystemCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        tracing::debug!(user_id = %ctx.user_id, coach_id = %coach_id, "Admin getting system coach");
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        manager
-            .get_system_coach(coach_id, tenant_id)
-            .await?
-            .map_or_else(
-                || {
-                    Ok(ToolResult::ok(json!({
-                        "coach": null,
-                        "message": format!("System coach '{coach_id}' not found"),
-                    })))
-                },
-                |coach| {
-                    Ok(ToolResult::ok(json!({
-                        "coach": format_system_coach(&coach),
-                        "retrieved_at": Utc::now().to_rfc3339(),
-                    })))
-                },
-            )
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_get_system_coach",
+            handlers::handle_admin_get_system_coach,
+        )
+        .await
     }
 }
 
@@ -540,75 +324,14 @@ impl McpTool for AdminUpdateSystemCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        tracing::debug!(user_id = %ctx.user_id, coach_id = %coach_id, "Admin updating system coach");
-
-        let title = args.get("title").and_then(Value::as_str).map(String::from);
-        let system_prompt = args
-            .get("system_prompt")
-            .and_then(Value::as_str)
-            .map(String::from);
-        let description = args
-            .get("description")
-            .and_then(Value::as_str)
-            .map(String::from);
-
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(parse_category)
-            .transpose()?;
-
-        let tags: Option<Vec<String>> = args.get("tags").and_then(Value::as_array).map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(String::from)
-                .collect()
-        });
-
-        let request = UpdateCoachRequest {
-            title,
-            description,
-            system_prompt,
-            category,
-            tags,
-            sample_prompts: None,
-            startup_query: None,
-            data_requirements: None,
-            purpose: None,
-            when_to_use: None,
-            instructions: None,
-            example_inputs: None,
-            example_outputs: None,
-            success_criteria: None,
-        };
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        manager
-            .update_system_coach(coach_id, tenant_id, &request)
-            .await?
-            .map_or_else(
-                || {
-                    Ok(ToolResult::ok(json!({
-                        "coach": null,
-                        "message": format!("System coach '{coach_id}' not found"),
-                    })))
-                },
-                |coach| {
-                    Ok(ToolResult::ok(json!({
-                        "coach": format_system_coach(&coach),
-                        "message": format!("System coach '{}' updated successfully", coach.title),
-                        "updated_at": Utc::now().to_rfc3339(),
-                    })))
-                },
-            )
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_update_system_coach",
+            handlers::handle_admin_update_system_coach,
+        )
+        .await
     }
 }
 
@@ -652,33 +375,14 @@ impl McpTool for AdminDeleteSystemCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        tracing::debug!(user_id = %ctx.user_id, coach_id = %coach_id, "Admin deleting system coach");
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let deleted = manager.delete_system_coach(coach_id, tenant_id).await?;
-
-        if deleted {
-            Ok(ToolResult::ok(json!({
-                "success": true,
-                "coach_id": coach_id,
-                "message": format!("System coach '{coach_id}' deleted successfully"),
-                "deleted_at": Utc::now().to_rfc3339(),
-            })))
-        } else {
-            Ok(ToolResult::ok(json!({
-                "success": false,
-                "coach_id": coach_id,
-                "message": format!("System coach '{coach_id}' not found or not a system coach"),
-            })))
-        }
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_delete_system_coach",
+            handlers::handle_admin_delete_system_coach,
+        )
+        .await
     }
 }
 
@@ -730,61 +434,14 @@ impl McpTool for AdminAssignCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let user_id_str = args
-            .get("user_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("user_id is required"))?;
-
-        let target_user_id = Uuid::parse_str(user_id_str)
-            .map_err(|_| AppError::invalid_input(format!("Invalid user_id UUID: {user_id_str}")))?;
-
-        tracing::debug!(
-            admin_user_id = %ctx.user_id,
-            coach_id = %coach_id,
-            target_user_id = %target_user_id,
-            "Admin assigning coach to user"
-        );
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        // Verify target user belongs to the same tenant as the admin
-        verify_user_in_tenant(ctx, target_user_id, tenant_id).await?;
-
-        // Verify the coach belongs to this tenant before assigning
-        let coach = manager.get_system_coach(coach_id, tenant_id).await?;
-        if coach.is_none() {
-            return Err(AppError::not_found(format!(
-                "Coach '{coach_id}' not found in this tenant"
-            )));
-        }
-
-        let assigned = manager
-            .assign_coach(coach_id, target_user_id, ctx.user_id)
-            .await?;
-
-        if assigned {
-            Ok(ToolResult::ok(json!({
-                "success": true,
-                "coach_id": coach_id,
-                "user_id": user_id_str,
-                "message": format!("Coach '{coach_id}' assigned to user '{user_id_str}'"),
-                "assigned_at": Utc::now().to_rfc3339(),
-            })))
-        } else {
-            Ok(ToolResult::ok(json!({
-                "success": false,
-                "coach_id": coach_id,
-                "user_id": user_id_str,
-                "message": "Assignment already exists or coach not found",
-            })))
-        }
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_assign_coach",
+            handlers::handle_admin_assign_coach,
+        )
+        .await
     }
 }
 
@@ -836,59 +493,14 @@ impl McpTool for AdminUnassignCoachTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let user_id_str = args
-            .get("user_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("user_id is required"))?;
-
-        let target_user_id = Uuid::parse_str(user_id_str)
-            .map_err(|_| AppError::invalid_input(format!("Invalid user_id UUID: {user_id_str}")))?;
-
-        tracing::debug!(
-            admin_user_id = %ctx.user_id,
-            coach_id = %coach_id,
-            target_user_id = %target_user_id,
-            "Admin unassigning coach from user"
-        );
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        // Verify target user belongs to the same tenant as the admin
-        verify_user_in_tenant(ctx, target_user_id, tenant_id).await?;
-
-        // Verify the coach belongs to this tenant before unassigning
-        let coach = manager.get_system_coach(coach_id, tenant_id).await?;
-        if coach.is_none() {
-            return Err(AppError::not_found(format!(
-                "Coach '{coach_id}' not found in this tenant"
-            )));
-        }
-
-        let unassigned = manager.unassign_coach(coach_id, target_user_id).await?;
-
-        if unassigned {
-            Ok(ToolResult::ok(json!({
-                "success": true,
-                "coach_id": coach_id,
-                "user_id": user_id_str,
-                "message": format!("Coach '{coach_id}' unassigned from user '{user_id_str}'"),
-                "unassigned_at": Utc::now().to_rfc3339(),
-            })))
-        } else {
-            Ok(ToolResult::ok(json!({
-                "success": false,
-                "coach_id": coach_id,
-                "user_id": user_id_str,
-                "message": "Assignment not found",
-            })))
-        }
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_unassign_coach",
+            handlers::handle_admin_unassign_coach,
+        )
+        .await
     }
 }
 
@@ -932,40 +544,14 @@ impl McpTool for AdminListCoachAssignmentsTool {
             | ToolCapabilities::ADMIN_ONLY
     }
 
-    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        tracing::debug!(
-            user_id = %ctx.user_id,
-            coach_id = %coach_id,
-            "Admin listing coach assignments"
-        );
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        // Verify the coach belongs to the admin's tenant
-        manager
-            .get_system_coach(coach_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("System coach {coach_id}")))?;
-
-        // List assignments scoped to the admin's tenant
-        let assignments = manager
-            .list_assignments_for_tenant(coach_id, tenant_id)
-            .await?;
-
-        let formatted: Vec<_> = assignments.iter().map(format_assignment).collect();
-
-        Ok(ToolResult::ok(json!({
-            "coach_id": coach_id,
-            "assignments": formatted,
-            "total": assignments.len(),
-            "retrieved_at": Utc::now().to_rfc3339(),
-        })))
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "admin_list_coach_assignments",
+            handlers::handle_admin_list_coach_assignments,
+        )
+        .await
     }
 }
 

@@ -5,50 +5,10 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::auth_service::AuthService;
-use super::handlers::{bridge_mcp_tool, handle_discover_routes};
-use super::handlers::{
-    handle_activate_coach, handle_admin_assign_coach, handle_admin_create_system_coach,
-    handle_admin_delete_system_coach, handle_admin_get_system_coach,
-    handle_admin_list_coach_assignments, handle_admin_list_system_coaches,
-    handle_admin_unassign_coach, handle_admin_update_system_coach, handle_create_coach,
-    handle_deactivate_coach, handle_delete_coach, handle_delete_recipe, handle_get_active_coach,
-    handle_get_coach, handle_get_recipe, handle_get_recipe_constraints, handle_hide_coach,
-    handle_list_coaches, handle_list_hidden_coaches, handle_list_recipes, handle_save_recipe,
-    handle_search_coaches, handle_search_recipes, handle_show_coach, handle_toggle_coach_favorite,
-    handle_update_coach, handle_validate_recipe,
-};
-use super::handlers::{
-    handle_analyze_activity, handle_analyze_goal_feasibility, handle_analyze_meal_nutrition,
-    handle_analyze_performance_trends, handle_analyze_sleep_quality, handle_analyze_training_load,
-    handle_calculate_daily_nutrition, handle_calculate_fitness_score, handle_calculate_metrics,
-    handle_calculate_personalized_zones, handle_calculate_recovery_score,
-    handle_compare_activities, handle_connect_provider, handle_detect_patterns,
-    handle_disconnect_provider, handle_generate_recommendations, handle_get_activities,
-    handle_get_activity_intelligence, handle_get_athlete, handle_get_configuration_catalog,
-    handle_get_configuration_profiles, handle_get_connection_status, handle_get_food_details,
-    handle_get_nutrient_timing, handle_get_stats, handle_get_stretching_exercise,
-    handle_get_user_configuration, handle_get_yoga_pose, handle_list_stretching_exercises,
-    handle_list_yoga_poses, handle_optimize_sleep_schedule, handle_predict_performance,
-    handle_search_food, handle_set_goal, handle_suggest_goals, handle_suggest_rest_day,
-    handle_suggest_stretches_for_activity, handle_suggest_yoga_sequence, handle_track_progress,
-    handle_track_sleep_trends, handle_update_user_configuration, handle_validate_configuration,
-};
-use super::handlers::{
-    handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
-    handle_list_data_sources,
-};
-use crate::tools::implementations::analytics::AnalyzeWeatherImpactTool;
-use crate::tools::implementations::fitness_config::{
-    DeleteFitnessConfigTool, GetFitnessConfigTool, ListFitnessConfigsTool, SetFitnessConfigTool,
-};
-use crate::tools::implementations::memory::{
-    CoachFollowupScheduleTool, CoachNoteAddTool, RecallUserMemoryTool, RememberFactTool,
-};
-use crate::tools::implementations::sync::{GetDataFreshnessTool, RefreshProviderDataTool};
-use crate::tools::implementations::verification::VerifyClaimTool;
+use pierre_core::models::TenantId;
 use pierre_intelligence::IntelligenceConfig;
+use uuid::Uuid;
 
-use super::tool_registry::{ToolId, ToolInfo, ToolRegistry};
 use crate::constants::time_constants::SECONDS_PER_HOUR_F64;
 use crate::intelligence::physiological_constants::business_thresholds::{
     DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
@@ -61,6 +21,9 @@ use crate::mcp::resources::ServerResources;
 use crate::models::Activity;
 use crate::protocols::universal::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
+use crate::tools::context::{AuthMethod, ToolExecutionContext};
+use crate::tools::result::ToolResult;
+use crate::utils::uuid::parse_user_id_for_protocol;
 use std::sync::Arc;
 
 /// Intelligence service interface for analysis operations
@@ -156,8 +119,15 @@ impl IntelligenceService {
     }
 }
 
-/// Clean universal executor with separated concerns
-/// No clippy suppressions needed - this is well-designed code
+/// Thin dispatcher that adapts a [`UniversalRequest`] onto the shared
+/// [`crate::tools::registry::ToolRegistry`].
+///
+/// Post-unification (2026-04-18): no private registry, no fn-pointer
+/// handlers, no `ToolId` enum. Tool lookup is by name against
+/// `resources.tool_registry`, and execution goes straight through
+/// `McpTool::execute`. `UniversalExecutor` exists now only to host the
+/// `auth_service` / `intelligence_service` lifecycles that the chat /
+/// A2A / SSE callers share.
 pub struct UniversalExecutor {
     /// Authentication service for handling OAuth and token validation
     pub auth_service: AuthService,
@@ -165,26 +135,19 @@ pub struct UniversalExecutor {
     pub intelligence_service: IntelligenceService,
     /// Shared server resources (database, weather service, etc.)
     pub resources: Arc<ServerResources>,
-    /// Tool registry mapping tool IDs to handlers
-    registry: ToolRegistry,
 }
 
 impl UniversalExecutor {
     /// Create new executor with all services
     #[must_use]
     pub fn new(resources: Arc<ServerResources>) -> Self {
-        let auth_service = AuthService::new(resources.clone()); // Safe: Arc clone for service creation
-        let intelligence_service = IntelligenceService::new(resources.clone()); // Safe: Arc clone for service creation
-        let mut registry = ToolRegistry::new();
-
-        // Register all tools with their handlers
-        Self::register_all_tools(&mut registry);
+        let auth_service = AuthService::new(resources.clone());
+        let intelligence_service = IntelligenceService::new(resources.clone());
 
         Self {
             auth_service,
             intelligence_service,
             resources,
-            registry,
         }
     }
 
@@ -200,574 +163,108 @@ impl UniversalExecutor {
         self.resources.cageux_config_registry.current()
     }
 
-    /// Register all tools with type-safe handlers
-    fn register_strava_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetActivities,
-            |executor, request| Box::pin(handle_get_activities(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetAthlete,
-            |executor, request| Box::pin(handle_get_athlete(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetStats,
-            |executor, request| Box::pin(handle_get_stats(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeActivity,
-            |executor, request| Box::pin(handle_analyze_activity(executor, request)),
-        ));
-    }
-
-    fn register_connection_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetConnectionStatus,
-            |executor, request| Box::pin(handle_get_connection_status(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ConnectProvider,
-            |executor, request| Box::pin(handle_connect_provider(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DisconnectProvider,
-            |executor, request| Box::pin(handle_disconnect_provider(executor, request)),
-        ));
-    }
-
-    fn register_configuration_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::sync_tool(
-            ToolId::GetConfigurationCatalog,
-            handle_get_configuration_catalog,
-        ));
-        registry.register(ToolInfo::sync_tool(
-            ToolId::GetConfigurationProfiles,
-            handle_get_configuration_profiles,
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetUserConfiguration,
-            |executor, request| Box::pin(handle_get_user_configuration(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::UpdateUserConfiguration,
-            |executor, request| Box::pin(handle_update_user_configuration(executor, request)),
-        ));
-        registry.register(ToolInfo::sync_tool(
-            ToolId::CalculatePersonalizedZones,
-            handle_calculate_personalized_zones,
-        ));
-        registry.register(ToolInfo::sync_tool(
-            ToolId::ValidateConfiguration,
-            handle_validate_configuration,
-        ));
-    }
-
-    fn register_intelligence_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::CalculateMetrics,
-            |executor, request| Box::pin(handle_calculate_metrics(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetActivityIntelligence,
-            |executor, request| Box::pin(handle_get_activity_intelligence(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzePerformanceTrends,
-            |executor, request| Box::pin(handle_analyze_performance_trends(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::CompareActivities,
-            |executor, request| Box::pin(handle_compare_activities(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DetectPatterns,
-            |executor, request| Box::pin(handle_detect_patterns(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GenerateRecommendations,
-            |executor, request| Box::pin(handle_generate_recommendations(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::CalculateFitnessScore,
-            |executor, request| Box::pin(handle_calculate_fitness_score(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::PredictPerformance,
-            |executor, request| Box::pin(handle_predict_performance(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeTrainingLoad,
-            |executor, request| Box::pin(handle_analyze_training_load(executor, request)),
-        ));
-    }
-
-    fn register_goal_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::SetGoal,
-            |executor, request| Box::pin(handle_set_goal(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SuggestGoals,
-            |executor, request| Box::pin(handle_suggest_goals(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeGoalFeasibility,
-            |executor, request| Box::pin(handle_analyze_goal_feasibility(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::TrackProgress,
-            |executor, request| Box::pin(handle_track_progress(executor, request)),
-        ));
-    }
-
-    fn register_sleep_recovery_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeSleepQuality,
-            |executor, request| Box::pin(handle_analyze_sleep_quality(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::CalculateRecoveryScore,
-            |executor, request| Box::pin(handle_calculate_recovery_score(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SuggestRestDay,
-            |executor, request| Box::pin(handle_suggest_rest_day(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::TrackSleepTrends,
-            |executor, request| Box::pin(handle_track_sleep_trends(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::OptimizeSleepSchedule,
-            |executor, request| Box::pin(handle_optimize_sleep_schedule(executor, request)),
-        ));
-    }
-
-    fn register_nutrition_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::CalculateDailyNutrition,
-            |executor, request| Box::pin(handle_calculate_daily_nutrition(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetNutrientTiming,
-            |executor, request| Box::pin(handle_get_nutrient_timing(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SearchFood,
-            |executor, request| Box::pin(handle_search_food(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetFoodDetails,
-            |executor, request| Box::pin(handle_get_food_details(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeMealNutrition,
-            |executor, request| Box::pin(handle_analyze_meal_nutrition(executor, request)),
-        ));
-    }
-
-    fn register_recipe_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetRecipeConstraints,
-            |executor, request| Box::pin(handle_get_recipe_constraints(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ValidateRecipe,
-            |executor, request| Box::pin(handle_validate_recipe(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SaveRecipe,
-            |executor, request| Box::pin(handle_save_recipe(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListRecipes,
-            |executor, request| Box::pin(handle_list_recipes(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetRecipe,
-            |executor, request| Box::pin(handle_get_recipe(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DeleteRecipe,
-            |executor, request| Box::pin(handle_delete_recipe(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SearchRecipes,
-            |executor, request| Box::pin(handle_search_recipes(executor, request)),
-        ));
-    }
-
-    fn register_coaches_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListCoaches,
-            |executor, request| Box::pin(handle_list_coaches(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::CreateCoach,
-            |executor, request| Box::pin(handle_create_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetCoach,
-            |executor, request| Box::pin(handle_get_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::UpdateCoach,
-            |executor, request| Box::pin(handle_update_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DeleteCoach,
-            |executor, request| Box::pin(handle_delete_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ToggleCoachFavorite,
-            |executor, request| Box::pin(handle_toggle_coach_favorite(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SearchCoaches,
-            |executor, request| Box::pin(handle_search_coaches(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ActivateCoach,
-            |executor, request| Box::pin(handle_activate_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DeactivateCoach,
-            |executor, request| Box::pin(handle_deactivate_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetActiveCoach,
-            |executor, request| Box::pin(handle_get_active_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::HideCoach,
-            |executor, request| Box::pin(handle_hide_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ShowCoach,
-            |executor, request| Box::pin(handle_show_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListHiddenCoaches,
-            |executor, request| Box::pin(handle_list_hidden_coaches(executor, request)),
-        ));
-        // Admin coach management tools (system coaches - admin only)
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminListSystemCoaches,
-            |executor, request| Box::pin(handle_admin_list_system_coaches(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminCreateSystemCoach,
-            |executor, request| Box::pin(handle_admin_create_system_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminGetSystemCoach,
-            |executor, request| Box::pin(handle_admin_get_system_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminUpdateSystemCoach,
-            |executor, request| Box::pin(handle_admin_update_system_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminDeleteSystemCoach,
-            |executor, request| Box::pin(handle_admin_delete_system_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminAssignCoach,
-            |executor, request| Box::pin(handle_admin_assign_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminUnassignCoach,
-            |executor, request| Box::pin(handle_admin_unassign_coach(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::AdminListCoachAssignments,
-            |executor, request| Box::pin(handle_admin_list_coach_assignments(executor, request)),
-        ));
-    }
-
-    /// Register mobility tools (stretching exercises, yoga poses)
-    fn register_mobility_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListStretchingExercises,
-            |executor, request| Box::pin(handle_list_stretching_exercises(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetStretchingExercise,
-            |executor, request| Box::pin(handle_get_stretching_exercise(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SuggestStretchesForActivity,
-            |executor, request| Box::pin(handle_suggest_stretches_for_activity(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListYogaPoses,
-            |executor, request| Box::pin(handle_list_yoga_poses(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetYogaPose,
-            |executor, request| Box::pin(handle_get_yoga_pose(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SuggestYogaSequence,
-            |executor, request| Box::pin(handle_suggest_yoga_sequence(executor, request)),
-        ));
-    }
-
-    fn register_health_data_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetSleepSessions,
-            |executor, request| Box::pin(handle_get_sleep_sessions(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetRecoveryMetrics,
-            |executor, request| Box::pin(handle_get_recovery_metrics(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetHealthSnapshots,
-            |executor, request| Box::pin(handle_get_health_snapshots(executor, request)),
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListDataSources,
-            |executor, request| Box::pin(handle_list_data_sources(executor, request)),
-        ));
-    }
-
-    fn register_route_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::DiscoverRoutes,
-            |executor, request| Box::pin(handle_discover_routes(executor, request)),
-        ));
-    }
-
-    // Orphan tools: tools with an `McpTool` impl in `tools/implementations/`
-    // that had no UniversalExecutor handler before the 2026-04-18
-    // exhaustiveness-test sweep. Each is wired through `bridge_mcp_tool` so
-    // the existing `McpTool::execute` logic becomes the single source of
-    // truth for both the MCP protocol path and the chat/tool-loop path.
-
-    fn register_weather_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::AnalyzeWeatherImpact,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    AnalyzeWeatherImpactTool,
-                    "analyze_weather_impact",
-                )
-            },
-        ));
-    }
-
-    fn register_fitness_config_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetFitnessConfig,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    GetFitnessConfigTool,
-                    "get_fitness_config",
-                )
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::SetFitnessConfig,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    SetFitnessConfigTool,
-                    "set_fitness_config",
-                )
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::ListFitnessConfigs,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    ListFitnessConfigsTool,
-                    "list_fitness_configs",
-                )
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::DeleteFitnessConfig,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    DeleteFitnessConfigTool,
-                    "delete_fitness_config",
-                )
-            },
-        ));
-    }
-
-    fn register_provider_sync_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::RefreshProviderData,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    RefreshProviderDataTool,
-                    "refresh_provider_data",
-                )
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::GetDataFreshness,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    GetDataFreshnessTool,
-                    "get_data_freshness",
-                )
-            },
-        ));
-    }
-
-    fn register_memory_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::CoachNoteAdd,
-            |executor, request| {
-                bridge_mcp_tool(executor, request, CoachNoteAddTool, "coach_note_add")
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::CoachFollowupSchedule,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    CoachFollowupScheduleTool,
-                    "coach_followup_schedule",
-                )
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::RememberFact,
-            |executor, request| {
-                bridge_mcp_tool(executor, request, RememberFactTool, "remember_fact")
-            },
-        ));
-        registry.register(ToolInfo::async_tool(
-            ToolId::RecallUserMemory,
-            |executor, request| {
-                bridge_mcp_tool(
-                    executor,
-                    request,
-                    RecallUserMemoryTool,
-                    "recall_user_memory",
-                )
-            },
-        ));
-    }
-
-    fn register_verification_tools(registry: &mut ToolRegistry) {
-        registry.register(ToolInfo::async_tool(
-            ToolId::VerifyClaim,
-            |executor, request| bridge_mcp_tool(executor, request, VerifyClaimTool, "verify_claim"),
-        ));
-    }
-
-    /// Register every tool handler into `registry`.
+    /// Dispatch a tool call to the unified `McpTool` registry.
     ///
-    /// Exposed publicly (behind `#[doc(hidden)]`) so integration tests can
-    /// assert every [`ToolId`] variant has a registered handler without
-    /// spinning up a full [`ServerResources`] instance. This is strictly a
-    /// test-support hook — callers should construct a `UniversalExecutor`
-    /// via [`UniversalExecutor::new`] for normal use.
-    #[doc(hidden)]
-    pub fn register_all_tools(registry: &mut ToolRegistry) {
-        Self::register_strava_tools(registry);
-        Self::register_connection_tools(registry);
-        Self::register_configuration_tools(registry);
-        Self::register_intelligence_tools(registry);
-        Self::register_goal_tools(registry);
-        Self::register_sleep_recovery_tools(registry);
-        Self::register_nutrition_tools(registry);
-        Self::register_recipe_tools(registry);
-        Self::register_coaches_tools(registry);
-        Self::register_mobility_tools(registry);
-        Self::register_health_data_tools(registry);
-        Self::register_route_tools(registry);
-        Self::register_weather_tools(registry);
-        Self::register_fitness_config_tools(registry);
-        Self::register_provider_sync_tools(registry);
-        Self::register_memory_tools(registry);
-        Self::register_verification_tools(registry);
-    }
-
-    /// Execute a tool with type-safe routing (no string matching!)
+    /// Single dispatch path: every tool — regardless of which protocol
+    /// surfaced the request (MCP over HTTP/SSE/stdio, chat tool loop, A2A,
+    /// SSE subscription) — resolves to exactly one `McpTool::execute` body.
+    /// There is no parallel fn-pointer registry anymore; tools that used
+    /// to exist only as `handle_*` functions now have `McpTool` impls that
+    /// delegate to those handlers via `tools::universal_delegate`.
     ///
     /// # Errors
-    /// Returns `ProtocolError` if tool is not found or execution fails
+    /// Returns `ProtocolError::ToolNotFound` when the tool name does not
+    /// resolve in the shared [`crate::tools::registry::ToolRegistry`], and
+    /// `ProtocolError::InternalError` when the context cannot be built
+    /// (e.g. malformed user id) or when tool execution returns `AppError`.
     pub async fn execute_tool(
         &self,
         request: UniversalRequest,
     ) -> Result<UniversalResponse, ProtocolError> {
-        // Convert string tool name to type-safe ID
-        let tool_id = self
-            .registry
-            .resolve_tool_name(&request.tool_name)
+        let tool = self
+            .resources
+            .tool_registry
+            .get(&request.tool_name)
+            .cloned()
             .ok_or_else(|| ProtocolError::ToolNotFound {
                 tool_id: request.tool_name.clone(),
-                available_count: self.registry.list_tools().len(),
-            })?; // Safe: String ownership needed for error message
+                available_count: self.resources.tool_registry.tool_names().len(),
+            })?;
 
-        // Get registered tool info
-        let tool_info = self.registry.get_tool(tool_id).ok_or_else(|| {
-            ProtocolError::InternalError(format!("Tool {tool_id:?} not registered"))
-        })?;
+        let context = build_tool_execution_context(&self.resources, &request)?;
+        let args = request.parameters;
+        let tool_name = request.tool_name;
 
-        // Create executor instance for handler execution
-        let executor = Self::new(self.resources.clone()); // Safe: Arc clone for executor creation
-
-        // Execute based on tool type
-        match (tool_info.async_handler, tool_info.sync_handler) {
-            (Some(async_handler), None) => {
-                // Execute async handler
-                async_handler(&executor, request).await
-            }
-            (None, Some(sync_handler)) => {
-                // Execute sync handler
-                sync_handler(&executor, &request)
-            }
-            _ => Err(ProtocolError::InternalError(format!(
-                "Tool {tool_id:?} has invalid handler configuration"
-            ))),
-        }
-    }
-
-    /// List all available tools for MCP schema generation
-    #[must_use]
-    pub fn list_tools(&self) -> Vec<ToolId> {
-        self.registry.list_tools()
-    }
-
-    /// Get tool metadata for documentation
-    #[must_use]
-    pub fn get_tool_info(&self, tool_id: ToolId) -> Option<(String, String, bool, bool)> {
-        if self.registry.has_tool(tool_id) {
-            Some((
-                tool_id.name().to_owned(),
-                tool_id.description().to_owned(),
-                tool_id.requires_auth(),
-                tool_id.is_async(),
-            ))
-        } else {
-            None
+        match tool.execute(args, &context).await {
+            Ok(tool_result) => Ok(tool_result_to_universal_response(&tool_name, tool_result)),
+            Err(e) => Err(ProtocolError::InternalError(format!("{tool_name}: {e}"))),
         }
     }
 
     /// Check if executor has a specific tool
     #[must_use]
     pub fn has_tool(&self, tool_name: &str) -> bool {
-        self.registry.resolve_tool_name(tool_name).is_some()
+        self.resources.tool_registry.get(tool_name).is_some()
+    }
+}
+
+/// Build the [`ToolExecutionContext`] that every `McpTool::execute` expects
+/// from a [`UniversalRequest`].
+///
+/// Fails fast on malformed `user_id` (must be a UUID) and on missing
+/// `tenant_id` — tools rely on tenant isolation, so a silent fallback would
+/// be a multi-tenancy bug.
+fn build_tool_execution_context(
+    resources: &Arc<ServerResources>,
+    request: &UniversalRequest,
+) -> Result<ToolExecutionContext, ProtocolError> {
+    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+
+    let tenant_id = if let Some(raw) = request.tenant_id.as_deref() {
+        let uuid = Uuid::parse_str(raw)
+            .map_err(|e| ProtocolError::InvalidRequest(format!("Invalid tenant_id format: {e}")))?;
+        Some(TenantId::from_uuid(uuid))
+    } else {
+        None
+    };
+
+    Ok(ToolExecutionContext::new(
+        user_uuid,
+        tenant_id,
+        resources.clone(),
+        AuthMethod::JwtBearer,
+    ))
+}
+
+/// Convert an `McpTool::execute` [`ToolResult`] into a [`UniversalResponse`].
+///
+/// Preserves the success bit, the structured JSON payload, and the error
+/// text — identical to the inverse conversion in
+/// `tools::universal_delegate::delegate_to_handler` so protocol clients see
+/// the same shape regardless of which direction the dispatch came from.
+fn tool_result_to_universal_response(
+    tool_name: &str,
+    tool_result: ToolResult,
+) -> UniversalResponse {
+    if tool_result.is_error {
+        let message = tool_result
+            .content
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map_or_else(|| tool_result.content.to_string(), ToOwned::to_owned);
+        UniversalResponse {
+            success: false,
+            result: Some(tool_result.content),
+            error: Some(message),
+            metadata: None,
+        }
+    } else {
+        tracing::debug!(tool_name, "universal executor: tool executed successfully");
+        UniversalResponse {
+            success: true,
+            result: Some(tool_result.content),
+            error: None,
+            metadata: None,
+        }
     }
 }

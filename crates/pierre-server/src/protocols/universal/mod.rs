@@ -8,10 +8,8 @@
 pub mod auth_service;
 /// Universal tool executor
 pub mod executor;
-/// Tool handler implementations
+/// Handler-side bodies reached via `McpTool::execute` delegation
 pub mod handlers;
-/// Tool registry for discovering available tools
-pub mod tool_registry;
 /// Universal protocol types and interfaces
 pub mod types;
 
@@ -23,5 +21,3 @@ pub use types::{UniversalRequest, UniversalResponse, UniversalTool, UniversalToo
 pub use auth_service::AuthService;
 /// Main executor for universal protocol tools
 pub use executor::UniversalExecutor;
-/// Registry for managing universal protocol tools
-pub use tool_registry::ToolRegistry;

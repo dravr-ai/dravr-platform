@@ -281,7 +281,6 @@ utoipa-axum = { version = "0.2", optional = true }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"], optional = true }
 html-escape = "0.2.13"
 cron = "0.15.0"
-strum = { version = "0.28", features = ["derive"] }
 # Product analytics — optional PostHog integration for messaging funnel tracking
 # posthog-rs removed: it depends on reqwest 0.11/hyper 0.14, causing duplicate hyper.
 # PostHog capture API is called directly via the existing reqwest 0.12 dependency.

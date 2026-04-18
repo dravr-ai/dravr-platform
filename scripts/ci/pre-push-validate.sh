@@ -232,7 +232,13 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
                         test_name=$(basename "$file" .rs)
                         # Skipped: common/helpers/fixtures are shared modules, not test binaries.
                         # messaging_commands_test hangs during pre-push (CI runs it separately).
-                        if [[ "$test_name" != "common" && "$test_name" != "helpers" && "$test_name" != "fixtures" && "$test_name" != "messaging_commands_test" ]]; then
+                        # Skip deleted test files — their binary no longer exists so
+                        # `cargo test --test <name>` would spuriously fail the gate.
+                        if [[ -f "$PROJECT_ROOT/$file" \
+                              && "$test_name" != "common" \
+                              && "$test_name" != "helpers" \
+                              && "$test_name" != "fixtures" \
+                              && "$test_name" != "messaging_commands_test" ]]; then
                             add_tests "$test_name"
                         fi
                     fi
