@@ -104,11 +104,11 @@ async fn try_pg_db() -> Option<(common::IsolatedPostgresDb, Database)> {
 // Session round-trip (the path that broke)
 // ============================================================================
 
-/// Root cause regression test: create_session → get_session_by_channel_identity.
+/// Root cause regression test: `create_session` → `get_session_by_channel_identity`.
 ///
 /// Before the uuid-cast fix (de947ce7), PG rejected this pair with
 /// "operator does not exist: uuid = text" because migration 20260417000001
-/// converted user_id/tenant_id to UUID but the plugin bound them as text.
+/// converted `user_id`/`tenant_id` to UUID but the plugin bound them as text.
 #[tokio::test]
 async fn test_pg_session_create_then_lookup_by_channel_identity() {
     let Some((_isolated, db)) = try_pg_db().await else {
