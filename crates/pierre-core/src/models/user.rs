@@ -176,6 +176,23 @@ pub struct User {
     pub analytics_consent: bool,
     /// When the user last updated their analytics consent preference
     pub analytics_consent_at: Option<DateTime<Utc>>,
+    /// BCP-47 short locale code for user-facing messaging output
+    /// (`"fr"`, `"en"`, `"es"`, `"de"`, `"pt"`). Defaults to
+    /// [`default_locale()`] when not explicitly set. Resolved at messaging
+    /// dispatch time via `messaging_channel_links.locale` override →
+    /// `users.locale` → `DEFAULT_LOCALE`.
+    #[serde(default = "default_locale")]
+    pub locale: String,
+}
+
+/// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
+///
+/// Backward-compat for in-memory JSON payloads (e.g. tests) that predate the
+/// `locale` column. The DB column has `NOT NULL DEFAULT 'fr'` so persisted
+/// rows always carry a concrete value.
+#[must_use]
+pub fn default_locale() -> String {
+    "fr".to_owned()
 }
 
 impl User {
@@ -205,6 +222,7 @@ impl User {
             auth_provider: "email".to_owned(), // Default to email provider
             analytics_consent: false, // Opt-out by default
             analytics_consent_at: None,
+            locale: default_locale(),
         }
     }
 

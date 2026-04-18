@@ -4,13 +4,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::fmt::Write;
-
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_core::models::coaches::ListCoachesFilter;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_messaging::commands::{CommandAction, CommandResponse};
+
+#[cfg(feature = "tools-groups")]
+use crate::contremaitre::messaging_strings::KEY_COACH_GROUP_CREATED;
+#[cfg(not(feature = "tools-groups"))]
+use crate::contremaitre::messaging_strings::KEY_COACH_GROUP_CREATION_UNAVAILABLE;
+use crate::contremaitre::messaging_strings::{
+    KEY_COACH_ASSIGN_FORBIDDEN, KEY_COACH_ASSIGN_NOT_A_MEMBER, KEY_COACH_GROUP_UPDATED,
+    KEY_COACH_LIST_CARD_TITLE, KEY_COACH_LIST_EMPTY, KEY_COACH_LIST_ITEM,
+    KEY_COACH_MULTI_GROUP_CARD_TITLE, KEY_COACH_MULTI_GROUP_ITEM, KEY_COACH_MULTI_GROUP_PROMPT,
+    KEY_COACH_NO_DESCRIPTION,
+};
 
 use super::{CommandHandler, PlatformCommandContext};
 
@@ -23,6 +32,8 @@ pub struct CoachListHandler;
 #[async_trait]
 impl CommandHandler for CoachListHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
         let filter = ListCoachesFilter::with_defaults();
 
         let coaches = ctx
@@ -33,11 +44,14 @@ impl CommandHandler for CoachListHandler {
             .await?;
 
         if coaches.is_empty() {
-            return Ok(CommandResponse::text(
-                "No coaches available. Ask your admin to add coaches to your workspace.",
-            ));
+            return Ok(CommandResponse::text(reg.render(
+                KEY_COACH_LIST_EMPTY,
+                locale,
+                &[],
+            )));
         }
 
+        let no_description = reg.render(KEY_COACH_NO_DESCRIPTION, locale, &[]);
         let mut body = String::with_capacity(512);
         let actions: Vec<CommandAction> = coaches
             .iter()
@@ -48,8 +62,12 @@ impl CommandHandler for CoachListHandler {
                     .coach
                     .description
                     .as_deref()
-                    .unwrap_or("No description");
-                let _ = writeln!(body, "• {} [{}]\n  {}\n", item.coach.title, category, desc);
+                    .unwrap_or(no_description.as_str());
+                body.push_str(&reg.render(
+                    KEY_COACH_LIST_ITEM,
+                    locale,
+                    &[&item.coach.title, category, desc],
+                ));
 
                 CommandAction {
                     label: item.coach.title.clone(),
@@ -59,7 +77,11 @@ impl CommandHandler for CoachListHandler {
             })
             .collect();
 
-        Ok(CommandResponse::card("Choose a Coach", body, actions))
+        Ok(CommandResponse::card(
+            reg.render(KEY_COACH_LIST_CARD_TITLE, locale, &[]),
+            body,
+            actions,
+        ))
     }
 }
 
@@ -103,6 +125,8 @@ impl CommandHandler for CoachSelectHandler {
             })
             .collect();
 
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
         match tenant_groups.len() {
             0 => {
                 // No groups with admin/owner role — create a new one
@@ -124,44 +148,55 @@ impl CommandHandler for CoachSelectHandler {
                         .create_group(&request, ctx.user_id, ctx.tenant_id)
                         .await?;
 
-                    return Ok(CommandResponse::text(format!(
-                        "Created group \"{group_name}\" with coach {}. \
-                         Members can join via /group invite.",
-                        coach.title
+                    return Ok(CommandResponse::text(reg.render(
+                        KEY_COACH_GROUP_CREATED,
+                        locale,
+                        &[&group_name, &coach.title],
                     )));
                 }
 
                 #[cfg(not(feature = "tools-groups"))]
-                Ok(CommandResponse::text(format!(
-                    "Selected coach: {}. Group creation is not available.",
-                    coach.title
-                )))
+                {
+                    let _ = group_name;
+                    Ok(CommandResponse::text(reg.render(
+                        KEY_COACH_GROUP_CREATION_UNAVAILABLE,
+                        locale,
+                        &[&coach.title],
+                    )))
+                }
             }
             1 => {
                 // Exactly one group — update its coach
                 let group = &tenant_groups[0];
                 update_group_coach(ctx, &group.id.to_string(), coach_id).await?;
 
-                Ok(CommandResponse::text(format!(
-                    "Coach updated to {} for group {}.",
-                    coach.title, group.name
+                Ok(CommandResponse::text(reg.render(
+                    KEY_COACH_GROUP_UPDATED,
+                    locale,
+                    &[&coach.title, &group.name],
                 )))
             }
             _ => {
                 // Multiple groups — ask the user to pick one
+                let count = tenant_groups.len().to_string();
                 let mut body = String::with_capacity(256);
-                let _ = writeln!(
-                    body,
-                    "You manage {} groups. Which one should use {}?\n",
-                    tenant_groups.len(),
-                    coach.title
-                );
+                body.push_str(&reg.render(
+                    KEY_COACH_MULTI_GROUP_PROMPT,
+                    locale,
+                    &[&count, &coach.title],
+                ));
 
                 let actions: Vec<CommandAction> = tenant_groups
                     .iter()
                     .take(MAX_COACH_BUTTONS)
                     .map(|g| {
-                        let _ = writeln!(body, "• {} ({} members)", g.name, g.member_count);
+                        let members = g.member_count.to_string();
+                        body.push_str(&reg.render(
+                            KEY_COACH_MULTI_GROUP_ITEM,
+                            locale,
+                            &[&g.name, &members],
+                        ));
+                        body.push('\n');
                         CommandAction {
                             label: g.name.clone(),
                             action_type: "postback".to_owned(),
@@ -170,7 +205,11 @@ impl CommandHandler for CoachSelectHandler {
                     })
                     .collect();
 
-                Ok(CommandResponse::card("Choose a Group", body, actions))
+                Ok(CommandResponse::card(
+                    reg.render(KEY_COACH_MULTI_GROUP_CARD_TITLE, locale, &[]),
+                    body,
+                    actions,
+                ))
             }
         }
     }
@@ -213,6 +252,9 @@ impl CommandHandler for CoachAssignHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
 
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
         // Verify user is admin/owner of this group
         let member = ctx
             .resources
@@ -220,19 +262,24 @@ impl CommandHandler for CoachAssignHandler {
             .groups
             .get_member(group_id, ctx.user_id)
             .await?
-            .ok_or_else(|| AppError::not_found("You are not a member of this group"))?;
+            .ok_or_else(|| {
+                AppError::not_found(reg.render(KEY_COACH_ASSIGN_NOT_A_MEMBER, locale, &[]))
+            })?;
 
         if !member.role.can_modify_settings() {
-            return Ok(CommandResponse::text(
-                "Only group admins and owners can change the coach.",
-            ));
+            return Ok(CommandResponse::text(reg.render(
+                KEY_COACH_ASSIGN_FORBIDDEN,
+                locale,
+                &[],
+            )));
         }
 
         update_group_coach(ctx, group_id, coach_id).await?;
 
-        Ok(CommandResponse::text(format!(
-            "Coach updated to {} for group {}.",
-            coach.title, group.name
+        Ok(CommandResponse::text(reg.render(
+            KEY_COACH_GROUP_UPDATED,
+            locale,
+            &[&coach.title, &group.name],
         )))
     }
 }

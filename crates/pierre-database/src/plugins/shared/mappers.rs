@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::admin::models::{AdminAction, AdminPermissions, AdminToken, AdminTokenUsage};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::A2ATask;
+use pierre_core::models::default_locale;
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_core::permissions::UserRole;
@@ -126,6 +127,8 @@ where
         // Analytics consent - default to opted-out if columns are missing (migration may not have run)
         analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
         analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+        // Locale defaults to 'fr' when the column is absent (pre-migration DBs).
+        locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
     })
 }
 

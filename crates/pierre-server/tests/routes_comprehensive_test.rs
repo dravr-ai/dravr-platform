@@ -124,6 +124,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 
@@ -1327,6 +1328,7 @@ async fn test_oauth_connection_status_no_connections() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&user).await?;
 
@@ -1371,6 +1373,7 @@ async fn test_oauth_disconnect_provider_success() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&user).await?;
 
@@ -1424,6 +1427,7 @@ async fn test_oauth_disconnect_invalid_provider() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     database.repositories().users.create(&user).await?;
 
@@ -1788,6 +1792,7 @@ async fn test_complete_auth_flow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

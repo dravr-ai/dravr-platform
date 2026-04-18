@@ -79,7 +79,7 @@ use stages::prompt_builder::resolve_group_context;
 use stages::prompt_builder::{build_llm_messages, build_provider_context};
 use stages::refresh::inject_refresh_context;
 #[cfg(feature = "tools-verification")]
-use stages::verification::apply_claim_verification;
+use stages::verification::{apply_claim_verification, ClaimVerificationParams};
 
 /// Compiled-in default tool-loop iteration budget when neither the coach
 /// runtime context nor the admin config override specify a value.
@@ -575,7 +575,8 @@ async fn post_process_assistant_reply(
     );
 
     // Stage 16: Tier 6 text guardrails.
-    let mut content = apply_text_guardrails(resources, &raw_content);
+    let locale_opt = input.locale.as_deref();
+    let mut content = apply_text_guardrails(resources, &raw_content, locale_opt);
 
     // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
     #[cfg(feature = "tools-verification")]
@@ -583,15 +584,16 @@ async fn post_process_assistant_reply(
         let verification_config = coach_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
-        content = apply_claim_verification(
+        content = apply_claim_verification(ClaimVerificationParams {
             resources,
-            &content,
-            &input.user_id,
-            &input.conversation_id,
-            conv.coach_id.as_deref(),
-            input.conversation_tenant_id,
-            &verification_config,
-        )
+            reply: &content,
+            user_id: &input.user_id,
+            conversation_id: &input.conversation_id,
+            coach_id: conv.coach_id.as_deref(),
+            tenant_id: input.conversation_tenant_id,
+            config: &verification_config,
+            locale: locale_opt,
+        })
         .await;
     }
 

@@ -10,6 +10,7 @@ use crate::plugins::shared;
 use async_trait::async_trait;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
 use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
@@ -24,8 +25,8 @@ impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
-            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ",
         )
         .bind(user.id)
@@ -46,6 +47,7 @@ impl UserRepository for PostgresDatabase {
         .bind(&user.auth_provider)
         .bind(user.analytics_consent)
         .bind(user.analytics_consent_at)
+        .bind(&user.locale)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -109,6 +111,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_else(|_| "email".to_owned()),
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                    locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 }))
             },
         )
@@ -119,7 +122,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE id = $1
             ",
@@ -167,6 +170,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_else(|_| "email".to_owned()),
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                    locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 }))
             },
         )
@@ -177,7 +181,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE email = $1
             ",
@@ -225,6 +229,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_else(|_| "email".to_owned()),
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                    locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 }))
             },
         )
@@ -241,7 +246,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE is_admin = true
             ORDER BY created_at ASC
@@ -290,6 +295,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_else(|_| "email".to_owned()),
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                    locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 }))
             },
         )
@@ -300,7 +306,7 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE firebase_uid = $1
             ",
@@ -348,6 +354,7 @@ impl UserRepository for PostgresDatabase {
                         .unwrap_or_else(|_| "email".to_owned()),
                     analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                    locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 }))
             },
         )
@@ -422,7 +429,7 @@ impl UserRepository for PostgresDatabase {
                 SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                        role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                        created_at, last_active, firebase_uid, auth_provider,
-                       analytics_consent, analytics_consent_at
+                       analytics_consent, analytics_consent_at, locale
                 FROM users
                 WHERE COALESCE(user_status, 'active') = $1
                 ORDER BY created_at DESC
@@ -478,6 +485,7 @@ impl UserRepository for PostgresDatabase {
                     .unwrap_or_else(|_| "email".to_owned()),
                 analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
             });
         }
 
@@ -493,7 +501,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE COALESCE(user_status, 'active') = $1
               AND (created_at < $2 OR (created_at = $2 AND id::text < $3))
@@ -505,7 +513,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE COALESCE(user_status, 'active') = $1
             ORDER BY created_at DESC, id DESC
@@ -719,7 +727,7 @@ impl UserRepository for PostgresDatabase {
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, COALESCE(user_status, 'active') as user_status, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at
+                   analytics_consent, analytics_consent_at, locale
             FROM users
             WHERE is_admin = TRUE
             ORDER BY email ASC
@@ -770,6 +778,7 @@ impl UserRepository for PostgresDatabase {
                     .unwrap_or_else(|_| "email".to_owned()),
                 analytics_consent: row.try_get("analytics_consent").unwrap_or(false),
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
+                locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
             });
         }
 
@@ -869,6 +878,25 @@ impl UserRepository for PostgresDatabase {
         .await?;
 
         Ok(count > 0)
+    }
+
+    async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET locale = $1 WHERE id = $2
+            ",
+        )
+        .bind(locale)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        Ok(())
     }
 }
 

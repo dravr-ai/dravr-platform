@@ -338,6 +338,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     executor.resources.repos.users.create(&user).await?;

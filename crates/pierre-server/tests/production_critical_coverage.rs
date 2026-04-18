@@ -56,6 +56,7 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
     let repos = server.database().repositories();
     repos.users.create(&user).await?;
@@ -109,6 +110,7 @@ async fn test_model_serialization_coverage() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     // Test serialization
@@ -155,6 +157,7 @@ async fn test_admin_auth_flow() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     let repos = database.repositories();
@@ -207,6 +210,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             auth_provider: String::new(),
             analytics_consent: false,
             analytics_consent_at: None,
+            locale: "fr".to_owned(),
         };
         repos.users.create(&user).await?;
         users.push(user);
@@ -254,6 +258,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     // Create first user
@@ -281,6 +286,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     let result = repos.users.create(&user2).await;
@@ -316,6 +322,7 @@ async fn test_production_rate_limiting() -> Result<()> {
         auth_provider: String::new(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     };
 
     let repos = database.repositories();

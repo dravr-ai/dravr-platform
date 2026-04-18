@@ -108,6 +108,7 @@ async fn update_existing_admin_user(
         auth_provider: existing_user.auth_provider,
         analytics_consent: existing_user.analytics_consent,
         analytics_consent_at: existing_user.analytics_consent_at,
+        locale: existing_user.locale,
     };
 
     repos.users.create(&updated_user).await?;
@@ -218,6 +219,7 @@ fn build_admin_user(
         auth_provider: "email".to_owned(),
         analytics_consent: false,
         analytics_consent_at: None,
+        locale: "fr".to_owned(),
     }
 }
 

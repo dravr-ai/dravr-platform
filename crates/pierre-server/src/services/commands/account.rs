@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use pierre_core::errors::AppError;
 use pierre_messaging::commands::CommandResponse;
 
+use crate::contremaitre::messaging_strings::KEY_LOGOUT_CONFIRM_PROMPT;
+
 use super::{CommandHandler, PlatformCommandContext};
 
 /// Handler for `/logout` — unlink messaging account
@@ -20,11 +22,10 @@ pub struct LogoutHandler;
 #[async_trait]
 impl CommandHandler for LogoutHandler {
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
-        let text = format!(
-            "This will unlink your {} account from Pierre.\n\
-             You will need to re-link to use messaging again.\n\n\
-             Type \"logout\" to confirm.",
-            ctx.channel_type
+        let text = ctx.resources.messaging_strings_registry.render(
+            KEY_LOGOUT_CONFIRM_PROMPT,
+            ctx.locale.as_str(),
+            &[&ctx.channel_type],
         );
 
         Ok(CommandResponse::with_confirmation(text))

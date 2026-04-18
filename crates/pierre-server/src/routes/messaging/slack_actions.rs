@@ -21,6 +21,7 @@ use uuid::Uuid;
 use crate::errors::{AppError, AppResult};
 use crate::mcp::resources::ServerResources;
 use crate::models::UserStatus;
+use crate::services::messaging_ingress::resolve_messaging_locale;
 use crate::services::tenant_admin as tenant_admin_service;
 
 /// Slack API endpoint for looking up user info by ID
@@ -230,6 +231,15 @@ async fn handle_command_postback(
         AppError::invalid_input(format!("No handler for command: {}", parsed.name))
     })?;
 
+    let locale = resolve_messaging_locale(
+        resources,
+        user_tenant,
+        user.id,
+        "slack",
+        &action.slack_user_id,
+    )
+    .await;
+
     let ctx = PlatformCommandContext {
         user_id: user.id,
         tenant_id: user_tenant,
@@ -237,6 +247,7 @@ async fn handle_command_postback(
         args: parsed.args,
         raw_text: parsed.raw_text,
         resources: Arc::clone(resources),
+        locale,
     };
 
     let response = handler.execute(&ctx).await?;

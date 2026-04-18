@@ -29,21 +29,49 @@ use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::services::claim_verification::{resolve_corpus, verify_reply_with_config_and_corpus};
 
+/// Inputs to [`apply_claim_verification`].
+///
+/// Bundles the Tier 5.5 turn context so the function signature stays under
+/// clippy's `too_many_arguments` ceiling (7) now that `locale` rides along
+/// for the ride. All fields are borrowed from caller-owned state — no
+/// ownership transfer, no cloning.
+pub struct ClaimVerificationParams<'a> {
+    /// Server resources providing the registry, corpus, and verdict repo.
+    pub resources: &'a Arc<ServerResources>,
+    /// Assistant reply text to scan.
+    pub reply: &'a str,
+    /// Pierre user UUID as a string (already parsed upstream).
+    pub user_id: &'a str,
+    /// Conversation id this turn appended to.
+    pub conversation_id: &'a str,
+    /// Coach id if the turn is running under a specific coach persona.
+    pub coach_id: Option<&'a str>,
+    /// Active tenant for verdict persistence.
+    pub tenant_id: TenantId,
+    /// Parsed verification config (from the coach's prompt frontmatter).
+    pub config: &'a VerificationConfig,
+    /// Resolved locale for Warn/Block fallback strings, `None` → default.
+    pub locale: Option<&'a str>,
+}
+
 /// Run the bullshit detector over the finalized assistant reply.
 ///
 /// Persists verdicts and reacts to unsupported or contradicted claims per
 /// the coach's [`VerificationConfig::fallback_behavior`]. Verdicts are
 /// persisted on a best-effort basis — database failures are logged and
 /// swallowed so dispatch never fails on an audit write.
-pub async fn apply_claim_verification(
-    resources: &Arc<ServerResources>,
-    reply: &str,
-    user_id: &str,
-    conversation_id: &str,
-    coach_id: Option<&str>,
-    tenant_id: TenantId,
-    config: &VerificationConfig,
-) -> String {
+pub async fn apply_claim_verification(params: ClaimVerificationParams<'_>) -> String {
+    let ClaimVerificationParams {
+        resources,
+        reply,
+        user_id,
+        conversation_id,
+        coach_id,
+        tenant_id,
+        config,
+        locale,
+    } = params;
+    let locale = locale.unwrap_or(DEFAULT_LOCALE);
     if !config.enabled {
         return reply.to_owned();
     }
@@ -62,7 +90,7 @@ pub async fn apply_claim_verification(
         ) {
             problems.push(claim.text.clone());
         }
-        let params = InsertClaimVerdictParams {
+        let insert_params = InsertClaimVerdictParams {
             tenant_id,
             user_id,
             coach_id,
@@ -80,7 +108,7 @@ pub async fn apply_claim_verification(
         if let Err(e) = resources
             .repos
             .claim_verdicts
-            .insert_claim_verdict(&params)
+            .insert_claim_verdict(&insert_params)
             .await
         {
             tracing::warn!(error = %e, "failed to persist claim verdict");
@@ -95,7 +123,7 @@ pub async fn apply_claim_verification(
         VerificationFallback::Warn => {
             let suffix_template = resources
                 .messaging_strings_registry
-                .get(KEY_VERIFICATION_WARN_SUFFIX, DEFAULT_LOCALE);
+                .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
             let count = problems.len().to_string();
             let suffix = format_template(&suffix_template, &[&count]);
             format!("{reply}\n\n---\n{suffix}")
@@ -108,7 +136,7 @@ pub async fn apply_claim_verification(
             );
             resources
                 .messaging_strings_registry
-                .get(KEY_VERIFICATION_BLOCK_FALLBACK, DEFAULT_LOCALE)
+                .get(KEY_VERIFICATION_BLOCK_FALLBACK, locale)
         }
     }
 }

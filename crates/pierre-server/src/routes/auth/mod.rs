@@ -88,6 +88,7 @@ impl AuthRoutes {
                 "/api/user/analytics-consent",
                 put(login::handle_analytics_consent),
             )
+            .route("/api/user/locale", put(login::handle_update_locale))
             // OAuth2 ROPC endpoint (RFC 6749 Section 4.3) - unified login for all clients
             .route("/oauth/token", post(login::handle_oauth2_token))
             .route(

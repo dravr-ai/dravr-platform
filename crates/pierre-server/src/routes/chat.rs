@@ -866,6 +866,17 @@ impl ChatRoutes {
             conversation_tenant_id: tenant_id,
             tool_tenant_id: tenant_id,
             content: request.content.clone(),
+            // Web chat resolves the locale from the authenticated user's
+            // profile; pipeline stages fall back to `DEFAULT_LOCALE` when
+            // lookup fails so an empty locale never becomes an empty string.
+            locale: resources
+                .repos
+                .users
+                .get_global(auth.user_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.locale),
         };
         let profile = chat_pipeline::ChannelProfile::web_chat();
 

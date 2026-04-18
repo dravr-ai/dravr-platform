@@ -12,6 +12,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
+use pierre_core::models::default_locale;
 use pierre_core::models::{TenantId, User, UserStatus};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
@@ -78,8 +79,8 @@ impl Database {
                     id, email, display_name, password_hash, tier,
                     is_active, user_status, is_admin, role, approved_by, approved_at,
                     created_at, last_active, firebase_uid, auth_provider,
-                    analytics_consent, analytics_consent_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    analytics_consent, analytics_consent_at, locale
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                 ",
             )
             .bind(user.id.to_string())
@@ -99,6 +100,7 @@ impl Database {
             .bind(&user.auth_provider)
             .bind(user.analytics_consent)
             .bind(user.analytics_consent_at)
+            .bind(&user.locale)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -131,7 +133,7 @@ impl Database {
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
                    u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
-                   u.analytics_consent, u.analytics_consent_at
+                   u.analytics_consent, u.analytics_consent_at, u.locale
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -191,7 +193,7 @@ impl Database {
             SELECT id, email, display_name, password_hash, tier,
                    is_active, user_status, is_admin, role, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at
+                   analytics_consent, analytics_consent_at, locale
             FROM users WHERE {field} = $1
             "
         );
@@ -238,6 +240,8 @@ impl Database {
         let analytics_consent: bool = row.try_get("analytics_consent").unwrap_or(false);
         let analytics_consent_at: Option<chrono::DateTime<chrono::Utc>> =
             row.try_get("analytics_consent_at").ok().flatten();
+        // Locale defaults to "fr" if the column is missing on older DBs.
+        let locale: String = row.try_get("locale").ok().unwrap_or_else(default_locale);
 
         // Derive role from explicit role column if present, otherwise from is_admin.
         // If is_admin is true but role says 'user' (e.g. seeder omitted role column
@@ -290,6 +294,7 @@ impl Database {
             auth_provider,
             analytics_consent,
             analytics_consent_at,
+            locale,
         })
     }
 
@@ -1058,6 +1063,30 @@ impl Database {
         Ok(())
     }
 
+    /// Update user's preferred locale.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user is not found or database update fails.
+    pub async fn update_user_locale_impl(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET locale = ?1 WHERE id = ?2
+            ",
+        )
+        .bind(locale)
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to update user locale: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        Ok(())
+    }
+
     /// Update user's password hash
     ///
     /// # Errors
@@ -1160,6 +1189,9 @@ impl UserRepository for Database {
     }
     async fn update_analytics_consent(&self, user_id: Uuid, enabled: bool) -> AppResult<()> {
         Self::update_analytics_consent_impl(self, user_id, enabled).await
+    }
+    async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()> {
+        Self::update_user_locale_impl(self, user_id, locale).await
     }
 }
 

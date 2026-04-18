@@ -75,6 +75,9 @@ pub struct UserInfo {
     pub tenant_id: Option<String>,
     /// Account creation timestamp (ISO 8601)
     pub created_at: String,
+    /// BCP-47 locale preference (fr/en/es/de/pt). Consumed by the web and
+    /// mobile Settings UIs so the picker starts at the user's current value.
+    pub locale: String,
 }
 
 /// User login response
@@ -112,6 +115,18 @@ pub struct UpdateProfileResponse {
 pub struct AnalyticsConsentRequest {
     /// Whether the user consents to anonymized analytics tracking
     pub enabled: bool,
+}
+
+/// Locale preference update request
+///
+/// Accepts a BCP-47 short code (`"fr"`, `"en"`, `"es"`, `"de"`, `"pt"`).
+/// The server validates against the set of supported locales; unknown
+/// values are rejected with a 400 so the frontend surfaces a clear error
+/// rather than silently writing a locale with no compiled-in translations.
+#[derive(Debug, Deserialize)]
+pub struct UpdateLocaleRequest {
+    /// Desired user locale.
+    pub locale: String,
 }
 
 /// Change password request for authenticated users

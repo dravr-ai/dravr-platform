@@ -29,8 +29,14 @@ use crate::mcp::resources::ServerResources;
 ///
 /// Returns the (possibly disclaimer-prepended) reply, or a graceful
 /// fallback string from the `messaging_strings_registry` when guardrails
-/// reject the response.
-pub fn apply_text_guardrails(resources: &Arc<ServerResources>, reply: &str) -> String {
+/// reject the response. `locale` is the BCP-47 short code resolved upstream;
+/// `None` triggers the registry's `DEFAULT_LOCALE` fallback.
+pub fn apply_text_guardrails(
+    resources: &Arc<ServerResources>,
+    reply: &str,
+    locale: Option<&str>,
+) -> String {
+    let locale = locale.unwrap_or(DEFAULT_LOCALE);
     let rules = TextGuardrails::safe_default();
     match rules.apply(reply) {
         GuardrailOutcome::Allowed(text) => text,
@@ -42,13 +48,13 @@ pub fn apply_text_guardrails(resources: &Arc<ServerResources>, reply: &str) -> S
             );
             resources
                 .messaging_strings_registry
-                .get(KEY_GUARDRAIL_TOO_LONG, DEFAULT_LOCALE)
+                .get(KEY_GUARDRAIL_TOO_LONG, locale)
         }
         GuardrailOutcome::Rejected(GuardrailRejection::BlockedTopic { topic }) => {
             tracing::warn!(topic, "guardrails: blocked topic in coach response");
             resources
                 .messaging_strings_registry
-                .get(KEY_GUARDRAIL_BLOCKED_TOPIC, DEFAULT_LOCALE)
+                .get(KEY_GUARDRAIL_BLOCKED_TOPIC, locale)
         }
     }
 }
