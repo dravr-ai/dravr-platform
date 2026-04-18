@@ -265,7 +265,7 @@ async fn test_universal_executor_creation() -> Result<()> {
     let executor = create_test_executor().await?;
 
     // Verify basic functionality
-    assert!(!executor.list_tools().is_empty());
+    assert!(!executor.resources.tool_registry.tool_names().is_empty());
 
     // Check that core tools are registered
     assert!(executor.has_tool("get_connection_status"));
@@ -281,11 +281,13 @@ async fn test_tool_registration() -> Result<()> {
     common::init_server_config();
     let executor = create_test_executor().await?;
 
-    // Verify all expected tools are registered
+    // Verify all expected tools are registered in the shared ToolRegistry
     let tool_names: Vec<String> = executor
-        .list_tools()
+        .resources
+        .tool_registry
+        .tool_names()
         .iter()
-        .map(|tool| tool.name().to_owned())
+        .map(|n| (*n).to_owned())
         .collect();
 
     let expected_tools = vec![

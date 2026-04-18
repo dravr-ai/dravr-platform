@@ -10,6 +10,10 @@
 //! - `GetActivitiesTool` - Retrieve user activities with filtering and pagination
 //! - `GetAthleteTool` - Get athlete profile information
 //! - `GetStatsTool` - Get aggregated activity statistics
+//! - `GetSleepSessionsTool` - Query stored sleep sessions
+//! - `GetRecoveryMetricsTool` - Query stored recovery and readiness metrics
+//! - `GetHealthSnapshotsTool` - Query stored health snapshots (body composition, vitals)
+//! - `ListDataSourcesTool` - List connected data sources (devices and providers)
 //!
 //! These tools wrap the universal protocol handlers and expose them via the
 //! `McpTool` interface.
@@ -17,18 +21,15 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::protocols::universal::executor::UniversalExecutor;
-use crate::protocols::universal::handlers::fitness_api::{
-    handle_get_activities, handle_get_athlete, handle_get_stats,
-};
-use crate::protocols::universal::{UniversalRequest, UniversalResponse};
+use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for read-only data retrieval tools
 fn read_only_annotations() -> ToolAnnotations {
@@ -37,58 +38,6 @@ fn read_only_annotations() -> ToolAnnotations {
         destructive_hint: Some(false),
         idempotent_hint: Some(true),
         ..ToolAnnotations::default()
-    }
-}
-
-// ============================================================================
-// Helper functions for converting between request/response types
-// ============================================================================
-
-/// Build a `UniversalRequest` from tool context and args
-fn build_universal_request(
-    tool_name: &str,
-    args: &Value,
-    context: &ToolExecutionContext,
-) -> UniversalRequest {
-    // Convert parameters from object to Value, or use empty object
-    let parameters = if args.is_object() {
-        args.clone()
-    } else {
-        json!({})
-    };
-
-    UniversalRequest {
-        tool_name: tool_name.to_owned(),
-        parameters,
-        user_id: context.user_id.to_string(),
-        protocol: "mcp".to_owned(),
-        tenant_id: context.tenant_id.map(|id| id.to_string()),
-        progress_token: None,
-        cancellation_token: None,
-        progress_reporter: None,
-    }
-}
-
-/// Convert `UniversalResponse` to `ToolResult`
-fn convert_to_tool_result(response: UniversalResponse) -> ToolResult {
-    if response.success {
-        // Build result with metadata if present
-        let mut result = response.result.unwrap_or_else(|| json!({}));
-
-        // Merge metadata into result if both are objects
-        if let (Some(result_obj), Some(metadata)) = (result.as_object_mut(), response.metadata) {
-            for (key, value) in metadata {
-                // Only add metadata fields not already in result
-                if !result_obj.contains_key(&key) {
-                    result_obj.insert(key, value);
-                }
-            }
-        }
-
-        ToolResult::ok(result)
-    } else {
-        let error_message = response.error.unwrap_or_else(|| "Unknown error".to_owned());
-        ToolResult::error(json!({ "error": error_message }))
     }
 }
 
@@ -217,16 +166,13 @@ impl McpTool for GetActivitiesTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = build_universal_request("get_activities", &args, context);
-
-        match handle_get_activities(&executor, request).await {
-            Ok(response) => Ok(convert_to_tool_result(response)),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to get activities: {}", e),
-                "error_type": "protocol_error"
-            }))),
-        }
+        delegate_to_handler(
+            context,
+            args,
+            "get_activities",
+            handlers::handle_get_activities,
+        )
+        .await
     }
 }
 
@@ -289,16 +235,7 @@ impl McpTool for GetAthleteTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = build_universal_request("get_athlete", &args, context);
-
-        match handle_get_athlete(&executor, request).await {
-            Ok(response) => Ok(convert_to_tool_result(response)),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to get athlete profile: {}", e),
-                "error_type": "protocol_error"
-            }))),
-        }
+        delegate_to_handler(context, args, "get_athlete", handlers::handle_get_athlete).await
     }
 }
 
@@ -361,16 +298,238 @@ impl McpTool for GetStatsTool {
     }
 
     async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let executor = UniversalExecutor::new(context.resources.clone());
-        let request = build_universal_request("get_stats", &args, context);
+        delegate_to_handler(context, args, "get_stats", handlers::handle_get_stats).await
+    }
+}
 
-        match handle_get_stats(&executor, request).await {
-            Ok(response) => Ok(convert_to_tool_result(response)),
-            Err(e) => Ok(ToolResult::error(json!({
-                "error": format!("Failed to get stats: {}", e),
-                "error_type": "protocol_error"
-            }))),
+// ============================================================================
+// Helper - shared schema builders for stored health-data tools
+// ============================================================================
+
+/// Build the standard date-range + format property set used by stored
+/// health-data queries (sleep, recovery, snapshots). Inferred from the
+/// handler bodies in `handlers/health_data.rs`, which read `start`, `end`,
+/// and `format` from `request.parameters`.
+fn date_range_properties() -> HashMap<String, PropertySchema> {
+    let mut properties = HashMap::new();
+    properties.insert(
+        "start".to_owned(),
+        PropertySchema {
+            property_type: "string".to_owned(),
+            description: Some(
+                "Start of the date range as RFC3339 timestamp. Defaults to 30 days ago.".to_owned(),
+            ),
+            ..Default::default()
+        },
+    );
+    properties.insert(
+        "end".to_owned(),
+        PropertySchema {
+            property_type: "string".to_owned(),
+            description: Some(
+                "End of the date range as RFC3339 timestamp. Defaults to now.".to_owned(),
+            ),
+            ..Default::default()
+        },
+    );
+    properties.insert(
+        "format".to_owned(),
+        PropertySchema {
+            property_type: "string".to_owned(),
+            description: Some(
+                "Output format: 'json' (default) or 'toon' (token-efficient for LLMs).".to_owned(),
+            ),
+            ..Default::default()
+        },
+    );
+    properties
+}
+
+// ============================================================================
+// GetSleepSessionsTool - Query stored sleep sessions
+// ============================================================================
+
+/// Tool for querying stored sleep sessions from the database.
+pub struct GetSleepSessionsTool;
+
+#[async_trait]
+impl McpTool for GetSleepSessionsTool {
+    fn name(&self) -> &'static str {
+        "get_sleep_sessions"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get stored sleep sessions from the database"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(date_range_properties()),
+            required: None,
         }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "get_sleep_sessions",
+            handlers::handle_get_sleep_sessions,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// GetRecoveryMetricsTool - Query stored recovery and readiness metrics
+// ============================================================================
+
+/// Tool for querying stored recovery and readiness data from the database.
+pub struct GetRecoveryMetricsTool;
+
+#[async_trait]
+impl McpTool for GetRecoveryMetricsTool {
+    fn name(&self) -> &'static str {
+        "get_recovery_metrics"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get stored recovery and readiness metrics"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(date_range_properties()),
+            required: None,
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "get_recovery_metrics",
+            handlers::handle_get_recovery_metrics,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// GetHealthSnapshotsTool - Query stored health snapshots
+// ============================================================================
+
+/// Tool for querying stored body composition and vitals snapshots.
+pub struct GetHealthSnapshotsTool;
+
+#[async_trait]
+impl McpTool for GetHealthSnapshotsTool {
+    fn name(&self) -> &'static str {
+        "get_health_snapshots"
+    }
+
+    fn description(&self) -> &'static str {
+        "Get stored health snapshots (body composition, vitals)"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(date_range_properties()),
+            required: None,
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "get_health_snapshots",
+            handlers::handle_get_health_snapshots,
+        )
+        .await
+    }
+}
+
+// ============================================================================
+// ListDataSourcesTool - List connected devices and providers
+// ============================================================================
+
+/// Tool for listing connected data sources (devices and providers) for the user.
+pub struct ListDataSourcesTool;
+
+#[async_trait]
+impl McpTool for ListDataSourcesTool {
+    fn name(&self) -> &'static str {
+        "list_data_sources"
+    }
+
+    fn description(&self) -> &'static str {
+        "List connected data sources (devices and providers)"
+    }
+
+    fn input_schema(&self) -> JsonSchema {
+        let mut properties = HashMap::new();
+        properties.insert(
+            "format".to_owned(),
+            PropertySchema {
+                property_type: "string".to_owned(),
+                description: Some(
+                    "Output format: 'json' (default) or 'toon' (token-efficient for LLMs)."
+                        .to_owned(),
+                ),
+                ..Default::default()
+            },
+        );
+        JsonSchema {
+            schema_type: "object".to_owned(),
+            properties: Some(properties),
+            required: None,
+        }
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
+    }
+
+    fn annotations(&self) -> Option<ToolAnnotations> {
+        Some(read_only_annotations())
+    }
+
+    async fn execute(&self, args: Value, context: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            context,
+            args,
+            "list_data_sources",
+            handlers::handle_list_data_sources,
+        )
+        .await
     }
 }
 
@@ -385,5 +544,9 @@ pub fn create_data_tools() -> Vec<Box<dyn McpTool>> {
         Box::new(GetActivitiesTool),
         Box::new(GetAthleteTool),
         Box::new(GetStatsTool),
+        Box::new(GetSleepSessionsTool),
+        Box::new(GetRecoveryMetricsTool),
+        Box::new(GetHealthSnapshotsTool),
+        Box::new(ListDataSourcesTool),
     ]
 }

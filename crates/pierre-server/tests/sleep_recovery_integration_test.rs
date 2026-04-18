@@ -240,9 +240,11 @@ async fn test_sleep_recovery_tools_registered() -> Result<()> {
 
     // Verify all 5 sleep/recovery tools are registered
     let tool_names: Vec<String> = executor
-        .list_tools()
+        .resources
+        .tool_registry
+        .tool_names()
         .iter()
-        .map(|tool| tool.name().to_owned())
+        .map(|n| (*n).to_owned())
         .collect();
 
     let expected_tools = vec![

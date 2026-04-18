@@ -82,6 +82,13 @@ pub mod errors;
 /// Central tool registry with capability-based filtering
 pub mod registry;
 
+/// Transitional delegate from `McpTool::execute` to a UniversalExecutor handler.
+///
+/// Ensures every tool has a single executing body regardless of which
+/// protocol dispatched it. Retired once handler inlining completes
+/// (Stage 5 of the tool-registry unification).
+pub mod universal_delegate;
+
 /// Tool decorators (caching, auditing)
 pub mod decorators;
 

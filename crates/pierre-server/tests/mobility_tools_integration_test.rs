@@ -64,9 +64,11 @@ async fn test_mobility_tools_registered() -> Result<()> {
     let executor = create_mobility_test_executor().await?;
 
     let tool_names: Vec<String> = executor
-        .list_tools()
+        .resources
+        .tool_registry
+        .tool_names()
         .iter()
-        .map(|tool| tool.name().to_owned())
+        .map(|n| (*n).to_owned())
         .collect();
 
     let expected_tools = vec![

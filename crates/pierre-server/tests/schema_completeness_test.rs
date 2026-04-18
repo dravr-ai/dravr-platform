@@ -9,7 +9,7 @@
 #![allow(clippy::panic)]
 
 use pierre_mcp_server::mcp::schema;
-use pierre_mcp_server::protocols::universal::tool_registry::ToolId;
+use pierre_mcp_server::tools::registry::ToolRegistry;
 use std::collections::HashSet;
 
 #[test]
@@ -20,10 +20,12 @@ fn test_all_schema_tools_are_registered() {
 
     println!("Found {} tools in MCP schema", schema_tool_names.len());
 
-    // Get all tools registered in ToolId enum (unified execution path)
+    // Build the unified registry and check each schema tool resolves
+    let mut registry = ToolRegistry::new();
+    registry.register_builtin_tools();
     let registered_tools: HashSet<String> = schema_tool_names
         .iter()
-        .filter(|name| ToolId::from_name(name).is_some())
+        .filter(|name| registry.get(name).is_some())
         .cloned()
         .collect();
 
@@ -134,26 +136,29 @@ fn test_tool_schemas_have_valid_structure() {
 }
 
 #[test]
-fn test_every_tool_in_toolid_is_routable() {
-    // Comprehensive test: Every tool in the registry must be routable via ToolId
+fn test_every_schema_tool_resolves_in_registry() {
+    // Every tool advertised in the MCP schema must also resolve by name in
+    // the shared ToolRegistry — the single dispatch surface post-unification.
     let schema_tools = schema::get_tools();
     let schema_names: HashSet<String> = schema_tools.iter().map(|t| t.name.clone()).collect();
 
-    // Every tool in schema (from ToolRegistry) must be in ToolId for execution routing
-    let mut missing_from_toolid = Vec::new();
+    let mut registry = ToolRegistry::new();
+    registry.register_builtin_tools();
+
+    let mut unroutable = Vec::new();
     for name in &schema_names {
-        if ToolId::from_name(name).is_none() {
-            missing_from_toolid.push(name.as_str());
+        if registry.get(name).is_none() {
+            unroutable.push(name.as_str());
         }
     }
 
     assert!(
-        missing_from_toolid.is_empty(),
-        "Tools in registry but NOT in ToolId enum (unroutable): {missing_from_toolid:?}"
+        unroutable.is_empty(),
+        "Tools in schema but not registered in the unified ToolRegistry (unroutable): {unroutable:?}"
     );
 
     println!(
-        "✅ All {} registry tools are routable via ToolId",
+        "✅ All {} schema tools resolve in the unified registry",
         schema_names.len()
     );
 }

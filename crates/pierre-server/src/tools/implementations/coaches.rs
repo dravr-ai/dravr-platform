@@ -24,14 +24,15 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::errors::{AppError, AppResult};
+use crate::errors::AppResult;
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::models::TenantId;
+use crate::protocols::universal::handlers;
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
+use crate::tools::universal_delegate::delegate_to_handler;
 
 /// Annotations for idempotent write operations (create, update)
 fn write_annotations() -> ToolAnnotations {
@@ -61,88 +62,6 @@ fn read_only_annotations() -> ToolAnnotations {
         idempotent_hint: Some(true),
         ..ToolAnnotations::default()
     }
-}
-use pierre_core::models::coaches::{
-    Coach, CoachCategory, CoachListItem, CreateCoachRequest, ListCoachesFilter, UpdateCoachRequest,
-};
-use pierre_database::database::repositories::CoachesRepository;
-
-// ============================================================================
-// Helper functions
-// ============================================================================
-
-/// Get coaches repository from context resources
-fn get_coaches_manager(ctx: &ToolExecutionContext) -> &dyn CoachesRepository {
-    ctx.resources.coaches_manager()
-}
-
-/// Get tenant ID from context, defaulting to `user_id` as `TenantId`
-fn get_tenant_id(ctx: &ToolExecutionContext) -> TenantId {
-    ctx.tenant_id
-        .map_or_else(|| TenantId::from(ctx.user_id), TenantId::from)
-}
-
-/// Format a coach list item for JSON response
-fn format_coach_summary(item: &CoachListItem) -> Value {
-    json!({
-        "id": item.coach.id.to_string(),
-        "title": item.coach.title,
-        "description": item.coach.description,
-        "category": item.coach.category.as_str(),
-        "tags": item.coach.tags,
-        "token_count": item.coach.token_count,
-        "is_favorite": item.is_favorite,
-        "is_system": item.coach.is_system,
-        "is_assigned": item.is_assigned,
-        "use_count": item.use_count,
-        "last_used_at": item.last_used_at.map(|dt: chrono::DateTime<chrono::Utc>| dt.to_rfc3339()),
-        "updated_at": item.coach.updated_at.to_rfc3339(),
-    })
-}
-
-/// Format a full coach for detailed response
-///
-/// Preference fields (`is_favorite`, `is_active`, `use_count`, `last_used_at`)
-/// are no longer on the Coach struct; they live in `coach_assignments`.
-/// For single-coach responses, defaults are returned.
-fn format_coach_full(coach: &Coach) -> Value {
-    json!({
-        "id": coach.id.to_string(),
-        "title": coach.title,
-        "description": coach.description,
-        "system_prompt": coach.system_prompt,
-        "category": coach.category.as_str(),
-        "tags": coach.tags,
-        "sample_prompts": coach.sample_prompts,
-        "token_count": coach.token_count,
-        "is_favorite": false,
-        "is_active": false,
-        "is_system": coach.is_system,
-        "visibility": coach.visibility.as_str(),
-        "use_count": 0,
-        "last_used_at": Option::<String>::None,
-        "created_at": coach.created_at.to_rfc3339(),
-        "updated_at": coach.updated_at.to_rfc3339(),
-    })
-}
-
-/// Format a coach for search results (without assignment info)
-///
-/// Preference fields default since search returns `Coach` without assignment context.
-fn format_coach_for_search(coach: &Coach) -> Value {
-    json!({
-        "id": coach.id.to_string(),
-        "title": coach.title,
-        "description": coach.description,
-        "category": coach.category.as_str(),
-        "tags": coach.tags,
-        "token_count": coach.token_count,
-        "is_favorite": false,
-        "is_system": coach.is_system,
-        "use_count": 0,
-        "last_used_at": Option::<String>::None,
-        "updated_at": coach.updated_at.to_rfc3339(),
-    })
 }
 
 // ============================================================================
@@ -220,68 +139,7 @@ impl McpTool for ListCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(CoachCategory::parse);
-
-        let favorites_only = args
-            .get("favorites_only")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        let include_system = args
-            .get("include_system")
-            .and_then(Value::as_bool)
-            .unwrap_or(true);
-
-        let include_hidden = args
-            .get("include_hidden")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|v| v.min(100) as u32);
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let offset = args.get("offset").and_then(|v| {
-            v.as_u64()
-                .map(|n| n.min(u64::from(u32::MAX)) as u32)
-                .or_else(|| v.as_f64().map(|f| f as u32))
-        });
-
-        let filter = ListCoachesFilter {
-            category,
-            favorites_only,
-            limit,
-            offset,
-            include_system,
-            include_hidden,
-        };
-
-        let coaches = manager.list(ctx.user_id, tenant_id, &filter).await?;
-        let total = manager.count(ctx.user_id, tenant_id).await?;
-
-        let coach_summaries: Vec<Value> = coaches.iter().map(format_coach_summary).collect();
-
-        let returned_count = coach_summaries.len();
-        #[allow(clippy::cast_possible_truncation)]
-        let has_more = limit.is_some_and(|l| returned_count == l as usize);
-
-        Ok(ToolResult::ok(json!({
-            "coaches": coach_summaries,
-            "count": returned_count,
-            "total": total,
-            "offset": offset.unwrap_or(0),
-            "limit": limit.unwrap_or(50),
-            "has_more": has_more,
-        })))
+        delegate_to_handler(ctx, args, "list_coaches", handlers::handle_list_coaches).await
     }
 }
 
@@ -380,73 +238,7 @@ impl McpTool for CreateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let title = args
-            .get("title")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("title is required"))?;
-
-        let system_prompt = args
-            .get("system_prompt")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("system_prompt is required"))?;
-
-        let description = args.get("description").and_then(Value::as_str);
-
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(CoachCategory::parse)
-            .unwrap_or_default();
-
-        let tags: Vec<String> = args
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let sample_prompts: Vec<String> = args
-            .get("sample_prompts")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let request = CreateCoachRequest {
-            title: title.to_owned(),
-            description: description.map(String::from),
-            system_prompt: system_prompt.to_owned(),
-            category,
-            tags,
-            sample_prompts,
-            startup_query: None,
-            data_requirements: None,
-            purpose: None,
-            when_to_use: None,
-            instructions: None,
-            example_inputs: None,
-            example_outputs: None,
-            success_criteria: None,
-        };
-
-        let coach = manager.create(ctx.user_id, tenant_id, &request).await?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "coach": format_coach_full(&coach),
-            "message": format!("Coach '{}' created successfully", coach.title),
-        })))
+        delegate_to_handler(ctx, args, "create_coach", handlers::handle_create_coach).await
     }
 }
 
@@ -493,22 +285,7 @@ impl McpTool for GetCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let coach = manager
-            .get_by_id(coach_id, ctx.user_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "coach": format_coach_full(&coach),
-        })))
+        delegate_to_handler(ctx, args, "get_coach", handlers::handle_get_coach).await
     }
 }
 
@@ -600,70 +377,7 @@ impl McpTool for UpdateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let title = args.get("title").and_then(Value::as_str).map(String::from);
-        let description = args
-            .get("description")
-            .and_then(Value::as_str)
-            .map(String::from);
-        let system_prompt = args
-            .get("system_prompt")
-            .and_then(Value::as_str)
-            .map(String::from);
-        let category = args
-            .get("category")
-            .and_then(Value::as_str)
-            .map(CoachCategory::parse);
-        let tags: Option<Vec<String>> = args.get("tags").and_then(Value::as_array).map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(String::from)
-                .collect()
-        });
-        let sample_prompts: Option<Vec<String>> = args
-            .get("sample_prompts")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(Value::as_str)
-                    .map(String::from)
-                    .collect()
-            });
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let request = UpdateCoachRequest {
-            title,
-            description,
-            system_prompt,
-            category,
-            tags,
-            sample_prompts,
-            startup_query: None,
-            data_requirements: None,
-            purpose: None,
-            when_to_use: None,
-            instructions: None,
-            example_inputs: None,
-            example_outputs: None,
-            success_criteria: None,
-        };
-
-        let coach = manager
-            .update(coach_id, ctx.user_id, tenant_id, &request)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "coach": format_coach_full(&coach),
-            "message": format!("Coach '{}' updated successfully", coach.title),
-        })))
+        delegate_to_handler(ctx, args, "update_coach", handlers::handle_update_coach).await
     }
 }
 
@@ -710,24 +424,7 @@ impl McpTool for DeleteCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let deleted = manager.delete(coach_id, ctx.user_id, tenant_id).await?;
-
-        if !deleted {
-            return Err(AppError::not_found(format!("Coach {coach_id}")));
-        }
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "message": "Coach deleted successfully",
-        })))
+        delegate_to_handler(ctx, args, "delete_coach", handlers::handle_delete_coach).await
     }
 }
 
@@ -774,25 +471,13 @@ impl McpTool for ToggleCoachFavoriteTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let is_favorite = manager
-            .toggle_favorite(coach_id, ctx.user_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "coach_id": coach_id,
-            "is_favorite": is_favorite,
-            "message": if is_favorite { "Coach added to favorites" } else { "Coach removed from favorites" },
-        })))
+        delegate_to_handler(
+            ctx,
+            args,
+            "toggle_coach_favorite",
+            handlers::handle_toggle_coach_favorite,
+        )
+        .await
     }
 }
 
@@ -863,46 +548,7 @@ impl McpTool for SearchCoachesTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let query = args
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("query is required"))?;
-
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(Value::as_u64)
-            .map(|v| v.min(100) as u32);
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let offset = args.get("offset").and_then(|v| {
-            v.as_u64()
-                .map(|n| n.min(u64::from(u32::MAX)) as u32)
-                .or_else(|| v.as_f64().map(|f| f as u32))
-        });
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let coaches = manager
-            .search(ctx.user_id, tenant_id, query, limit, offset)
-            .await?;
-
-        let results: Vec<Value> = coaches.iter().map(format_coach_for_search).collect();
-
-        let returned_count = results.len();
-        let limit_val = limit.unwrap_or(20);
-        #[allow(clippy::cast_possible_truncation)]
-        let has_more = returned_count == limit_val as usize;
-
-        Ok(ToolResult::ok(json!({
-            "results": results,
-            "returned_count": returned_count,
-            "offset": offset.unwrap_or(0),
-            "limit": limit_val,
-            "has_more": has_more,
-            "query": query,
-        })))
+        delegate_to_handler(ctx, args, "search_coaches", handlers::handle_search_coaches).await
     }
 }
 
@@ -949,24 +595,7 @@ impl McpTool for ActivateCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let coach = manager
-            .activate_coach(coach_id, ctx.user_id, tenant_id)
-            .await?
-            .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "coach": format_coach_full(&coach),
-            "message": format!("Coach '{}' is now active", coach.title),
-        })))
+        delegate_to_handler(ctx, args, "activate_coach", handlers::handle_activate_coach).await
     }
 }
 
@@ -1003,21 +632,14 @@ impl McpTool for DeactivateCoachTool {
         Some(write_annotations())
     }
 
-    async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let deactivated = manager.deactivate_coach(ctx.user_id, tenant_id).await?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "was_active": deactivated,
-            "message": if deactivated {
-                "Coach deactivated. Using default AI guidance."
-            } else {
-                "No coach was active."
-            },
-        })))
+    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            ctx,
+            args,
+            "deactivate_coach",
+            handlers::handle_deactivate_coach,
+        )
+        .await
     }
 }
 
@@ -1054,26 +676,14 @@ impl McpTool for GetActiveCoachTool {
         Some(read_only_annotations())
     }
 
-    async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let active_coach = manager.get_active_coach(ctx.user_id, tenant_id).await?;
-
-        Ok(active_coach.map_or_else(
-            || {
-                ToolResult::ok(json!({
-                    "has_active_coach": false,
-                    "message": "No coach is currently active. Using default AI guidance.",
-                }))
-            },
-            |coach| {
-                ToolResult::ok(json!({
-                    "has_active_coach": true,
-                    "coach": format_coach_full(&coach),
-                }))
-            },
-        ))
+    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            ctx,
+            args,
+            "get_active_coach",
+            handlers::handle_get_active_coach,
+        )
+        .await
     }
 }
 
@@ -1120,21 +730,7 @@ impl McpTool for HideCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-
-        manager.hide_coach(coach_id, ctx.user_id).await?;
-
-        Ok(ToolResult::ok(json!({
-            "success": true,
-            "coach_id": coach_id,
-            "is_hidden": true,
-            "message": "Coach is now hidden from listings",
-        })))
+        delegate_to_handler(ctx, args, "hide_coach", handlers::handle_hide_coach).await
     }
 }
 
@@ -1181,21 +777,7 @@ impl McpTool for ShowCoachTool {
     }
 
     async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let coach_id = args
-            .get("coach_id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| AppError::invalid_input("coach_id is required"))?;
-
-        let manager = get_coaches_manager(ctx);
-
-        let shown = manager.show_coach(coach_id, ctx.user_id).await?;
-
-        Ok(ToolResult::ok(json!({
-            "success": shown,
-            "coach_id": coach_id,
-            "is_hidden": false,
-            "message": if shown { "Coach is now visible in listings" } else { "Coach was not hidden" },
-        })))
+        delegate_to_handler(ctx, args, "show_coach", handlers::handle_show_coach).await
     }
 }
 
@@ -1232,18 +814,14 @@ impl McpTool for ListHiddenCoachesTool {
         Some(read_only_annotations())
     }
 
-    async fn execute(&self, _args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
-        let manager = get_coaches_manager(ctx);
-        let tenant_id = get_tenant_id(ctx);
-
-        let hidden_coaches = manager.list_hidden_coaches(ctx.user_id, tenant_id).await?;
-
-        let coaches: Vec<Value> = hidden_coaches.iter().map(format_coach_for_search).collect();
-
-        Ok(ToolResult::ok(json!({
-            "coaches": coaches,
-            "count": coaches.len(),
-        })))
+    async fn execute(&self, args: Value, ctx: &ToolExecutionContext) -> AppResult<ToolResult> {
+        delegate_to_handler(
+            ctx,
+            args,
+            "list_hidden_coaches",
+            handlers::handle_list_hidden_coaches,
+        )
+        .await
     }
 }
 

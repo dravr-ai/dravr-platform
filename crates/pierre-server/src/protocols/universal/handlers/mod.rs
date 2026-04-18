@@ -18,8 +18,6 @@ pub mod goals;
 pub mod health_data;
 /// Activity intelligence and analysis tool handlers
 pub mod intelligence;
-/// Generic bridge from `McpTool` trait impls into `UniversalExecutor` handlers
-pub mod mcp_bridge;
 /// Mobility tool handlers (stretching exercises, yoga poses)
 pub mod mobility;
 /// Nutrition analysis and USDA database tool handlers
@@ -29,7 +27,6 @@ pub mod provider_helpers;
 /// Recipe management tool handlers ("Combat des Chefs" architecture)
 pub mod recipes;
 /// Route discovery tool handlers (`discover_routes` — Overpass + OSM piste data)
-pub mod routes;
 /// Sleep quality and recovery analysis tool handlers
 pub mod sleep_recovery;
 
@@ -135,9 +132,3 @@ pub use health_data::{
     handle_get_health_snapshots, handle_get_recovery_metrics, handle_get_sleep_sessions,
     handle_list_data_sources,
 };
-
-/// Re-export route discovery handler
-pub use routes::handle_discover_routes;
-
-/// Re-export the generic MCP-to-UniversalExecutor bridge
-pub use mcp_bridge::bridge_mcp_tool;

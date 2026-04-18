@@ -20,6 +20,8 @@ use crate::protocols::universal::{UniversalRequest, UniversalResponse, Universal
 use crate::protocols::ProtocolError;
 use crate::utils::uuid::parse_user_id_for_protocol;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 /// Activity parameters extracted from request
 struct ActivityParameters {
@@ -332,46 +334,55 @@ async fn fetch_and_calculate_metrics(
 ///
 /// # Errors
 /// Returns `ProtocolError` if activity parameter is missing or calculation fails
-pub async fn handle_calculate_metrics(
+#[must_use]
+pub fn handle_calculate_metrics(
     executor: &UniversalToolExecutor,
     request: UniversalRequest,
-) -> Result<UniversalResponse, ProtocolError> {
-    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + '_>> {
+    Box::pin(async move {
+        let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
 
-    // Extract output format parameter: "json" (default) or "toon"
-    let output_format = extract_output_format(&request);
+        // Extract output format parameter: "json" (default) or "toon"
+        let output_format = extract_output_format(&request);
 
-    // Check if activity_id is provided (schema-compliant path)
-    if let Some(activity_id) = request
-        .parameters
-        .get("activity_id")
-        .and_then(serde_json::Value::as_str)
-    {
-        let provider_name = request
+        // Check if activity_id is provided (schema-compliant path)
+        if let Some(activity_id) = request
             .parameters
-            .get("provider")
+            .get("activity_id")
             .and_then(serde_json::Value::as_str)
-            .ok_or_else(|| {
-                ProtocolError::InvalidParameters(
-                    "provider parameter required when using activity_id".to_owned(),
-                )
-            })?;
+        {
+            let provider_name = request
+                .parameters
+                .get("provider")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    ProtocolError::InvalidParameters(
+                        "provider parameter required when using activity_id".to_owned(),
+                    )
+                })?;
 
-        let result =
-            fetch_and_calculate_metrics(executor, &request, activity_id, provider_name, user_uuid)
-                .await?;
+            let result = fetch_and_calculate_metrics(
+                executor,
+                &request,
+                activity_id,
+                provider_name,
+                user_uuid,
+            )
+            .await?;
+
+            // Apply format transformation
+            return Ok(apply_format_to_response(result, "metrics", output_format));
+        }
+
+        // Fallback path: activity object provided directly
+        let params = parse_activity_parameters(&request)?;
+        let (max_hr, max_hr_source) =
+            determine_max_heart_rate(params.max_hr_provided, params.user_age);
+        let metrics = calculate_activity_metrics(&params, max_hr);
+
+        let result = build_metrics_response(&params, &metrics, max_hr, &max_hr_source);
 
         // Apply format transformation
-        return Ok(apply_format_to_response(result, "metrics", output_format));
-    }
-
-    // Fallback path: activity object provided directly
-    let params = parse_activity_parameters(&request)?;
-    let (max_hr, max_hr_source) = determine_max_heart_rate(params.max_hr_provided, params.user_age);
-    let metrics = calculate_activity_metrics(&params, max_hr);
-
-    let result = build_metrics_response(&params, &metrics, max_hr, &max_hr_source);
-
-    // Apply format transformation
-    Ok(apply_format_to_response(result, "metrics", output_format))
+        Ok(apply_format_to_response(result, "metrics", output_format))
+    })
 }
