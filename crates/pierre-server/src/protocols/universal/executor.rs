@@ -214,17 +214,14 @@ impl UniversalExecutor {
 }
 
 /// Map an [`AppError`] thrown by an `McpTool::execute` body back to the
-/// [`ProtocolError`] variant the legacy `UniversalExecutor` dispatch used
-/// to return directly.
+/// matching [`ProtocolError`] variant.
 ///
 /// Validation-class errors (missing required arg, bad tenant id, auth
-/// failure) flow to `ProtocolError::InvalidRequest` / `::AuthenticationFailed`
-/// so callers that `.is_err()` on the result keep their pre-unification
-/// contract. Other failures flow to `::InternalError`.
-fn app_error_to_protocol_error(
-    tool_name: &str,
-    e: crate::errors::AppError,
-) -> ProtocolError {
+/// failure) flow to `ProtocolError::InvalidRequest`, so a caller doing
+/// `.is_err()` on the result sees input failures as protocol errors rather
+/// than as successful-but-failing responses. Everything else flows to
+/// `::InternalError`.
+fn app_error_to_protocol_error(tool_name: &str, e: crate::errors::AppError) -> ProtocolError {
     use pierre_core::errors::ErrorCode;
     match e.code {
         ErrorCode::InvalidInput
