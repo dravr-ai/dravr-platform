@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use futures_util::future::join_all;
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, Tenant, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -448,28 +448,50 @@ async fn try_fetch_from_provider(
 /// Resolve a group member's own tenant for OAuth credential lookup.
 ///
 /// Cross-tenant group members need their own tenant to find their provider
-/// connections and OAuth tokens. Falls back to the requester's tenant if
-/// the member has no tenant membership (should not happen in practice).
+/// connections and OAuth tokens. Prefers the requester's tenant (`fallback`)
+/// when the member is a shared participant — this is the tenant providing the
+/// shared group context, and any other membership is unrelated to this call.
+/// Only picks a different tenant when the member does not share the
+/// requester's tenant, and even then only when exactly one alternative exists,
+/// which removes the order-dependent ambiguity that previously caused
+/// cross-tenant reads for members belonging to multiple tenants.
 async fn resolve_member_tenant(
     resources: &Arc<ServerResources>,
     user_id: Uuid,
     fallback: TenantId,
 ) -> TenantId {
     match resources.repos.tenants.list_for_user(user_id).await {
-        Ok(tenants) if !tenants.is_empty() => {
-            let resolved = tenants[0].id;
-            log_member_tenant_resolution(user_id, resolved, fallback);
-            resolved
-        }
-        Ok(_) => {
-            debug!(user_id = %user_id, "Member has no tenant, using fallback");
-            fallback
-        }
+        Ok(tenants) => pick_member_tenant_id(user_id, fallback, &tenants),
         Err(e) => {
             debug!(user_id = %user_id, error = %e, "Failed to resolve member tenant");
             fallback
         }
     }
+}
+
+/// Pure tenant-selection policy extracted from [`resolve_member_tenant`].
+///
+/// Encodes the "prefer shared tenant, then unique alternative, else fallback"
+/// rule separately from the repository call so it stays below the cognitive
+/// complexity threshold and is easier to reason about at a glance.
+fn pick_member_tenant_id(user_id: Uuid, fallback: TenantId, tenants: &[Tenant]) -> TenantId {
+    if tenants.is_empty() {
+        debug!(user_id = %user_id, "Member has no tenant, using fallback");
+        return fallback;
+    }
+    if tenants.iter().any(|t| t.id == fallback) {
+        return fallback;
+    }
+    if let [only] = tenants {
+        log_member_tenant_resolution(user_id, only.id, fallback);
+        return only.id;
+    }
+    debug!(
+        user_id = %user_id,
+        tenant_count = tenants.len(),
+        "Member does not share requester's tenant and has multiple memberships; using fallback to avoid ambiguous resolution"
+    );
+    fallback
 }
 
 fn log_member_tenant_resolution(user_id: Uuid, resolved: TenantId, fallback: TenantId) {

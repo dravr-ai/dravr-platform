@@ -100,6 +100,7 @@ impl AuthTestSetup {
             permissions: None, // Super admin by default
             expires_in_days: Some(1),
             is_super_admin: true,
+            tenant_id: None,
         };
 
         // Use repository to create admin token

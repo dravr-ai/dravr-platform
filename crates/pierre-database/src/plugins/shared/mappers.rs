@@ -421,6 +421,9 @@ where
         is_active: row
             .try_get("is_active")
             .map_err(|e| AppError::database(format!("Failed to get column 'is_active': {e}")))?,
+        tenant_id: row
+            .try_get("tenant_id")
+            .map_err(|e| AppError::database(format!("Failed to get column 'tenant_id': {e}")))?,
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,

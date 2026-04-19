@@ -237,8 +237,11 @@ impl AdminTestSetup {
             &admin_token_id,
             "test_admin_service",
             &admin_permissions,
-            false, // is_super_admin
-            Some(chrono::Utc::now() + chrono::Duration::days(365)),
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
@@ -264,8 +267,11 @@ impl AdminTestSetup {
             &super_admin_token_id,
             "test_super_admin_service",
             &super_admin_permissions,
-            true, // is_super_admin
-            None, // Never expires
+            &pierre_core::admin::TokenScope {
+                is_super_admin: true,
+                expires_at: None,
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
@@ -294,8 +300,11 @@ impl AdminTestSetup {
             &expired_token_id,
             "expired_service",
             &expired_permissions,
-            false,                                                 // is_super_admin
-            Some(chrono::Utc::now() - chrono::Duration::hours(1)), // Already expired
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(chrono::Utc::now() - chrono::Duration::hours(1)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
@@ -1088,6 +1097,7 @@ async fn test_revoke_admin_token() -> Result<()> {
         permissions: Some(vec![AdminPermission::ListKeys]),
         expires_in_days: Some(30),
         is_super_admin: false,
+        tenant_id: None,
     };
 
     let token_to_revoke = setup
@@ -1136,6 +1146,7 @@ async fn test_rotate_admin_token() -> Result<()> {
         permissions: Some(vec![AdminPermission::ListKeys]),
         expires_in_days: Some(30),
         is_super_admin: false,
+        tenant_id: None,
     };
 
     let token_to_rotate = setup

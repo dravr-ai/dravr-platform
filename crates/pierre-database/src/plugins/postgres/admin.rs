@@ -16,7 +16,7 @@ use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest, GeneratedAdminToken,
 };
-use pierre_core::admin::AdminJwtManager;
+use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use sqlx::Row;
@@ -63,8 +63,11 @@ impl AdminRepository for PostgresDatabase {
             &token_id,
             &request.service_name,
             &permissions,
-            request.is_super_admin,
-            expires_at,
+            &TokenScope {
+                is_super_admin: request.is_super_admin,
+                expires_at,
+                tenant_id: request.tenant_id.as_deref(),
+            },
             jwks_manager,
         )?;
 
@@ -76,8 +79,8 @@ impl AdminRepository for PostgresDatabase {
             INSERT INTO admin_tokens (
                 id, service_name, service_description, token_hash, token_prefix,
                 jwt_secret_hash, permissions, is_super_admin, is_active,
-                created_at, expires_at, usage_count
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                tenant_id, created_at, expires_at, usage_count
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         ";
 
         let permissions_json = permissions.to_json()?;
@@ -93,6 +96,7 @@ impl AdminRepository for PostgresDatabase {
             .bind(&permissions_json)
             .bind(request.is_super_admin)
             .bind(true)
+            .bind(&request.tenant_id)
             .bind(created_at)
             .bind(expires_at)
             .bind(0i64)
@@ -116,7 +120,7 @@ impl AdminRepository for PostgresDatabase {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
             FROM admin_tokens WHERE id = $1
         ";
 
@@ -137,7 +141,7 @@ impl AdminRepository for PostgresDatabase {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
             FROM admin_tokens WHERE token_prefix = $1
         ";
 
@@ -159,14 +163,14 @@ impl AdminRepository for PostgresDatabase {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
                 FROM admin_tokens ORDER BY created_at DESC
             "
         } else {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
                 FROM admin_tokens WHERE is_active = true ORDER BY created_at DESC
             "
         };

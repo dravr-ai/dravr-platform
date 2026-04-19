@@ -134,6 +134,7 @@ async fn generate_initial_admin_token(
         ]),
         is_super_admin: true,
         expires_in_days: Some(365),
+        tenant_id: None,
     };
 
     match repos

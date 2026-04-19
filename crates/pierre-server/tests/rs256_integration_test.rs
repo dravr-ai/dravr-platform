@@ -115,8 +115,11 @@ async fn test_rs256_admin_tokens() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        false,
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_manager_arc,
     )?;
 
@@ -150,8 +153,11 @@ async fn test_rs256_super_admin_tokens() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        true, // is_super_admin
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: true,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_manager_arc,
     )?;
 
@@ -328,8 +334,11 @@ async fn test_rs256_admin_token_expiration() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        false,
-        Some(expires_at),
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: Some(expires_at),
+            tenant_id: None,
+        },
         &jwks_manager_arc,
     )?;
 

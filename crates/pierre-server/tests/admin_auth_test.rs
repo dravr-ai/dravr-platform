@@ -56,8 +56,11 @@ async fn test_admin_authentication_flow() {
             "test_token_123",
             "test_service",
             &AdminPermissions::default_admin(),
-            false,
-            Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::hours(1)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )
         .unwrap();

@@ -73,8 +73,11 @@ async fn test_enterprise_security_model() -> Result<()> {
         "test_admin",
         "test_service",
         &admin_perms,
-        false,
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_manager,
     )?;
     assert!(!token.is_empty());

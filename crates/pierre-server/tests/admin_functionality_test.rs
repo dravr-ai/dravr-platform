@@ -46,8 +46,11 @@ async fn test_admin_jwt_manager_basic_operations() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        false,
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_manager,
     )?;
 
@@ -81,8 +84,11 @@ async fn test_admin_jwt_with_expiration() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        true,
-        Some(expires_at),
+        &pierre_core::admin::TokenScope {
+            is_super_admin: true,
+            expires_at: Some(expires_at),
+            tenant_id: None,
+        },
         &jwks_manager,
     )?;
 
@@ -136,6 +142,7 @@ async fn test_admin_token_database_operations() -> Result<()> {
         ]),
         is_super_admin: false,
         expires_in_days: Some(30),
+        tenant_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -202,6 +209,7 @@ async fn test_admin_token_usage_tracking() -> Result<()> {
         permissions: None, // Default permissions
         is_super_admin: false,
         expires_in_days: None,
+        tenant_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -281,6 +289,7 @@ async fn test_admin_provisioned_keys_tracking() -> Result<()> {
         permissions: Some(vec![AdminPermission::ProvisionKeys]),
         is_super_admin: false,
         expires_in_days: None,
+        tenant_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing
@@ -390,8 +399,11 @@ async fn test_admin_token_security_features() -> Result<()> {
         "test_security",
         "security_service",
         &AdminPermissions::default_admin(),
-        false,
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_manager,
     )?;
 
@@ -483,6 +495,7 @@ async fn test_admin_super_admin_privileges() -> Result<()> {
         permissions: None, // Will get super admin permissions
         is_super_admin: true,
         expires_in_days: None,
+        tenant_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing

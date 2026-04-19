@@ -14,3 +14,5 @@ pub mod jwt;
 pub use jwt::AdminJwtManager;
 #[cfg(feature = "admin-jwt")]
 pub use jwt::TokenGenerationConfig;
+#[cfg(feature = "admin-jwt")]
+pub use jwt::TokenScope;

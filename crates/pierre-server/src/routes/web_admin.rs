@@ -564,6 +564,7 @@ impl WebAdminRoutes {
             permissions,
             expires_in_days: request.expires_in_days,
             is_super_admin: request.is_super_admin.unwrap_or(false),
+            tenant_id: None,
         }
     }
 

@@ -82,6 +82,7 @@ pub(super) async fn handle_verdict_stats(
     Query(params): Query<VerdictStatsQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant: TenantId = params
         .tenant_id

@@ -1905,6 +1905,21 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
 
     // Held until here to serialize dispatches for the same conversation
     drop(dispatch_guard);
+    evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+}
+
+/// Remove the per-conversation lock from the shared map if no other task still
+/// holds it. Prevents unbounded growth of `CONVERSATION_DISPATCH_LOCKS` under
+/// high conversation cardinality while staying safe: if a concurrent dispatch
+/// cloned the `Arc` before we got here, the strong count is > 2 and we leave
+/// the entry in place. The next waiter will simply reinsert on a later call if
+/// it was already evicted.
+fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) {
+    // Strong references: the one in the DashMap entry + `local` held here.
+    // Any higher count means another dispatch task is waiting on this lock.
+    CONVERSATION_DISPATCH_LOCKS.remove_if(conversation_id, |_, stored| {
+        Arc::ptr_eq(stored, local) && Arc::strong_count(stored) <= 2
+    });
 }
 
 /// Send a user-facing error message when LLM dispatch fails or returns empty content.

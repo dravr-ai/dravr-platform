@@ -243,10 +243,10 @@ pub fn validate_document(doc: &HarnessConfigDocument) -> AppResult<()> {
     if c.window_tokens == 0 {
         return Err(AppError::invalid_input("window_tokens must be > 0"));
     }
-    if !(0.0..=1.0).contains(&c.warn_threshold) {
+    if c.warn_threshold <= 0.0 || c.warn_threshold > 1.0 {
         return Err(AppError::invalid_input("warn_threshold must be in (0, 1]"));
     }
-    if !(0.0..=1.0).contains(&c.emergency_threshold) {
+    if c.emergency_threshold <= 0.0 || c.emergency_threshold > 1.0 {
         return Err(AppError::invalid_input(
             "emergency_threshold must be in (0, 1]",
         ));

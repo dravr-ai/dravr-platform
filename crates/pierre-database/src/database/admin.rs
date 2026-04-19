@@ -13,7 +13,7 @@ use pierre_core::admin::models::{
     AdminAction, AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
     GeneratedAdminToken,
 };
-use pierre_core::admin::AdminJwtManager;
+use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
@@ -74,8 +74,11 @@ impl Database {
                 &token_id,
                 &request.service_name,
                 &permissions,
-                request.is_super_admin,
-                expires_at,
+                &TokenScope {
+                    is_super_admin: request.is_super_admin,
+                    expires_at,
+                    tenant_id: request.tenant_id.as_deref(),
+                },
                 jwks_manager,
             )
             .map_err(|e| AppError::internal(format!("Failed to generate JWT token: {e}")))?;
@@ -91,8 +94,8 @@ impl Database {
             INSERT INTO admin_tokens (
                 id, service_name, service_description, token_hash, token_prefix,
                 jwt_secret_hash, permissions, is_super_admin, is_active,
-                created_at, expires_at, usage_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tenant_id, created_at, expires_at, usage_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ";
 
         let permissions_json = permissions.to_json()?;
@@ -108,6 +111,7 @@ impl Database {
             .bind(&permissions_json)
             .bind(request.is_super_admin)
             .bind(true) // is_active
+            .bind(&request.tenant_id)
             .bind(created_at)
             .bind(expires_at)
             .bind(0i64) // usage_count
@@ -136,7 +140,7 @@ impl Database {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
             FROM admin_tokens WHERE id = ?
         ";
 
@@ -165,7 +169,7 @@ impl Database {
         let query = r"
             SELECT id, service_name, service_description, token_hash, token_prefix,
                    jwt_secret_hash, permissions, is_super_admin, is_active,
-                   created_at, expires_at, last_used_at, last_used_ip, usage_count
+                   tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
             FROM admin_tokens WHERE token_prefix = ?
         ";
 
@@ -192,14 +196,14 @@ impl Database {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
                 FROM admin_tokens ORDER BY created_at DESC
             "
         } else {
             r"
                 SELECT id, service_name, service_description, token_hash, token_prefix,
                        jwt_secret_hash, permissions, is_super_admin, is_active,
-                       created_at, expires_at, last_used_at, last_used_ip, usage_count
+                       tenant_id, created_at, expires_at, last_used_at, last_used_ip, usage_count
                 FROM admin_tokens WHERE is_active = 1 ORDER BY created_at DESC
             "
         };
@@ -514,6 +518,9 @@ impl Database {
             })?,
             is_active: row.try_get("is_active").map_err(|e| {
                 AppError::database(format!("Failed to get is_active from row: {e}"))
+            })?,
+            tenant_id: row.try_get("tenant_id").map_err(|e| {
+                AppError::database(format!("Failed to get tenant_id from row: {e}"))
             })?,
             created_at: row.try_get("created_at").map_err(|e| {
                 AppError::database(format!("Failed to get created_at from row: {e}"))
