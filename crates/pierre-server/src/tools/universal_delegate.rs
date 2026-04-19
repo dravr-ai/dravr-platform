@@ -133,13 +133,27 @@ fn universal_response_to_tool_result(
             ToolResult::ok,
         ),
         Ok(response) => {
-            let content = response.result.unwrap_or_else(|| {
-                json!({
-                    "error": response
-                        .error
-                        .unwrap_or_else(|| format!("{tool_name} failed"))
-                })
-            });
+            // Handlers can populate both `result` (structured payload) and
+            // `error` (human message). Callers that inspect `content["error"]`
+            // would otherwise miss the message when the handler also emitted a
+            // structured payload — so surface `error` as a top-level field
+            // when it isn't already present in the payload.
+            let fallback_error = response
+                .error
+                .clone()
+                .unwrap_or_else(|| format!("{tool_name} failed"));
+            let content = match response.result {
+                Some(mut payload) => {
+                    if let (Some(obj), Some(err)) =
+                        (payload.as_object_mut(), response.error.as_ref())
+                    {
+                        obj.entry("error".to_owned())
+                            .or_insert_with(|| Value::String(err.clone()));
+                    }
+                    payload
+                }
+                None => json!({ "error": fallback_error }),
+            };
             ToolResult::error(content)
         }
         Err(e) => ToolResult::error(json!({
