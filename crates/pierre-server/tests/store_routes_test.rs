@@ -28,6 +28,7 @@ use pierre_mcp_server::routes::store::{
 use uuid::Uuid;
 
 use axum::http::StatusCode;
+use serial_test::serial;
 use tokio::time::{sleep, Duration};
 
 // ============================================================================
@@ -213,6 +214,7 @@ async fn test_browse_store_with_category_filter() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_browse_store_with_cursor_pagination() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
@@ -295,6 +297,7 @@ async fn test_browse_store_with_cursor_pagination() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_cursor_pagination_with_popular_sort() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
@@ -374,6 +377,7 @@ async fn test_cursor_pagination_with_popular_sort() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_cursor_pagination_with_title_sort() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
@@ -439,6 +443,7 @@ async fn test_cursor_pagination_with_title_sort() {
 }
 
 #[tokio::test]
+#[serial]
 async fn test_cursor_invalid_for_different_sort_order() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, user) = create_test_user(&resources.database).await.unwrap();
