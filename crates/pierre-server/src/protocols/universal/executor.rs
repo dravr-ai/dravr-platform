@@ -10,6 +10,7 @@ use pierre_intelligence::IntelligenceConfig;
 use uuid::Uuid;
 
 use crate::constants::time_constants::SECONDS_PER_HOUR_F64;
+use crate::errors::AppError;
 use crate::intelligence::physiological_constants::business_thresholds::{
     DEFAULT_HR_EFFORT_SCORE, DISTANCE_SCORE_DIVISOR, DURATION_SCORE_FACTOR, MAX_SCORE,
     MIN_VALID_DISTANCE,
@@ -202,7 +203,7 @@ impl UniversalExecutor {
             // "tool ran, returned a failure payload" (Ok with success=false)
             // keep the behaviour they had when UniversalExecutor owned the
             // handler dispatch directly.
-            Err(e) => Err(app_error_to_protocol_error(&tool_name, e)),
+            Err(e) => Err(app_error_to_protocol_error(&tool_name, &e)),
         }
     }
 
@@ -221,7 +222,7 @@ impl UniversalExecutor {
 /// `.is_err()` on the result sees input failures as protocol errors rather
 /// than as successful-but-failing responses. Everything else flows to
 /// `::InternalError`.
-fn app_error_to_protocol_error(tool_name: &str, e: crate::errors::AppError) -> ProtocolError {
+fn app_error_to_protocol_error(tool_name: &str, e: &AppError) -> ProtocolError {
     use pierre_core::errors::ErrorCode;
     match e.code {
         ErrorCode::InvalidInput

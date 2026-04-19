@@ -58,7 +58,7 @@ pub async fn delegate_to_handler(
     tool_name: &'static str,
     handler: HandlerFn,
 ) -> AppResult<ToolResult> {
-    let request = build_universal_request(ctx, args, tool_name)?;
+    let request = build_universal_request(ctx, args, tool_name);
     let executor = UniversalExecutor::new(ctx.resources.clone());
     match handler(&executor, request).await {
         // Success path: map UniversalResponse → ToolResult (success OR business
@@ -70,7 +70,7 @@ pub async fn delegate_to_handler(
         // match what the UniversalExecutor dispatch returns directly from the
         // handler. Without this, a `.is_err()` check at the tool call site
         // becomes false positives for every validation failure.
-        Err(e) => Err(protocol_error_to_app_error(tool_name, e)),
+        Err(e) => Err(protocol_error_to_app_error(tool_name, &e)),
     }
 }
 
@@ -78,7 +78,7 @@ pub async fn delegate_to_handler(
 /// `McpTool::execute` callers expect — preserving the distinction between
 /// "invalid input" (maps to `AppError::invalid_input`) and "something broke
 /// internally" (maps to `AppError::internal`).
-fn protocol_error_to_app_error(tool_name: &'static str, e: ProtocolError) -> AppError {
+fn protocol_error_to_app_error(tool_name: &'static str, e: &ProtocolError) -> AppError {
     // Preserve the original variant's Display (e.g. "Invalid parameters: ...",
     // "Missing parameter: ...") so test assertions and user-facing error text
     // stay meaningful through the mapping.
@@ -104,8 +104,8 @@ fn build_universal_request(
     ctx: &ToolExecutionContext,
     args: Value,
     tool_name: &'static str,
-) -> AppResult<UniversalRequest> {
-    Ok(UniversalRequest {
+) -> UniversalRequest {
+    UniversalRequest {
         tool_name: tool_name.to_owned(),
         parameters: args,
         user_id: ctx.user_id.to_string(),
@@ -114,7 +114,7 @@ fn build_universal_request(
         progress_token: None,
         cancellation_token: None,
         progress_reporter: None,
-    })
+    }
 }
 
 /// Convert a handler's [`Result<UniversalResponse, ProtocolError>`] into a
