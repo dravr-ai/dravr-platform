@@ -27,8 +27,11 @@ fn test_jwt_generation_and_validation() {
             "test_token_123",
             "test_service",
             &permissions,
-            false,
-            Some(Utc::now() + Duration::hours(1)),
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(Utc::now() + Duration::hours(1)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )
         .unwrap();
@@ -56,8 +59,11 @@ fn test_expired_token_rejection() {
             "expired_token",
             "test_service",
             &permissions,
-            false,
-            Some(Utc::now() - Duration::hours(1)), // Expired 1 hour ago
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(Utc::now() - Duration::hours(1)), // Expired 1 hour ago
+                tenant_id: None,
+            },
             &jwks_manager,
         )
         .unwrap();
@@ -80,8 +86,11 @@ fn test_super_admin_token() {
             "super_admin_token",
             "admin_service",
             &permissions,
-            true,
-            None, // Never expires
+            &pierre_core::admin::TokenScope {
+                is_super_admin: true,
+                expires_at: None,
+                tenant_id: None,
+            },
             &jwks_manager,
         )
         .unwrap();

@@ -284,17 +284,4 @@ pub mod webhooks;
 #[cfg(feature = "health-sync")]
 pub use webhooks::WebhookRoutes;
 
-use crate::errors::AppError as ServerAppError;
-use pierre_llm::ChatProvider;
-
-/// Create a `ChatProvider` from environment configuration
-///
-/// All provider types (Gemini, Groq, Local, CLI runners, Copilot SDK)
-/// are handled directly by `pierre-llm` via the embacle library.
-///
-/// # Errors
-///
-/// Returns an error if the configured provider cannot be initialized.
-pub async fn create_chat_provider() -> Result<ChatProvider, ServerAppError> {
-    ChatProvider::from_env().await
-}
+pub use crate::services::chat_provider_factory::create_chat_provider;

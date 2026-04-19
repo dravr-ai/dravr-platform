@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::{VerificationConfig, VerificationFallback};
+use pierre_evals::{ExtractedClaim, VerdictOutcome, VerificationConfig, VerificationFallback};
 use pierre_memory::claims::ClaimStatus;
 
 use crate::contremaitre::messaging_strings::{
@@ -32,70 +32,134 @@ use crate::services::claim_verification::{resolve_corpus, verify_reply_with_conf
 /// Inputs to [`apply_claim_verification`].
 ///
 /// Bundles the Tier 5.5 turn context so the function signature stays under
-/// clippy's `too_many_arguments` ceiling (7) now that `locale` rides along
-/// for the ride. All fields are borrowed from caller-owned state — no
-/// ownership transfer, no cloning.
+/// clippy's `too_many_arguments` ceiling. All fields are borrowed from
+/// caller-owned state — no ownership transfer, no cloning.
 pub struct ClaimVerificationParams<'a> {
     /// Server resources providing the registry, corpus, and verdict repo.
     pub resources: &'a Arc<ServerResources>,
     /// Assistant reply text to scan.
     pub reply: &'a str,
-    /// Pierre user UUID as a string (already parsed upstream).
-    pub user_id: &'a str,
-    /// Conversation id this turn appended to.
-    pub conversation_id: &'a str,
-    /// Coach id if the turn is running under a specific coach persona.
-    pub coach_id: Option<&'a str>,
-    /// Active tenant for verdict persistence.
-    pub tenant_id: TenantId,
     /// Parsed verification config (from the coach's prompt frontmatter).
     pub config: &'a VerificationConfig,
     /// Resolved locale for Warn/Block fallback strings, `None` → default.
     pub locale: Option<&'a str>,
 }
 
+/// Result of running Tier 5.5 verification on an assistant reply.
+///
+/// Callers must persist `pending_verdicts` after the assistant message is
+/// durable; each verdict carries the claim and outcome fields needed to build
+/// an [`InsertClaimVerdictParams`] linked to the stored message. Emitting the
+/// verdict rows before the message exists would leave them with a `None`
+/// `message_id` and orphan them if the message write failed.
+pub struct ClaimVerificationOutcome {
+    /// Finalized reply text after fallback handling.
+    pub content: String,
+    /// Raw verdicts produced by the detector, kept together with their claims
+    /// so the caller can persist them with the assistant `message_id`.
+    pub pending_verdicts: Vec<(ExtractedClaim, VerdictOutcome)>,
+}
+
 /// Run the bullshit detector over the finalized assistant reply.
 ///
-/// Persists verdicts and reacts to unsupported or contradicted claims per
-/// the coach's [`VerificationConfig::fallback_behavior`]. Verdicts are
-/// persisted on a best-effort basis — database failures are logged and
-/// swallowed so dispatch never fails on an audit write.
-pub async fn apply_claim_verification(params: ClaimVerificationParams<'_>) -> String {
+/// Computes verdicts and applies the coach's
+/// [`VerificationConfig::fallback_behavior`] to the reply, but defers
+/// persisting verdicts. The caller is expected to write the assistant message
+/// first and then invoke [`persist_pending_verdicts`] with the resulting
+/// `message_id`. This keeps the audit row linked to the message that
+/// produced it and avoids orphan verdicts when the message write fails.
+pub async fn apply_claim_verification(
+    params: ClaimVerificationParams<'_>,
+) -> ClaimVerificationOutcome {
     let ClaimVerificationParams {
         resources,
         reply,
-        user_id,
-        conversation_id,
-        coach_id,
-        tenant_id,
         config,
         locale,
     } = params;
     let locale = locale.unwrap_or(DEFAULT_LOCALE);
+
     if !config.enabled {
-        return reply.to_owned();
+        return ClaimVerificationOutcome {
+            content: reply.to_owned(),
+            pending_verdicts: Vec::new(),
+        };
     }
 
     let corpus = resolve_corpus(resources);
     let verdicts = verify_reply_with_config_and_corpus(reply, config, &corpus);
     if verdicts.is_empty() {
-        return reply.to_owned();
+        return ClaimVerificationOutcome {
+            content: reply.to_owned(),
+            pending_verdicts: Vec::new(),
+        };
     }
 
-    let mut problems: Vec<String> = Vec::new();
-    for (claim, outcome) in &verdicts {
-        if matches!(
-            outcome.status,
-            ClaimStatus::Unsupported | ClaimStatus::Contradicted
-        ) {
-            problems.push(claim.text.clone());
+    let problems: Vec<&str> = verdicts
+        .iter()
+        .filter(|(_, outcome)| {
+            matches!(
+                outcome.status,
+                ClaimStatus::Unsupported | ClaimStatus::Contradicted
+            )
+        })
+        .map(|(claim, _)| claim.text.as_str())
+        .collect();
+
+    let content = if problems.is_empty() {
+        reply.to_owned()
+    } else {
+        match config.fallback_behavior {
+            VerificationFallback::Warn => {
+                let suffix_template = resources
+                    .messaging_strings_registry
+                    .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
+                let count = problems.len().to_string();
+                let suffix = format_template(&suffix_template, &[&count]);
+                format!("{reply}\n\n---\n{suffix}")
+            }
+            VerificationFallback::Silent => reply.to_owned(),
+            VerificationFallback::Block => {
+                tracing::warn!(
+                    flagged_claims = problems.len(),
+                    "Tier 5.5 block fallback fired — replacing reply"
+                );
+                resources
+                    .messaging_strings_registry
+                    .get(KEY_VERIFICATION_BLOCK_FALLBACK, locale)
+            }
         }
-        let insert_params = InsertClaimVerdictParams {
+    };
+
+    ClaimVerificationOutcome {
+        content,
+        pending_verdicts: verdicts,
+    }
+}
+
+/// Persist the verdicts produced by [`apply_claim_verification`].
+///
+/// The caller invokes this after the assistant message has been stored so the
+/// `message_id` can link each verdict to the reply it came from — the admin
+/// UI uses that link to drill into the full verification history behind any
+/// flagged message. Writes are best-effort: a single row failing is logged
+/// and does not affect the user-facing turn.
+pub async fn persist_pending_verdicts(
+    resources: &Arc<ServerResources>,
+    tenant_id: TenantId,
+    user_id: &str,
+    conversation_id: &str,
+    coach_id: Option<&str>,
+    message_id: &str,
+    pending: &[(ExtractedClaim, VerdictOutcome)],
+) {
+    for (claim, outcome) in pending {
+        let params = InsertClaimVerdictParams {
             tenant_id,
             user_id,
             coach_id,
             conversation_id: Some(conversation_id),
-            message_id: None,
+            message_id: Some(message_id),
             claim_text: &claim.text,
             category: claim.category,
             status: outcome.status,
@@ -108,35 +172,10 @@ pub async fn apply_claim_verification(params: ClaimVerificationParams<'_>) -> St
         if let Err(e) = resources
             .repos
             .claim_verdicts
-            .insert_claim_verdict(&insert_params)
+            .insert_claim_verdict(&params)
             .await
         {
             tracing::warn!(error = %e, "failed to persist claim verdict");
-        }
-    }
-
-    if problems.is_empty() {
-        return reply.to_owned();
-    }
-
-    match config.fallback_behavior {
-        VerificationFallback::Warn => {
-            let suffix_template = resources
-                .messaging_strings_registry
-                .get(KEY_VERIFICATION_WARN_SUFFIX, locale);
-            let count = problems.len().to_string();
-            let suffix = format_template(&suffix_template, &[&count]);
-            format!("{reply}\n\n---\n{suffix}")
-        }
-        VerificationFallback::Silent => reply.to_owned(),
-        VerificationFallback::Block => {
-            tracing::warn!(
-                flagged_claims = problems.len(),
-                "Tier 5.5 block fallback fired — replacing reply"
-            );
-            resources
-                .messaging_strings_registry
-                .get(KEY_VERIFICATION_BLOCK_FALLBACK, locale)
         }
     }
 }

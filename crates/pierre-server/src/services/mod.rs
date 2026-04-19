@@ -13,6 +13,10 @@
 /// Coach lifecycle operations: prerequisites, assignments, and generation
 pub mod coaches;
 
+/// Canonical factory for `ChatProvider` instances — keeps provider
+/// construction out of the routes layer so services can depend on it.
+pub mod chat_provider_factory;
+
 /// Coach markdown import: URL fetching, security validation, warnings, definition conversion
 pub mod coach_import;
 

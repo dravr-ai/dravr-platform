@@ -38,6 +38,27 @@ fn zero_window_tokens_is_rejected() {
 }
 
 #[test]
+fn zero_warn_threshold_is_rejected() {
+    let mut doc = HarnessConfigDocument::default();
+    doc.compaction.warn_threshold = 0.0;
+    assert!(validate_document(&doc).is_err());
+}
+
+#[test]
+fn zero_emergency_threshold_is_rejected() {
+    let mut doc = HarnessConfigDocument::default();
+    doc.compaction.emergency_threshold = 0.0;
+    assert!(validate_document(&doc).is_err());
+}
+
+#[test]
+fn negative_warn_threshold_is_rejected() {
+    let mut doc = HarnessConfigDocument::default();
+    doc.compaction.warn_threshold = -0.1;
+    assert!(validate_document(&doc).is_err());
+}
+
+#[test]
 fn warn_threshold_above_one_is_rejected() {
     let mut doc = HarnessConfigDocument::default();
     doc.compaction.warn_threshold = 1.5;

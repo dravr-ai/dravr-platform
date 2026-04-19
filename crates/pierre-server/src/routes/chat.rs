@@ -17,7 +17,7 @@ use crate::services::chat_pipeline::stages::persistence::{
 };
 use crate::{
     errors::AppError,
-    llm::{ChatMessage, ChatProvider, FunctionDeclaration, Tool},
+    llm::{ChatMessage, ChatProvider, Tool},
     mcp::resources::ServerResources,
     middleware::extract_auth_from_headers,
     protocols::universal::UniversalExecutor,
@@ -41,7 +41,7 @@ use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 use serde::{Deserialize, Serialize};
-use std::{borrow::Cow, sync::Arc, time::Instant};
+use std::{sync::Arc, time::Instant};
 use tracing::{debug, warn};
 use uuid::Uuid;
 // ============================================================================
@@ -58,44 +58,6 @@ const INSIGHT_PROMPT_PREFIX: &str = "Create a shareable insight from this analys
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/// Strip synthetic function call syntax from LLM content
-///
-/// Some models (like Llama via Groq) output function calls both as proper `tool_calls`
-/// AND as text content using syntax like `<function(name)>{...}</function>` or
-/// `<function/name>{...}</function>`.
-/// This helper removes that synthetic syntax to avoid displaying it to users.
-pub(crate) fn strip_synthetic_function_calls(content: &str) -> Cow<'_, str> {
-    use regex::Regex;
-    use std::sync::OnceLock;
-
-    fn function_pattern() -> Option<&'static Regex> {
-        static PATTERN: OnceLock<Option<Regex>> = OnceLock::new();
-        PATTERN
-            .get_or_init(|| {
-                // Match patterns like:
-                // - <function(name)>...</function> (parentheses syntax)
-                // - <function/name>...</function> (slash syntax)
-                Regex::new(r"<function[/\(][^>]+>[\s\S]*?</function>").ok()
-            })
-            .as_ref()
-    }
-
-    let Some(pattern) = function_pattern() else {
-        return Cow::Borrowed(content);
-    };
-
-    let cleaned = pattern.replace_all(content, "");
-    let trimmed = cleaned.trim();
-
-    if trimmed.is_empty() {
-        Cow::Borrowed("")
-    } else if trimmed.len() == content.len() {
-        Cow::Borrowed(content)
-    } else {
-        Cow::Owned(trimmed.to_owned())
-    }
-}
 
 /// JSON response structure for insight generation
 #[derive(Debug, Deserialize)]
@@ -365,208 +327,10 @@ impl ChatRoutes {
         super::create_chat_provider().await
     }
 
-    /// Build connection-related tool definitions
-    fn build_connection_tools() -> Vec<FunctionDeclaration> {
-        vec![
-            FunctionDeclaration {
-                name: "get_connection_status".to_owned(),
-                description: "Check which fitness providers are connected".to_owned(),
-                parameters: Some(serde_json::json!({"type": "object", "properties": {}})),
-            },
-            FunctionDeclaration {
-                name: "connect_provider".to_owned(),
-                description: "Connect to a fitness provider via OAuth".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {"provider": {"type": "string"}},
-                    "required": ["provider"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "disconnect_provider".to_owned(),
-                description: "Disconnect a fitness provider".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {"provider": {"type": "string"}},
-                    "required": ["provider"]
-                })),
-            },
-        ]
-    }
-
-    /// Build activity data tool definitions
-    fn build_activity_tools() -> Vec<FunctionDeclaration> {
-        vec![
-            FunctionDeclaration {
-                name: "get_activities".to_owned(),
-                description: "Get user's recent fitness activities".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "limit": {"type": "integer"},
-                        "offset": {"type": "integer"}
-                    },
-                    "required": ["provider"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "get_athlete".to_owned(),
-                description: "Get user's athlete profile information".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {"provider": {"type": "string"}},
-                    "required": ["provider"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "get_stats".to_owned(),
-                description: "Get user's overall fitness statistics".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {"provider": {"type": "string"}},
-                    "required": ["provider"]
-                })),
-            },
-        ]
-    }
-
-    /// Build analysis tool definitions
-    fn build_analysis_tools() -> Vec<FunctionDeclaration> {
-        vec![
-            FunctionDeclaration {
-                name: "analyze_activity".to_owned(),
-                description: "Deep analysis of a specific activity".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "activity_id": {"type": "string"}
-                    },
-                    "required": ["provider", "activity_id"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "get_activity_intelligence".to_owned(),
-                description: "AI-powered insights including location and weather".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "activity_id": {"type": "string"},
-                        "include_location": {"type": "boolean"},
-                        "include_weather": {"type": "boolean"}
-                    },
-                    "required": ["provider", "activity_id"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "analyze_performance_trends".to_owned(),
-                description: "Analyze performance trends over time".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "timeframe": {"type": "string"},
-                        "metric": {"type": "string"},
-                        "sport_type": {"type": "string"}
-                    },
-                    "required": ["provider", "timeframe", "metric"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "compare_activities".to_owned(),
-                description: "Compare activity against similar or personal bests".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "activity_id": {"type": "string"},
-                        "comparison_type": {"type": "string"}
-                    },
-                    "required": ["provider", "activity_id", "comparison_type"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "calculate_fitness_score".to_owned(),
-                description: "Calculate comprehensive fitness score".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "timeframe": {"type": "string"},
-                        "sleep_provider": {"type": "string"}
-                    },
-                    "required": ["provider"]
-                })),
-            },
-            FunctionDeclaration {
-                name: "analyze_training_load".to_owned(),
-                description: "Analyze training load and recovery needs".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "timeframe": {"type": "string"},
-                        "sleep_provider": {"type": "string"}
-                    },
-                    "required": ["provider"]
-                })),
-            },
-        ]
-    }
-
-    /// Build recovery and recommendation tool definitions
-    fn build_recovery_tools() -> Vec<FunctionDeclaration> {
-        vec![
-            FunctionDeclaration {
-                name: "calculate_recovery_score".to_owned(),
-                description: "Calculate recovery score with daily strain (WHOOP cycles), HRV, sleep quality, and TSB. Use when user asks about recovery, daily strain, WHOOP cycles, or training readiness.".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "activity_provider": {"type": "string"},
-                        "sleep_provider": {"type": "string"}
-                    }
-                })),
-            },
-            FunctionDeclaration {
-                name: "suggest_rest_day".to_owned(),
-                description: "AI recommendation for rest day".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "activity_provider": {"type": "string"},
-                        "sleep_provider": {"type": "string"}
-                    }
-                })),
-            },
-            FunctionDeclaration {
-                name: "generate_recommendations".to_owned(),
-                description: "Get personalized training recommendations".to_owned(),
-                parameters: Some(serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "provider": {"type": "string"},
-                        "recommendation_type": {"type": "string"},
-                        "activity_id": {"type": "string"}
-                    },
-                    "required": ["provider"]
-                })),
-            },
-        ]
-    }
-
-    /// Build Gemini tool definitions from MCP tool registry
+    /// Build LLM tool definitions for chat-mode function calling.
     pub(crate) fn build_mcp_tools() -> Tool {
-        let mut declarations = Vec::with_capacity(14);
-        declarations.extend(Self::build_connection_tools());
-        declarations.extend(Self::build_activity_tools());
-        declarations.extend(Self::build_analysis_tools());
-        declarations.extend(Self::build_recovery_tools());
-        Tool {
-            function_declarations: declarations,
-        }
+        use crate::services::tool_execution::build_mcp_tools as service_build;
+        service_build()
     }
 
     // ========================================================================

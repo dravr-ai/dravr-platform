@@ -118,6 +118,7 @@ pub(super) async fn handle_list_claim_verdicts(
     Query(params): Query<ListVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant: TenantId = params
         .tenant_id
@@ -186,6 +187,7 @@ pub(super) async fn handle_list_verdicts_by_conversation(
     Query(params): Query<ConversationVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
     admin_token.require_permission(&AdminPermission::ViewConfiguration)?;
+    admin_token.require_tenant_access(&params.tenant_id)?;
 
     let tenant: TenantId = params
         .tenant_id

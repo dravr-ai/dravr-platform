@@ -58,6 +58,18 @@ use crate::errors::AppError;
 #[derive(Clone)]
 pub struct AdminJwtManager {}
 
+/// Groups the authorization-boundary fields for admin JWT generation so
+/// the `generate_token` signature stays within clippy's argument limit.
+#[cfg(feature = "admin-jwt")]
+pub struct TokenScope<'a> {
+    /// Whether the token carries super-admin privileges.
+    pub is_super_admin: bool,
+    /// When the token expires (`None` = never).
+    pub expires_at: Option<DateTime<Utc>>,
+    /// Tenant the token is scoped to (`None` = global / super-admin).
+    pub tenant_id: Option<&'a str>,
+}
+
 #[cfg(feature = "admin-jwt")]
 impl Default for AdminJwtManager {
     fn default() -> Self {
@@ -101,10 +113,12 @@ impl AdminJwtManager {
         token_id: &str,
         service_name: &str,
         permissions: &AdminPermissions,
-        is_super_admin: bool,
-        expires_at: Option<DateTime<Utc>>,
+        scope: &TokenScope<'_>,
         jwks_manager: &dyn JwtSigner,
     ) -> AppResult<String> {
+        let is_super_admin = scope.is_super_admin;
+        let expires_at = scope.expires_at;
+        let tenant_id = scope.tenant_id;
         let now = Utc::now();
         let exp = expires_at.unwrap_or_else(|| now + Duration::days(365));
 
@@ -123,6 +137,7 @@ impl AdminJwtManager {
             permissions: permissions.to_vec(),
             is_super_admin,
             token_type: "admin".into(),
+            tenant_id: tenant_id.map(ToOwned::to_owned),
         };
 
         // Serialize claims to JSON and sign with RS256 via JwtSigner
@@ -178,6 +193,8 @@ struct AdminTokenClaims {
     permissions: Vec<AdminPermission>,
     is_super_admin: bool,
     token_type: String, // Always "admin"
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tenant_id: Option<String>,
 }
 
 /// Token generation configuration

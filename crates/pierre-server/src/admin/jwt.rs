@@ -19,6 +19,8 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use pierre_core::admin::TokenScope;
+
 use crate::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
 use crate::constants::service_names;
 use crate::errors::{AppError, AppResult};
@@ -70,10 +72,12 @@ impl AdminJwtManager {
         token_id: &str,
         service_name: &str,
         permissions: &AdminPermissions,
-        is_super_admin: bool,
-        expires_at: Option<DateTime<Utc>>,
+        scope: &TokenScope<'_>,
         jwks_manager: &dyn JwtSigner,
     ) -> AppResult<String> {
+        let is_super_admin = scope.is_super_admin;
+        let expires_at = scope.expires_at;
+        let tenant_id = scope.tenant_id;
         let now = Utc::now();
         let exp = expires_at.unwrap_or_else(|| now + Duration::days(365));
 
@@ -92,6 +96,7 @@ impl AdminJwtManager {
             permissions: permissions.to_vec(),
             is_super_admin,
             token_type: "admin".into(),
+            tenant_id: tenant_id.map(ToOwned::to_owned),
         };
 
         // Serialize claims to JSON and sign with RS256 via JwtSigner
@@ -145,6 +150,7 @@ impl AdminJwtManager {
             service_name,
             permissions,
             is_super_admin,
+            tenant_id: claims.tenant_id,
             user_info: Some(user_info),
         })
     }
@@ -192,6 +198,8 @@ struct AdminTokenClaims {
     permissions: Vec<AdminPermission>,
     is_super_admin: bool,
     token_type: String, // Always "admin"
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    tenant_id: Option<String>,
 }
 
 /// Token generation configuration

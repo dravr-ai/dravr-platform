@@ -37,6 +37,8 @@ pub struct AdminToken {
     pub is_super_admin: bool,
     /// Whether the token is active
     pub is_active: bool,
+    /// Tenant this token is scoped to (`None` for super-admin / global tokens)
+    pub tenant_id: Option<String>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -66,6 +68,8 @@ pub struct AdminTokenSummary {
     pub is_super_admin: bool,
     /// Whether the token is active
     pub is_active: bool,
+    /// Tenant this token is scoped to (`None` for super-admin / global tokens)
+    pub tenant_id: Option<String>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -86,6 +90,7 @@ impl From<AdminToken> for AdminTokenSummary {
             permissions: token.permissions,
             is_super_admin: token.is_super_admin,
             is_active: token.is_active,
+            tenant_id: token.tenant_id,
             created_at: token.created_at,
             expires_at: token.expires_at,
             last_used_at: token.last_used_at,
@@ -256,6 +261,8 @@ pub struct CreateAdminTokenRequest {
     pub expires_in_days: Option<u64>,
     /// Whether this is a super admin token with all permissions
     pub is_super_admin: bool,
+    /// Tenant to scope this token to (`None` for global / super-admin)
+    pub tenant_id: Option<String>,
 }
 
 impl CreateAdminTokenRequest {
@@ -268,6 +275,7 @@ impl CreateAdminTokenRequest {
             permissions: None,          // Will use default
             expires_in_days: Some(365), // 1 year default
             is_super_admin: false,
+            tenant_id: None,
         }
     }
 
@@ -280,6 +288,7 @@ impl CreateAdminTokenRequest {
             permissions: None,     // Will use super admin permissions
             expires_in_days: None, // Never expires
             is_super_admin: true,
+            tenant_id: None,
         }
     }
 }
@@ -476,6 +485,8 @@ pub struct ValidatedAdminToken {
     pub permissions: AdminPermissions,
     /// Whether this is a super admin token
     pub is_super_admin: bool,
+    /// Tenant this token is scoped to (`None` for super-admin / global tokens)
+    pub tenant_id: Option<String>,
     /// Additional user info from JWT claims
     pub user_info: Option<serde_json::Value>,
 }
@@ -495,6 +506,35 @@ impl ValidatedAdminToken {
                 ErrorCode::PermissionDenied,
                 format!("Permission required: {permission}"),
             ))
+        }
+    }
+
+    /// Verify the token is allowed to access the given tenant.
+    ///
+    /// - Super-admin tokens (`is_super_admin = true`) can access any tenant.
+    /// - Scoped tokens must match the `requested_tenant` exactly.
+    /// - Tokens with no tenant scope and no super-admin flag are rejected.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError` with `PermissionDenied` if the token does not have
+    /// access to the requested tenant.
+    pub fn require_tenant_access(&self, requested_tenant: &str) -> AppResult<()> {
+        if self.is_super_admin {
+            return Ok(());
+        }
+        match &self.tenant_id {
+            Some(bound) if bound == requested_tenant => Ok(()),
+            Some(bound) => Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                format!(
+                    "Token is scoped to tenant {bound}, cannot access tenant {requested_tenant}"
+                ),
+            )),
+            None => Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "Token has no tenant scope — super-admin required for cross-tenant access",
+            )),
         }
     }
 }

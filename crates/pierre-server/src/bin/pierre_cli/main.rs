@@ -187,6 +187,10 @@ enum TokenCommand {
         /// Custom permissions (comma-separated)
         #[arg(long)]
         permissions: Option<String>,
+
+        /// Scope the token to a specific tenant (UUID)
+        #[arg(long)]
+        tenant_id: Option<String>,
     },
 
     /// List all admin tokens
@@ -307,6 +311,7 @@ async fn main() -> Result<()> {
                 expires_days,
                 super_admin,
                 permissions,
+                tenant_id,
             } => {
                 commands::token::generate(
                     &repos,
@@ -315,7 +320,10 @@ async fn main() -> Result<()> {
                     description,
                     expires_days,
                     super_admin,
-                    permissions,
+                    commands::token::GenerateTokenOpts {
+                        permissions,
+                        tenant_id,
+                    },
                 )
                 .await?;
             }

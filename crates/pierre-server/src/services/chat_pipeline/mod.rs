@@ -57,12 +57,11 @@ use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerResources;
 use crate::protocols::universal::UniversalExecutor;
-use crate::routes::chat::ChatRoutes;
-use crate::routes::chat_tool_loop::{self, ToolLoopParams};
-use crate::routes::create_chat_provider;
+use crate::services::chat_provider_factory::create_chat_provider;
 use crate::services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use crate::services::prompt_leak;
 use crate::services::provider_error_filter::detect_leaked_provider_error;
+use crate::services::tool_execution::{self as chat_tool_loop, build_mcp_tools, ToolLoopParams};
 
 use stages::compaction::apply_tier1_compaction;
 use stages::followups::{
@@ -79,7 +78,10 @@ use stages::prompt_builder::resolve_group_context;
 use stages::prompt_builder::{build_llm_messages, build_provider_context};
 use stages::refresh::inject_refresh_context;
 #[cfg(feature = "tools-verification")]
-use stages::verification::{apply_claim_verification, ClaimVerificationParams};
+use stages::verification::{
+    apply_claim_verification, persist_pending_verdicts, ClaimVerificationOutcome,
+    ClaimVerificationParams,
+};
 
 /// Compiled-in default tool-loop iteration budget when neither the coach
 /// runtime context nor the admin config override specify a value.
@@ -187,7 +189,7 @@ pub async fn run(
 
     // Stages 15–18: scan for canary leaks, apply text guardrails, run claim
     // verification, and run the channel-specific post-processor hook.
-    result.content = post_process_assistant_reply(
+    let post_processed = post_process_assistant_reply(
         resources,
         &input,
         &conv,
@@ -197,6 +199,7 @@ pub async fn run(
         hooks,
     )
     .await;
+    result.content = post_processed.content;
 
     // Stage 19: Persist assistant response (uses conversation tenant for DB lookup).
     let token_count = result.usage.as_ref().map(|u| u.completion_tokens);
@@ -214,6 +217,24 @@ pub async fn run(
     let (assistant_message, updated_conversation) =
         persist_assistant_response(database, &assistant_params, input.conversation_tenant_id)
             .await?;
+
+    // Stage 19.5: Persist Tier 5.5 verdicts now that the assistant message is
+    // durable. Linking via `message_id` keeps the audit trail intact — if the
+    // message write above failed, verdicts were never written, avoiding orphan
+    // rows that previously occurred when verification persisted first.
+    #[cfg(feature = "tools-verification")]
+    if !post_processed.pending_verdicts.is_empty() {
+        persist_pending_verdicts(
+            resources,
+            input.conversation_tenant_id,
+            &input.user_id,
+            &input.conversation_id,
+            conv.coach_id.as_deref(),
+            &assistant_message.id,
+            &post_processed.pending_verdicts,
+        )
+        .await;
+    }
 
     // Stage 20: Tier 4 session finalize — touch session timestamp, mark
     // followups delivered.
@@ -389,7 +410,7 @@ async fn dispatch_llm_with_tools(
     let max_iterations = resolve_max_iterations(profile.max_iterations, resources, coach_ctx).await;
 
     // Stage 14: Multi-turn tool execution loop.
-    let tools = ChatRoutes::build_mcp_tools();
+    let tools = build_mcp_tools();
     let tool_params = ToolLoopParams {
         provider: &provider,
         executor,
@@ -547,12 +568,29 @@ async fn assemble_prompt_and_messages(
     Ok((prompt_guard, pending_followup_ids, llm_messages))
 }
 
+/// Aggregates the outputs of [`post_process_assistant_reply`] so the caller
+/// can persist the assistant message first and then link any claim verdicts
+/// to the resulting `message_id`.
+///
+/// The `pending_verdicts` field is compiled out when `tools-verification` is
+/// disabled to keep the struct free of `pierre_evals` types.
+pub(super) struct PostProcessedReply {
+    /// Final assistant content ready to be persisted and returned.
+    pub content: String,
+    /// Verdicts waiting for their assistant `message_id`. Always empty when
+    /// the verification feature is disabled.
+    #[cfg(feature = "tools-verification")]
+    pub pending_verdicts: Vec<(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)>,
+}
+
 /// Run post-LLM content processing over the raw assistant reply.
 ///
 /// Owns pipeline stages 15 through 18: canary scan, text guardrails,
 /// claim verification, and the channel-specific [`ResponsePostProcess`]
-/// hook. Returns the content string that will be persisted as the
-/// assistant reply.
+/// hook. Returns the content string alongside any pending verdicts so the
+/// caller can persist them with the assistant `message_id` after the
+/// message write succeeds — emitting verdicts before the message exists
+/// would leave orphan rows if the message write failed.
 async fn post_process_assistant_reply(
     #[cfg_attr(not(feature = "tools-verification"), allow(unused_variables))] resources: &Arc<
         ServerResources,
@@ -565,7 +603,7 @@ async fn post_process_assistant_reply(
     prompt_guard: &prompt_leak::PromptGuard,
     raw_content: String,
     hooks: &PipelineHooks<'_>,
-) -> String {
+) -> PostProcessedReply {
     // Stage 15: Scan for verbatim system-prompt leaks / canary hits.
     prompt_leak::scan_assistant_reply(
         prompt_guard,
@@ -579,28 +617,35 @@ async fn post_process_assistant_reply(
     let mut content = apply_text_guardrails(resources, &raw_content, locale_opt);
 
     // Stage 17: Tier 5.5 claim verification (gated behind tools-verification).
+    // Verdicts are computed now — content may be rewritten under Warn/Block —
+    // but persistence is deferred to after the assistant message is stored.
     #[cfg(feature = "tools-verification")]
-    {
+    let pending_verdicts = {
         let verification_config = coach_ctx
             .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
             .unwrap_or_default();
-        content = apply_claim_verification(ClaimVerificationParams {
+        let ClaimVerificationOutcome {
+            content: verified_content,
+            pending_verdicts,
+        } = apply_claim_verification(ClaimVerificationParams {
             resources,
             reply: &content,
-            user_id: &input.user_id,
-            conversation_id: &input.conversation_id,
-            coach_id: conv.coach_id.as_deref(),
-            tenant_id: input.conversation_tenant_id,
             config: &verification_config,
             locale: locale_opt,
         })
         .await;
-    }
+        content = verified_content;
+        pending_verdicts
+    };
 
     // Stage 18: ResponsePostProcess hook.
     if let Some(post) = hooks.response_post_process {
         content = post.transform(&content);
     }
 
-    content
+    PostProcessedReply {
+        content,
+        #[cfg(feature = "tools-verification")]
+        pending_verdicts,
+    }
 }

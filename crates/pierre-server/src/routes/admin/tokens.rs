@@ -116,6 +116,7 @@ pub(super) async fn handle_create_admin_token(
         permissions,
         expires_in_days,
         is_super_admin,
+        tenant_id: None,
     };
 
     let generated_token = ctx
@@ -366,6 +367,7 @@ pub(super) async fn handle_rotate_admin_token(
         permissions: None,
         is_super_admin: existing_token.is_super_admin,
         expires_in_days: Some(365_u64),
+        tenant_id: existing_token.tenant_id.clone(),
     };
 
     let new_token = ctx

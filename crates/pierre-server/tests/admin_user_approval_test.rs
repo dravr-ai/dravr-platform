@@ -116,6 +116,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
         permissions: None, // Super admin gets all permissions
         expires_in_days: Some(1),
         is_super_admin: true,
+        tenant_id: None,
     };
 
     // Initialize JWKS manager for RS256 admin token signing

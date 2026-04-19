@@ -16,7 +16,7 @@
 //! [`pierre_llm::judge::ask_for_json`] — an extractor returning garbage is
 //! logged and swallowed, never propagated.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -25,15 +25,28 @@ use pierre_llm::prompts::get_memory_extraction_prompt;
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_memory::{FactKind, MemoryScope, UserFact};
 use serde::Deserialize;
+use tokio::sync::Semaphore;
 use tracing::{debug, info, warn};
 
 use crate::llm::ChatProvider;
 use crate::mcp::resources::ServerResources;
-use crate::routes::create_chat_provider;
+use crate::services::chat_provider_factory::create_chat_provider;
 
 /// Minimum confidence for an extracted fact to be persisted.
 /// Tuned conservatively — we'd rather miss a fact than store a hallucination.
 const MIN_CONFIDENCE: f32 = 0.55;
+
+/// Cap on concurrent background extractions. High enough that normal traffic
+/// never waits, low enough that a flood of turns cannot exhaust the runtime
+/// with LLM-bound tasks. Chosen to match the default Tokio worker count on
+/// typical server hardware.
+const MAX_CONCURRENT_EXTRACTIONS: usize = 32;
+
+/// Global semaphore serving as backpressure for `spawn_extract_for_turn`.
+/// When fully saturated, newly-spawned tasks wait in the acquisition queue
+/// rather than all racing the LLM concurrently.
+static EXTRACTION_PERMITS: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_EXTRACTIONS)));
 
 /// Raw fact shape returned by the extraction LLM. Mirrors the JSON schema in
 /// `memory_extraction.md`.
@@ -261,7 +274,17 @@ pub struct SpawnedExtractionRequest {
 /// canonical entry point used by the messaging dispatch path after a turn
 /// has been persisted.
 pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtractionRequest) {
+    let permits = Arc::clone(&EXTRACTION_PERMITS);
     tokio::spawn(async move {
+        // Bounded concurrency: drop the task silently if the semaphore has been
+        // closed (only happens at shutdown). Otherwise wait our turn so we don't
+        // fan out unbounded LLM calls under high message throughput. The permit
+        // is released automatically when `extraction_permit` drops at the end
+        // of this task.
+        let Ok(extraction_permit) = permits.acquire_owned().await else {
+            debug!("memory extraction skipped: extraction semaphore closed");
+            return;
+        };
         let provider = match create_chat_provider().await {
             Ok(p) => p,
             Err(e) => {
@@ -285,5 +308,6 @@ pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtra
             ),
             Err(e) => warn!(error = %e, "background memory extraction failed"),
         }
+        drop(extraction_permit);
     });
 }

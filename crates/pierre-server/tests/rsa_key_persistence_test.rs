@@ -143,8 +143,11 @@ async fn test_cli_generated_admin_token_valid_on_server() -> Result<()> {
         token_id,
         service_name,
         &permissions,
-        false,
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: false,
+            expires_at: None,
+            tenant_id: None,
+        },
         &cli_jwks_arc,
     )?;
 
@@ -346,8 +349,11 @@ async fn test_super_admin_token_persistence() -> Result<()> {
         "super_token",
         "super_service",
         &permissions,
-        true, // is_super_admin
-        None,
+        &pierre_core::admin::TokenScope {
+            is_super_admin: true,
+            expires_at: None,
+            tenant_id: None,
+        },
         &jwks_arc,
     )?;
 

@@ -12,6 +12,15 @@ use pierre_mcp_server::{
 };
 
 type Result<T> = AppResult<T>;
+
+/// Optional flags for the `generate` CLI command that don't map to
+/// positional parameters.
+pub struct GenerateTokenOpts {
+    /// Custom permissions (comma-separated)
+    pub permissions: Option<String>,
+    /// Scope the token to a specific tenant (UUID)
+    pub tenant_id: Option<String>,
+}
 use std::collections::HashMap;
 use tracing::{error, info, warn};
 
@@ -25,7 +34,7 @@ pub async fn generate(
     description: Option<String>,
     expires_days: u64,
     super_admin: bool,
-    permissions: Option<String>,
+    opts: GenerateTokenOpts,
 ) -> Result<()> {
     info!("Key Generating admin token for service: {}", service);
 
@@ -34,9 +43,10 @@ pub async fn generate(
 
     // Build token request
     let mut request = build_token_request(service, description, expires_days, super_admin);
+    request.tenant_id = opts.tenant_id;
 
     // Apply custom permissions if provided
-    apply_custom_permissions(&mut request, permissions, super_admin)?;
+    apply_custom_permissions(&mut request, opts.permissions, super_admin)?;
 
     // Load JWT secret
     let jwt_secret = load_jwt_secret(repos).await?;
@@ -316,6 +326,7 @@ pub async fn rotate(
         permissions: Some(old_token.permissions.to_vec()),
         expires_in_days: expires_days.or(Some(365)),
         is_super_admin: old_token.is_super_admin,
+        tenant_id: old_token.tenant_id.clone(),
     };
 
     if old_token.is_super_admin {

@@ -95,8 +95,11 @@ impl StoreAdminTestSetup {
             &super_admin_token_id,
             "test_super_admin_service",
             &super_admin_permissions,
-            true,
-            None,
+            &pierre_core::admin::TokenScope {
+                is_super_admin: true,
+                expires_at: None,
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
@@ -119,8 +122,11 @@ impl StoreAdminTestSetup {
             &user_manager_token_id,
             "test_user_manager_service",
             &user_manager_permissions,
-            false,
-            Some(chrono::Utc::now() + chrono::Duration::days(365)),
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
@@ -143,8 +149,11 @@ impl StoreAdminTestSetup {
             &no_permission_token_id,
             "test_no_permission_service",
             &no_permission_permissions,
-            false,
-            Some(chrono::Utc::now() + chrono::Duration::days(365)),
+            &pierre_core::admin::TokenScope {
+                is_super_admin: false,
+                expires_at: Some(chrono::Utc::now() + chrono::Duration::days(365)),
+                tenant_id: None,
+            },
             &jwks_manager,
         )?;
 
