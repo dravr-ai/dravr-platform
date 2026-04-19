@@ -95,12 +95,12 @@ impl A2ASystemUserService {
     #[must_use]
     pub fn generate_secure_system_password() -> String {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let password: String = (0..64)
             .map(|_| {
                 let chars =
                     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
-                chars[rng.gen_range(0..chars.len())] as char
+                chars[rng.random_range(0..chars.len())] as char
             })
             .collect();
         password

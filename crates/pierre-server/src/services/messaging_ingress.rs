@@ -603,7 +603,7 @@ fn looks_like_email(text: &str) -> bool {
 
 /// Generate a cryptographically random 6-digit OTP code
 fn generate_otp() -> String {
-    let code: u32 = rand::thread_rng().gen_range(100_000..1_000_000);
+    let code: u32 = rand::rng().random_range(100_000..1_000_000);
     code.to_string()
 }
 

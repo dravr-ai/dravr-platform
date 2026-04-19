@@ -36,7 +36,7 @@ impl<T: JwtSigner> JwtSigner for Arc<T> {
 #[cfg(feature = "admin-jwt")]
 use chrono::{DateTime, Duration, Utc};
 #[cfg(feature = "admin-jwt")]
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 #[cfg(feature = "admin-jwt")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "admin-jwt")]
@@ -89,7 +89,7 @@ impl AdminJwtManager {
     #[must_use]
     pub fn generate_jwt_secret() -> String {
         // Generate 64 character (512-bit) random secret
-        rand::thread_rng()
+        rand::rng()
             .sample_iter(&Alphanumeric)
             .take(64)
             .map(char::from)

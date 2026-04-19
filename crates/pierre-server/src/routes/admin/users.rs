@@ -13,7 +13,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::{DateTime, Duration, Utc};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use serde::Serialize;
 use serde_json::{json, to_value};
 use tracing::{error, info, warn};
@@ -586,7 +586,7 @@ pub(super) async fn handle_reset_user_password(
             AppError::not_found("User not found")
         })?;
 
-    let raw_token: String = rand::thread_rng()
+    let raw_token: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .take(48)
         .map(char::from)

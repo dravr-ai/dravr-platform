@@ -373,8 +373,8 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
     // Generate realistic fake Strava tokens for testing
     let now = chrono::Utc::now();
     let timestamp = now.timestamp();
-    let token_id = rand::thread_rng().gen::<u64>();
-    let refresh_token_id = rand::thread_rng().gen::<u64>();
+    let token_id = rand::rng().random::<u64>();
+    let refresh_token_id = rand::rng().random::<u64>();
 
     let mock_token = DecryptedToken {
         access_token: format!("at_{token_id:016x}_{timestamp}"),

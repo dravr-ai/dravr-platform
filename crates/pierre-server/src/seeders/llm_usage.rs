@@ -125,7 +125,7 @@ fn total_call_type_weight() -> u32 {
 
 /// Select a model config using weighted random selection
 fn pick_model(rng: &mut impl Rng) -> &'static ModelConfig {
-    let mut roll = rng.gen_range(0..total_model_weight());
+    let mut roll = rng.random_range(0..total_model_weight());
     for config in MODEL_CONFIGS {
         if roll < config.weight {
             return config;
@@ -138,7 +138,7 @@ fn pick_model(rng: &mut impl Rng) -> &'static ModelConfig {
 
 /// Select a call type using weighted random selection
 fn pick_call_type(rng: &mut impl Rng) -> &'static str {
-    let mut roll = rng.gen_range(0..total_call_type_weight());
+    let mut roll = rng.random_range(0..total_call_type_weight());
     for config in CALL_TYPES {
         if roll < config.weight {
             return config.call_type;
@@ -225,7 +225,7 @@ async fn seed_llm_usage(
     user_id: Uuid,
     days: u32,
 ) -> AppResult<u64> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut total_records: u64 = 0;
 
     for day_offset in 0..days {
@@ -235,44 +235,45 @@ async fn seed_llm_usage(
         // Weekends have fewer calls (40-60% of weekday volume)
         let is_weekend = weekday >= 5;
         let base_calls: u32 = if is_weekend {
-            rng.gen_range(4..8)
+            rng.random_range(4..8)
         } else {
-            rng.gen_range(8..16)
+            rng.random_range(8..16)
         };
 
         for _ in 0..base_calls {
             let model_config = pick_model(&mut rng);
             let call_type = pick_call_type(&mut rng);
 
-            let prompt_tokens = rng
-                .gen_range(model_config.prompt_tokens_range.0..=model_config.prompt_tokens_range.1);
-            let completion_tokens = rng.gen_range(
+            let prompt_tokens = rng.random_range(
+                model_config.prompt_tokens_range.0..=model_config.prompt_tokens_range.1,
+            );
+            let completion_tokens = rng.random_range(
                 model_config.completion_tokens_range.0..=model_config.completion_tokens_range.1,
             );
             let total_tokens = prompt_tokens + completion_tokens;
 
             // Tool calls: only for mcp_tool call type
             let tool_calls_count: i64 = if call_type == "mcp_tool" {
-                rng.gen_range(1..=5)
+                rng.random_range(1..=5)
             } else {
                 0
             };
 
             // Execution time: larger models take longer
             let execution_time_ms: i64 = match model_config.model {
-                m if m.contains("pro") => rng.gen_range(800..3000),
-                m if m.contains("70b") => rng.gen_range(600..2500),
-                _ => rng.gen_range(200..1200),
+                m if m.contains("pro") => rng.random_range(800..3000),
+                m if m.contains("70b") => rng.random_range(600..2500),
+                _ => rng.random_range(200..1200),
             };
 
             // Generate a business-hours-biased timestamp
-            let hour: u32 = if rng.gen_bool(0.75) {
-                rng.gen_range(8..20)
+            let hour: u32 = if rng.random_bool(0.75) {
+                rng.random_range(8..20)
             } else {
-                rng.gen_range(0..24)
+                rng.random_range(0..24)
             };
-            let minute: u32 = rng.gen_range(0..60);
-            let second: u32 = rng.gen_range(0..60);
+            let minute: u32 = rng.random_range(0..60);
+            let second: u32 = rng.random_range(0..60);
 
             let timestamp = day
                 .with_hour(hour)
@@ -283,7 +284,7 @@ async fn seed_llm_usage(
                 .unwrap_or(day);
 
             // Some chat calls have a conversation_id
-            let conversation_id: Option<String> = if call_type == "chat" && rng.gen_bool(0.7) {
+            let conversation_id: Option<String> = if call_type == "chat" && rng.random_bool(0.7) {
                 Some(Uuid::new_v4().to_string())
             } else {
                 None

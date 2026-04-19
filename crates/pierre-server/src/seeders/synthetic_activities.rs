@@ -31,7 +31,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::seed_models::{SeedProviderConnection, SeedSyntheticActivity};
 use pierre_database::RepositoryRegistry;
-use rand::prelude::SliceRandom;
+use rand::prelude::IndexedRandom;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::collections::HashMap;
@@ -537,26 +537,26 @@ fn build_activity(
     index: u32,
     days: u32,
 ) -> SeedSyntheticActivity {
-    let days_ago = rng.gen_range(0..days);
-    let hour = rng.gen_range(5..21); // 5 AM to 9 PM
-    let minute = rng.gen_range(0..60);
+    let days_ago = rng.random_range(0..days);
+    let hour = rng.random_range(5..21); // 5 AM to 9 PM
+    let minute = rng.random_range(0..60);
     let start_date =
         now - Duration::days(i64::from(days_ago)) - Duration::hours(24 - i64::from(hour))
             + Duration::minutes(i64::from(minute));
 
-    let duration = rng.gen_range(sport.duration_range.0..=sport.duration_range.1);
+    let duration = rng.random_range(sport.duration_range.0..=sport.duration_range.1);
     let distance = sport
         .distance_range
-        .map(|(min, max)| rng.gen_range(min..=max));
+        .map(|(min, max)| rng.random_range(min..=max));
     let elevation = sport
         .elevation_range
-        .map(|(min, max)| rng.gen_range(min..=max));
-    let avg_hr = rng.gen_range(sport.heart_rate_range.0..=sport.heart_rate_range.1);
-    let max_hr = avg_hr + rng.gen_range(10..30);
-    let calories = Some(rng.gen_range(200..1200));
+        .map(|(min, max)| rng.random_range(min..=max));
+    let avg_hr = rng.random_range(sport.heart_rate_range.0..=sport.heart_rate_range.1);
+    let max_hr = avg_hr + rng.random_range(10..30);
+    let calories = Some(rng.random_range(200..1200));
 
     let avg_speed = distance.map(|d| d / duration as f64);
-    let max_speed = avg_speed.map(|s| s * rng.gen_range(1.15..1.4));
+    let max_speed = avg_speed.map(|s| s * rng.random_range(1.15..1.4));
 
     let name = format!(
         "{} #{}",

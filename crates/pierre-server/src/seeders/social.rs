@@ -261,12 +261,12 @@ async fn step_adapted_insights(repos: &RepositoryRegistry, ctx: &SocialContext) 
 
 /// Seed user social settings
 async fn seed_social_settings(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut count: u32 = 0;
 
     for user_id in user_ids {
-        let discoverable = rng.gen_bool(0.9);
-        let visibility = if rng.gen_bool(0.7) {
+        let discoverable = rng.random_bool(0.9);
+        let visibility = if rng.random_bool(0.7) {
             "friends_only"
         } else {
             "public"
@@ -292,7 +292,7 @@ async fn seed_social_settings(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> 
 
 /// Seed friend connections between demo users
 async fn seed_friend_connections(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut count: u32 = 0;
 
     for (i, initiator_id) in user_ids.iter().enumerate() {
@@ -303,11 +303,11 @@ async fn seed_friend_connections(repos: &RepositoryRegistry, user_ids: &[Uuid]) 
             }
 
             let receiver_id = user_ids[receiver_idx];
-            let days_ago: i64 = rng.gen_range(1..30);
+            let days_ago: i64 = rng.random_range(1..30);
             let created_at = Utc::now() - Duration::days(days_ago);
 
             // 80% accepted, 15% pending, 5% declined
-            let status_roll: u8 = rng.gen_range(0..100);
+            let status_roll: u8 = rng.random_range(0..100);
             let (status, accepted_at) = match status_roll {
                 0..=79 => {
                     let accept_time = Utc::now() - Duration::days(days_ago - 1);
@@ -346,13 +346,13 @@ async fn seed_admin_friend_connections(
     admin_id: &Uuid,
     user_ids: &[Uuid],
 ) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut count: u32 = 0;
 
     let friends_to_create = user_ids.len().min(8);
 
     for seed_user_id in user_ids.iter().take(friends_to_create) {
-        let days_ago: i64 = rng.gen_range(1..15);
+        let days_ago: i64 = rng.random_range(1..15);
         let created_at = Utc::now() - Duration::days(days_ago);
         let accepted_at = Utc::now() - Duration::days(days_ago - 1);
 
@@ -380,18 +380,18 @@ async fn seed_admin_friend_connections(
 
 /// Seed shared insights from demo users
 async fn seed_shared_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let insights = get_sample_insights();
     let mut count: u32 = 0;
 
     for user_id in user_ids {
-        let num_insights: u32 = rng.gen_range(1..=3);
+        let num_insights: u32 = rng.random_range(1..=3);
 
         for _ in 0..num_insights {
-            let insight = &insights[rng.gen_range(0..insights.len())];
-            let days_ago: i64 = rng.gen_range(1..14);
+            let insight = &insights[rng.random_range(0..insights.len())];
+            let days_ago: i64 = rng.random_range(1..14);
             let created_at = Utc::now() - Duration::days(days_ago);
-            let visibility = if rng.gen_bool(0.8) {
+            let visibility = if rng.random_bool(0.8) {
                 "friends_only"
             } else {
                 "public"
@@ -426,16 +426,16 @@ async fn seed_shared_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> 
 
 /// Seed reactions on shared insights
 async fn seed_reactions(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut count: u32 = 0;
 
     let insight_ids = repos.seeder.seed_get_shared_insight_ids().await?;
 
     for insight_id in &insight_ids {
-        let react_probability: f64 = rng.gen_range(0.3..0.6);
+        let react_probability: f64 = rng.random_range(0.3..0.6);
 
         for user_id in user_ids {
-            if !rng.gen_bool(react_probability) {
+            if !rng.random_bool(react_probability) {
                 continue;
             }
 
@@ -443,7 +443,7 @@ async fn seed_reactions(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppRes
                 id: Uuid::new_v4(),
                 insight_id: *insight_id,
                 user_id: *user_id,
-                reaction_type: REACTION_TYPES[rng.gen_range(0..REACTION_TYPES.len())].to_owned(),
+                reaction_type: REACTION_TYPES[rng.random_range(0..REACTION_TYPES.len())].to_owned(),
                 created_at: Utc::now(),
             };
 
@@ -462,21 +462,21 @@ async fn seed_reactions(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppRes
 
 /// Seed adapted insights
 async fn seed_adapted_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
     let insights = repos.seeder.seed_get_shared_insights_with_authors().await?;
 
     for (insight_id, author_id) in &insights {
-        let adapt_probability: f64 = rng.gen_range(0.1..0.25);
+        let adapt_probability: f64 = rng.random_range(0.1..0.25);
 
         for user_id in user_ids {
             if *user_id == *author_id {
                 continue;
             }
 
-            if !rng.gen_bool(adapt_probability) {
+            if !rng.random_bool(adapt_probability) {
                 continue;
             }
 
@@ -484,10 +484,10 @@ async fn seed_adapted_insights(repos: &RepositoryRegistry, user_ids: &[Uuid]) ->
                 id: Uuid::new_v4(),
                 source_insight_id: *insight_id,
                 user_id: *user_id,
-                adapted_content: templates[rng.gen_range(0..templates.len())].to_owned(),
+                adapted_content: templates[rng.random_range(0..templates.len())].to_owned(),
                 adaptation_context:
                     r#"{"training_phase": "base", "fitness_level": "intermediate"}"#.to_owned(),
-                was_helpful: rng.gen_bool(0.8),
+                was_helpful: rng.random_bool(0.8),
                 created_at: Utc::now(),
             };
 
@@ -509,7 +509,7 @@ async fn seed_admin_adapted_insights(
     repos: &RepositoryRegistry,
     admin_id: &Uuid,
 ) -> AppResult<u32> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let templates = get_adaptation_templates();
     let mut count: u32 = 0;
 
@@ -518,19 +518,19 @@ async fn seed_admin_adapted_insights(
         .seed_get_shared_insights_not_by_user(*admin_id, 10)
         .await?;
 
-    let num_to_adapt = rng.gen_range(3..=5).min(insight_ids.len());
+    let num_to_adapt = rng.random_range(3..=5).min(insight_ids.len());
     let mut indices: Vec<usize> = (0..insight_ids.len()).collect();
     indices.shuffle(&mut rng);
 
     for idx in indices.into_iter().take(num_to_adapt) {
         let insight_id = insight_ids[idx];
-        let days_ago: i64 = rng.gen_range(1..7);
+        let days_ago: i64 = rng.random_range(1..7);
 
         let adapted = SeedAdaptedInsight {
             id: Uuid::new_v4(),
             source_insight_id: insight_id,
             user_id: *admin_id,
-            adapted_content: templates[rng.gen_range(0..templates.len())].to_owned(),
+            adapted_content: templates[rng.random_range(0..templates.len())].to_owned(),
             adaptation_context: r#"{"training_phase": "build", "fitness_level": "advanced"}"#
                 .to_owned(),
             was_helpful: true,

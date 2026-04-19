@@ -586,7 +586,7 @@ pub(crate) async fn generate_password_reset_token(
     active_tenant_id: Option<Uuid>,
     target_user_id: Uuid,
 ) -> Result<PasswordResetResult, AppError> {
-    use rand::distributions::Alphanumeric;
+    use rand::distr::Alphanumeric;
     use rand::Rng;
     use sha2::{Digest, Sha256};
 
@@ -601,7 +601,7 @@ pub(crate) async fn generate_password_reset_token(
     .ok_or_else(|| AppError::not_found("User not found"))?;
 
     // Generate a cryptographically random reset token (48 chars alphanumeric)
-    let raw_token: String = rand::thread_rng()
+    let raw_token: String = rand::rng()
         .sample_iter(&Alphanumeric)
         .take(48)
         .map(char::from)

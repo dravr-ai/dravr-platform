@@ -10,7 +10,6 @@
 use chrono::Utc;
 use ed25519_dalek::{Signer, SigningKey};
 use hmac::{Hmac, Mac};
-use rand::rngs::OsRng;
 use rand::RngCore;
 use serde_json::{json, Value};
 use sha2::Sha256;
@@ -72,7 +71,7 @@ impl ChannelSecrets {
     #[must_use]
     pub fn generate() -> Self {
         let mut key_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut key_bytes);
+        rand::rng().fill_bytes(&mut key_bytes);
         let signing_key = SigningKey::from_bytes(&key_bytes);
         let public_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
         Self {

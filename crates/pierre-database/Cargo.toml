@@ -44,7 +44,7 @@ base64 = "0.22"
 # Cryptography (for encryption/decryption of stored data)
 ring = "0.17"
 sha2 = "0.10"
-rand = "0.8"
+rand = "0.9"
 
 # Hex encoding
 hex = "0.4"

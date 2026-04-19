@@ -379,7 +379,6 @@ mod messaging_routes_tests {
     async fn test_discord_webhook_ping_response() {
         use ed25519_dalek::Signer;
         use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
-        use rand::rngs::OsRng;
         use rand::RngCore;
         use uuid::Uuid;
 
@@ -398,7 +397,7 @@ mod messaging_routes_tests {
         // Discord uses Ed25519 for signature verification.
         // Set up config with the public key as webhook_secret and an application ID.
         let mut secret_bytes = [0u8; 32];
-        OsRng.fill_bytes(&mut secret_bytes);
+        rand::rng().fill_bytes(&mut secret_bytes);
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret_bytes);
         let public_key_hex = hex::encode(signing_key.verifying_key().as_bytes());
 

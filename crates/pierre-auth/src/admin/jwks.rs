@@ -120,7 +120,12 @@ impl RsaKeyPair {
     /// # Errors
     /// Returns error if key generation fails
     pub fn generate_with_key_size(kid: &str, key_size_bits: usize) -> AppResult<Self> {
-        use rand::rngs::OsRng;
+        // `rsa 0.9.x` still depends on `rand_core 0.6`, so we need the
+        // `OsRng` re-exported by that exact `rand_core` — `rand::rngs::OsRng`
+        // from rand 0.9 implements the rand_core 0.9 traits which don't
+        // satisfy `CryptoRngCore` (rand_core 0.6) that `RsaPrivateKey::new`
+        // takes.
+        use rsa::rand_core::OsRng;
 
         let mut rng = OsRng;
         let private_key = RsaPrivateKey::new(&mut rng, key_size_bits)

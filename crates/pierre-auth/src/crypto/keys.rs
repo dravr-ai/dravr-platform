@@ -9,7 +9,7 @@
 use base64::{engine::general_purpose, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use pierre_core::errors::{AppError, AppResult};
-use rand::rngs::OsRng;
+use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use zeroize::Zeroize;
@@ -44,9 +44,7 @@ impl A2AKeyManager {
     ///
     /// Returns an error if key generation fails
     pub fn generate_keypair() -> AppResult<A2AKeypair> {
-        use rand::RngCore;
-
-        let mut rng = OsRng;
+        let mut rng = rand::rng();
         let mut secret_bytes = [0u8; 32];
         rng.fill_bytes(&mut secret_bytes);
 
@@ -142,9 +140,8 @@ impl A2AKeyManager {
     /// Generate a challenge for client verification
     #[must_use]
     pub fn generate_challenge() -> String {
-        use rand::Rng;
-        let mut rng = OsRng;
-        let challenge: [u8; 32] = rng.gen();
+        let mut rng = rand::rng();
+        let challenge: [u8; 32] = rng.random();
         general_purpose::STANDARD.encode(challenge)
     }
 }
