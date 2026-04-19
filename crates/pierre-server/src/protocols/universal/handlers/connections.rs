@@ -66,15 +66,22 @@ pub fn handle_get_connection_status(
         // Check if a specific provider is requested
         if let Some(specific_provider) = request.parameters.get("provider").and_then(Value::as_str)
         {
-            // Mirror backends are internal-only — refuse to expose them.
-            // The LLM should always ask in terms of user-facing providers.
+            // Mirror backends are internal-only. Report them as disconnected
+            // with a note redirecting the caller to the user-facing provider,
+            // rather than erroring — the LLM should never see the internal
+            // name as a valid option, but an explicit false+note is more
+            // useful to the caller than an opaque error.
             if backend_resolver::is_mirror_backend(specific_provider) {
                 return Ok(UniversalResponse {
-                    success: false,
-                    result: None,
-                    error: Some(format!(
-                        "Unknown provider '{specific_provider}'. Use 'strava' or 'garmin' instead.",
-                    )),
+                    success: true,
+                    result: Some(json!({
+                        "provider": specific_provider,
+                        "status": "disconnected",
+                        "connected": false,
+                        "backend": "none",
+                        "note": "Unknown provider. Use 'strava' or 'garmin' instead."
+                    })),
+                    error: None,
                     metadata: None,
                 });
             }
