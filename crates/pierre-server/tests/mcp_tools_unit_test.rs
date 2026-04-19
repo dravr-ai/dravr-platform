@@ -954,7 +954,7 @@ mod data_tests {
         use pierre_mcp_server::tools::implementations::data::create_data_tools;
 
         let tools = create_data_tools();
-        assert_eq!(tools.len(), 3, "Expected 3 data tools");
+        assert_eq!(tools.len(), 7, "Expected 7 data tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         let expected_names = ["get_activities", "get_athlete", "get_stats"];
@@ -1027,7 +1027,7 @@ mod analytics_tests {
         use pierre_mcp_server::tools::implementations::analytics::create_analytics_tools;
 
         let tools = create_analytics_tools();
-        assert_eq!(tools.len(), 9, "Expected 9 analytics tools");
+        assert_eq!(tools.len(), 11, "Expected 11 analytics tools");
 
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         let expected_names = [
@@ -1410,7 +1410,7 @@ fn test_total_tool_count() {
         + admin.len()
         + mobility.len();
 
-    assert_eq!(total, 73, "Expected 73 tools across all categories");
+    assert_eq!(total, 79, "Expected 79 tools across all categories");
 }
 
 #[test]
