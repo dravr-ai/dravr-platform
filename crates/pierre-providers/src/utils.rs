@@ -533,7 +533,7 @@ impl RetryBackoffConfig {
         let jitter_range = (f64::from(u32::try_from(capped_delay).unwrap_or(u32::MAX))
             * self.jitter_factor) as u64;
         let jitter = if jitter_range > 0 {
-            rand::thread_rng().gen_range(0..jitter_range)
+            rand::rng().random_range(0..jitter_range)
         } else {
             0
         };

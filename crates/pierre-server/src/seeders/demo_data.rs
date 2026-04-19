@@ -485,7 +485,7 @@ fn get_demo_a2a_clients() -> Vec<DemoA2AClient> {
 
 /// Status codes with realistic distribution (mostly 200s)
 fn random_status_code(rng: &mut impl Rng) -> i32 {
-    let roll: u8 = rng.gen_range(0..100);
+    let roll: u8 = rng.random_range(0..100);
     match roll {
         0..=85 => 200,  // 86% success
         86..=90 => 201, // 5% created
@@ -511,7 +511,7 @@ fn random_response_time(rng: &mut impl Rng, tool: &str) -> i32 {
     };
 
     // Add variance (50-150% of base)
-    let variance: f64 = rng.gen_range(0.5..1.5);
+    let variance: f64 = rng.random_range(0.5..1.5);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let result = (f64::from(base) * variance) as i32;
     result.max(20) // Minimum 20ms
@@ -723,7 +723,7 @@ async fn seed_api_keys(
 ) -> AppResult<Vec<Uuid>> {
     let api_keys = get_demo_api_keys();
     let mut key_ids = Vec::new();
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
 
     for (i, key) in api_keys.iter().enumerate() {
         // Check if exists
@@ -742,9 +742,9 @@ async fn seed_api_keys(
                 user_ids[(i - 10) % user_ids.len()]
             };
 
-            let key_prefix = format!("pk_{:08x}", rng.gen::<u32>());
-            let key_hash = format!("{:064x}", rng.gen::<u128>());
-            let days_ago: i64 = rng.gen_range(5..30);
+            let key_prefix = format!("pk_{:08x}", rng.random::<u32>());
+            let key_hash = format!("{:064x}", rng.random::<u128>());
+            let days_ago: i64 = rng.random_range(5..30);
             let created_at = Utc::now() - Duration::days(days_ago);
 
             let expires_at = if key.tier == "trial" {
@@ -785,7 +785,7 @@ async fn seed_a2a_clients(
 ) -> AppResult<Vec<Uuid>> {
     let clients = get_demo_a2a_clients();
     let mut client_ids = Vec::new();
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
 
     for (i, client) in clients.iter().enumerate() {
         let existing = repos
@@ -803,10 +803,10 @@ async fn seed_a2a_clients(
             } else {
                 user_ids[i % user_ids.len()]
             };
-            let public_key = format!("pk_a2a_{:016x}", rng.gen::<u64>());
-            let client_secret = format!("{:064x}", rng.gen::<u128>());
+            let public_key = format!("pk_a2a_{:016x}", rng.random::<u64>());
+            let client_secret = format!("{:064x}", rng.random::<u128>());
             let permissions = r#"["read", "write"]"#.to_owned();
-            let days_ago: i64 = rng.gen_range(10..45);
+            let days_ago: i64 = rng.random_range(10..45);
             let created_at = Utc::now() - Duration::days(days_ago);
             let updated_at = Utc::now();
 
@@ -840,7 +840,7 @@ async fn seed_api_usage(
     api_key_ids: &[Uuid],
     days: u32,
 ) -> AppResult<u64> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut total_records: u64 = 0;
 
     for (idx, key_id) in api_key_ids.iter().enumerate() {
@@ -860,25 +860,25 @@ async fn seed_api_usage(
             let weekend_factor: f64 = if is_weekend(day) { 0.3 } else { 1.0 };
 
             // Random daily variance
-            let variance: f64 = rng.gen_range(0.7..1.3);
+            let variance: f64 = rng.random_range(0.7..1.3);
 
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let daily_requests = (f64::from(base_requests) * weekend_factor * variance) as u32;
 
             for _ in 0..daily_requests {
                 let id = Uuid::new_v4();
-                let tool = TOOLS[rng.gen_range(0..TOOLS.len())];
+                let tool = TOOLS[rng.random_range(0..TOOLS.len())];
                 let status_code = random_status_code(&mut rng);
                 let response_time = random_response_time(&mut rng, tool);
 
                 // Generate timestamp with business hours bias
-                let hour: u32 = if rng.gen_bool(0.7) {
-                    rng.gen_range(8..20) // 70% during business hours
+                let hour: u32 = if rng.random_bool(0.7) {
+                    rng.random_range(8..20) // 70% during business hours
                 } else {
-                    rng.gen_range(0..24)
+                    rng.random_range(0..24)
                 };
-                let minute: u32 = rng.gen_range(0..60);
-                let second: u32 = rng.gen_range(0..60);
+                let minute: u32 = rng.random_range(0..60);
+                let second: u32 = rng.random_range(0..60);
 
                 let timestamp = day
                     .with_hour(hour)
@@ -914,24 +914,24 @@ async fn seed_a2a_usage(
     client_ids: &[Uuid],
     days: u32,
 ) -> AppResult<u64> {
-    let mut rng = StdRng::from_entropy();
+    let mut rng = StdRng::from_os_rng();
     let mut total_records: u64 = 0;
 
     for client_id in client_ids {
-        let base_requests: u32 = rng.gen_range(20..50);
+        let base_requests: u32 = rng.random_range(20..50);
 
         for day_offset in 0..days {
             let day = Utc::now() - Duration::days(i64::from(day_offset));
-            let daily_requests: u32 = rng.gen_range(base_requests / 2..base_requests * 2);
+            let daily_requests: u32 = rng.random_range(base_requests / 2..base_requests * 2);
 
             for _ in 0..daily_requests {
                 let id = Uuid::new_v4();
-                let tool = A2A_TOOLS[rng.gen_range(0..A2A_TOOLS.len())];
+                let tool = A2A_TOOLS[rng.random_range(0..A2A_TOOLS.len())];
                 let status_code = random_status_code(&mut rng);
-                let response_time: i32 = rng.gen_range(100..600);
+                let response_time: i32 = rng.random_range(100..600);
 
-                let hour: u32 = rng.gen_range(0..24);
-                let minute: u32 = rng.gen_range(0..60);
+                let hour: u32 = rng.random_range(0..24);
+                let minute: u32 = rng.random_range(0..60);
 
                 let timestamp = day
                     .with_hour(hour)

@@ -98,10 +98,10 @@ impl ResetTokenTestSetup {
 
     /// Store a reset token for a user and return the raw token
     async fn issue_reset_token(&self, user_id: uuid::Uuid) -> anyhow::Result<String> {
-        use rand::distributions::Alphanumeric;
+        use rand::distr::Alphanumeric;
         use rand::Rng;
 
-        let raw_token: String = rand::thread_rng()
+        let raw_token: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(48)
             .map(char::from)

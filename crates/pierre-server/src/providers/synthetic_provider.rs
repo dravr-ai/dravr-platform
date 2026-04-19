@@ -506,54 +506,54 @@ impl SyntheticProvider {
         let mut activities = Vec::with_capacity(count as usize);
 
         for i in 0..count {
-            let sport_type = sport_types[rng.gen_range(0..sport_types.len())].clone();
-            let name = activity_names[rng.gen_range(0..activity_names.len())];
+            let sport_type = sport_types[rng.random_range(0..sport_types.len())].clone();
+            let name = activity_names[rng.random_range(0..activity_names.len())];
 
             // Activity spread over the last N days (1-2 activities per day roughly)
             let days_ago = i64::from(i / 2);
-            let hour_offset = rng.gen_range(6..20); // Between 6 AM and 8 PM
+            let hour_offset = rng.random_range(6..20); // Between 6 AM and 8 PM
             let start_date =
                 base_date - Duration::days(days_ago) - Duration::hours(24 - hour_offset);
 
             // Duration varies by sport type (in seconds)
             let duration_seconds = match sport_type {
-                SportType::Run => rng.gen_range(1200..7200), // 20 min - 2 hours
-                SportType::Ride => rng.gen_range(1800..14400), // 30 min - 4 hours
-                SportType::Swim => rng.gen_range(900..3600), // 15 min - 1 hour
-                SportType::Walk => rng.gen_range(1200..5400), // 20 min - 1.5 hours
-                SportType::Hike => rng.gen_range(3600..18000), // 1 - 5 hours
-                SportType::Workout => rng.gen_range(1800..5400), // 30 min - 1.5 hours
-                _ => rng.gen_range(1800..3600),
+                SportType::Run => rng.random_range(1200..7200), // 20 min - 2 hours
+                SportType::Ride => rng.random_range(1800..14400), // 30 min - 4 hours
+                SportType::Swim => rng.random_range(900..3600), // 15 min - 1 hour
+                SportType::Walk => rng.random_range(1200..5400), // 20 min - 1.5 hours
+                SportType::Hike => rng.random_range(3600..18000), // 1 - 5 hours
+                SportType::Workout => rng.random_range(1800..5400), // 30 min - 1.5 hours
+                _ => rng.random_range(1800..3600),
             };
 
             // Distance varies by sport type (in meters)
             let distance_meters = match sport_type {
-                SportType::Run => Some(rng.gen_range(3000.0..21_000.0)),
-                SportType::Ride => Some(rng.gen_range(10_000.0..100_000.0)),
-                SportType::Swim => Some(rng.gen_range(500.0..4000.0)),
-                SportType::Walk => Some(rng.gen_range(2000.0..8000.0)),
-                SportType::Hike => Some(rng.gen_range(5000.0..25_000.0)),
+                SportType::Run => Some(rng.random_range(3000.0..21_000.0)),
+                SportType::Ride => Some(rng.random_range(10_000.0..100_000.0)),
+                SportType::Swim => Some(rng.random_range(500.0..4000.0)),
+                SportType::Walk => Some(rng.random_range(2000.0..8000.0)),
+                SportType::Hike => Some(rng.random_range(5000.0..25_000.0)),
                 _ => None,
             };
 
             // Calculate speed from distance and duration
             let average_speed = distance_meters.map(|d| d / duration_seconds as f64);
-            let max_speed = average_speed.map(|s| s * rng.gen_range(1.2..1.5));
+            let max_speed = average_speed.map(|s| s * rng.random_range(1.2..1.5));
 
             // Heart rate data
-            let average_heart_rate = Some(rng.gen_range(120..165));
-            let max_heart_rate = average_heart_rate.map(|hr| hr + rng.gen_range(15..35));
+            let average_heart_rate = Some(rng.random_range(120..165));
+            let max_heart_rate = average_heart_rate.map(|hr| hr + rng.random_range(15..35));
 
             // Elevation for outdoor activities
             let elevation_gain = match sport_type {
                 SportType::Run | SportType::Ride | SportType::Hike | SportType::Walk => {
-                    Some(rng.gen_range(50.0..500.0))
+                    Some(rng.random_range(50.0..500.0))
                 }
                 _ => None,
             };
 
             // Calories estimation
-            let calories = Some(rng.gen_range(150..800));
+            let calories = Some(rng.random_range(150..800));
 
             activities.push(
                 ActivityBuilder::new(
@@ -571,10 +571,10 @@ impl SyntheticProvider {
                 .average_speed_opt(average_speed)
                 .max_speed_opt(max_speed)
                 .calories_opt(calories)
-                .temperature(rng.gen_range(10.0..30.0))
-                .humidity(rng.gen_range(30.0..80.0))
-                .start_latitude(45.5017 + rng.gen_range(-0.1..0.1))
-                .start_longitude(-73.5673 + rng.gen_range(-0.1..0.1))
+                .temperature(rng.random_range(10.0..30.0))
+                .humidity(rng.random_range(30.0..80.0))
+                .start_latitude(45.5017 + rng.random_range(-0.1..0.1))
+                .start_longitude(-73.5673 + rng.random_range(-0.1..0.1))
                 .city("Montreal".to_owned())
                 .region("Quebec".to_owned())
                 .country("Canada".to_owned())
@@ -598,8 +598,8 @@ impl SyntheticProvider {
             let end_date = base_date - Duration::days(i64::from(i));
 
             // Vary bedtime (10 PM - midnight) and wake time
-            let bedtime_offset = rng.gen_range(22..24);
-            let sleep_duration_hours: u32 = rng.gen_range(6..9);
+            let bedtime_offset = rng.random_range(22..24);
+            let sleep_duration_hours: u32 = rng.random_range(6..9);
             let sleep_start = end_date - Duration::hours(bedtime_offset);
             let sleep_end = sleep_start + Duration::hours(i64::from(sleep_duration_hours));
 
@@ -616,8 +616,8 @@ impl SyntheticProvider {
                 .map(|s| s.duration_minutes)
                 .sum();
 
-            let total_sleep_time = sleep_duration_hours * 60 - rng.gen_range(10..40);
-            let time_in_bed = total_sleep_time + rng.gen_range(15..45);
+            let total_sleep_time = sleep_duration_hours * 60 - rng.random_range(10..40);
+            let time_in_bed = total_sleep_time + rng.random_range(15..45);
             let sleep_efficiency = total_sleep_time as f32 / time_in_bed as f32 * 100.0;
 
             let sleep_score = 70.0
@@ -633,11 +633,11 @@ impl SyntheticProvider {
                 sleep_efficiency,
                 sleep_score: Some(sleep_score.min(95.0)),
                 stages,
-                hrv_during_sleep: Some(45.0 + rng.gen_range(0.0..25.0)),
-                respiratory_rate: Some(14.5 + rng.gen_range(0.0..2.0)),
-                temperature_variation: Some(rng.gen_range(-0.3..0.2)),
-                wake_count: Some(rng.gen_range(0..4)),
-                sleep_onset_latency: Some(rng.gen_range(5..25)),
+                hrv_during_sleep: Some(45.0 + rng.random_range(0.0..25.0)),
+                respiratory_rate: Some(14.5 + rng.random_range(0.0..2.0)),
+                temperature_variation: Some(rng.random_range(-0.3..0.2)),
+                wake_count: Some(rng.random_range(0..4)),
+                sleep_onset_latency: Some(rng.random_range(5..25)),
                 provider: oauth_providers::SYNTHETIC.to_owned(),
             });
         }
@@ -1370,5 +1370,5 @@ impl ProviderFactory for SyntheticSleepProviderFactory {
 
 /// Generate a short fingerprint from RNG state for unique IDs
 fn seed_fingerprint(rng: &mut ChaCha8Rng) -> String {
-    format!("{:08x}", rng.gen::<u32>())
+    format!("{:08x}", rng.random::<u32>())
 }

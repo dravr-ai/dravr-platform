@@ -366,7 +366,7 @@ impl PostgresDatabase {
     /// Generate a new MCP token with secure random bytes
     fn generate_mcp_token() -> String {
         use rand::RngCore;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut bytes = [0u8; 32];
         rng.fill_bytes(&mut bytes);
         format!("pmcp_{}", URL_SAFE_NO_PAD.encode(bytes))

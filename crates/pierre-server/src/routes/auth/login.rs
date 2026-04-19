@@ -660,8 +660,8 @@ pub(super) async fn handle_forgot_password(
     }
 
     // Generate 6-digit numeric code
-    let code: u32 = rand::thread_rng()
-        .gen_range(password_reset::CODE_RANGE_MIN..password_reset::CODE_RANGE_MAX);
+    let code: u32 =
+        rand::rng().random_range(password_reset::CODE_RANGE_MIN..password_reset::CODE_RANGE_MAX);
     let code_str = code.to_string();
 
     // Hash the code before storing (same SHA-256 approach as admin tokens)

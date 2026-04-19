@@ -51,9 +51,9 @@ impl PkceParams {
     pub fn generate() -> Self {
         // Generate a cryptographically secure random code verifier (43-128 characters)
         const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let code_verifier: String = (0..OAUTH_CODE_VERIFIER_LENGTH)
-            .map(|_| CHARS[rng.gen_range(0..CHARS.len())] as char)
+            .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
             .collect();
 
         // Create S256 code challenge

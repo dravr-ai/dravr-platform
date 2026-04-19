@@ -84,10 +84,10 @@ fn resolve_tenant_id(auth: &AuthResult) -> TenantId {
 
 /// Generate a cryptographically random linking code
 pub fn generate_link_code() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..LINK_CODE_LENGTH)
         .map(|_| {
-            let idx = rng.gen_range(0..CODE_CHARSET.len());
+            let idx = rng.random_range(0..CODE_CHARSET.len());
             CODE_CHARSET[idx] as char
         })
         .collect()

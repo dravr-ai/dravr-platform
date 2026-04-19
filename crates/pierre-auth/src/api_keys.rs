@@ -12,8 +12,8 @@
 use chrono::{Datelike, Duration, Timelike, Utc};
 use pierre_core::constants::key_prefixes;
 use pierre_core::errors::{AppError, AppResult};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::distr::Alphanumeric;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use tracing::warn;
 use uuid::Uuid;
@@ -48,7 +48,7 @@ impl ApiKeyManager {
     /// Generate a new API key with optional trial prefix
     pub fn generate_api_key(&self, is_trial: bool) -> ApiKeyData {
         // Generate 32 random bytes for the key
-        let random_bytes: String = thread_rng()
+        let random_bytes: String = rand::rng()
             .sample_iter(&Alphanumeric)
             .take(32)
             .map(char::from)

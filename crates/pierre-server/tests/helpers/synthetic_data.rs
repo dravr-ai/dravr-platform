@@ -384,7 +384,7 @@ impl<'a> ActivityBuilder<'a> {
     #[must_use]
     #[allow(clippy::too_many_lines)] // Builder pattern requires comprehensive field initialization
     pub fn build(self) -> Activity {
-        let id = format!("synthetic_{}", self.rng.gen::<u64>());
+        let id = format!("synthetic_{}", self.rng.random::<u64>());
         let sport_type = self.sport_type; // Save before move
         let duration = self.duration_seconds.unwrap_or(1800); // Default 30 min
 
@@ -414,7 +414,7 @@ impl<'a> ActivityBuilder<'a> {
         // Generate realistic elevation for outdoor activities
         let elevation_gain = match sport_type {
             SportType::Run | SportType::Ride => {
-                Some(distance.unwrap_or(5000.0) / 100.0 * self.rng.gen_range(0.5..2.0))
+                Some(distance.unwrap_or(5000.0) / 100.0 * self.rng.random_range(0.5..2.0))
             }
             _ => None,
         };
@@ -480,8 +480,8 @@ impl<'a> ActivityBuilder<'a> {
         }
 
         let avg_cadence = match sport_type {
-            SportType::Run => Some(self.rng.gen_range(170..180)),
-            SportType::Ride => Some(self.rng.gen_range(85..95)),
+            SportType::Run => Some(self.rng.random_range(170..180)),
+            SportType::Ride => Some(self.rng.random_range(85..95)),
             _ => None,
         };
         if let Some(cadence) = avg_cadence {
@@ -489,9 +489,9 @@ impl<'a> ActivityBuilder<'a> {
         }
 
         builder = builder
-            .temperature(self.rng.gen_range(10.0..25.0))
-            .humidity(self.rng.gen_range(40.0..70.0))
-            .average_altitude(self.rng.gen_range(100.0..500.0))
+            .temperature(self.rng.random_range(10.0..25.0))
+            .humidity(self.rng.random_range(40.0..70.0))
+            .average_altitude(self.rng.random_range(100.0..500.0))
             .start_latitude(45.5017) // Montreal
             .start_longitude(-73.5673)
             .city("Montreal".to_owned())
@@ -502,10 +502,10 @@ impl<'a> ActivityBuilder<'a> {
 
         if sport_type == SportType::Run {
             builder = builder
-                .ground_contact_time(self.rng.gen_range(200..250))
-                .vertical_oscillation(self.rng.gen_range(7.0..10.0))
-                .stride_length(self.rng.gen_range(1.1..1.4))
-                .running_power(self.rng.gen_range(200..280))
+                .ground_contact_time(self.rng.random_range(200..250))
+                .vertical_oscillation(self.rng.random_range(7.0..10.0))
+                .stride_length(self.rng.random_range(1.1..1.4))
+                .running_power(self.rng.random_range(200..280))
                 .workout_type(10); // Trail run
         }
 

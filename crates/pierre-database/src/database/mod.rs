@@ -2557,6 +2557,6 @@ impl DatabaseProvider for Database {
 pub fn generate_encryption_key() -> [u8; 32] {
     use rand::Rng;
     let mut key = [0u8; 32];
-    rand::thread_rng().fill(&mut key);
+    rand::rng().fill(&mut key);
     key
 }

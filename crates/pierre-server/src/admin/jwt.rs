@@ -15,7 +15,7 @@
 use std::clone::Clone;
 
 use chrono::{DateTime, Duration, Utc};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -48,7 +48,7 @@ impl AdminJwtManager {
     #[must_use]
     pub fn generate_jwt_secret() -> String {
         // Generate 64 character (512-bit) random secret
-        rand::thread_rng()
+        rand::rng()
             .sample_iter(&Alphanumeric)
             .take(64)
             .map(char::from)

@@ -50,9 +50,9 @@ fn is_port_available(port: u16) -> bool {
 
 /// Find an available port using simple random approach
 fn find_available_port() -> u16 {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for _ in 0..100 {
-        let port = rng.gen_range(30000..40000);
+        let port = rng.random_range(30000..40000);
         if is_port_available(port) {
             return port;
         }
