@@ -223,15 +223,15 @@ async fn test_configuration_tools_count_in_total() {
         6,
         "Expected exactly 6 configuration tools"
     );
-    // Note: OAuth notification tools removed (4) + connect_to_pierre removed (1) = 5 fewer non-config tools
-    // Coaches feature added 21 tools: 9 admin + 12 user coach management tools
-    // Tier 3 harness added 4 memory tools (coach_note_add, coach_followup_schedule,
-    //     remember_fact, recall_user_memory)
-    // Tier 5.5 harness added 1 verification tool (verify_claim)
-    // Route discovery added 1 tool (discover_routes)
+    // Post-2026-04-18 tool-registry unification: 6 tools that previously
+    // existed only as UniversalExecutor handlers (generate_recommendations,
+    // predict_performance, get_sleep_sessions, get_recovery_metrics,
+    // get_health_snapshots, list_data_sources) gained McpTool impls and are
+    // now visible to MCP clients via the shared registry — bringing the
+    // non-config count from 75 to 81 and the total to 87.
     assert_eq!(
-        fitness_tools, 75,
-        "Expected exactly 75 non-configuration tools"
+        fitness_tools, 81,
+        "Expected exactly 81 non-configuration tools"
     );
-    assert_eq!(tools.len(), 81, "Expected total of 81 tools"); // 75 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 87, "Expected total of 87 tools"); // 81 non-configuration + 6 configuration
 }

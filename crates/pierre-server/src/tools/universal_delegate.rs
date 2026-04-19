@@ -79,18 +79,17 @@ pub async fn delegate_to_handler(
 /// "invalid input" (maps to `AppError::invalid_input`) and "something broke
 /// internally" (maps to `AppError::internal`).
 fn protocol_error_to_app_error(tool_name: &'static str, e: ProtocolError) -> AppError {
+    // Preserve the original variant's Display (e.g. "Invalid parameters: ...",
+    // "Missing parameter: ...") so test assertions and user-facing error text
+    // stay meaningful through the mapping.
+    let rendered = format!("{tool_name}: {e}");
     match e {
-        ProtocolError::InvalidRequest(msg) => {
-            AppError::invalid_input(format!("{tool_name}: {msg}"))
-        }
-        ProtocolError::InvalidParameters(msg) => {
-            AppError::invalid_input(format!("{tool_name}: {msg}"))
-        }
-        ProtocolError::ToolNotFound { tool_id, .. } => {
-            AppError::invalid_input(format!("{tool_name}: tool not found ({tool_id})"))
-        }
-        ProtocolError::InternalError(msg) => AppError::internal(format!("{tool_name}: {msg}")),
-        other => AppError::internal(format!("{tool_name}: {other}")),
+        ProtocolError::InvalidRequest(_)
+        | ProtocolError::InvalidParameters(_)
+        | ProtocolError::InvalidParameter { .. }
+        | ProtocolError::MissingParameter { .. }
+        | ProtocolError::ToolNotFound { .. } => AppError::invalid_input(rendered),
+        _ => AppError::internal(rendered),
     }
 }
 
