@@ -65,7 +65,6 @@ use axum::{
 use futures_util::stream::Stream;
 use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
-use tokio::task;
 use tracing::{info, warn};
 
 /// AG-UI SSE routes mounted at `/api/agui/*`.
@@ -108,18 +107,24 @@ impl AgUiRoutes {
         State((registry, resources)): State<(RunRegistry, Arc<ServerResources>)>,
     ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, AppError> {
         let caller = authenticate_caller(&headers, &resources).await?;
-        let subscription = authorize_and_subscribe(&registry, &run_id, caller)?;
-
-        // Keep this function truly `async`: without an `.await` point
-        // before the `Sse::new(...)` return, rustc infers a future
-        // that's ready-at-poll-zero and axum's SSE handler wiring
-        // degrades to a synchronous path that breaks symmetry with
-        // the rest of the SSE routes. A single cooperative yield is
-        // the cheapest reliable way to force a real suspension point
-        // under high subscribe load; it is NOT a back-pressure
-        // mechanism — a single `yield_now()` does not protect the
-        // executor from sustained bursts.
-        task::yield_now().await;
+        let subscription = match registry.authorize_and_subscribe(&run_id, caller) {
+            AuthorizedSubscribe::Ok(subscription) => subscription,
+            AuthorizedSubscribe::Forbidden => {
+                warn!(
+                    run_id = %run_id,
+                    authenticated_user = %caller.user_id,
+                    "AG-UI subscribe blocked: caller does not own run"
+                );
+                return Err(AppError::new(
+                    ErrorCode::PermissionDenied,
+                    "Cannot subscribe to AG-UI run owned by another user",
+                ));
+            }
+            AuthorizedSubscribe::NotFound => {
+                warn!(run_id = %run_id, "AG-UI subscribe for unknown run");
+                return Err(AppError::not_found(format!("AG-UI run {run_id}")));
+            }
+        };
 
         info!(
             run_id = %run_id,
@@ -127,109 +132,83 @@ impl AgUiRoutes {
             backlog_len = subscription.backlog.len(),
             "AG-UI SSE client subscribed"
         );
-        let run_id_log = run_id;
-        let RunSubscription {
-            backlog,
-            mut receiver,
-        } = subscription;
 
-        let stream = async_stream::stream! {
-            let mut event_id: u64 = 0;
-
-            event_id = event_id.wrapping_add(1);
-            yield Ok::<_, Infallible>(
-                Event::default()
-                    .id(event_id.to_string())
-                    .event("connection")
-                    .data("connected"),
-            );
-
-            // Flush the replay buffer first so clients that subscribe
-            // after emission started still receive the earlier events
-            // in order. The backlog is a snapshot captured at subscribe
-            // time — events produced after the snapshot arrive via the
-            // live `receiver` below and are guaranteed to follow the
-            // backlog because `publish` appends to the buffer before it
-            // broadcasts.
-            for payload in backlog {
-                event_id = event_id.wrapping_add(1);
-                yield Ok(
-                    Event::default()
-                        .id(event_id.to_string())
-                        .event("agui")
-                        .data(payload),
-                );
-            }
-
-            loop {
-                match receiver.recv().await {
-                    Ok(payload) => {
-                        event_id = event_id.wrapping_add(1);
-                        yield Ok(
-                            Event::default()
-                                .id(event_id.to_string())
-                                .event("agui")
-                                .data(payload),
-                        );
-                    }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        warn!(
-                            run_id = %run_id_log,
-                            skipped = skipped,
-                            "AG-UI subscriber lagged; events dropped"
-                        );
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!(run_id = %run_id_log, "AG-UI run closed; ending stream");
-                        break;
-                    }
-                }
-            }
-        };
-
-        Ok(Sse::new(stream).keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("keepalive"),
-        ))
+        Ok(
+            Sse::new(build_event_stream(subscription, run_id)).keep_alive(
+                KeepAlive::new()
+                    .interval(Duration::from_secs(15))
+                    .text("keepalive"),
+            ),
+        )
     }
 }
 
-/// Translate the registry's `AuthorizedSubscribe` outcome into the
-/// route's HTTP-shaped error space.
+/// Build the SSE event stream for an authorized subscription.
 ///
-/// The atomic owner-match + subscribe under a held `DashMap` entry
-/// borrow lives in [`RunRegistry::authorize_and_subscribe`]; this
-/// helper is a pure enum mapping plus structured logging so the HTTP
-/// handler stays under the workspace cognitive-complexity budget.
-///
-/// # Errors
-///
-/// - [`ErrorCode::ResourceNotFound`] — the `run_id` is not (or no
-///   longer) registered.
-/// - [`ErrorCode::PermissionDenied`] — the caller authenticated but
-///   does not own the run.
-fn authorize_and_subscribe(
-    registry: &RunRegistry,
-    run_id: &str,
-    caller: RunOwner,
-) -> Result<RunSubscription, AppError> {
-    match registry.authorize_and_subscribe(run_id, caller) {
-        AuthorizedSubscribe::Ok(subscription) => Ok(subscription),
-        AuthorizedSubscribe::Forbidden => {
-            warn!(
-                run_id = %run_id,
-                authenticated_user = %caller.user_id,
-                "AG-UI subscribe blocked: caller does not own run"
+/// Emits a `connection: connected` frame, flushes the backlog, then
+/// tails the live broadcast until the run closes. Separated from
+/// [`AgUiRoutes::handle_run_stream`] so the handler stays focused
+/// on auth + lookup while the streaming details live in one place
+/// (decomposition by responsibility, not by lint budget).
+fn build_event_stream(
+    subscription: RunSubscription,
+    run_id: String,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    let RunSubscription {
+        backlog,
+        mut receiver,
+    } = subscription;
+    async_stream::stream! {
+        let mut event_id: u64 = 0;
+
+        event_id = event_id.wrapping_add(1);
+        yield Ok::<_, Infallible>(
+            Event::default()
+                .id(event_id.to_string())
+                .event("connection")
+                .data("connected"),
+        );
+
+        // Flush the replay buffer first so clients that subscribe
+        // after emission started still receive the earlier events
+        // in order. The backlog is a snapshot captured at subscribe
+        // time — events produced after the snapshot arrive via the
+        // live `receiver` below and are guaranteed to follow the
+        // backlog because `publish` appends to the buffer before it
+        // broadcasts.
+        for payload in backlog {
+            event_id = event_id.wrapping_add(1);
+            yield Ok(
+                Event::default()
+                    .id(event_id.to_string())
+                    .event("agui")
+                    .data(payload),
             );
-            Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "Cannot subscribe to AG-UI run owned by another user",
-            ))
         }
-        AuthorizedSubscribe::NotFound => {
-            warn!(run_id = %run_id, "AG-UI subscribe for unknown run");
-            Err(AppError::not_found(format!("AG-UI run {run_id}")))
+
+        loop {
+            match receiver.recv().await {
+                Ok(payload) => {
+                    event_id = event_id.wrapping_add(1);
+                    yield Ok(
+                        Event::default()
+                            .id(event_id.to_string())
+                            .event("agui")
+                            .data(payload),
+                    );
+                }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(
+                        run_id = %run_id,
+                        skipped = skipped,
+                        "AG-UI subscriber lagged; events dropped"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    info!(run_id = %run_id, "AG-UI run closed; ending stream");
+                    break;
+                }
+            }
         }
     }
 }
