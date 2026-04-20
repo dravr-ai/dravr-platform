@@ -971,6 +971,8 @@ impl MultiTenantMcpServer {
         // CONDITIONAL IMPORTS - Based on feature flags
         // ═══════════════════════════════════════════════════════════════
 
+        #[cfg(feature = "transport-sse")]
+        use crate::agui::AgUiRoutes;
         #[cfg(feature = "protocol-a2a")]
         use crate::routes::a2a::A2ARoutes;
         #[cfg(feature = "client-admin-api")]
@@ -1116,6 +1118,16 @@ impl MultiTenantMcpServer {
         #[cfg(feature = "transport-sse")]
         let app = app.merge(SseRoutes::routes(
             Arc::clone(&resources.sse_manager),
+            Arc::clone(resources),
+        ));
+
+        // AG-UI event stream: clients subscribe per run_id to receive
+        // lifecycle, step, tool-call, and text-delta events while the
+        // chat pipeline runs. Feature-gated on `transport-sse` because
+        // AG-UI is delivered over SSE.
+        #[cfg(feature = "transport-sse")]
+        let app = app.merge(AgUiRoutes::routes(
+            (*resources.agui_registry).clone(),
             Arc::clone(resources),
         ));
 

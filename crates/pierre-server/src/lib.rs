@@ -68,6 +68,9 @@
 #[cfg(feature = "protocol-a2a")]
 pub mod a2a;
 
+/// AG-UI (Agent-User Interaction) protocol integration
+pub mod agui;
+
 /// Admin token authentication and `API` key provisioning
 pub mod admin;
 

@@ -38,7 +38,9 @@ pub mod stages;
 pub mod turn;
 
 pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
-pub use hooks::{PipelineHooks, QuotaGate, QuotaWarning, ResponsePostProcess, UsageRecorder};
+pub use hooks::{
+    AgUiRun, PipelineHooks, QuotaGate, QuotaWarning, ResponsePostProcess, UsageRecorder,
+};
 pub use turn::{
     CreateConversationResult, DispatchResult, TurnContext, TurnInput, UserMessageResult,
 };
@@ -51,6 +53,96 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT;
 use tracing::{debug, info, warn};
+
+use crate::agui::AgUiEvent;
+
+/// Emit an AG-UI `STEP_STARTED` event if a sink is wired.
+///
+/// Extracted from the stage calls so `run_turn` stays under the
+/// workspace cognitive-complexity budget — the `if let` branch
+/// lives in the helper rather than in every emission site.
+async fn emit_step_started(hooks: &PipelineHooks<'_>, step: &str) {
+    if let Some(agui) = &hooks.agui {
+        agui.sink
+            .emit(&AgUiEvent::step_started(agui.run_id.clone(), step))
+            .await;
+    }
+}
+
+/// Emit an AG-UI `STEP_FINISHED` event if a sink is wired.
+async fn emit_step_finished(hooks: &PipelineHooks<'_>, step: &str) {
+    if let Some(agui) = &hooks.agui {
+        agui.sink
+            .emit(&AgUiEvent::step_finished(agui.run_id.clone(), step))
+            .await;
+    }
+}
+
+/// Run the prompt-assembly stage with AG-UI step emissions.
+///
+/// Thin wrapper around [`assemble_prompt_and_messages`] that emits
+/// `STEP_STARTED`/`STEP_FINISHED` around the call without inflating
+/// the cognitive complexity of [`run_turn`].
+async fn assemble_prompt_stage(
+    hooks: &PipelineHooks<'_>,
+    resources: &Arc<ServerResources>,
+    input: &TurnInput,
+    profile: &ChannelProfile,
+    conv: &ConversationRecord,
+    coach_ctx: Option<&CoachRuntimeContext>,
+    history: &[MessageRecord],
+) -> AppResult<(prompt_leak::PromptGuard, Vec<String>, Vec<ChatMessage>)> {
+    emit_step_started(hooks, "prompt_assembly").await;
+    let result =
+        assemble_prompt_and_messages(resources, input, profile, conv, coach_ctx, history).await;
+    emit_step_finished(hooks, "prompt_assembly").await;
+    result
+}
+
+/// Parameters for [`dispatch_stage`].
+///
+/// Bundled into a struct to stay under the workspace
+/// `clippy::too_many_arguments` budget.
+struct DispatchStageArgs<'a> {
+    /// Pipeline hooks, including the optional AG-UI sink.
+    hooks: &'a PipelineHooks<'a>,
+    /// Shared server resources.
+    resources: &'a Arc<ServerResources>,
+    /// Turn input (user message + identifiers).
+    input: &'a TurnInput,
+    /// Per-channel profile.
+    profile: &'a ChannelProfile,
+    /// Resolved active LLM model identifier.
+    active_model: &'a str,
+    /// Optional coach runtime context.
+    coach_ctx: Option<&'a CoachRuntimeContext>,
+    /// Persisted conversation history.
+    history: &'a [MessageRecord],
+}
+
+/// Run the dispatch stage with AG-UI step emissions.
+///
+/// Thin wrapper around [`dispatch_llm_with_tools`] that emits
+/// `STEP_STARTED`/`STEP_FINISHED` around the call without inflating
+/// the cognitive complexity of [`run_turn`].
+async fn dispatch_stage(
+    args: DispatchStageArgs<'_>,
+    llm_messages: &mut Vec<ChatMessage>,
+) -> AppResult<(chat_tool_loop::ToolLoopResult, String)> {
+    emit_step_started(args.hooks, "dispatch").await;
+    let result = dispatch_llm_with_tools(
+        args.resources,
+        args.input,
+        args.profile,
+        args.active_model,
+        args.coach_ctx,
+        args.history,
+        llm_messages,
+    )
+    .await;
+    emit_step_finished(args.hooks, "dispatch").await;
+    result
+}
 
 use crate::config::LlmProviderType;
 use crate::errors::{AppError, AppResult};
@@ -111,6 +203,52 @@ pub async fn run(
     profile: &ChannelProfile,
     hooks: &PipelineHooks<'_>,
 ) -> AppResult<DispatchResult> {
+    // AG-UI: signal run start. Emission is best-effort; when no AG-UI
+    // sink is wired the calls short-circuit inside the helper.
+    if let Some(agui) = &hooks.agui {
+        agui.sink
+            .emit(&AgUiEvent::run_started(
+                agui.run_id.clone(),
+                agui.thread_id.as_deref(),
+            ))
+            .await;
+    }
+
+    let outcome = run_turn(resources, input, profile, hooks).await;
+
+    if let Some(agui) = &hooks.agui {
+        match &outcome {
+            Ok(_) => {
+                agui.sink
+                    .emit(&AgUiEvent::run_finished(agui.run_id.clone()))
+                    .await;
+            }
+            Err(err) => {
+                agui.sink
+                    .emit(&AgUiEvent::run_error(
+                        agui.run_id.clone(),
+                        format!("{:?}", err.code),
+                        err.to_string(),
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    outcome
+}
+
+/// Run the body of a single turn.
+///
+/// Separated from [`run`] so the outer wrapper can emit AG-UI
+/// `RUN_STARTED` / `RUN_FINISHED` / `RUN_ERROR` around the full turn
+/// without branching inside the linear stage sequence.
+async fn run_turn(
+    resources: &Arc<ServerResources>,
+    input: TurnInput,
+    profile: &ChannelProfile,
+    hooks: &PipelineHooks<'_>,
+) -> AppResult<DispatchResult> {
     let turn_started = Instant::now();
     let ctx = TurnContext::from_input(&input);
 
@@ -164,7 +302,8 @@ pub async fn run(
 
     // Stages 7a–7h + 8: assemble the hardened system prompt and flatten the
     // conversation history into a ready-to-dispatch LLM message list.
-    let (prompt_guard, pending_followup_ids, mut llm_messages) = assemble_prompt_and_messages(
+    let (prompt_guard, pending_followup_ids, mut llm_messages) = assemble_prompt_stage(
+        hooks,
         resources,
         &input,
         profile,
@@ -176,13 +315,16 @@ pub async fn run(
 
     // Stages 9–14: pre-dispatch preparation (executor, prefetch, provider,
     // compaction, iteration budget) followed by the multi-turn tool loop.
-    let (mut result, provider_name) = dispatch_llm_with_tools(
-        resources,
-        &input,
-        profile,
-        &active_model,
-        coach_ctx.as_ref(),
-        &history,
+    let (mut result, provider_name) = dispatch_stage(
+        DispatchStageArgs {
+            hooks,
+            resources,
+            input: &input,
+            profile,
+            active_model: &active_model,
+            coach_ctx: coach_ctx.as_ref(),
+            history: &history,
+        },
         &mut llm_messages,
     )
     .await?;

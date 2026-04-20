@@ -34,6 +34,7 @@ export type {
   ConversationsResponse,
   MessagesResponse,
   SendMessageResponse,
+  SendMessageOptions,
   CreateConversationOptions,
 } from './domains/chat';
 

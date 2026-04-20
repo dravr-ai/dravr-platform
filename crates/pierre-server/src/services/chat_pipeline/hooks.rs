@@ -27,6 +27,7 @@
 use async_trait::async_trait;
 
 use super::turn::{DispatchResult, TurnContext};
+use crate::agui::AgUiSink;
 use crate::errors::AppResult;
 
 /// Warning payload produced by a soft-quota hit. Channel adapters decide
@@ -74,6 +75,27 @@ pub trait ResponsePostProcess: Send + Sync {
     fn transform(&self, raw: &str) -> String;
 }
 
+/// AG-UI feedback wiring for a single turn.
+///
+/// When the caller wants progress feedback, it constructs an [`AgUiRun`]
+/// bound to a fresh `run_id` plus an [`AgUiSink`] (typically a
+/// [`crate::agui::BroadcastSink`] connected to the server-wide
+/// [`crate::agui::RunRegistry`]) and passes it through
+/// [`PipelineHooks`]. The pipeline emits lifecycle, step, and error
+/// events against that sink. Clients open
+/// `GET /api/agui/runs/{run_id}/stream` to subscribe.
+pub struct AgUiRun<'a> {
+    /// Stable identifier for this run. Shared with clients so they can
+    /// subscribe to the matching SSE stream.
+    pub run_id: String,
+    /// Optional conversation/thread id, propagated verbatim into
+    /// `RUN_STARTED`'s `thread_id` field.
+    pub thread_id: Option<String>,
+    /// Sink the pipeline emits events through. Implementations must
+    /// filter and drop events they do not want forwarded.
+    pub sink: &'a dyn AgUiSink,
+}
+
 /// Bundle of hooks a channel adapter passes to [`super::run`].
 ///
 /// Each hook is optional; when absent, the corresponding stage runs a
@@ -85,6 +107,10 @@ pub struct PipelineHooks<'a> {
     pub usage_recorder: Option<&'a dyn UsageRecorder>,
     /// Optional post-processor for the assistant reply content.
     pub response_post_process: Option<&'a dyn ResponsePostProcess>,
+    /// Optional AG-UI progress feedback wiring. When present, the
+    /// pipeline emits lifecycle, step, and error events against
+    /// `agui.sink`.
+    pub agui: Option<AgUiRun<'a>>,
 }
 
 impl PipelineHooks<'_> {
@@ -95,6 +121,7 @@ impl PipelineHooks<'_> {
             quota_gate: None,
             usage_recorder: None,
             response_post_process: None,
+            agui: None,
         }
     }
 }

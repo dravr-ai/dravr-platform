@@ -27,11 +27,15 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use tokio::sync::Mutex as TokioMutex;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use serde_json::Value;
 
+use pierre_messaging::agui_status::StatusAdapter;
+
+use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
 use crate::contremaitre::messaging_strings::{
     format_template, DEFAULT_LOCALE, KEY_EMPTY_REPLY, KEY_ERROR_GENERIC, KEY_LINK_CANCELLED,
     KEY_LINK_EMAIL_NOT_CONFIGURED, KEY_LINK_EMAIL_SEND_FAILED, KEY_LINK_FALLBACK_PROMPT,
@@ -47,6 +51,9 @@ use crate::services::analytics::{analytics, hash_id};
 use crate::services::chat_orchestration;
 use crate::services::chat_pipeline::{
     self, ChannelProfile, DispatchResult, PipelineHooks, TurnInput,
+};
+use crate::services::messaging_status_bridge::{
+    open_status_adapter, spawn_status_consumer, OpenStatusParams,
 };
 use crate::services::usage_counter::UsageCounterService;
 
@@ -136,10 +143,12 @@ pub(crate) struct PendingDispatch {
     channel_message_id: String,
     /// Forum topic thread ID (Telegram Topics `message_thread_id`)
     thread_id: Option<String>,
-    /// Resolved BCP-47 locale for this turn, threaded into `TurnInput` so the
-    /// chat pipeline's guardrail / verification / empty-reply fallbacks speak
-    /// the user's language. Populated via [`resolve_messaging_locale`] when
-    /// the dispatch is enqueued.
+    /// Resolved BCP-47 locale for this turn.
+    ///
+    /// Threaded into `TurnInput` so the chat pipeline's guardrail /
+    /// verification / empty-reply fallbacks speak the user's
+    /// language. Populated via [`resolve_messaging_locale`] when the
+    /// dispatch is enqueued.
     locale: String,
 }
 
@@ -1789,6 +1798,219 @@ pub async fn resolve_messaging_locale(
 static CONVERSATION_DISPATCH_LOCKS: LazyLock<DashMap<String, Arc<TokioMutex<()>>>> =
     LazyLock::new(DashMap::new);
 
+/// AG-UI wiring for a single messaging turn.
+///
+/// Holds the [`RunScope`] (auto-unregisters on drop) plus the
+/// [`BroadcastSink`] the pipeline emits events through.
+///
+/// The `run_id` is generated per-turn — messaging callers don't
+/// pass one in the way HTTP web-chat does, so the server owns the
+/// identifier and can log it for observability.
+///
+/// Optionally carries a per-channel `StatusAdapter` + a background
+/// consumer task handle.
+///
+/// When the inbound channel supports in-place progress updates
+/// (Telegram/Slack/Discord), the status bridge opens a placeholder
+/// message and spawns a task that mirrors AG-UI events as
+/// `editMessageText` / `chat.update` / `PATCH messages`.
+///
+/// On turn completion the caller calls [`Self::finalize_reply`] to
+/// collapse the placeholder into the final assistant reply.
+struct MessagingAgUiWiring {
+    scope: RunScope,
+    sink: BroadcastSink,
+    thread_id: String,
+    status_adapter: Option<Arc<dyn StatusAdapter + Send + Sync>>,
+    /// Abort handle for the AG-UI → status adapter consumer task.
+    ///
+    /// The task normally terminates on its own when the broadcast
+    /// closes (i.e. when `scope` drops); the handle is retained so
+    /// early errors can stop it promptly rather than wait for the
+    /// close event to propagate.
+    status_consumer: Option<JoinHandle<()>>,
+}
+
+impl MessagingAgUiWiring {
+    fn run(&self) -> chat_pipeline::AgUiRun<'_> {
+        chat_pipeline::AgUiRun {
+            run_id: self.scope.run_id().to_owned(),
+            thread_id: Some(self.thread_id.clone()),
+            sink: &self.sink,
+        }
+    }
+
+    /// Render the final assistant reply through the status adapter
+    /// (collapsing the placeholder into the final message).
+    ///
+    /// Returns `true` when the adapter actually sent the reply — the
+    /// caller skips the standard `send_outbound_response` path to
+    /// avoid posting the reply twice.
+    async fn finalize_reply(&self, reply: &str) -> bool {
+        let Some(adapter) = self.status_adapter.as_ref() else {
+            return false;
+        };
+        match adapter.finalize(reply).await {
+            Ok(()) => true,
+            Err(e) => {
+                warn!(
+                    run_id = %self.scope.run_id(),
+                    error = %e,
+                    "status adapter finalize failed; falling back to normal send"
+                );
+                false
+            }
+        }
+    }
+}
+
+impl Drop for MessagingAgUiWiring {
+    fn drop(&mut self) {
+        // When the dispatch errors out before `finalize_reply` runs,
+        // abort the consumer task explicitly so it doesn't linger on
+        // a broadcast that may still be open (the scope drop unblocks
+        // it via `Closed`, but aborting is faster and covers the case
+        // where the registry retains a clone of the sender elsewhere).
+        if let Some(handle) = self.status_consumer.take() {
+            handle.abort();
+        }
+    }
+}
+
+/// Build AG-UI wiring for a messaging dispatch.
+///
+/// Returns `None` when the user id on the session is not a valid UUID.
+///
+/// In that case the messaging turn still runs but without progress
+/// feedback — the channel link layer already rejects malformed user
+/// ids, so this arm is effectively dead in practice.
+///
+/// When the channel supports in-place progress updates (Telegram,
+/// Slack, Discord), this also opens a [`StatusAdapter`] and spawns
+/// a background task that mirrors AG-UI events as `editMessageText`
+/// / `chat.update` / `PATCH messages` calls.
+///
+/// `WhatsApp` and Messenger fall through to progress-free dispatch
+/// because their APIs cannot edit previously-sent messages.
+async fn setup_messaging_agui(dispatch: &PendingDispatch) -> Option<MessagingAgUiWiring> {
+    let user_id = Uuid::parse_str(&dispatch.session.user_id).ok()?;
+    let run_id = Uuid::new_v4().to_string();
+    let owner = RunOwner::new(user_id, dispatch.user_tenant_id);
+    let scope = dispatch
+        .resources
+        .agui_registry
+        .register_scoped(&run_id, owner);
+    let sink = BroadcastSink::new(
+        (*dispatch.resources.agui_registry).clone(),
+        AgUiEventFilter::default(),
+    );
+    info!(
+        run_id = %run_id,
+        channel = %dispatch.channel,
+        user_id = %user_id,
+        "AG-UI run registered for messaging turn"
+    );
+
+    // Open the per-channel status adapter and spin up the consumer
+    // task *after* the run is registered — otherwise the consumer's
+    // `subscribe_self` would race the register call and miss early
+    // events even with the replay backlog.
+    let (status_adapter, status_consumer) = maybe_open_status_bridge(dispatch, &run_id).await;
+
+    Some(MessagingAgUiWiring {
+        scope,
+        sink,
+        thread_id: dispatch.session.conversation.clone(),
+        status_adapter,
+        status_consumer,
+    })
+}
+
+/// Load channel credentials and open a status adapter + consumer task.
+///
+/// Returns `(None, None)` when either:
+///
+/// - (a) the channel does not support progress rendering (`WhatsApp`/Messenger);
+/// - (b) the tenant has no channel config;
+/// - (c) the dispatch lacks a `conversation_id`;
+/// - (d) the placeholder send fails.
+///
+/// Any of these are treated as "skip progress, deliver a single
+/// reply at the end" rather than a hard failure.
+async fn maybe_open_status_bridge(
+    dispatch: &PendingDispatch,
+    run_id: &str,
+) -> (
+    Option<Arc<dyn StatusAdapter + Send + Sync>>,
+    Option<JoinHandle<()>>,
+) {
+    let conversation_id = match dispatch.conversation_id.as_deref() {
+        Some(c) if !c.is_empty() => c,
+        _ => return (None, None),
+    };
+    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
+    let Some(channel_config) =
+        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
+    else {
+        return (None, None);
+    };
+
+    let params = OpenStatusParams {
+        channel_type: dispatch.channel_type,
+        channel_config: &channel_config,
+        conversation_id,
+        thread_id: dispatch.thread_id.as_deref(),
+    };
+    let Some(adapter) = open_status_adapter(&params).await else {
+        return (None, None);
+    };
+
+    let consumer = spawn_status_consumer(
+        &dispatch.resources.agui_registry,
+        run_id.to_owned(),
+        Arc::clone(&adapter),
+    );
+    (Some(adapter), consumer)
+}
+
+/// Route the assistant reply back to the user.
+///
+/// Prefers finalizing the in-channel status placeholder when the
+/// bridge is active (so the user sees status and reply collapse into
+/// a single chat message). Falls back to the standard outbound send
+/// path when the bridge is disabled (`WhatsApp`/Messenger), inactive
+/// (credentials missing), or errored mid-turn (edit rejected).
+async fn deliver_reply(
+    dispatch: &PendingDispatch,
+    messaging_agui: Option<&MessagingAgUiWiring>,
+    content: String,
+) {
+    if let Some(wiring) = messaging_agui {
+        if wiring.finalize_reply(&content).await {
+            return;
+        }
+    }
+
+    // Use conversation_id (channel/chat/thread) as the reply target
+    // when available; fall back to sender_id for DM-only platforms
+    // (e.g., WhatsApp).
+    let reply_target = dispatch
+        .conversation_id
+        .as_deref()
+        .unwrap_or(&dispatch.sender_id)
+        .to_owned();
+
+    let outgoing = OutgoingMessage {
+        channel_type: dispatch.channel_type,
+        recipient_id: reply_target,
+        content: MessageContent::Text { body: content },
+        correlation_id: Uuid::new_v4(),
+        reply_to: Some(dispatch.channel_message_id.clone()),
+        thread_id: dispatch.thread_id.clone(),
+    };
+    send_outbound_response(dispatch, &outgoing).await;
+}
+
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
 ///
 /// Runs as a background task after the webhook has returned HTTP 200.
@@ -1813,39 +2035,59 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         content: dispatch.text_content.clone(),
         locale: Some(dispatch.locale.clone()),
     };
-    let dispatch_result = match chat_pipeline::run(
-        &dispatch.resources,
-        turn_input,
-        &profile,
-        &PipelineHooks::none(),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(e) => {
-            // Correlation ID is surfaced in the user-facing reply and the log
-            // record so an operator receiving a Slack alert can grep Cloud
-            // Logging for the full error chain without access to conversation
-            // IDs (which are PII-adjacent).
-            let correlation_id = Uuid::new_v4();
-            error!(
-                correlation_id = %correlation_id,
-                error = %e,
-                channel = %dispatch.channel,
-                conversation_id = %dispatch.session.conversation,
-                "LLM dispatch failed for messaging"
-            );
-            analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
-            let short_id = correlation_id.to_string()[..8].to_owned();
-            let template = dispatch
-                .resources
-                .messaging_strings_registry
-                .get(KEY_ERROR_GENERIC, &dispatch.locale);
-            let user_message = format_template(&template, &[&short_id]);
-            send_error_reply(&dispatch, &user_message).await;
-            return;
-        }
+
+    // Register an AG-UI run for this messaging turn so in-process
+    // consumers (channel-side status adapters, ops dashboards) can
+    // subscribe via `resources.agui_registry.subscribe_self(run_id)`
+    // and render pipeline progress to Telegram/Slack/Discord.
+    // Without this wiring the pipeline's `hooks.agui` stayed `None` on
+    // every messaging turn and AG-UI events were produced only for
+    // HTTP web-chat callers that passed `agui_run_id`.
+    //
+    // The run is owned by `(session.user_id, user_tenant_id)` so any
+    // cross-user HTTP subscriber (e.g. canot's `AgUiConsumer` against
+    // the platform SSE route) still goes through the owner check in
+    // `RunRegistry::authorize_and_subscribe`. Scope drops at function
+    // exit, auto-unregistering on success, error, or panic.
+    //
+    // `setup_messaging_agui` also opens an in-channel status adapter
+    // (Telegram editMessageText / Slack chat.update / Discord PATCH
+    // messages) and spawns a background consumer that mirrors each
+    // AG-UI event as a `set_status` call so the user sees the pipeline
+    // stage in real time.
+    let messaging_agui = setup_messaging_agui(&dispatch).await;
+    let hooks = PipelineHooks {
+        agui: messaging_agui.as_ref().map(|w| w.run()),
+        ..PipelineHooks::none()
     };
+
+    let dispatch_result =
+        match chat_pipeline::run(&dispatch.resources, turn_input, &profile, &hooks).await {
+            Ok(result) => result,
+            Err(e) => {
+                // Correlation ID is surfaced in the user-facing reply and the log
+                // record so an operator receiving a Slack alert can grep Cloud
+                // Logging for the full error chain without access to conversation
+                // IDs (which are PII-adjacent).
+                let correlation_id = Uuid::new_v4();
+                error!(
+                    correlation_id = %correlation_id,
+                    error = %e,
+                    channel = %dispatch.channel,
+                    conversation_id = %dispatch.session.conversation,
+                    "LLM dispatch failed for messaging"
+                );
+                analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
+                let short_id = correlation_id.to_string()[..8].to_owned();
+                let template = dispatch
+                    .resources
+                    .messaging_strings_registry
+                    .get(KEY_ERROR_GENERIC, &dispatch.locale);
+                let user_message = format_template(&template, &[&short_id]);
+                send_error_reply(&dispatch, &user_message).await;
+                return;
+            }
+        };
 
     // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
     #[allow(clippy::cast_possible_truncation)]
@@ -1882,38 +2124,26 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         return;
     }
 
-    // Use conversation_id (channel/chat/thread) as the reply target when available;
-    // fall back to sender_id for DM-only platforms (e.g., WhatsApp)
-    let reply_target = dispatch
-        .conversation_id
-        .as_deref()
-        .unwrap_or(&dispatch.sender_id)
-        .to_owned();
+    deliver_reply(&dispatch, messaging_agui.as_ref(), dispatch_result.content).await;
 
-    let outgoing = OutgoingMessage {
-        channel_type: dispatch.channel_type,
-        recipient_id: reply_target,
-        content: MessageContent::Text {
-            body: dispatch_result.content,
-        },
-        correlation_id: Uuid::new_v4(),
-        reply_to: Some(dispatch.channel_message_id.clone()),
-        thread_id: dispatch.thread_id.clone(),
-    };
-
-    send_outbound_response(&dispatch, &outgoing).await;
+    // Dropping the wiring here aborts the consumer task (if still
+    // live) and releases the RunScope so the registry entry is
+    // cleaned up. Held until after `send_outbound_response` so any
+    // last events the pipeline emitted on the way out still render.
+    drop(messaging_agui);
 
     // Held until here to serialize dispatches for the same conversation
     drop(dispatch_guard);
     evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
 }
 
-/// Remove the per-conversation lock from the shared map if no other task still
-/// holds it. Prevents unbounded growth of `CONVERSATION_DISPATCH_LOCKS` under
-/// high conversation cardinality while staying safe: if a concurrent dispatch
-/// cloned the `Arc` before we got here, the strong count is > 2 and we leave
-/// the entry in place. The next waiter will simply reinsert on a later call if
-/// it was already evicted.
+/// Remove the per-conversation lock from the shared map if no other task still holds it.
+///
+/// Prevents unbounded growth of `CONVERSATION_DISPATCH_LOCKS` under
+/// high conversation cardinality while staying safe: if a concurrent
+/// dispatch cloned the `Arc` before we got here, the strong count
+/// exceeds 2 and we leave the entry in place. The next waiter will
+/// simply reinsert on a later call if it was already evicted.
 fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) {
     // Strong references: the one in the DashMap entry + `local` held here.
     // Any higher count means another dispatch task is waiting on this lock.

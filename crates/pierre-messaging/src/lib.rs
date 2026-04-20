@@ -33,3 +33,13 @@ pub use dravr_canot::transport;
 
 /// Slash command infrastructure for messaging platforms
 pub use dravr_canot::commands;
+
+/// AG-UI SSE consumer — deserializes the server's event stream into
+/// typed `AgUiEvent`s for channel-side status rendering.
+#[cfg(feature = "agui")]
+pub use dravr_canot::agui_consumer;
+
+/// AG-UI → status-text mapping plus the `StatusAdapter` trait each
+/// channel adapter implements.
+#[cfg(feature = "agui")]
+pub use dravr_canot::agui_status;

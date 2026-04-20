@@ -18,6 +18,7 @@ use crate::a2a::client::A2AClientManager;
 #[cfg(feature = "protocol-a2a")]
 use crate::a2a::system_user::A2ASystemUserService;
 use crate::admin::FirebaseAuth;
+use crate::agui::RunRegistry as AgUiRunRegistry;
 use crate::cache::factory::Cache;
 use crate::cageux_config::CageuxConfigRegistry;
 use crate::commands;
@@ -181,6 +182,10 @@ pub struct ServerResources {
     /// Server-Sent Events manager for streaming notifications and MCP protocol
     #[cfg(feature = "transport-sse")]
     pub sse_manager: Arc<SseManager>,
+    /// AG-UI (Agent-User Interaction) run registry. Chat pipeline
+    /// publishes per-run broadcast channels here; SSE subscribers
+    /// consume them via `/api/agui/runs/{run_id}/stream`.
+    pub agui_registry: Arc<AgUiRunRegistry>,
     /// OAuth client for multi-tenant authentication flows
     pub tenant_oauth_client: Arc<TenantOAuthClient>,
     /// Registry of fitness data providers (Strava, Fitbit, Garmin, WHOOP, Terra)
@@ -189,11 +194,12 @@ pub struct ServerResources {
     pub admin_jwt_secret: Arc<str>,
     /// Server configuration loaded from environment
     pub config: Arc<ServerConfig>,
-    /// Hot-swappable cageux intelligence config snapshot (compiled-in
-    /// defaults overlaid with env vars at startup, replaced by the
-    /// contremaitre sync's `config/cageux.yaml` overlay when the feature
-    /// is enabled). Every handler that needs an `IntelligenceConfig`
-    /// reads it through this registry.
+    /// Hot-swappable cageux intelligence config snapshot.
+    ///
+    /// Compiled-in defaults overlaid with env vars at startup,
+    /// replaced by the contremaitre sync's `config/cageux.yaml`
+    /// overlay when the feature is enabled. Every handler that needs
+    /// an `IntelligenceConfig` reads it through this registry.
     pub cageux_config_registry: Arc<CageuxConfigRegistry>,
     /// AI-powered fitness activity analysis engine
     pub activity_intelligence: Arc<ActivityIntelligence>,
@@ -555,6 +561,7 @@ impl ServerResources {
             websocket_manager,
             #[cfg(feature = "transport-sse")]
             sse_manager,
+            agui_registry: Arc::new(AgUiRunRegistry::new()),
             tenant_oauth_client,
             provider_registry,
             admin_jwt_secret: admin_jwt_secret.into(),

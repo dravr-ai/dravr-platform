@@ -3,6 +3,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { type FlashListRef } from '@shopify/flash-list';
+import { v4 as uuidv4 } from 'uuid';
 import { chatApi } from '../../services/api';
 import { isInsightPrompt, detectInsightMessages, createInsightPrompt } from '@pierre/chat-utils';
 import type { Message } from '../../types';
@@ -15,6 +16,13 @@ export interface MessagesState {
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
+  /**
+   * AG-UI run id for the in-flight turn, or `null` between turns.
+   * Components pass this into `useAgUiProgress` to render pipeline
+   * progress (e.g. "reading your question…") while the assistant is
+   * working. Reset to `null` once the HTTP turn response lands.
+   */
+  aguiRunId: string | null;
 }
 
 export interface MessagesActions {
@@ -47,6 +55,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
   const [activityLists, setActivityLists] = useState<Record<string, string>>({});
+  const [aguiRunId, setAguiRunId] = useState<string | null>(null);
   const flatListRef = useRef<FlashListRef<Message>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -121,8 +130,18 @@ export function useMessages(): MessagesState & MessagesActions {
     setMessages(prev => [...prev, userMessage]);
     deferredScrollToBottom(200);
 
+    // Fresh run id per turn — the SSE consumer in `useAgUiProgress`
+    // opens a subscription against `/api/agui/runs/{runId}/stream`
+    // while the REST request is in flight. Resetting to null in the
+    // `finally` below closes the subscription once the assistant
+    // reply has rendered via the REST response.
+    const runId = uuidv4();
+    setAguiRunId(runId);
+
     try {
-      const response = await chatApi.sendMessage(conversationId, messageText);
+      const response = await chatApi.sendMessage(conversationId, messageText, {
+        aguiRunId: runId,
+      });
 
       // Store activity list if the API returned one
       if (response.activity_list && response.assistant_message?.id) {
@@ -167,6 +186,7 @@ export function useMessages(): MessagesState & MessagesActions {
       deferredScrollToBottom(200);
     } finally {
       setIsSending(false);
+      setAguiRunId(null);
     }
   }, [isSending, deferredScrollToBottom]);
 
@@ -189,6 +209,10 @@ export function useMessages(): MessagesState & MessagesActions {
     const insightPrompt = createInsightPrompt(content);
     deferredScrollToBottom(200);
 
+    // Insight generation intentionally skips `aguiRunId` — the server
+    // refuses it on the insight path with a 400 because the insight
+    // endpoint returns a single JSON payload rather than a streaming
+    // pipeline run. Don't regress that contract.
     try {
       const response = await chatApi.sendMessage(resolvedConversationId, insightPrompt);
 
@@ -226,8 +250,13 @@ export function useMessages(): MessagesState & MessagesActions {
     setIsSending(true);
     setError(null);
 
+    const runId = uuidv4();
+    setAguiRunId(runId);
+
     try {
-      const response = await chatApi.sendMessage(conversationId, userMessage.content);
+      const response = await chatApi.sendMessage(conversationId, userMessage.content, {
+        aguiRunId: runId,
+      });
 
       // Store activity list if the API returned one
       if (response.activity_list && response.assistant_message?.id) {
@@ -262,6 +291,7 @@ export function useMessages(): MessagesState & MessagesActions {
       deferredScrollToBottom(200);
     } finally {
       setIsSending(false);
+      setAguiRunId(null);
     }
   }, [messages, deferredScrollToBottom]);
 
@@ -291,6 +321,7 @@ export function useMessages(): MessagesState & MessagesActions {
     messageFeedback,
     insightMessages,
     activityLists,
+    aguiRunId,
     loadMessages,
     sendMessage,
     createInsight,

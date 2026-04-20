@@ -75,10 +75,12 @@
     "react-native-reanimated": "4.2.1",
     "react-native-safe-area-context": "^5.6.2",
     "react-native-screens": "~4.23.0",
+    "react-native-sse": "^1.2.1",
     "react-native-toast-message": "^2.3.3",
     "react-native-webview": "13.16.0",
     "react-native-worklets": "0.7.2",
-    "tailwindcss": "^3.3.2"
+    "tailwindcss": "^3.3.2",
+    "uuid": "^14.0.0"
   },
   "overrides": {
     "markdown-it": "^14.1.0",
@@ -92,6 +94,7 @@
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "29.5.14",
     "@types/react": "~19.2.10",
+    "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "^8.53.0",
     "@typescript-eslint/parser": "^8.53.0",
     "babel-plugin-react-compiler": "^1.0.0",

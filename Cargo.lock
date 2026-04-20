@@ -1181,8 +1181,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.4"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.4#1ba4b42a9c30dcb4ed284d26aec09fe1564d8ca4"
+version = "0.4.6"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.6#887fec29735cfa7488caf9d22882c09c494c2c74"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1450,8 +1450,8 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.15.0"
-source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.0#672e8ef0c1e2da5ba8c6f0b5b5f327ad6e92fc3b"
+version = "0.15.1"
+source = "git+https://github.com/dravr-ai/dravr-embacle.git?tag=v0.15.1#c0158d327e5ae6a060ea164c1345d9b1d6ec54ba"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",

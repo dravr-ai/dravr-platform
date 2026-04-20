@@ -629,6 +629,14 @@ pub mod network_config {
     pub const HTTP_CLIENT_ERROR_THRESHOLD: u16 = 400;
     /// SSE broadcast channel size
     pub const SSE_BROADCAST_CHANNEL_SIZE: usize = 1000;
+    /// Maximum number of recent AG-UI events retained per run for replay.
+    ///
+    /// A late-arriving or reconnecting SSE subscriber receives the
+    /// buffered events before switching to live. Typical runs emit
+    /// 6–20 events (`RUN_STARTED`, a handful of `STEP_*`, `RUN_FINISHED`)
+    /// plus any tool-call + text-delta bursts; 256 leaves plenty of
+    /// headroom before the oldest entries start dropping.
+    pub const AGUI_RUN_REPLAY_BUFFER_SIZE: usize = 256;
     /// Maximum concurrent SSE connections per user (`DoS` prevention)
     pub const SSE_MAX_CONNECTIONS_PER_USER: usize = 5;
 }
