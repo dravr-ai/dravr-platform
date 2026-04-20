@@ -71,7 +71,7 @@ fn test_channel_config(channel_type: ChannelType) -> ChannelConfig {
     }
 }
 
-/// WhatsApp + Messenger return `None` without any network call
+/// `WhatsApp` + Messenger return `None` without any network call
 /// because neither platform's API supports in-place message edits.
 /// This pins the explicit architectural skip so a future refactor
 /// that adds a new channel arm can't silently route WA/Messenger
@@ -118,8 +118,8 @@ async fn dispatch_whatsapp_and_messenger_return_none() {
 /// network at the real URL) but to fail AFTER routing through the
 /// correct `open_telegram` / `open_slack` / `open_discord` branch.
 /// That's still a useful dispatch check because the failure mode is
-/// identical per channel, so any logic that looks at channel_type to
-/// select an adapter family is exercised.
+/// identical per channel, so any logic that looks at `channel_type`
+/// to select an adapter family is exercised.
 ///
 /// A fuller e2e against a mock base URL lives in
 /// `messaging_agui_bridge_test.rs` (Slack); this test trades width

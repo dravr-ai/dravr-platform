@@ -322,7 +322,7 @@ async fn chat_handler_emits_agui_events_for_real_request() {
 /// accepts garbage (e.g. uses `to_owned()` instead of
 /// `Uuid::parse_str`) is caught. The failure message also doubles as
 /// client-facing docs: if a mobile app sends the wrong format it
-/// sees the actionable line "agui_run_id must be a UUID string".
+/// sees the actionable line "`agui_run_id` must be a UUID string".
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn chat_handler_rejects_non_uuid_agui_run_id() {
