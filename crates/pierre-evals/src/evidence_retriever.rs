@@ -226,7 +226,10 @@ struct Frontmatter {
 }
 
 fn parse_markdown_record(contents: &str, filename: &str) -> AppResult<EvidenceRecord> {
-    let trimmed = contents.trim_start();
+    // Normalize CRLF so Windows checkouts (git autocrlf) parse identically
+    // to Unix — the embedded fixtures reach us verbatim via include_str!.
+    let normalized = contents.replace("\r\n", "\n");
+    let trimmed = normalized.trim_start();
     let rest = trimmed.strip_prefix("---\n").ok_or_else(|| {
         AppError::internal(format!(
             "Evidence file {filename} missing opening '---' frontmatter delimiter"
@@ -377,6 +380,14 @@ Second proposition about creatine dosing.
 ";
         let corpus = EvidenceCorpus::from_markdown_files([("a.md", a), ("b.md", b)].into_iter())?;
         assert_eq!(corpus.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn parses_markdown_with_crlf_line_endings() -> AppResult<()> {
+        let crlf = SAMPLE_MARKDOWN.replace('\n', "\r\n");
+        let corpus = EvidenceCorpus::from_markdown(&crlf)?;
+        assert_eq!(corpus.len(), 1);
         Ok(())
     }
 }
