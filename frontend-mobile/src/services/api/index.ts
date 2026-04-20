@@ -3,7 +3,6 @@
 // ABOUTME: API service entry point using @pierre/api-client with mobile adapter
 // ABOUTME: Exports domain-based APIs with secure token storage via expo-secure-store
 
-import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import {
@@ -11,21 +10,10 @@ import {
   createPierreApi,
   type PierreApiService,
 } from '@pierre/api-client';
+import { getApiUrl } from '../apiUrl';
 
 // Re-export types for consumers
 export type { ForkCoachResponse } from '@pierre/api-client';
-
-// Determine API URL based on platform
-const getApiUrl = (): string => {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  // Android emulator cannot access localhost - needs 10.0.2.2
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:8081';
-  }
-  return 'http://localhost:8081';
-};
 
 // Create the mobile platform adapter with secure token storage
 const adapter = createMobileAdapter({
