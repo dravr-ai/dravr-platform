@@ -202,7 +202,20 @@ describe('useMessages', () => {
         await result.current.sendMessage('conv-1', 'Hello');
       });
 
-      expect(mockSendMessage).toHaveBeenCalledWith('conv-1', 'Hello');
+      // `sendMessage` generates a fresh AG-UI run id per turn and
+      // threads it into the REST call so the SSE progress consumer
+      // can subscribe against the matching run. Assert the shape
+      // including the `aguiRunId` key — and match any UUID because
+      // the generator picks a new one on every invocation.
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        'conv-1',
+        'Hello',
+        expect.objectContaining({
+          aguiRunId: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+          ),
+        }),
+      );
       expect(result.current.messages).toHaveLength(2);
       expect(result.current.messages[0].role).toBe('user');
       expect(result.current.messages[1].role).toBe('assistant');

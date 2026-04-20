@@ -19,6 +19,7 @@ import type { ShareVisibility, Coach } from '../../types';
 
 import { ChatHeader } from './ChatHeader';
 import { ChatInputBar } from './ChatInputBar';
+import { ChatProgressStrip } from './ChatProgressStrip';
 import { MessageList } from './MessageList';
 import { ProviderModal } from './ProviderModal';
 import { SciotteLoginModal } from '../../components/SciotteLoginModal';
@@ -421,6 +422,8 @@ export function ChatScreen() {
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
         />
+
+        <ChatProgressStrip runId={messagesHook.aguiRunId} />
 
         <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
 

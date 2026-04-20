@@ -10,6 +10,7 @@
 //! sending messages, and streaming AI responses. All handlers require JWT authentication.
 
 use super::chat_tool_loop::{self, ToolLoopParams};
+use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
 use crate::models::TenantId;
 use crate::services::chat_pipeline;
 use crate::services::chat_pipeline::stages::persistence::{
@@ -194,6 +195,32 @@ pub struct UpdateConversationRequest {
     pub title: String,
 }
 
+/// Bundles the AG-UI sink and registry scope for a single chat turn.
+///
+/// The handler holds one of these across [`chat_pipeline::run`] so
+/// events flow into the registry while the pipeline executes; the
+/// [`crate::agui::RunScope`] inside `scope` auto-unregisters the run
+/// when the wiring drops at handler exit.
+struct AgUiWiring {
+    scope: RunScope,
+    sink: BroadcastSink,
+    thread_id: String,
+}
+
+impl AgUiWiring {
+    fn run_id(&self) -> &str {
+        self.scope.run_id()
+    }
+
+    fn run(&self) -> chat_pipeline::AgUiRun<'_> {
+        chat_pipeline::AgUiRun {
+            run_id: self.scope.run_id().to_owned(),
+            thread_id: Some(self.thread_id.clone()),
+            sink: &self.sink,
+        }
+    }
+}
+
 /// Request to send a message
 #[derive(Debug, Deserialize)]
 pub struct SendMessageRequest {
@@ -202,6 +229,17 @@ pub struct SendMessageRequest {
     /// Whether to stream the response
     #[serde(default)]
     pub stream: bool,
+    /// Optional caller-supplied AG-UI `run_id` (UUID).
+    ///
+    /// When present the server registers the run under this id and
+    /// emits AG-UI events the client can consume in parallel via
+    /// `GET /api/agui/runs/{run_id}/stream`.
+    ///
+    /// Use a fresh UUID per turn. Clients that do not care about
+    /// progress feedback should omit the field — the pipeline runs
+    /// without AG-UI overhead in that case.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agui_run_id: Option<String>,
 }
 
 /// Response for a message
@@ -235,6 +273,11 @@ pub struct ChatCompletionResponse {
     /// Activity list from `get_activities` tool, kept separate from message content
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity_list: Option<String>,
+    /// AG-UI `run_id` echoed back when the request supplied one. The
+    /// caller uses it to correlate this turn with its parallel
+    /// `/api/agui/runs/{run_id}/stream` subscription.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agui_run_id: Option<String>,
 }
 
 /// Response for messages list
@@ -325,6 +368,52 @@ impl ChatRoutes {
     /// Get LLM provider based on `PIERRE_LLM_PROVIDER` environment variable
     async fn get_llm_provider() -> Result<ChatProvider, AppError> {
         super::create_chat_provider().await
+    }
+
+    /// Wire up AG-UI progress feedback for a single turn, when the
+    /// caller asked for it via `agui_run_id`.
+    ///
+    /// The returned [`AgUiWiring`] owns:
+    /// - a [`crate::agui::RunScope`] that auto-unregisters the run on drop
+    ///   (closing any live SSE subscribers cleanly)
+    /// - a [`BroadcastSink`] that emits to that registry slot
+    ///
+    /// The handler keeps the wiring alive across
+    /// [`chat_pipeline::run`] so AG-UI events flow during the turn,
+    /// then drops it after the response body is built.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppError::invalid_input`] when the caller-supplied
+    /// `run_id` is not a UUID — short / guessable ids open a
+    /// brute-force surface even with the per-run owner check.
+    fn setup_agui(
+        resources: &Arc<ServerResources>,
+        requested_run_id: Option<&str>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) -> Result<Option<AgUiWiring>, AppError> {
+        let Some(raw) = requested_run_id else {
+            return Ok(None);
+        };
+        let parsed = Uuid::parse_str(raw).map_err(|_| {
+            AppError::invalid_input(
+                "agui_run_id must be a UUID string; use Uuid::new_v4() per turn",
+            )
+        })?;
+        let run_id = parsed.to_string();
+        let owner = RunOwner::new(user_id, tenant_id);
+        let scope = resources.agui_registry.register_scoped(&run_id, owner);
+        let sink = BroadcastSink::new(
+            (*resources.agui_registry).clone(),
+            AgUiEventFilter::default(),
+        );
+        Ok(Some(AgUiWiring {
+            scope,
+            sink,
+            thread_id: conversation_id.to_owned(),
+        }))
     }
 
     /// Build LLM tool definitions for chat-mode function calling.
@@ -612,6 +701,18 @@ impl ChatRoutes {
         // Insight-generation requests bypass the unified pipeline (different
         // prompt, no coach, no tools, JSON response shape).
         if request.content.starts_with(INSIGHT_PROMPT_PREFIX) {
+            // Insights are a one-shot JSON response — the unified-pipeline
+            // AG-UI lifecycle (`RUN_STARTED` → steps → `RUN_FINISHED`) does
+            // not fit. Rather than silently swallowing `agui_run_id` the
+            // caller passed, reject it loudly so clients surface a clear
+            // 400 instead of opening an SSE subscription that would never
+            // receive any events.
+            if request.agui_run_id.is_some() {
+                return Err(AppError::invalid_input(
+                    "agui_run_id is not supported on insight-generation requests; \
+                     insights return a single JSON payload and emit no AG-UI events",
+                ));
+            }
             return Self::send_insight_message(
                 resources,
                 conversation_id,
@@ -644,14 +745,23 @@ impl ChatRoutes {
         };
         let profile = chat_pipeline::ChannelProfile::web_chat();
 
-        let start_time = Instant::now();
-        let dispatch = chat_pipeline::run(
+        // Set up AG-UI progress feedback for callers that asked for it.
+        // The scope guard auto-unregisters when this handler returns,
+        // so a leak from an early `?` propagation is impossible.
+        let agui_wiring = Self::setup_agui(
             &resources,
-            turn_input,
-            &profile,
-            &chat_pipeline::PipelineHooks::none(),
-        )
-        .await?;
+            request.agui_run_id.as_deref(),
+            auth.user_id,
+            tenant_id,
+            &conversation_id,
+        )?;
+
+        let start_time = Instant::now();
+        let hooks = chat_pipeline::PipelineHooks {
+            agui: agui_wiring.as_ref().map(|w| w.run()),
+            ..chat_pipeline::PipelineHooks::none()
+        };
+        let dispatch = chat_pipeline::run(&resources, turn_input, &profile, &hooks).await?;
 
         // Safe cast: execution time will never exceed u64::MAX milliseconds (~584 million years)
         #[allow(clippy::cast_possible_truncation)]
@@ -711,6 +821,7 @@ impl ChatRoutes {
             model: dispatch.model.clone(),
             execution_time_ms,
             activity_list: dispatch.activity_list.clone(),
+            agui_run_id: agui_wiring.as_ref().map(|w| w.run_id().to_owned()),
         };
 
         // Notify user when a coach conversation produces a response.
@@ -852,6 +963,10 @@ impl ChatRoutes {
             model: conv.model.clone(),
             execution_time_ms,
             activity_list: result.activity_list,
+            // Insight requests bypass the unified pipeline and never
+            // emit AG-UI events; the field is omitted from the JSON
+            // body via `skip_serializing_if = "Option::is_none"`.
+            agui_run_id: None,
         };
 
         let mut http_response = (StatusCode::OK, Json(response)).into_response();

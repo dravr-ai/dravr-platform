@@ -156,6 +156,30 @@ Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_deskt
 
 The SDK handles OAuth 2.0 authentication automatically. See [SDK Documentation](sdk/README.md).
 
+## AG-UI Progress Events
+
+Pierre implements the [AG-UI protocol](https://github.com/ag-ui-protocol/ag-ui)
+so web, mobile, and messaging clients can render live per-stage progress while
+the chat pipeline runs an agent turn.
+
+**Endpoint.** `GET /api/agui/runs/{run_id}/stream` — an SSE stream of
+JSON-serialized AG-UI events (`event: agui` data frames). Subscribers join at
+any time during a live run; missed events prior to subscription are dropped.
+
+**Event vocabulary.** `RUN_STARTED`, `STEP_STARTED`, `STEP_FINISHED`,
+`RUN_FINISHED`, `RUN_ERROR`, plus tool and text variants defined by the
+AG-UI spec. Types live in `crates/pierre-server/src/agui/events.rs`.
+
+**Wiring a turn.** Channel adapters generate a `run_id` (uuid), construct a
+`BroadcastSink` against `ServerResources::agui_registry`, and pass
+`AgUiRun { run_id, thread_id, sink }` through `PipelineHooks.agui`. The
+pipeline emits lifecycle events; the registry fans them out to every SSE
+subscriber. Operators filter high-volume kinds via `AgUiEventFilter::without`.
+
+**Downstream consumers.** `dravr-canot` ships a ready-to-use SSE consumer
+(`agui_consumer::AgUiConsumer`) plus a Telegram status adapter that edits a
+"thinking…" message in place as stages advance.
+
 ## Available MCP Tools
 
 53 tools organized in 9 categories:

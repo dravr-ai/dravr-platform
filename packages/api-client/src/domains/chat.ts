@@ -63,6 +63,27 @@ export interface SendMessageResponse {
   execution_time_ms: number;
   /** Activity list from get_activities tool, separate from message content */
   activity_list?: string;
+  /**
+   * Server-echoed AG-UI run id. When the client passed `agui_run_id`
+   * in the request, the same UUID comes back here so the client can
+   * correlate its parallel `/api/agui/runs/{run_id}/stream` subscription
+   * with the response turn.
+   */
+  agui_run_id?: string;
+}
+
+/**
+ * Optional extras accepted by {@link ChatApi.sendMessage}.
+ *
+ * Passing `aguiRunId` turns on AG-UI progress events: the server
+ * registers the run under that UUID and emits events while the
+ * pipeline executes. Callers consume them by opening an SSE stream
+ * to `/api/agui/runs/{aguiRunId}/stream`. Omit the option and the
+ * pipeline runs without AG-UI overhead.
+ */
+export interface SendMessageOptions {
+  /** UUID identifying the AG-UI run for this turn. */
+  aguiRunId?: string;
 }
 
 export interface CreateConversationOptions {
@@ -154,11 +175,28 @@ export function createChatApi(axios: AxiosInstance, getBaseUrl: () => string) {
 
     /**
      * Send a message in a conversation.
+     *
+     * Pass `options.aguiRunId` (a freshly generated UUID) to enable
+     * AG-UI progress events for this turn; subscribe in parallel to
+     * `/api/agui/runs/{aguiRunId}/stream` with a Bearer JWT to render
+     * pipeline progress in-UI. Omit to run without progress feedback.
      */
-    async sendMessage(conversationId: string, content: string): Promise<SendMessageResponse> {
+    async sendMessage(
+      conversationId: string,
+      content: string,
+      options?: SendMessageOptions,
+    ): Promise<SendMessageResponse> {
+      const body: {
+        content: string;
+        stream: boolean;
+        agui_run_id?: string;
+      } = { content, stream: false };
+      if (options?.aguiRunId) {
+        body.agui_run_id = options.aguiRunId;
+      }
       const response = await axios.post<SendMessageResponse>(
         ENDPOINTS.CHAT.MESSAGES(conversationId),
-        { content, stream: false }
+        body,
       );
       return response.data;
     },

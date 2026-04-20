@@ -108,6 +108,14 @@ pub mod analytics;
 #[cfg(feature = "client-messaging")]
 pub mod messaging_ingress;
 
+// Outer doc intentionally omitted — `messaging_status_bridge.rs`'s
+// inner `//!` header is authoritative. When both an outer `///` on
+// the mod declaration and an inner `//!` in the module file exist,
+// rustdoc concatenates them into one virtual doc block whose first
+// paragraph trips `clippy::too_long_first_doc_paragraph`.
+#[cfg(feature = "client-messaging")]
+pub mod messaging_status_bridge;
+
 /// Slash command handlers for messaging platforms
 #[cfg(feature = "client-messaging")]
 pub mod commands;

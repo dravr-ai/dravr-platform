@@ -17,10 +17,14 @@ channel-messenger = ["dravr-canot/channel-messenger"]
 channel-discord = ["dravr-canot/channel-discord"]
 channel-slack = ["dravr-canot/channel-slack"]
 channel-telegram = ["dravr-canot/channel-telegram"]
-all-channels = ["channel-whatsapp", "channel-messenger", "channel-discord", "channel-slack", "channel-telegram"]
+# AG-UI progress status adapters for per-channel `editMessageText`-style
+# progress updates. Pierre-server enables this via its own `client-messaging`
+# path so messaging turns surface pipeline progress in-channel.
+agui = ["dravr-canot/agui"]
+all-channels = ["channel-whatsapp", "channel-messenger", "channel-discord", "channel-slack", "channel-telegram", "agui"]
 
 [dependencies]
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.4" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.6" }
 
 [lints]
 workspace = true
