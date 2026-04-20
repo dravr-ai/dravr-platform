@@ -82,6 +82,17 @@ pub struct OpenStatusParams<'a> {
     /// placeholder should land there too — not as a top-level
     /// channel message.
     pub thread_id: Option<&'a str>,
+    /// Optional override for the channel platform's base URL.
+    ///
+    /// Production code always sets this to `None`, hitting
+    /// `api.telegram.org` / `slack.com/api` / `discord.com/api/v10`
+    /// respectively. Integration tests set it to a local mock
+    /// server's address so the bridge's `ChannelType` → adapter
+    /// dispatch can be exercised end-to-end (i.e. we assert the
+    /// right mock endpoint was called for the right
+    /// `ChannelType`, not just that the dispatch function
+    /// returned some Option).
+    pub api_base_override: Option<&'a str>,
 }
 
 /// Open the per-channel [`StatusAdapter`] for `params`, sending the
@@ -113,14 +124,28 @@ async fn open_telegram(
 ) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
     let bot_token = params.channel_config.bot_token.as_deref()?;
     let thread_id = params.thread_id.and_then(|t| t.parse::<i64>().ok());
-    match TelegramStatusAdapter::open(
-        bot_token,
-        params.conversation_id,
-        thread_id,
-        PLACEHOLDER_TEXT,
-    )
-    .await
-    {
+    // Production path hits `api.telegram.org`; tests supply a mock
+    // server via `api_base_override` so the dispatch match can be
+    // exercised against a recording endpoint.
+    let result = if let Some(base) = params.api_base_override {
+        TelegramStatusAdapter::open_with_base(
+            bot_token,
+            params.conversation_id,
+            thread_id,
+            PLACEHOLDER_TEXT,
+            base,
+        )
+        .await
+    } else {
+        TelegramStatusAdapter::open(
+            bot_token,
+            params.conversation_id,
+            thread_id,
+            PLACEHOLDER_TEXT,
+        )
+        .await
+    };
+    match result {
         Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
         Err(e) => {
             warn!(error = %e, "Telegram status placeholder open failed; skipping progress rendering");
@@ -135,14 +160,25 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapt
     // (Discord, for example).
     let bot_token = params.channel_config.api_key.as_deref()?;
     let thread_ts = params.thread_id.map(str::to_owned);
-    match SlackStatusAdapter::open(
-        bot_token,
-        params.conversation_id,
-        thread_ts,
-        PLACEHOLDER_TEXT,
-    )
-    .await
-    {
+    let result = if let Some(base) = params.api_base_override {
+        SlackStatusAdapter::open_with_base(
+            bot_token,
+            params.conversation_id,
+            thread_ts,
+            PLACEHOLDER_TEXT,
+            base,
+        )
+        .await
+    } else {
+        SlackStatusAdapter::open(
+            bot_token,
+            params.conversation_id,
+            thread_ts,
+            PLACEHOLDER_TEXT,
+        )
+        .await
+    };
+    match result {
         Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
         Err(e) => {
             warn!(error = %e, "Slack status placeholder open failed; skipping progress rendering");
@@ -155,7 +191,18 @@ async fn open_discord(
     params: &OpenStatusParams<'_>,
 ) -> Option<Arc<dyn StatusAdapter + Send + Sync>> {
     let bot_token = params.channel_config.bot_token.as_deref()?;
-    match DiscordStatusAdapter::open(bot_token, params.conversation_id, PLACEHOLDER_TEXT).await {
+    let result = if let Some(base) = params.api_base_override {
+        DiscordStatusAdapter::open_with_base(
+            bot_token,
+            params.conversation_id,
+            PLACEHOLDER_TEXT,
+            base,
+        )
+        .await
+    } else {
+        DiscordStatusAdapter::open(bot_token, params.conversation_id, PLACEHOLDER_TEXT).await
+    };
+    match result {
         Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),
         Err(e) => {
             warn!(error = %e, "Discord status placeholder open failed; skipping progress rendering");
