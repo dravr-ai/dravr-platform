@@ -1961,6 +1961,10 @@ async fn maybe_open_status_bridge(
         channel_config,
         conversation_id,
         thread_id: dispatch.thread_id.as_deref(),
+        // Production always hits the real platform base URLs; the
+        // override exists so integration tests can point at a local
+        // mock server to verify dispatch routing per `ChannelType`.
+        api_base_override: None,
     };
     let Some(adapter) = open_status_adapter(&params).await else {
         return (None, None);
