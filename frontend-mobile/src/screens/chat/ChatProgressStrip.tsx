@@ -4,7 +4,7 @@
 // ABOUTME: Driven by useAgUiProgress; hidden outside an active run to avoid visual noise
 
 import React from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator } from 'react-native';
 import { useAgUiProgress } from '../../hooks/useAgUiProgress';
 
 interface ChatProgressStripProps {
@@ -28,28 +28,17 @@ export function ChatProgressStrip({ runId }: ChatProgressStripProps) {
   }
 
   return (
-    <View style={styles.container} accessibilityLiveRegion="polite">
+    <View
+      className="flex-row items-center gap-2 px-4 py-2 bg-neutral-900/5 border-t border-neutral-900/10"
+      accessibilityLiveRegion="polite"
+    >
       <ActivityIndicator size="small" />
-      <Text style={styles.text} numberOfLines={1}>
+      <Text
+        className="flex-1 text-xs italic text-neutral-500"
+        numberOfLines={1}
+      >
         {statusText}
       </Text>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    gap: 8,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  text: {
-    flex: 1,
-    fontSize: 13,
-    color: '#555',
-    fontStyle: 'italic',
-  },
-});

@@ -110,10 +110,15 @@ impl AgUiRoutes {
         let caller = authenticate_caller(&headers, &resources).await?;
         let subscription = authorize_and_subscribe(&registry, &run_id, caller)?;
 
-        // Yield cooperatively before handing the stream back so a burst
-        // of subscribes cannot monopolize the executor. This also
-        // satisfies axum's async handler trait bound so we can keep the
-        // function as `async fn` for symmetry with the other SSE routes.
+        // Keep this function truly `async`: without an `.await` point
+        // before the `Sse::new(...)` return, rustc infers a future
+        // that's ready-at-poll-zero and axum's SSE handler wiring
+        // degrades to a synchronous path that breaks symmetry with
+        // the rest of the SSE routes. A single cooperative yield is
+        // the cheapest reliable way to force a real suspension point
+        // under high subscribe load; it is NOT a back-pressure
+        // mechanism — a single `yield_now()` does not protect the
+        // executor from sustained bursts.
         task::yield_now().await;
 
         info!(

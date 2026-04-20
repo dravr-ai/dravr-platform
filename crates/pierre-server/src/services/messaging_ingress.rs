@@ -1892,7 +1892,10 @@ impl Drop for MessagingAgUiWiring {
 ///
 /// `WhatsApp` and Messenger fall through to progress-free dispatch
 /// because their APIs cannot edit previously-sent messages.
-async fn setup_messaging_agui(dispatch: &PendingDispatch) -> Option<MessagingAgUiWiring> {
+async fn setup_messaging_agui(
+    dispatch: &PendingDispatch,
+    channel_config: &ChannelConfig,
+) -> Option<MessagingAgUiWiring> {
     let user_id = Uuid::parse_str(&dispatch.session.user_id).ok()?;
     let run_id = Uuid::new_v4().to_string();
     let owner = RunOwner::new(user_id, dispatch.user_tenant_id);
@@ -1915,7 +1918,8 @@ async fn setup_messaging_agui(dispatch: &PendingDispatch) -> Option<MessagingAgU
     // task *after* the run is registered — otherwise the consumer's
     // `subscribe_self` would race the register call and miss early
     // events even with the replay backlog.
-    let (status_adapter, status_consumer) = maybe_open_status_bridge(dispatch, &run_id).await;
+    let (status_adapter, status_consumer) =
+        maybe_open_status_bridge(dispatch, channel_config, &run_id).await;
 
     Some(MessagingAgUiWiring {
         scope,
@@ -1926,19 +1930,22 @@ async fn setup_messaging_agui(dispatch: &PendingDispatch) -> Option<MessagingAgU
     })
 }
 
-/// Load channel credentials and open a status adapter + consumer task.
+/// Open a status adapter + consumer task against the pre-loaded
+/// channel config.
 ///
 /// Returns `(None, None)` when either:
 ///
 /// - (a) the channel does not support progress rendering (`WhatsApp`/Messenger);
-/// - (b) the tenant has no channel config;
-/// - (c) the dispatch lacks a `conversation_id`;
-/// - (d) the placeholder send fails.
+/// - (b) the dispatch lacks a `conversation_id`;
+/// - (c) the placeholder send fails.
 ///
 /// Any of these are treated as "skip progress, deliver a single
-/// reply at the end" rather than a hard failure.
+/// reply at the end" rather than a hard failure. The caller passes
+/// the `channel_config` snapshot already loaded by
+/// [`dispatch_and_respond`] so the bridge stays out of the DB path.
 async fn maybe_open_status_bridge(
     dispatch: &PendingDispatch,
+    channel_config: &ChannelConfig,
     run_id: &str,
 ) -> (
     Option<Arc<dyn StatusAdapter + Send + Sync>>,
@@ -1948,16 +1955,10 @@ async fn maybe_open_status_bridge(
         Some(c) if !c.is_empty() => c,
         _ => return (None, None),
     };
-    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
-    let Some(channel_config) =
-        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
-    else {
-        return (None, None);
-    };
 
     let params = OpenStatusParams {
         channel_type: dispatch.channel_type,
-        channel_config: &channel_config,
+        channel_config,
         conversation_id,
         thread_id: dispatch.thread_id.as_deref(),
     };
@@ -1983,6 +1984,7 @@ async fn maybe_open_status_bridge(
 async fn deliver_reply(
     dispatch: &PendingDispatch,
     messaging_agui: Option<&MessagingAgUiWiring>,
+    channel_config: &ChannelConfig,
     content: String,
 ) {
     if let Some(wiring) = messaging_agui {
@@ -2008,7 +2010,42 @@ async fn deliver_reply(
         reply_to: Some(dispatch.channel_message_id.clone()),
         thread_id: dispatch.thread_id.clone(),
     };
-    send_outbound_response(dispatch, &outgoing).await;
+    send_outbound_response(dispatch, channel_config, &outgoing).await;
+}
+
+/// Log the pipeline failure, track analytics, and send a localized
+/// generic-error reply with a short correlation id.
+///
+/// Extracted from `dispatch_and_respond` to keep the orchestrator's
+/// cognitive complexity inside the workspace lint budget; the body
+/// is otherwise a straight line of effects (log, track, template,
+/// send) without branching.
+async fn report_dispatch_failure(
+    dispatch: &PendingDispatch,
+    channel_config: &ChannelConfig,
+    hashed_tenant: &str,
+    err: &AppError,
+) {
+    // Correlation ID is surfaced in the user-facing reply and the
+    // log record so an operator receiving a Slack alert can grep
+    // Cloud Logging for the full error chain without access to
+    // conversation IDs (which are PII-adjacent).
+    let correlation_id = Uuid::new_v4();
+    error!(
+        correlation_id = %correlation_id,
+        error = %err,
+        channel = %dispatch.channel,
+        conversation_id = %dispatch.session.conversation,
+        "LLM dispatch failed for messaging"
+    );
+    analytics().track_error(&dispatch.channel, hashed_tenant, "llm_dispatch_failed");
+    let short_id = correlation_id.to_string()[..8].to_owned();
+    let template = dispatch
+        .resources
+        .messaging_strings_registry
+        .get(KEY_ERROR_GENERIC, &dispatch.locale);
+    let user_message = format_template(&template, &[&short_id]);
+    send_error_reply(dispatch, channel_config, &user_message).await;
 }
 
 /// Dispatch a message through the LLM pipeline and send the response back via the channel
@@ -2036,6 +2073,31 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         locale: Some(dispatch.locale.clone()),
     };
 
+    // Load the per-tenant channel config exactly once per turn.
+    //
+    // Both the AG-UI status bridge (placeholder open + finalize) and
+    // the fallback outbound send need it; threading the same snapshot
+    // through avoids the 2-3 DB round-trips a naive wiring would
+    // incur, and keeps every reply-path consistent with the
+    // credentials live at the moment the dispatch started.
+    //
+    // `None` means the tenant has no configured channel — we cannot
+    // reply at all, so log and bail without spending compute on the
+    // LLM pipeline.
+    let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
+    let Some(channel_config) =
+        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
+    else {
+        warn!(
+            channel = %dispatch.channel,
+            tenant_id = %dispatch.channel_tenant_id,
+            "channel config unavailable at dispatch time; dropping turn with no reply"
+        );
+        drop(dispatch_guard);
+        evict_idle_dispatch_lock(&dispatch.session.conversation, &lock);
+        return;
+    };
+
     // Register an AG-UI run for this messaging turn so in-process
     // consumers (channel-side status adapters, ops dashboards) can
     // subscribe via `resources.agui_registry.subscribe_self(run_id)`
@@ -2055,7 +2117,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     // messages) and spawns a background consumer that mirrors each
     // AG-UI event as a `set_status` call so the user sees the pipeline
     // stage in real time.
-    let messaging_agui = setup_messaging_agui(&dispatch).await;
+    let messaging_agui = setup_messaging_agui(&dispatch, &channel_config).await;
     let hooks = PipelineHooks {
         agui: messaging_agui.as_ref().map(|w| w.run()),
         ..PipelineHooks::none()
@@ -2065,26 +2127,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         match chat_pipeline::run(&dispatch.resources, turn_input, &profile, &hooks).await {
             Ok(result) => result,
             Err(e) => {
-                // Correlation ID is surfaced in the user-facing reply and the log
-                // record so an operator receiving a Slack alert can grep Cloud
-                // Logging for the full error chain without access to conversation
-                // IDs (which are PII-adjacent).
-                let correlation_id = Uuid::new_v4();
-                error!(
-                    correlation_id = %correlation_id,
-                    error = %e,
-                    channel = %dispatch.channel,
-                    conversation_id = %dispatch.session.conversation,
-                    "LLM dispatch failed for messaging"
-                );
-                analytics().track_error(&dispatch.channel, &hashed_tenant, "llm_dispatch_failed");
-                let short_id = correlation_id.to_string()[..8].to_owned();
-                let template = dispatch
-                    .resources
-                    .messaging_strings_registry
-                    .get(KEY_ERROR_GENERIC, &dispatch.locale);
-                let user_message = format_template(&template, &[&short_id]);
-                send_error_reply(&dispatch, &user_message).await;
+                report_dispatch_failure(&dispatch, &channel_config, &hashed_tenant, &e).await;
                 return;
             }
         };
@@ -2120,11 +2163,17 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
             .resources
             .messaging_strings_registry
             .get(KEY_EMPTY_REPLY, &dispatch.locale);
-        send_error_reply(&dispatch, &empty_reply).await;
+        send_error_reply(&dispatch, &channel_config, &empty_reply).await;
         return;
     }
 
-    deliver_reply(&dispatch, messaging_agui.as_ref(), dispatch_result.content).await;
+    deliver_reply(
+        &dispatch,
+        messaging_agui.as_ref(),
+        &channel_config,
+        dispatch_result.content,
+    )
+    .await;
 
     // Dropping the wiring here aborts the consumer task (if still
     // live) and releases the RunScope so the registry entry is
@@ -2155,7 +2204,7 @@ fn evict_idle_dispatch_lock(conversation_id: &str, local: &Arc<TokioMutex<()>>) 
 /// Send a user-facing error message when LLM dispatch fails or returns empty content.
 ///
 /// Ensures the user always gets feedback instead of silence when something goes wrong.
-async fn send_error_reply(dispatch: &PendingDispatch, body: &str) {
+async fn send_error_reply(dispatch: &PendingDispatch, channel_config: &ChannelConfig, body: &str) {
     let reply_target = dispatch
         .conversation_id
         .as_deref()
@@ -2173,7 +2222,7 @@ async fn send_error_reply(dispatch: &PendingDispatch, body: &str) {
         thread_id: dispatch.thread_id.clone(),
     };
 
-    send_outbound_response(dispatch, &outgoing).await;
+    send_outbound_response(dispatch, channel_config, &outgoing).await;
 }
 
 /// Extract real token counts from provider usage, or estimate from content length.
@@ -2293,16 +2342,14 @@ async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: 
 }
 
 /// Load channel config, send outbound message, and persist the result
-async fn send_outbound_response(dispatch: &PendingDispatch, outgoing: &OutgoingMessage) {
+async fn send_outbound_response(
+    dispatch: &PendingDispatch,
+    channel_config: &ChannelConfig,
+    outgoing: &OutgoingMessage,
+) {
     let db: &dyn MessagingRepository = dispatch.resources.repos.messaging.as_ref();
 
-    let Some(channel_config) =
-        load_channel_config(db, dispatch.channel_tenant_id, &dispatch.channel).await
-    else {
-        return;
-    };
-
-    match dispatch.adapter.send(outgoing, &channel_config).await {
+    match dispatch.adapter.send(outgoing, channel_config).await {
         Ok(receipt) => {
             let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
             info!(

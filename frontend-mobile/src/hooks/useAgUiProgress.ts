@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import EventSource from 'react-native-sse';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { getApiUrl } from '../services/apiUrl';
 import {
   statusTextForAguiEvent,
   isTerminalAguiEvent,
@@ -14,21 +14,6 @@ import {
 } from '../utils/aguiStatus';
 
 const JWT_KEY = 'pierre.jwt_token';
-
-/**
- * Resolve the AG-UI base URL the same way `services/api/index.ts`
- * resolves it for REST — if the shape ever diverges the mobile app
- * will surface a clean "no progress" fall-through rather than panic.
- */
-function getApiUrl(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2:8081';
-  }
-  return 'http://localhost:8081';
-}
 
 /**
  * Shape returned by {@link useAgUiProgress}.

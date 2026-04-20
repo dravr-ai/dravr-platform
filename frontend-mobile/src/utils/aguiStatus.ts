@@ -20,6 +20,18 @@ export interface AguiEventWire {
 }
 
 /**
+ * Generic placeholder shown at run start and between tool calls.
+ *
+ * Symmetry with the Rust `PLACEHOLDER_TEXT` const in
+ * `crates/pierre-server/src/services/messaging_status_bridge.rs` —
+ * messaging channels (Telegram/Slack/Discord) render the same string
+ * when their pipeline lands on `RUN_STARTED` / `TOOL_CALL_RESULT`,
+ * so a user who switches devices mid-turn sees continuous terminology
+ * across surfaces.
+ */
+const THINKING_PLACEHOLDER = 'thinking…';
+
+/**
  * Map an AG-UI event to a short, user-facing status line, or `null`
  * when the event should not be surfaced (e.g. step-finished — a
  * transient marker the next event will overwrite anyway).
@@ -40,7 +52,7 @@ export function statusTextForAguiEvent(event: AguiEventWire): string | null {
     // "thinking…" bridges back to whatever the next step emits.
     case 'RUN_STARTED':
     case 'TOOL_CALL_RESULT':
-      return 'thinking…';
+      return THINKING_PLACEHOLDER;
     case 'STEP_STARTED': {
       const name = event.step_name ?? '';
       if (name === 'prompt_assembly') return 'reading your question…';

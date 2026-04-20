@@ -315,3 +315,47 @@ async fn chat_handler_emits_agui_events_for_real_request() {
 
     let _ = user; // keep the user value alive through the test
 }
+
+/// A non-UUID `agui_run_id` must reject with HTTP 400 and an error
+/// message naming the field. Pins the defensive parse in
+/// `ChatRoutes::setup_agui` so a future refactor that silently
+/// accepts garbage (e.g. uses `to_owned()` instead of
+/// `Uuid::parse_str`) is caught. The failure message also doubles as
+/// client-facing docs: if a mobile app sends the wrong format it
+/// sees the actionable line "agui_run_id must be a UUID string".
+#[tokio::test(flavor = "multi_thread")]
+#[serial_test::serial]
+async fn chat_handler_rejects_non_uuid_agui_run_id() {
+    let (resources, base_url) = spawn_server().await;
+    let (_user, token) = common::create_test_tenant(&resources, "agui-uuid-reject@example.com")
+        .await
+        .expect("create user + token");
+
+    let client = Client::builder().no_gzip().build().expect("client");
+    let conversation_id = create_conversation(&client, &base_url, &token).await;
+
+    let post_url = format!("{base_url}/api/chat/conversations/{conversation_id}/messages");
+    let response = client
+        .post(&post_url)
+        .header(AUTHORIZATION, format!("Bearer {token}"))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&json!({
+            "content": "Hello",
+            "agui_run_id": "not-a-uuid",
+        }))
+        .send()
+        .await
+        .expect("POST send_message");
+
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "non-UUID agui_run_id must reject 400"
+    );
+
+    let body = response.text().await.unwrap_or_default();
+    assert!(
+        body.contains("agui_run_id") && body.to_lowercase().contains("uuid"),
+        "400 body should name the bad field + expected format, got: {body}"
+    );
+}
