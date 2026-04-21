@@ -11,9 +11,12 @@
 //! can call it without importing from `crate::routes`, and so the routes
 //! layer can depend on the services layer — not the other way around.
 
+use std::sync::Arc;
+
 use pierre_llm::ChatProvider;
 
 use crate::errors::AppError;
+use crate::mcp::resources::ServerResources;
 
 /// Build a [`ChatProvider`] from the current process environment.
 ///
@@ -28,4 +31,27 @@ use crate::errors::AppError;
 /// (missing API key, invalid endpoint, etc.).
 pub async fn create_chat_provider() -> Result<ChatProvider, AppError> {
     ChatProvider::from_env().await
+}
+
+/// Build a [`ChatProvider`] honoring any override injected on
+/// [`ServerResources::llm_provider`].
+///
+/// Production code leaves `llm_provider` set to `None` and this function
+/// falls back to [`create_chat_provider`]. Integration tests (for example
+/// the conversation-turn E2E) set the field to a deterministic mock via
+/// [`ServerResources::with_llm_provider`] so the pipeline runs without
+/// touching a real provider.
+///
+/// # Errors
+///
+/// Returns [`AppError`] from the fallback path ([`create_chat_provider`])
+/// when no override is present and the environment-configured provider
+/// cannot be initialized.
+pub async fn create_chat_provider_from_resources(
+    resources: &Arc<ServerResources>,
+) -> Result<ChatProvider, AppError> {
+    if let Some(custom) = resources.llm_provider.clone() {
+        return Ok(ChatProvider::Custom(custom));
+    }
+    create_chat_provider().await
 }

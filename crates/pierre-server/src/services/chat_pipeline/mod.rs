@@ -159,7 +159,7 @@ use crate::errors::{AppError, AppResult};
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerResources;
 use crate::protocols::universal::UniversalExecutor;
-use crate::services::chat_provider_factory::create_chat_provider;
+use crate::services::chat_provider_factory::create_chat_provider_from_resources;
 use crate::services::memory_extraction::{spawn_extract_for_turn, SpawnedExtractionRequest};
 use crate::services::prompt_leak;
 use crate::services::provider_error_filter::detect_leaked_provider_error;
@@ -662,7 +662,7 @@ async fn dispatch_llm_with_tools(
     .await;
 
     // Stage 11: LLM provider resolution.
-    let provider = create_chat_provider().await?;
+    let provider = create_chat_provider_from_resources(resources).await?;
     let provider_name = provider.name().to_owned();
 
     // Stage 12: Tier 1 compaction when the assembled message list nears the window.

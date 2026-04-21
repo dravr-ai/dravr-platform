@@ -26,6 +26,7 @@ use anyhow::Result;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
+use pierre_core::llm::LlmProvider;
 use pierre_database::database::generate_encryption_key;
 use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
@@ -394,6 +395,24 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
 /// Create test `ServerResources` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
 pub async fn create_test_server_resources() -> Result<Arc<ServerResources>> {
+    create_test_server_resources_inner(None).await
+}
+
+/// Same as [`create_test_server_resources`] but injects a caller-supplied
+/// [`LlmProvider`] implementation into [`ServerResources::llm_provider`].
+///
+/// Tests that need the chat pipeline to actually run (for example the
+/// conversation-turn E2E) use this to wire a deterministic mock so the
+/// pipeline writes real `llm_usage` rows without touching the network.
+pub async fn create_test_server_resources_with_llm(
+    provider: Arc<dyn LlmProvider + 'static>,
+) -> Result<Arc<ServerResources>> {
+    create_test_server_resources_inner(Some(provider)).await
+}
+
+async fn create_test_server_resources_inner(
+    llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
+) -> Result<Arc<ServerResources>> {
     init_test_logging();
     init_test_http_clients();
     init_server_config();
@@ -438,7 +457,7 @@ pub async fn create_test_server_resources() -> Result<Arc<ServerResources>> {
             ServerResourcesOptions {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(jwks_manager),
-                llm_provider: None, // Use ChatProvider::from_env() by default, override for tests needing mock LLM
+                llm_provider,
             },
         )
         .await,
@@ -487,9 +506,7 @@ use async_trait::async_trait;
 use futures_util::stream;
 use pierre_mcp_server::errors::AppError;
 use pierre_mcp_server::external::{FoodDetails, FoodNutrient, FoodSearchResult};
-use pierre_mcp_server::llm::{
-    ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
-};
+use pierre_mcp_server::llm::{ChatRequest, ChatResponse, ChatStream, LlmCapabilities, StreamChunk};
 use std::collections::HashMap;
 
 /// Mock USDA client for testing (no API calls)
