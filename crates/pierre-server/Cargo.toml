@@ -286,7 +286,7 @@ cron = "0.15.0"
 # PostHog capture API is called directly via the existing reqwest 0.12 dependency.
 
 [dev-dependencies]
-embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.1" }
+embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.2" }
 tempfile = "3.26"
 serial_test = "3.4"
 tokio-tungstenite = "0.24"

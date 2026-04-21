@@ -39,7 +39,8 @@ use pierre_core::models::{
     UserOAuthToken, UserSocialSettings, UserStatus,
 };
 use pierre_core::models::{
-    AddMessageParams, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord,
+    AddMessageParams, ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
+    UsageCounterRecord,
 };
 use pierre_core::models::{
     AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, TenantId,
@@ -1405,6 +1406,15 @@ pub trait LlmUsageRepository: Send + Sync {
     ///
     /// Returns a tuple of (`total_calls`, `total_tokens`) for pricing calculations.
     async fn sum_llm_usage_since(&self, since: &str) -> AppResult<(i64, i64)>;
+
+    /// Fetch every LLM usage record attributed to the given conversation
+    /// turn, ordered by `created_at` ascending.
+    ///
+    /// Returns an empty vector when no rows match.
+    async fn find_llm_usage_by_turn_id(
+        &self,
+        turn_id: ConversationTurnId,
+    ) -> AppResult<Vec<LlmUsageRecord>>;
 }
 
 /// Usage counter repository for rate limiting and quota enforcement

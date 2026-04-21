@@ -8,6 +8,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::models::conversation::ConversationTurnId;
+
 /// A single usage counter record
 #[derive(Debug, Clone)]
 pub struct UsageCounterRecord {
@@ -36,6 +38,9 @@ pub struct LlmUsageRecord {
     pub user_id: String,
     /// Associated conversation (if from chat)
     pub conversation_id: Option<String>,
+    /// Conversation-turn correlation identifier. See
+    /// [`ConversationTurnId`] for semantics.
+    pub turn_id: ConversationTurnId,
     /// LLM provider name (e.g. "google", "openai")
     pub provider: String,
     /// Model identifier (e.g. "gemini-2.0-flash-exp")
@@ -50,9 +55,77 @@ pub struct LlmUsageRecord {
     pub call_type: String,
     /// Number of tool calls in this interaction
     pub tool_calls_count: i64,
+    /// JSON-encoded list of MCP tool names invoked during this turn
+    pub tools_called: String,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
     /// When the usage was recorded (ISO 8601)
+    pub created_at: String,
+}
+
+/// Per-turn summary record returned by the internal conversation-turn
+/// endpoint. Aggregates every [`LlmUsageRecord`] that shares a
+/// [`ConversationTurnId`] into a single response row.
+///
+/// # Fidelity note
+///
+/// The `llm_calls` array has one entry per row persisted under the
+/// turn. The chat pipeline writes a single row per turn with token
+/// counts cumulated across every internal LLM call in the tool loop,
+/// so today's `llm_calls` has a single element even when the tool
+/// loop made many LLM calls. The `total_*` aggregates are still
+/// accurate per turn.
+///
+/// A future change can switch to per-LLM-call rows by subscribing a
+/// `PerCallMetricsSink` to the `embacle::MetricsProvider` that wraps
+/// the platform's LLM runner — the sink trait and `PerCallMetric`
+/// record already ship in embacle. Doing so needs provider-construction
+/// to carry the tenant/user/turn context, so it is tracked separately.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConversationTurnSummary {
+    /// Conversation-turn correlation identifier
+    pub turn_id: ConversationTurnId,
+    /// Tenant that owns the turn
+    pub tenant_id: String,
+    /// User who triggered the turn
+    pub user_id: String,
+    /// Conversation the turn belongs to, if any
+    pub conversation_id: Option<String>,
+    /// Distinct MCP tool names invoked across every LLM call in the turn
+    pub tools_called: Vec<String>,
+    /// Individual LLM calls that were made for this turn, in insertion order
+    pub llm_calls: Vec<ConversationTurnLlmCall>,
+    /// Sum of `total_tokens` across every LLM call in the turn
+    pub total_tokens: i64,
+    /// Sum of `prompt_tokens` across every LLM call in the turn
+    pub total_prompt_tokens: i64,
+    /// Sum of `completion_tokens` across every LLM call in the turn
+    pub total_completion_tokens: i64,
+    /// Sum of `execution_time_ms` across every LLM call in the turn (milliseconds)
+    pub total_latency_ms: i64,
+    /// Earliest `created_at` among the LLM calls — approximates the turn's start
+    pub first_call_at: String,
+    /// Latest `created_at` among the LLM calls — approximates the turn's end
+    pub last_call_at: String,
+}
+
+/// Single LLM call attributed to a conversation turn, surfaced by the
+/// per-turn summary endpoint.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConversationTurnLlmCall {
+    /// LLM provider that served the call
+    pub provider: String,
+    /// Model identifier
+    pub model: String,
+    /// Prompt token count reported by the provider
+    pub prompt_tokens: i64,
+    /// Completion token count reported by the provider
+    pub completion_tokens: i64,
+    /// Total tokens (prompt + completion)
+    pub total_tokens: i64,
+    /// Execution time in milliseconds
+    pub latency_ms: Option<i64>,
+    /// When the call was recorded (ISO 8601)
     pub created_at: String,
 }
 
@@ -122,6 +195,21 @@ pub struct JwtUsage {
     pub user_agent: Option<String>,
 }
 
+/// `call_type` sentinel that marks an `llm_usage` row as the
+/// terminal turn-summary record rather than a per-LLM-call record.
+///
+/// Turn-summary rows are written once per turn with zero token
+/// counts; they carry the turn-level aggregates (`tool_calls_count`,
+/// `tools_called`, end-to-end `execution_time_ms`) that cannot be
+/// attributed to any single LLM call. Per-call rows use the flow's
+/// natural `call_type` (`"chat"`, `"insight"`, `"messaging"`,
+/// `"mcp_tool"`, ...).
+///
+/// Aggregate queries filter this value out so call counts and token
+/// sums reflect real LLM activity only; the per-turn endpoint joins
+/// both shapes back together.
+pub const TURN_SUMMARY_CALL_TYPE: &str = "turn_summary";
+
 /// Input parameters for inserting a new LLM usage record
 #[derive(Debug)]
 pub struct InsertLlmUsage<'a> {
@@ -131,6 +219,11 @@ pub struct InsertLlmUsage<'a> {
     pub user_id: &'a str,
     /// Associated conversation (if from chat)
     pub conversation_id: Option<&'a str>,
+    /// Conversation-turn correlation identifier threaded through the
+    /// entire user utterance (inbound webhook / chat request through
+    /// every LLM and tool call). Queries by turn id are the per-turn
+    /// observability primitive.
+    pub turn_id: ConversationTurnId,
     /// LLM provider name
     pub provider: &'a str,
     /// Model identifier
@@ -145,6 +238,10 @@ pub struct InsertLlmUsage<'a> {
     pub call_type: &'a str,
     /// Number of tool calls in this interaction
     pub tool_calls_count: i64,
+    /// JSON-encoded list of MCP tool names invoked during this turn.
+    /// Populated by the chat pipeline's tool dispatcher; an empty JSON
+    /// array (`"[]"`) if no tools ran.
+    pub tools_called: &'a str,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
 }

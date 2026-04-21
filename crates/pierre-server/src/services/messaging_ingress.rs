@@ -11,7 +11,7 @@ use pierre_core::models::messaging::{
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{TenantId, User};
+use pierre_core::models::{ConversationTurnId, TenantId, User, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::plugins::{
@@ -20,6 +20,7 @@ use pierre_database::plugins::{
 };
 use pierre_llm::TokenUsage;
 use pierre_messaging::channel::MessagingChannel;
+use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -299,7 +300,7 @@ async fn handle_linking_command(
         content: MessageContent::Text {
             body: response_text,
         },
-        correlation_id: Uuid::new_v4(),
+        turn_id: CanotTurnId::new(),
         reply_to: None,
         thread_id: None,
     }
@@ -527,7 +528,7 @@ async fn create_link_and_prompt(
             channel_type,
             recipient_id: sender_id.to_owned(),
             content: MessageContent::Text { body },
-            correlation_id: Uuid::new_v4(),
+            turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: None,
         };
@@ -545,7 +546,7 @@ async fn create_link_and_prompt(
         channel_type,
         recipient_id: sender_id.to_owned(),
         content: MessageContent::Text { body },
-        correlation_id: Uuid::new_v4(),
+        turn_id: CanotTurnId::new(),
         reply_to: None,
         thread_id: None,
     }
@@ -645,7 +646,7 @@ fn otp_reply(channel_type: ChannelType, sender_id: &str, body: String) -> Outgoi
         channel_type,
         recipient_id: sender_id.to_owned(),
         content: MessageContent::Text { body },
-        correlation_id: Uuid::new_v4(),
+        turn_id: CanotTurnId::new(),
         reply_to: None,
         thread_id: None,
     }
@@ -1335,7 +1336,7 @@ async fn try_handle_slash_command(
                     channel_type,
                     recipient_id: reply_target,
                     content,
-                    correlation_id: Uuid::new_v4(),
+                    turn_id: CanotTurnId::new(),
                     reply_to: None,
                     thread_id: thread_id.clone(),
                 })
@@ -1359,7 +1360,7 @@ async fn try_handle_slash_command(
                     content: MessageContent::Text {
                         body: format!("Command failed: {e}"),
                     },
-                    correlation_id: Uuid::new_v4(),
+                    turn_id: CanotTurnId::new(),
                     reply_to: None,
                     thread_id,
                 })
@@ -1681,7 +1682,10 @@ async fn store_inbound_message(
     let content_type = content_type_label(&message.content);
     let content_body = content_body_text(&message.content);
     let raw_payload = serde_json::to_string(&message.raw_payload).ok();
-    let correlation_str = message.correlation_id.to_string();
+    // The `messaging_messages` table column is still called
+    // `correlation_id` — it existed before the turn-id threading — so
+    // the string from `turn_id` is what gets persisted there.
+    let correlation_str = message.turn_id.to_string();
 
     let params = InsertMessageParams {
         id: &msg_id,
@@ -1990,6 +1994,7 @@ async fn deliver_reply(
     messaging_agui: Option<&MessagingAgUiWiring>,
     channel_config: &ChannelConfig,
     content: String,
+    turn_id: ConversationTurnId,
 ) {
     if let Some(wiring) = messaging_agui {
         if wiring.finalize_reply(&content).await {
@@ -2006,11 +2011,15 @@ async fn deliver_reply(
         .unwrap_or(&dispatch.sender_id)
         .to_owned();
 
+    // The outbound reply carries the turn id from the inbound utterance,
+    // so a consumer inspecting the `DeliveryReceipt` can look up the full
+    // turn trace via `/internal/conversation-turn`. `.into()` bridges
+    // pierre-core's newtype to canot's.
     let outgoing = OutgoingMessage {
         channel_type: dispatch.channel_type,
         recipient_id: reply_target,
         content: MessageContent::Text { body: content },
-        correlation_id: Uuid::new_v4(),
+        turn_id: turn_id.into(),
         reply_to: Some(dispatch.channel_message_id.clone()),
         thread_id: dispatch.thread_id.clone(),
     };
@@ -2068,6 +2077,10 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let hashed_user = hash_id(&dispatch.session.user_id);
 
     let profile = build_messaging_profile(&dispatch);
+    // Generate the turn id here — the messaging inbound webhook is the
+    // boundary for platform-side observability. A single inbound message
+    // plus its full LLM/tool chain is one turn.
+    let turn_id = ConversationTurnId::new();
     let turn_input = TurnInput {
         conversation_id: dispatch.session.conversation.clone(),
         user_id: dispatch.session.user_id.clone(),
@@ -2075,6 +2088,7 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         tool_tenant_id: dispatch.user_tenant_id,
         content: dispatch.text_content.clone(),
         locale: Some(dispatch.locale.clone()),
+        turn_id,
     };
 
     // Load the per-tenant channel config exactly once per turn.
@@ -2176,12 +2190,13 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
         messaging_agui.as_ref(),
         &channel_config,
         dispatch_result.content,
+        dispatch_result.turn_id,
     )
     .await;
 
     // Dropping the wiring here aborts the consumer task (if still
     // live) and releases the RunScope so the registry entry is
-    // cleaned up. Held until after `send_outbound_response` so any
+    // cleaned up. Held until after `deliver_reply` so any
     // last events the pipeline emitted on the way out still render.
     drop(messaging_agui);
 
@@ -2221,7 +2236,11 @@ async fn send_error_reply(dispatch: &PendingDispatch, channel_config: &ChannelCo
         content: MessageContent::Text {
             body: body.to_owned(),
         },
-        correlation_id: Uuid::new_v4(),
+        // Error replies emit a fresh turn id — the chat pipeline never
+        // reached the point where a turn would have been recorded, so
+        // there's no upstream id to thread. The platform records a
+        // terminal failed turn under this id so operators can correlate.
+        turn_id: CanotTurnId::new(),
         reply_to: Some(dispatch.channel_message_id.clone()),
         thread_id: dispatch.thread_id.clone(),
     };
@@ -2253,7 +2272,14 @@ fn estimate_or_extract_messaging_tokens(
     )
 }
 
-/// Record LLM usage to the `llm_usage` table after a messaging dispatch
+/// Record the terminal turn-summary row after a messaging dispatch.
+///
+/// Per-LLM-call token counts are already written by the chat pipeline's
+/// [`crate::services::chat_pipeline::UsageRepoCallRecorder`] — this
+/// row carries only the turn-level aggregates (`tool_calls_count`,
+/// `tools_called`, end-to-end `execution_time_ms`) and is tagged with
+/// [`pierre_core::models::TURN_SUMMARY_CALL_TYPE`] so aggregate
+/// analytics can exclude it.
 async fn record_messaging_llm_usage(
     dispatch: &PendingDispatch,
     result: &DispatchResult,
@@ -2261,19 +2287,13 @@ async fn record_messaging_llm_usage(
 ) {
     let tenant_id_str = dispatch.channel_tenant_id.to_string();
 
-    // Use real token counts when available, fall back to character-based estimation
-    // for providers that don't return usage (e.g., CLI-based providers).
-    // For prompt estimation we only have the user's message text — the full prompt
-    // (system prompt + history) is built inside the orchestration layer and not
-    // returned. This underestimates prompt tokens but provides a useful baseline.
-    let (prompt_count, completion_count) = estimate_or_extract_messaging_tokens(
-        result.usage.as_ref(),
-        &dispatch.text_content,
-        &result.content,
-    );
-
     #[allow(clippy::cast_possible_wrap)]
     let exec_time = execution_time_ms as i64;
+
+    let tools_called_json = serde_json::to_string(&result.tools_called).unwrap_or_else(|e| {
+        warn!("Failed to serialize tools_called for messaging, storing empty array: {e}");
+        "[]".to_owned()
+    });
 
     if let Err(e) = dispatch
         .resources
@@ -2283,18 +2303,20 @@ async fn record_messaging_llm_usage(
             tenant_id: &tenant_id_str,
             user_id: &dispatch.session.user_id,
             conversation_id: Some(&dispatch.session.conversation),
+            turn_id: result.turn_id,
             provider: &result.provider_name,
             model: &result.model,
-            prompt_tokens: prompt_count,
-            completion_tokens: completion_count,
-            total_tokens: prompt_count + completion_count,
-            call_type: "messaging",
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            call_type: TURN_SUMMARY_CALL_TYPE,
             tool_calls_count: i64::from(result.tool_calls_count),
+            tools_called: &tools_called_json,
             execution_time_ms: Some(exec_time),
         })
         .await
     {
-        warn!("Failed to record LLM usage for messaging: {e}");
+        warn!("Failed to record LLM usage summary for messaging: {e}");
     }
 }
 
@@ -2410,7 +2432,7 @@ async fn persist_outbound_message(
 ) {
     let out_msg_id = Uuid::new_v4().to_string();
     let body = content_body_text(&outgoing.content);
-    let correlation_str = outgoing.correlation_id.to_string();
+    let correlation_str = outgoing.turn_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
         tenant_id: dispatch.channel_tenant_id,
@@ -2464,7 +2486,7 @@ async fn try_enqueue_for_retry(
     let out_msg_id = Uuid::new_v4().to_string();
     let retry_channel_msg_id = format!("retry-{out_msg_id}");
     let body = content_body_text(&outgoing.content);
-    let correlation_str = outgoing.correlation_id.to_string();
+    let correlation_str = outgoing.turn_id.to_string();
     let out_params = InsertMessageParams {
         id: &out_msg_id,
         tenant_id: dispatch.channel_tenant_id,

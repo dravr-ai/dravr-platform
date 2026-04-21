@@ -7,7 +7,10 @@
 use crate::repositories::LlmUsageRepository;
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::LlmUsageRecord;
+use pierre_core::models::{ConversationTurnId, LlmUsageRecord, TURN_SUMMARY_CALL_TYPE};
+use sqlx::query::QueryAs;
+use sqlx::sqlite::SqliteArguments;
+use sqlx::{Sqlite, SqlitePool};
 use uuid::Uuid;
 
 pub use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
@@ -49,14 +52,15 @@ impl Database {
 
         sqlx::query(
             r"
-            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, execution_time_ms, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ",
         )
         .bind(&id)
         .bind(params.tenant_id)
         .bind(params.user_id)
         .bind(params.conversation_id)
+        .bind(params.turn_id.as_uuid().to_string())
         .bind(params.provider)
         .bind(params.model)
         .bind(params.prompt_tokens)
@@ -64,6 +68,7 @@ impl Database {
         .bind(params.total_tokens)
         .bind(params.call_type)
         .bind(params.tool_calls_count)
+        .bind(params.tools_called)
         .bind(params.execution_time_ms)
         .bind(&now)
         .execute(&self.pool)
@@ -75,6 +80,7 @@ impl Database {
             tenant_id: params.tenant_id.to_owned(),
             user_id: params.user_id.to_owned(),
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
+            turn_id: params.turn_id,
             provider: params.provider.to_owned(),
             model: params.model.to_owned(),
             prompt_tokens: params.prompt_tokens,
@@ -82,12 +88,17 @@ impl Database {
             total_tokens: params.total_tokens,
             call_type: params.call_type.to_owned(),
             tool_calls_count: params.tool_calls_count,
+            tools_called: params.tools_called.to_owned(),
             execution_time_ms: params.execution_time_ms,
             created_at: now,
         })
     }
 
-    /// Query aggregated LLM usage grouped by `provider`+`model`+`call_type` (inherent implementation)
+    /// Query aggregated LLM usage grouped by `provider`+`model`+`call_type` (inherent implementation).
+    ///
+    /// Excludes the turn-summary rows written at turn completion —
+    /// those have zero tokens and would only inflate the `calls`
+    /// count, so aggregates reflect real LLM activity only.
     pub(crate) async fn get_llm_usage_aggregates_impl(
         &self,
         tenant_id: &str,
@@ -101,13 +112,14 @@ impl Database {
                    SUM(completion_tokens) as completion_tokens,
                    COUNT(*) as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
+            WHERE tenant_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY provider, model, call_type
             ORDER BY total_tokens DESC
             ",
         )
         .bind(tenant_id)
         .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
@@ -138,7 +150,12 @@ impl Database {
             .collect())
     }
 
-    /// Query daily LLM usage time series (inherent implementation)
+    /// Query daily LLM usage time series (inherent implementation).
+    ///
+    /// Turn-summary rows are excluded for the same reason they are
+    /// excluded from [`Self::get_llm_usage_aggregates_impl`] — they
+    /// carry zero tokens and would inflate `calls` counts without
+    /// representing real LLM activity.
     pub(crate) async fn get_llm_usage_daily_series_impl(
         &self,
         tenant_id: &str,
@@ -152,13 +169,14 @@ impl Database {
                    SUM(completion_tokens) as completion_tokens,
                    COUNT(*) as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2
+            WHERE tenant_id = $1 AND created_at >= $2 AND call_type != $3
             GROUP BY DATE(created_at)
             ORDER BY date ASC
             ",
         )
         .bind(tenant_id)
         .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to query LLM usage daily series: {e}")))?;
@@ -204,74 +222,19 @@ impl LlmUsageRepository for Database {
     }
 
     async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>> {
-        let rows = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                Option<String>,
-                String,
-                String,
-                i64,
-                i64,
-                i64,
-                String,
-                i64,
-                Option<i64>,
-                String,
-            ),
-        >(
+        fetch_llm_usage_rows(
+            &self.pool,
             r"
-            SELECT id, tenant_id, user_id, conversation_id, provider, model,
+            SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
                    prompt_tokens, completion_tokens, total_tokens, call_type,
-                   tool_calls_count, execution_time_ms, created_at
+                   tool_calls_count, tools_called, execution_time_ms, created_at
             FROM llm_usage
             ORDER BY created_at DESC
             LIMIT $1
             ",
+            |q| q.bind(limit),
         )
-        .bind(limit)
-        .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to query recent LLM calls: {e}")))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    tenant_id,
-                    user_id,
-                    conversation_id,
-                    provider,
-                    model,
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens,
-                    call_type,
-                    tool_calls_count,
-                    execution_time_ms,
-                    created_at,
-                )| {
-                    LlmUsageRecord {
-                        id,
-                        tenant_id,
-                        user_id,
-                        conversation_id,
-                        provider,
-                        model,
-                        prompt_tokens,
-                        completion_tokens,
-                        total_tokens,
-                        call_type,
-                        tool_calls_count,
-                        execution_time_ms,
-                        created_at,
-                    }
-                },
-            )
-            .collect())
     }
 
     async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
@@ -301,5 +264,92 @@ impl LlmUsageRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to sum LLM usage: {e}")))?;
 
         Ok(row)
+    }
+
+    async fn find_llm_usage_by_turn_id(
+        &self,
+        turn_id: ConversationTurnId,
+    ) -> AppResult<Vec<LlmUsageRecord>> {
+        let turn_id_str = turn_id.as_uuid().to_string();
+        fetch_llm_usage_rows(
+            &self.pool,
+            r"
+            SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model,
+                   prompt_tokens, completion_tokens, total_tokens, call_type,
+                   tool_calls_count, tools_called, execution_time_ms, created_at
+            FROM llm_usage
+            WHERE turn_id = $1
+            ORDER BY created_at ASC
+            ",
+            move |q| q.bind(turn_id_str),
+        )
+        .await
+    }
+}
+
+/// Shared row-fetch helper used by `get_recent_llm_calls_admin` and
+/// `find_llm_usage_by_turn_id` — both select the same column list and
+/// rebuild `LlmUsageRecord` the same way.
+async fn fetch_llm_usage_rows<F>(
+    pool: &SqlitePool,
+    sql: &str,
+    bind: F,
+) -> AppResult<Vec<LlmUsageRecord>>
+where
+    F: for<'a> FnOnce(
+        QueryAs<'a, Sqlite, LlmUsageRow, SqliteArguments<'a>>,
+    ) -> QueryAs<'a, Sqlite, LlmUsageRow, SqliteArguments<'a>>,
+{
+    let query = sqlx::query_as::<_, LlmUsageRow>(sql);
+    let rows = bind(query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage rows: {e}")))?;
+    rows.into_iter().map(LlmUsageRow::into_record).collect()
+}
+
+/// Raw row projection for `llm_usage`. Parsed into [`LlmUsageRecord`] by
+/// [`LlmUsageRow::into_record`]; `turn_id` is stored as TEXT in
+/// `SQLite` and parsed into a [`ConversationTurnId`] here.
+#[derive(sqlx::FromRow)]
+struct LlmUsageRow {
+    id: String,
+    tenant_id: String,
+    user_id: String,
+    conversation_id: Option<String>,
+    turn_id: String,
+    provider: String,
+    model: String,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    total_tokens: i64,
+    call_type: String,
+    tool_calls_count: i64,
+    tools_called: String,
+    execution_time_ms: Option<i64>,
+    created_at: String,
+}
+
+impl LlmUsageRow {
+    fn into_record(self) -> AppResult<LlmUsageRecord> {
+        let turn_uuid = Uuid::parse_str(&self.turn_id)
+            .map_err(|e| AppError::database(format!("Invalid turn_id in llm_usage: {e}")))?;
+        Ok(LlmUsageRecord {
+            id: self.id,
+            tenant_id: self.tenant_id,
+            user_id: self.user_id,
+            conversation_id: self.conversation_id,
+            turn_id: ConversationTurnId::from_uuid(turn_uuid),
+            provider: self.provider,
+            model: self.model,
+            prompt_tokens: self.prompt_tokens,
+            completion_tokens: self.completion_tokens,
+            total_tokens: self.total_tokens,
+            call_type: self.call_type,
+            tool_calls_count: self.tool_calls_count,
+            tools_called: self.tools_called,
+            execution_time_ms: self.execution_time_ms,
+            created_at: self.created_at,
+        })
     }
 }

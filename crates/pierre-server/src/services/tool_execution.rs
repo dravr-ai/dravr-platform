@@ -17,6 +17,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
 use tracing::{info, warn};
@@ -32,6 +33,39 @@ use crate::protocols::universal::{UniversalExecutor, UniversalRequest, Universal
 // ============================================================================
 // Shared Types
 // ============================================================================
+
+/// Per-LLM-call metric captured by the tool loop and handed to a
+/// [`LlmCallRecorder`]. One record corresponds to one invocation of the
+/// provider's completion API inside the tool loop.
+#[derive(Debug, Clone)]
+pub struct LlmCallRecord {
+    /// Provider name (e.g. `"gemini"`, `"groq"`, `"claude_code"`).
+    pub provider: String,
+    /// Model identifier used for this call.
+    pub model: String,
+    /// Prompt tokens reported by the provider, 0 if unavailable.
+    pub prompt_tokens: i64,
+    /// Completion tokens reported by the provider, 0 if unavailable.
+    pub completion_tokens: i64,
+    /// Wall-clock latency of the provider call (milliseconds).
+    pub latency_ms: i64,
+    /// Whether the provider returned a non-error response.
+    pub success: bool,
+}
+
+/// Sink that receives one [`LlmCallRecord`] per LLM call.
+///
+/// Implementations persist the record (typically to `llm_usage`) so
+/// the per-turn endpoint can surface one entry per call in its
+/// `llm_calls` array.
+///
+/// Invocations happen on the async runtime but the sink method itself
+/// is synchronous; implementers should spawn a task or push to a
+/// channel if the work is blocking.
+pub trait LlmCallRecorder: Send + Sync {
+    /// Record a completed LLM call.
+    fn record(&self, record: LlmCallRecord);
+}
 
 /// Parameters for the multi-turn tool execution loop
 pub struct ToolLoopParams<'a> {
@@ -49,6 +83,11 @@ pub struct ToolLoopParams<'a> {
     pub tenant_id: TenantId,
     /// Maximum number of tool-calling iterations before forcing a response
     pub max_iterations: usize,
+    /// Optional per-LLM-call sink. When set, each provider call inside
+    /// the loop produces a [`LlmCallRecord`] that the sink persists.
+    /// When absent, the loop still accumulates cumulative usage for
+    /// the returned [`ToolLoopResult`] without recording individual calls.
+    pub call_recorder: Option<Arc<dyn LlmCallRecorder>>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -63,6 +102,10 @@ pub struct ToolLoopResult {
     pub activity_list: Option<String>,
     /// Total tool calls executed across all iterations
     pub tool_calls_count: u32,
+    /// Names of every MCP tool invoked during the loop, in call order.
+    /// Persisted alongside the LLM usage row so per-turn observability
+    /// can answer "which tools ran for this turn".
+    pub tools_called: Vec<String>,
 }
 
 // ============================================================================
@@ -82,6 +125,7 @@ pub async fn run_api_tool_loop(
 ) -> Result<ToolLoopResult, AppError> {
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
+    let mut tools_called: Vec<String> = Vec::new();
     let mut cumulative_usage = TokenUsage {
         prompt_tokens: 0,
         completion_tokens: 0,
@@ -90,10 +134,36 @@ pub async fn run_api_tool_loop(
 
     for iteration in 0..params.max_iterations {
         let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
-        let response = params
+        let call_start = Instant::now();
+        let response_result = params
             .provider
             .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
-            .await?;
+            .await;
+        let latency_ms = millis_elapsed(call_start);
+        let response = match response_result {
+            Ok(r) => {
+                emit_call_record(
+                    params.call_recorder.as_ref(),
+                    params.provider.name(),
+                    params.model,
+                    r.usage.as_ref(),
+                    latency_ms,
+                    true,
+                );
+                r
+            }
+            Err(e) => {
+                emit_call_record(
+                    params.call_recorder.as_ref(),
+                    params.provider.name(),
+                    params.model,
+                    None,
+                    latency_ms,
+                    false,
+                );
+                return Err(e);
+            }
+        };
 
         // Accumulate token usage from every LLM call
         if let Some(ref usage) = response.usage {
@@ -124,6 +194,8 @@ pub async fn run_api_tool_loop(
                     tool_calls_count += function_calls.len() as u32;
                 }
 
+                tools_called.extend(function_calls.iter().map(|c| c.name.clone()));
+
                 // Add assistant's text to messages if present (strip synthetic function syntax)
                 if let Some(ref text) = response.content {
                     let cleaned = strip_synthetic_function_calls(text);
@@ -153,6 +225,7 @@ pub async fn run_api_tool_loop(
             finish_reason: response.finish_reason,
             activity_list: captured_activity_list,
             tool_calls_count,
+            tools_called,
         });
     }
 
@@ -168,6 +241,7 @@ pub async fn run_api_tool_loop(
         finish_reason: Some("max_iterations".to_owned()),
         activity_list: captured_activity_list,
         tool_calls_count,
+        tools_called,
     })
 }
 
@@ -205,11 +279,38 @@ pub async fn run_cli_tool_loop(
 
     let mut captured_activity_list: Option<String> = None;
     let mut tool_calls_count: u32 = 0;
+    let mut tools_called: Vec<String> = Vec::new();
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
 
     for iteration in 0..max_iterations {
         let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
-        let response = params.provider.complete(&llm_request).await?;
+        let call_start = Instant::now();
+        let response_result = params.provider.complete(&llm_request).await;
+        let latency_ms = millis_elapsed(call_start);
+        let response = match response_result {
+            Ok(r) => {
+                emit_call_record(
+                    params.call_recorder.as_ref(),
+                    params.provider.name(),
+                    params.model,
+                    r.usage.as_ref(),
+                    latency_ms,
+                    true,
+                );
+                r
+            }
+            Err(e) => {
+                emit_call_record(
+                    params.call_recorder.as_ref(),
+                    params.provider.name(),
+                    params.model,
+                    None,
+                    latency_ms,
+                    false,
+                );
+                return Err(e);
+            }
+        };
 
         // Parse <tool_call> blocks from the response text (via embacle)
         let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
@@ -223,6 +324,7 @@ pub async fn run_cli_tool_loop(
                 finish_reason: response.finish_reason,
                 activity_list: captured_activity_list,
                 tool_calls_count,
+                tools_called,
             });
         }
 
@@ -249,6 +351,8 @@ pub async fn run_cli_tool_loop(
             tool_calls_count += parsed_tool_calls.len() as u32;
         }
 
+        tools_called.extend(parsed_tool_calls.iter().map(|c| c.name.clone()));
+
         // Add assistant message (with tool calls stripped via embacle)
         let assistant_text = tool_simulation::strip_tool_call_blocks(&response.content);
         if !assistant_text.is_empty() {
@@ -274,6 +378,7 @@ pub async fn run_cli_tool_loop(
         finish_reason: Some("max_iterations".to_owned()),
         activity_list: captured_activity_list,
         tool_calls_count,
+        tools_called,
     })
 }
 
@@ -315,6 +420,40 @@ fn to_embacle_responses(resps: &[FunctionResponse]) -> Vec<tool_simulation::Func
             response: r.response.clone(),
         })
         .collect()
+}
+
+/// Convert an [`Instant`] elapsed time into milliseconds, saturating
+/// at `i64::MAX` for pathologically long calls.
+fn millis_elapsed(start: Instant) -> i64 {
+    let ms = start.elapsed().as_millis();
+    i64::try_from(ms).unwrap_or(i64::MAX)
+}
+
+/// Hand one [`LlmCallRecord`] to the optional sink. Centralises token
+/// extraction so the three tool-loop variants can share the same
+/// recording contract.
+fn emit_call_record(
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
+    provider: &str,
+    model: &str,
+    usage: Option<&TokenUsage>,
+    latency_ms: i64,
+    success: bool,
+) {
+    let Some(recorder) = recorder else {
+        return;
+    };
+    let (prompt_tokens, completion_tokens) = usage.map_or((0, 0), |u| {
+        (i64::from(u.prompt_tokens), i64::from(u.completion_tokens))
+    });
+    recorder.record(LlmCallRecord {
+        provider: provider.to_owned(),
+        model: model.to_owned(),
+        prompt_tokens,
+        completion_tokens,
+        latency_ms,
+        success,
+    });
 }
 
 // Re-export embacle's pure functions for direct use (no type conversion needed)
@@ -635,10 +774,33 @@ async fn run_headless_tool_loop(
     let request = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
 
     // Copilot Headless handles tool execution internally via ACP
-    let headless_response = headless_runner
-        .converse(&request)
-        .await
-        .map_err(AppError::from)?;
+    let call_start = Instant::now();
+    let converse_result = headless_runner.converse(&request).await;
+    let latency_ms = millis_elapsed(call_start);
+    let headless_response = match converse_result {
+        Ok(r) => {
+            emit_call_record(
+                params.call_recorder.as_ref(),
+                params.provider.name(),
+                params.model,
+                r.usage.as_ref(),
+                latency_ms,
+                true,
+            );
+            r
+        }
+        Err(e) => {
+            emit_call_record(
+                params.call_recorder.as_ref(),
+                params.provider.name(),
+                params.model,
+                None,
+                latency_ms,
+                false,
+            );
+            return Err(AppError::from(e));
+        }
+    };
 
     let tool_calls_count = u32::try_from(headless_response.tool_calls.len()).unwrap_or(u32::MAX);
 
@@ -649,6 +811,14 @@ async fn run_headless_tool_loop(
         "Headless tool loop completed"
     );
 
+    // `ObservedToolCall` only exposes `title` on the ACP wire; there's no
+    // distinct `name` field, so the title is the best available identifier.
+    let tools_called: Vec<String> = headless_response
+        .tool_calls
+        .iter()
+        .map(|call| call.title.clone())
+        .collect();
+
     Ok(ToolLoopResult {
         content: headless_response.content,
         usage: headless_response.usage,
@@ -658,6 +828,7 @@ async fn run_headless_tool_loop(
         // (which requires inspecting get_activities results) is not possible.
         activity_list: None,
         tool_calls_count,
+        tools_called,
     })
 }
 

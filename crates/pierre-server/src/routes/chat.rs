@@ -36,7 +36,7 @@ use axum::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::AddMessageParams;
+use pierre_core::models::{AddMessageParams, ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
@@ -99,7 +99,10 @@ fn parse_insight_json_response(raw_content: &str) -> String {
 // Internal Types
 // ============================================================================
 
-/// Parameters for recording LLM usage after a chat completion
+/// Parameters for recording the terminal turn-summary row after a
+/// chat/insight turn. Per-LLM-call token counts are written separately
+/// by the tool loop's [`crate::services::tool_execution::LlmCallRecorder`];
+/// this struct only carries the turn-level aggregates.
 struct RecordLlmUsageParams<'a> {
     /// Tenant this usage belongs to
     tenant_id: TenantId,
@@ -107,20 +110,18 @@ struct RecordLlmUsageParams<'a> {
     user_id: &'a str,
     /// Conversation this message belongs to
     conversation_id: &'a str,
+    /// Conversation-turn identifier threaded from the inbound request
+    turn_id: ConversationTurnId,
     /// LLM provider used for this completion
     provider: &'a ChatProvider,
     /// Model identifier used for this completion
     model: &'a str,
-    /// Number of prompt tokens consumed
-    prompt_tokens: Option<u32>,
-    /// Number of completion tokens generated
-    completion_tokens: Option<u32>,
-    /// Number of tool calls executed
+    /// Number of tool calls executed across the turn
     tool_calls_count: u32,
+    /// MCP tool names invoked during the turn (duplicates preserved in call order)
+    tools_called: &'a [String],
     /// Total wall-clock time for the LLM interaction in milliseconds
     execution_time_ms: u64,
-    /// Whether this was an insight generation request vs a regular chat
-    is_insight_request: bool,
 }
 
 // ============================================================================
@@ -731,6 +732,7 @@ impl ChatRoutes {
             conversation_tenant_id: tenant_id,
             tool_tenant_id: tenant_id,
             content: request.content.clone(),
+            turn_id: ConversationTurnId::new(),
             // Web chat resolves the locale from the authenticated user's
             // profile; pipeline stages fall back to `DEFAULT_LOCALE` when
             // lookup fails so an empty locale never becomes an empty string.
@@ -780,13 +782,12 @@ impl ChatRoutes {
                 tenant_id,
                 user_id: &user_id_str,
                 conversation_id: &conversation_id,
+                turn_id: dispatch.turn_id,
                 provider: &provider,
                 model: &dispatch.model,
-                prompt_tokens,
-                completion_tokens,
                 tool_calls_count: dispatch.tool_calls_count,
+                tools_called: &dispatch.tools_called,
                 execution_time_ms,
-                is_insight_request: false,
             },
         )
         .await;
@@ -883,7 +884,19 @@ impl ChatRoutes {
         let provider = Self::get_llm_provider().await?;
         let executor = Arc::new(UniversalExecutor::new(resources.clone()));
 
+        let turn_id = ConversationTurnId::new();
         let start_time = Instant::now();
+        // Per-LLM-call recorder so every insight-tool-loop iteration
+        // writes its own `llm_usage` row under this turn id.
+        let call_recorder: Option<Arc<dyn chat_tool_loop::LlmCallRecorder>> =
+            Some(Arc::new(chat_pipeline::TurnCallRecorder::new(
+                Arc::clone(&resources.repos.llm_usage),
+                tenant_id_str.clone(),
+                user_id_str.clone(),
+                Some(conversation_id.clone()),
+                turn_id,
+                "insight",
+            )));
         let tool_params = ToolLoopParams {
             provider: &provider,
             executor: Arc::clone(&executor),
@@ -892,6 +905,7 @@ impl ChatRoutes {
             user_id: &user_id_str,
             tenant_id,
             max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
+            call_recorder,
         };
         let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
 
@@ -922,13 +936,12 @@ impl ChatRoutes {
                 tenant_id,
                 user_id: &user_id_str,
                 conversation_id: &conversation_id,
+                turn_id,
                 provider: &provider,
                 model: &conv.model,
-                prompt_tokens,
-                completion_tokens: token_count,
                 tool_calls_count: result.tool_calls_count,
+                tools_called: &result.tools_called,
                 execution_time_ms,
-                is_insight_request: true,
             },
         )
         .await;
@@ -1229,19 +1242,26 @@ impl ChatRoutes {
         )
     }
 
-    /// Record LLM usage after chat completion for cost tracking and quota enforcement
+    /// Record the terminal turn-summary row after a chat/insight turn.
+    ///
+    /// Per-LLM-call token counts are already recorded by the tool
+    /// loop's [`crate::services::tool_execution::LlmCallRecorder`]
+    /// sink — this row carries only the turn-level aggregates:
+    /// `tool_calls_count`, `tools_called`, end-to-end
+    /// `execution_time_ms`. Token columns are zeroed so the per-call
+    /// rows and the summary row don't double-count in the aggregate
+    /// analytics endpoint, which filters by
+    /// [`pierre_core::models::TURN_SUMMARY_CALL_TYPE`].
     async fn record_llm_usage(resources: &Arc<ServerResources>, params: &RecordLlmUsageParams<'_>) {
         let tenant_id_str = params.tenant_id.to_string();
-        let prompt_count = i64::from(params.prompt_tokens.unwrap_or(0));
-        let completion_count = i64::from(params.completion_tokens.unwrap_or(0));
-        let call_type = if params.is_insight_request {
-            "insight"
-        } else {
-            "chat"
-        };
 
         #[allow(clippy::cast_possible_wrap)]
         let exec_time = params.execution_time_ms as i64;
+
+        let tools_called_json = serde_json::to_string(params.tools_called).unwrap_or_else(|e| {
+            warn!("Failed to serialize tools_called, storing empty array: {e}");
+            "[]".to_owned()
+        });
 
         if let Err(e) = resources
             .repos
@@ -1250,18 +1270,20 @@ impl ChatRoutes {
                 tenant_id: &tenant_id_str,
                 user_id: params.user_id,
                 conversation_id: Some(params.conversation_id),
+                turn_id: params.turn_id,
                 provider: params.provider.name(),
                 model: params.model,
-                prompt_tokens: prompt_count,
-                completion_tokens: completion_count,
-                total_tokens: prompt_count + completion_count,
-                call_type,
+                prompt_tokens: 0,
+                completion_tokens: 0,
+                total_tokens: 0,
+                call_type: TURN_SUMMARY_CALL_TYPE,
                 tool_calls_count: i64::from(params.tool_calls_count),
+                tools_called: &tools_called_json,
                 execution_time_ms: Some(exec_time),
             })
             .await
         {
-            warn!("Failed to record LLM usage: {e}");
+            warn!("Failed to record LLM usage summary: {e}");
         }
     }
 }

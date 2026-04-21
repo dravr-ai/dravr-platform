@@ -10,18 +10,24 @@
 //! Two variants: user-scoped (`/api/usage/llm-consumption`) and admin-scoped
 //! (`/admin/usage/llm-consumption`) with tenant override support.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::usage::{
+    ConversationTurnLlmCall, ConversationTurnSummary, LlmUsageAggregateRow, LlmUsageDailyRow,
+    LlmUsageRecord,
+};
+use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 
 use crate::{
     errors::AppError, llm::pricing::calculate_cost, mcp::resources::ServerResources,
@@ -113,6 +119,10 @@ impl LlmConsumptionRoutes {
             .route(
                 "/admin/usage/llm-consumption",
                 get(Self::get_admin_consumption),
+            )
+            .route(
+                "/internal/conversation-turn/{turn_id}",
+                get(Self::get_conversation_turn),
             )
             .with_state(resources)
     }
@@ -286,6 +296,179 @@ impl LlmConsumptionRoutes {
 
         let response = Self::build_response(&aggregates, daily, group_by);
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// GET /internal/conversation-turn/{turn_id} — admin-only per-turn
+    /// observability primitive.
+    ///
+    /// Returns the set of LLM calls recorded against the given
+    /// conversation turn plus aggregate cost, latency, tools, and token
+    /// counts. Returns 404 when no rows match and 403 when the caller
+    /// is not an admin of the tenant that owns the turn.
+    ///
+    /// The endpoint is scoped to `/internal/` because it is consumed by
+    /// the Botium test harness, on-call investigators, and future
+    /// per-turn dashboards — never end users.
+    async fn get_conversation_turn(
+        State(resources): State<Arc<ServerResources>>,
+        headers: HeaderMap,
+        Path(turn_id): Path<String>,
+    ) -> Result<Response, AppError> {
+        let auth = UsageRoutes::authenticate(&headers, &resources).await?;
+        let caller_tenant_id = UsageRoutes::get_tenant_id(auth.user_id, &resources).await?;
+
+        let role = resources
+            .repos
+            .tenants
+            .get_user_role(auth.user_id, caller_tenant_id)
+            .await
+            .map_err(|e| AppError::database(format!("Failed to check user role: {e}")))?;
+        match role.as_deref() {
+            Some("admin" | "owner") => {}
+            _ => {
+                return Err(AppError::auth_invalid(
+                    "Admin role required for conversation-turn lookup",
+                ));
+            }
+        }
+
+        let parsed_uuid = turn_id
+            .parse::<Uuid>()
+            .map_err(|_| AppError::invalid_input("Invalid turn_id (expected UUID)"))?;
+        let turn = ConversationTurnId::from_uuid(parsed_uuid);
+
+        let rows = resources
+            .repos
+            .llm_usage
+            .find_llm_usage_by_turn_id(turn)
+            .await?;
+
+        let Some(first) = rows.first() else {
+            return Err(AppError::not_found(format!(
+                "No conversation turn found with id {turn}"
+            )));
+        };
+
+        if first.tenant_id != caller_tenant_id.to_string() {
+            return Err(AppError::auth_invalid(
+                "Cannot query conversation turns owned by other tenants",
+            ));
+        }
+
+        let summary = build_turn_summary(turn, &rows);
+        Ok((StatusCode::OK, Json(summary)).into_response())
+    }
+}
+
+/// Aggregate the individual `llm_usage` rows that share a turn id
+/// into a single response row.
+///
+/// The table holds two shapes of row per turn:
+/// - **per-call rows** written by the tool loop's
+///   [`crate::services::tool_execution::LlmCallRecorder`] — one per
+///   LLM call, with real per-call tokens and latency;
+/// - **one turn-summary row** written by the route layer at turn
+///   completion — tokens zeroed, carries the turn-level
+///   [`tools_called`](LlmUsageRecord::tools_called) list and the
+///   end-to-end [`execution_time_ms`](LlmUsageRecord::execution_time_ms).
+///
+/// The response's `llm_calls` array is populated from per-call rows;
+/// `tools_called` and `total_latency_ms` come from the summary row
+/// when present and fall back to the per-call rows otherwise.
+fn build_turn_summary(
+    turn_id: ConversationTurnId,
+    rows: &[LlmUsageRecord],
+) -> ConversationTurnSummary {
+    let (summary_rows, per_call_rows): (Vec<&LlmUsageRecord>, Vec<&LlmUsageRecord>) = rows
+        .iter()
+        .partition(|r| r.call_type == TURN_SUMMARY_CALL_TYPE);
+    let summary_row = summary_rows.first().copied();
+
+    // Tools_called: prefer the summary row's authoritative list;
+    // otherwise dedupe-union across per-call rows.
+    let tools_called: Vec<String> = summary_row
+        .and_then(|r| serde_json::from_str::<Vec<String>>(&r.tools_called).ok())
+        .unwrap_or_else(|| {
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut out: Vec<String> = Vec::new();
+            for row in &per_call_rows {
+                if let Ok(names) = serde_json::from_str::<Vec<String>>(&row.tools_called) {
+                    for name in names {
+                        if seen.insert(name.clone()) {
+                            out.push(name);
+                        }
+                    }
+                }
+            }
+            out
+        });
+
+    let llm_calls: Vec<ConversationTurnLlmCall> = per_call_rows
+        .iter()
+        .map(|row| ConversationTurnLlmCall {
+            provider: row.provider.clone(),
+            model: row.model.clone(),
+            prompt_tokens: row.prompt_tokens,
+            completion_tokens: row.completion_tokens,
+            total_tokens: row.total_tokens,
+            latency_ms: row.execution_time_ms,
+            created_at: row.created_at.clone(),
+        })
+        .collect();
+
+    let total_tokens = per_call_rows.iter().map(|r| r.total_tokens).sum();
+    let total_prompt_tokens = per_call_rows.iter().map(|r| r.prompt_tokens).sum();
+    let total_completion_tokens = per_call_rows.iter().map(|r| r.completion_tokens).sum();
+    // Prefer the summary row's end-to-end latency (includes tool
+    // execution time between LLM calls); fall back to the sum of per-
+    // call latencies when the summary is absent.
+    let total_latency_ms = summary_row
+        .and_then(|r| r.execution_time_ms)
+        .unwrap_or_else(|| {
+            per_call_rows
+                .iter()
+                .filter_map(|r| r.execution_time_ms)
+                .sum()
+        });
+
+    let first_call_at = per_call_rows
+        .first()
+        .map(|r| r.created_at.clone())
+        .unwrap_or_default();
+    let last_call_at = per_call_rows
+        .last()
+        .map(|r| r.created_at.clone())
+        .or_else(|| summary_row.map(|r| r.created_at.clone()))
+        .unwrap_or_default();
+
+    // Pick any row to copy tenant/user/conversation metadata from —
+    // all rows for a turn share them. Prefer per-call rows so an
+    // orphaned summary without per-call data still gets filled in.
+    let metadata_row = per_call_rows.first().copied().or(summary_row);
+    let (tenant_id, user_id, conversation_id) = metadata_row.map_or_else(
+        || (String::new(), String::new(), None),
+        |r| {
+            (
+                r.tenant_id.clone(),
+                r.user_id.clone(),
+                r.conversation_id.clone(),
+            )
+        },
+    );
+
+    ConversationTurnSummary {
+        turn_id,
+        tenant_id,
+        user_id,
+        conversation_id,
+        tools_called,
+        llm_calls,
+        total_tokens,
+        total_prompt_tokens,
+        total_completion_tokens,
+        total_latency_ms,
+        first_call_at,
+        last_call_at,
     }
 }
 
