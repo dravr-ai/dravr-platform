@@ -64,6 +64,7 @@ impl CoachesManager {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
             purpose: request.purpose.clone(),
@@ -91,10 +92,10 @@ impl CoachesManager {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
                 content_hash
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
             ",
         )
         .bind(id.to_string())
@@ -113,6 +114,7 @@ impl CoachesManager {
         .bind(Option::<String>::None) // prerequisites (user-created coaches don't have prerequisites)
         .bind(Option::<String>::None) // forked_from (not a fork)
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(Option::<f32>::None) // temperature
         .bind(&request.startup_query)
         .bind(&data_requirements_json)
         .bind(&request.purpose)
@@ -160,6 +162,7 @@ impl CoachesManager {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
             purpose: request.purpose.clone(),
@@ -188,7 +191,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
@@ -259,7 +262,7 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
@@ -524,9 +527,9 @@ impl CoachesManager {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             ",
         )
         .bind(id.to_string())
@@ -545,6 +548,7 @@ impl CoachesManager {
         .bind(&prerequisites_json) // prerequisites
         .bind(source_coach_id) // forked_from
         .bind(source.max_tool_iterations) // max_tool_iterations (inherit from source)
+        .bind(source.temperature) // temperature (inherit from source)
         .bind(&source.startup_query) // startup_query (inherit from source)
         .bind(&source_data_requirements_json) // data_requirements (inherit from source)
         .bind(&source.purpose)
@@ -591,6 +595,7 @@ impl CoachesManager {
             prerequisites: source.prerequisites,
             forked_from: Some(source_coach_id.to_owned()),
             max_tool_iterations: source.max_tool_iterations,
+            temperature: source.temperature,
             startup_query: source.startup_query,
             data_requirements: source.data_requirements,
             purpose: source.purpose,
@@ -763,7 +768,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (
@@ -882,7 +887,7 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
@@ -917,7 +922,7 @@ impl CoachesManager {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3

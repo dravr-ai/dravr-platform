@@ -275,7 +275,7 @@ impl CoachesManager {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations
+                   c.forked_from, c.max_tool_iterations, c.temperature
             FROM coaches c
             INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id
             WHERE ucp.user_id = $1 AND ucp.is_hidden = 1 AND c.tenant_id = $2

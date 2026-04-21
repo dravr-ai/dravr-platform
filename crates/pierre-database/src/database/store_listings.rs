@@ -1135,13 +1135,13 @@ impl StoreListingsManager {
 pub(crate) const COACH_COLUMNS: &str = r"id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations";
+                   forked_from, max_tool_iterations, temperature";
 
 /// Column list for coach queries with table alias
 pub(crate) const COACH_COLUMNS_ALIASED: &str = r"c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations";
+                   c.forked_from, c.max_tool_iterations, c.temperature";
 
 /// Column list for store listing queries with table alias
 pub(crate) const LISTING_COLUMNS_ALIASED: &str = r"sl.id as sl_id, sl.publish_status, sl.published_at,

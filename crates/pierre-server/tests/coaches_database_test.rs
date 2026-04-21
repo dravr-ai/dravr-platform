@@ -100,6 +100,7 @@ async fn create_test_db() -> SqlitePool {
             icon_url TEXT,
             author_id TEXT,
             max_tool_iterations INTEGER,
+            temperature REAL,
             startup_query TEXT,
             data_requirements TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE

@@ -76,6 +76,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
     let prerequisites_json: Option<String> = row.try_get("prerequisites").ok().flatten();
     let forked_from: Option<String> = row.try_get("forked_from").ok().flatten();
     let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
+    let temperature: Option<f32> = row.try_get("temperature").ok().flatten();
     let startup_query: Option<String> = row.try_get("startup_query").ok().flatten();
     let data_requirements_json: Option<String> = row.try_get("data_requirements").ok().flatten();
     let data_requirements: Option<DataRequirements> =
@@ -128,6 +129,7 @@ pub(super) fn row_to_coach_pg(row: &PgRow) -> AppResult<Coach> {
         prerequisites,
         forked_from,
         max_tool_iterations,
+        temperature,
         startup_query,
         data_requirements,
         purpose,
@@ -272,7 +274,7 @@ impl PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1
             ",
@@ -396,10 +398,10 @@ impl CoachesRepository for PostgresDatabase {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
                 content_hash
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
             ",
         )
         .bind(id.to_string())
@@ -418,6 +420,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(Option::<String>::None) // prerequisites
         .bind(Option::<String>::None) // forked_from
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(Option::<f32>::None) // temperature
         .bind(&request.startup_query)
         .bind(&data_requirements_json)
         .bind(&request.purpose)
@@ -465,6 +468,7 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
             purpose: request.purpose.clone(),
@@ -488,7 +492,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND (
@@ -546,7 +550,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN TRUE ELSE FALSE END as is_assigned,
                    COALESCE(ca.is_favorite, FALSE) as is_favorite,
@@ -765,9 +769,9 @@ impl CoachesRepository for PostgresDatabase {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
             ",
         )
         .bind(id.to_string())
@@ -786,6 +790,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(&prerequisites_json)
         .bind(source_coach_id) // forked_from
         .bind(source.max_tool_iterations)
+        .bind(source.temperature) // temperature (inherit from source)
         .bind(&source.startup_query) // startup_query (inherit from source)
         .bind(&source_data_requirements_json) // data_requirements (inherit from source)
         .bind(&source.purpose)
@@ -832,6 +837,7 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: source.prerequisites,
             forked_from: Some(source_coach_id.to_owned()),
             max_tool_iterations: source.max_tool_iterations,
+            temperature: source.temperature,
             startup_query: source.startup_query,
             data_requirements: source.data_requirements,
             purpose: source.purpose,
@@ -985,7 +991,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (
@@ -1087,7 +1093,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
@@ -1114,7 +1120,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3
@@ -1153,8 +1159,8 @@ impl CoachesRepository for PostgresDatabase {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19)
             ",
         )
         .bind(id.to_string())
@@ -1173,6 +1179,7 @@ impl CoachesRepository for PostgresDatabase {
         .bind(Option::<String>::None) // prerequisites
         .bind(Option::<String>::None) // forked_from
         .bind(Option::<i32>::None) // max_tool_iterations
+        .bind(Option::<f32>::None) // temperature
         .bind(Option::<String>::None) // startup_query
         .bind(Option::<String>::None) // data_requirements
         .execute(&self.pool)
@@ -1197,6 +1204,7 @@ impl CoachesRepository for PostgresDatabase {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: None,
             data_requirements: None,
             purpose: None,
@@ -1215,7 +1223,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE tenant_id = $1 AND is_system = TRUE
@@ -1240,7 +1248,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE
@@ -1261,7 +1269,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE id = $1 AND is_system = TRUE
@@ -1557,7 +1565,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
             INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id
@@ -1761,7 +1769,7 @@ impl CoachesRepository for PostgresDatabase {
             SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND tenant_id = $2
             ",
@@ -1796,10 +1804,16 @@ impl CoachesRepository for PostgresDatabase {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
-        type Row = (String, Option<String>, Option<String>, Option<i32>);
+        type Row = (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i32>,
+            Option<f32>,
+        );
         let row: Option<Row> = sqlx::query_as(
             r"
-            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations
+            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = TRUE)
@@ -1813,12 +1827,19 @@ impl CoachesRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
 
         Ok(row.map(
-            |(system_prompt, startup_query, data_requirements, max_tool_iterations)| {
+            |(
+                system_prompt,
+                startup_query,
+                data_requirements,
+                max_tool_iterations,
+                temperature,
+            )| {
                 CoachRuntimeContext {
                     system_prompt,
                     startup_query,
                     data_requirements,
                     max_tool_iterations,
+                    temperature,
                 }
             },
         ))
