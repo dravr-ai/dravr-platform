@@ -42,7 +42,7 @@ jobs:
 
       - name: Sync prompts to dravr-contremaitre
         env:
-          GH_TOKEN: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
+          GH_TOKEN: ${{ secrets.DRAVR_CONTREMAITRE_WRITE_TOKEN }}
           CONTREMAITRE_REPO: dravr-ai/dravr-contremaitre
           CONTREMAITRE_BRANCH: main
           FORCE: ${{ github.event.inputs.force }}
