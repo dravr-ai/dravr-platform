@@ -1998,6 +1998,8 @@ async fn maybe_open_status_bridge(
         &dispatch.resources.agui_registry,
         run_id.to_owned(),
         Arc::clone(&adapter),
+        Arc::clone(&dispatch.resources.messaging_strings_registry),
+        dispatch.locale.clone(),
     );
     (Some(adapter), consumer)
 }
