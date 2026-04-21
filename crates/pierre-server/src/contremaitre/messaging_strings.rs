@@ -86,6 +86,14 @@ pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
+/// Key: progress status shown during prompt-assembly stage.
+pub const KEY_STATUS_READING_QUESTION: &str = "messaging.status.reading_question";
+/// Key: progress status shown during LLM dispatch stage.
+pub const KEY_STATUS_GENERATING_RESPONSE: &str = "messaging.status.generating_response";
+/// Key: progress status shown when a tool call starts. `{0}` = tool name.
+pub const KEY_STATUS_CALLING_TOOL: &str = "messaging.status.calling_tool";
+/// Key: progress status shown when the pipeline errors. `{0}` = error text.
+pub const KEY_STATUS_ERROR: &str = "messaging.status.error";
 
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
@@ -268,6 +276,14 @@ pub const FR_SCOPE_REFUSAL: &str =
 pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
 /// French placeholder shown while the LLM is composing its reply.
 pub const FR_THINKING_PLACEHOLDER: &str = "réflexion…";
+/// French progress status during prompt-assembly.
+pub const FR_STATUS_READING_QUESTION: &str = "lecture de ta question…";
+/// French progress status during LLM dispatch.
+pub const FR_STATUS_GENERATING_RESPONSE: &str = "génération de la réponse…";
+/// French progress status for tool-call start. `{0}` = tool name.
+pub const FR_STATUS_CALLING_TOOL: &str = "appel de {0}…";
+/// French progress status for pipeline error. `{0}` = error text.
+pub const FR_STATUS_ERROR: &str = "erreur : {0}";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -383,6 +399,14 @@ pub const EN_SCOPE_REFUSAL: &str =
 pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
 /// English placeholder shown while the LLM is composing its reply.
 pub const EN_THINKING_PLACEHOLDER: &str = "thinking…";
+/// English progress status during prompt-assembly.
+pub const EN_STATUS_READING_QUESTION: &str = "reading your question…";
+/// English progress status during LLM dispatch.
+pub const EN_STATUS_GENERATING_RESPONSE: &str = "generating response…";
+/// English progress status for tool-call start. `{0}` = tool name.
+pub const EN_STATUS_CALLING_TOOL: &str = "calling {0}…";
+/// English progress status for pipeline error. `{0}` = error text.
+pub const EN_STATUS_ERROR: &str = "error: {0}";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -491,6 +515,14 @@ pub(crate) const ES_SCOPE_REFUSAL: &str =
 pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
 /// Spanish placeholder shown while the LLM is composing its reply.
 pub(crate) const ES_THINKING_PLACEHOLDER: &str = "pensando…";
+/// Spanish progress status during prompt-assembly.
+pub(crate) const ES_STATUS_READING_QUESTION: &str = "leyendo tu pregunta…";
+/// Spanish progress status during LLM dispatch.
+pub(crate) const ES_STATUS_GENERATING_RESPONSE: &str = "generando respuesta…";
+/// Spanish progress status for tool-call start. `{0}` = tool name.
+pub(crate) const ES_STATUS_CALLING_TOOL: &str = "llamando a {0}…";
+/// Spanish progress status for pipeline error. `{0}` = error text.
+pub(crate) const ES_STATUS_ERROR: &str = "error: {0}";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -597,6 +629,14 @@ pub(crate) const DE_SCOPE_REFUSAL: &str =
 pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
 /// German placeholder shown while the LLM is composing its reply.
 pub(crate) const DE_THINKING_PLACEHOLDER: &str = "denke nach…";
+/// German progress status during prompt-assembly.
+pub(crate) const DE_STATUS_READING_QUESTION: &str = "lese deine Frage…";
+/// German progress status during LLM dispatch.
+pub(crate) const DE_STATUS_GENERATING_RESPONSE: &str = "erstelle Antwort…";
+/// German progress status for tool-call start. `{0}` = tool name.
+pub(crate) const DE_STATUS_CALLING_TOOL: &str = "rufe {0} auf…";
+/// German progress status for pipeline error. `{0}` = error text.
+pub(crate) const DE_STATUS_ERROR: &str = "Fehler: {0}";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -704,6 +744,14 @@ pub(crate) const PT_CAPABILITY_REFUSAL: &str =
     "Não consigo fazer isso com as ferramentas que tenho.";
 /// Portuguese placeholder shown while the LLM is composing its reply.
 pub(crate) const PT_THINKING_PLACEHOLDER: &str = "a pensar…";
+/// Portuguese progress status during prompt-assembly.
+pub(crate) const PT_STATUS_READING_QUESTION: &str = "a ler a tua pergunta…";
+/// Portuguese progress status during LLM dispatch.
+pub(crate) const PT_STATUS_GENERATING_RESPONSE: &str = "a gerar resposta…";
+/// Portuguese progress status for tool-call start. `{0}` = tool name.
+pub(crate) const PT_STATUS_CALLING_TOOL: &str = "a chamar {0}…";
+/// Portuguese progress status for pipeline error. `{0}` = error text.
+pub(crate) const PT_STATUS_ERROR: &str = "erro: {0}";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -807,6 +855,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "fr", FR_THINKING_PLACEHOLDER),
+    (KEY_STATUS_READING_QUESTION, "fr", FR_STATUS_READING_QUESTION),
+    (KEY_STATUS_GENERATING_RESPONSE, "fr", FR_STATUS_GENERATING_RESPONSE),
+    (KEY_STATUS_CALLING_TOOL, "fr", FR_STATUS_CALLING_TOOL),
+    (KEY_STATUS_ERROR, "fr", FR_STATUS_ERROR),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -875,6 +927,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "en", EN_THINKING_PLACEHOLDER),
+    (KEY_STATUS_READING_QUESTION, "en", EN_STATUS_READING_QUESTION),
+    (KEY_STATUS_GENERATING_RESPONSE, "en", EN_STATUS_GENERATING_RESPONSE),
+    (KEY_STATUS_CALLING_TOOL, "en", EN_STATUS_CALLING_TOOL),
+    (KEY_STATUS_ERROR, "en", EN_STATUS_ERROR),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -949,6 +1005,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "es", ES_THINKING_PLACEHOLDER),
+    (KEY_STATUS_READING_QUESTION, "es", ES_STATUS_READING_QUESTION),
+    (KEY_STATUS_GENERATING_RESPONSE, "es", ES_STATUS_GENERATING_RESPONSE),
+    (KEY_STATUS_CALLING_TOOL, "es", ES_STATUS_CALLING_TOOL),
+    (KEY_STATUS_ERROR, "es", ES_STATUS_ERROR),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -1023,6 +1083,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "de", DE_THINKING_PLACEHOLDER),
+    (KEY_STATUS_READING_QUESTION, "de", DE_STATUS_READING_QUESTION),
+    (KEY_STATUS_GENERATING_RESPONSE, "de", DE_STATUS_GENERATING_RESPONSE),
+    (KEY_STATUS_CALLING_TOOL, "de", DE_STATUS_CALLING_TOOL),
+    (KEY_STATUS_ERROR, "de", DE_STATUS_ERROR),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1097,6 +1161,10 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "pt", PT_THINKING_PLACEHOLDER),
+    (KEY_STATUS_READING_QUESTION, "pt", PT_STATUS_READING_QUESTION),
+    (KEY_STATUS_GENERATING_RESPONSE, "pt", PT_STATUS_GENERATING_RESPONSE),
+    (KEY_STATUS_CALLING_TOOL, "pt", PT_STATUS_CALLING_TOOL),
+    (KEY_STATUS_ERROR, "pt", PT_STATUS_ERROR),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),

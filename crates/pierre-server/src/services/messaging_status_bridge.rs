@@ -40,7 +40,7 @@
 //! single-reply path.
 
 use pierre_messaging::agui_consumer::AgUiEvent;
-use pierre_messaging::agui_status::{drive_status_updates, StatusAdapter};
+use pierre_messaging::agui_status::StatusAdapter;
 use pierre_messaging::channels::discord::agui_status::DiscordStatusAdapter;
 use pierre_messaging::channels::slack::agui_status::SlackStatusAdapter;
 use pierre_messaging::channels::telegram::agui_status::TelegramStatusAdapter;
@@ -51,6 +51,10 @@ use tokio::task::JoinHandle;
 use tracing::{debug, warn};
 
 use crate::agui::RunRegistry;
+use crate::contremaitre::messaging_strings::{
+    format_template, MessagingStringsRegistry, KEY_STATUS_CALLING_TOOL, KEY_STATUS_ERROR,
+    KEY_STATUS_GENERATING_RESPONSE, KEY_STATUS_READING_QUESTION, KEY_THINKING_PLACEHOLDER,
+};
 
 /// Parameters for opening a channel-specific [`StatusAdapter`].
 ///
@@ -230,10 +234,20 @@ pub fn spawn_status_consumer(
     registry: &Arc<RunRegistry>,
     run_id: String,
     adapter: Arc<dyn StatusAdapter + Send + Sync>,
+    strings: Arc<MessagingStringsRegistry>,
+    locale: String,
 ) -> Option<JoinHandle<()>> {
     let subscription = registry.subscribe_self(&run_id)?;
     Some(tokio::spawn(async move {
-        run_status_loop(run_id, adapter, subscription.backlog, subscription.receiver).await;
+        run_status_loop(
+            run_id,
+            adapter,
+            subscription.backlog,
+            subscription.receiver,
+            strings,
+            locale,
+        )
+        .await;
     }))
 }
 
@@ -242,19 +256,21 @@ async fn run_status_loop(
     adapter: Arc<dyn StatusAdapter + Send + Sync>,
     backlog: Vec<String>,
     mut receiver: broadcast::Receiver<String>,
+    strings: Arc<MessagingStringsRegistry>,
+    locale: String,
 ) {
     // Replay any events already in the buffer first so the user's
     // placeholder transitions through the stages that landed between
     // `register_scoped` and the consumer's subscribe.
     for raw in backlog {
-        if forward_event(&run_id, &adapter, &raw).await {
+        if forward_event(&run_id, &adapter, &raw, &strings, &locale).await {
             return;
         }
     }
     loop {
         match receiver.recv().await {
             Ok(raw) => {
-                if forward_event(&run_id, &adapter, &raw).await {
+                if forward_event(&run_id, &adapter, &raw, &strings, &locale).await {
                     return;
                 }
             }
@@ -282,6 +298,37 @@ async fn run_status_loop(
     }
 }
 
+/// Render an AG-UI event into the localized status text for the user's
+/// channel locale. Returns `None` when the event has no user-visible
+/// status (e.g. `STEP_FINISHED`, `RUN_FINISHED`, `Unknown`) — matches
+/// canot's [`drive_status_updates`] visibility rules but substitutes
+/// localized copy for the hardcoded English originals.
+fn status_text_for_event_localized(
+    event: &AgUiEvent,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+) -> Option<String> {
+    match event {
+        AgUiEvent::RunStarted { .. } | AgUiEvent::ToolCallResult { .. } => {
+            Some(strings.get(KEY_THINKING_PLACEHOLDER, locale))
+        }
+        AgUiEvent::StepStarted { step_name, .. } => Some(match step_name.as_str() {
+            "prompt_assembly" => strings.get(KEY_STATUS_READING_QUESTION, locale),
+            "dispatch" => strings.get(KEY_STATUS_GENERATING_RESPONSE, locale),
+            other => format!("{other}…"),
+        }),
+        AgUiEvent::ToolCallStart { tool_name, .. } => {
+            let template = strings.get(KEY_STATUS_CALLING_TOOL, locale);
+            Some(format_template(&template, &[tool_name]))
+        }
+        AgUiEvent::RunError { message, .. } => {
+            let template = strings.get(KEY_STATUS_ERROR, locale);
+            Some(format_template(&template, &[message]))
+        }
+        AgUiEvent::StepFinished { .. } | AgUiEvent::RunFinished { .. } | AgUiEvent::Unknown => None,
+    }
+}
+
 /// Deserialize `raw` to an [`AgUiEvent`] and forward it to `adapter`.
 ///
 /// Returns `true` when the consumer loop should exit (terminal event
@@ -295,6 +342,8 @@ async fn forward_event(
     run_id: &str,
     adapter: &Arc<dyn StatusAdapter + Send + Sync>,
     raw: &str,
+    strings: &MessagingStringsRegistry,
+    locale: &str,
 ) -> bool {
     let event: AgUiEvent = match serde_json::from_str(raw) {
         Ok(e) => e,
@@ -311,16 +360,18 @@ async fn forward_event(
         event,
         AgUiEvent::RunFinished { .. } | AgUiEvent::RunError { .. }
     );
-    if let Err(e) = drive_status_updates(adapter.as_ref(), &event).await {
-        // Adapter errors are non-fatal — a single failed edit
-        // shouldn't tear down the whole consumer. Log and keep going
-        // (the next event will likely succeed; if the channel is
-        // fundamentally broken the `finalize` call will surface it).
-        debug!(
-            run_id = %run_id,
-            error = %e,
-            "status adapter set_status failed; continuing"
-        );
+    if let Some(text) = status_text_for_event_localized(&event, strings, locale) {
+        if let Err(e) = adapter.set_status(&text).await {
+            // Adapter errors are non-fatal — a single failed edit
+            // shouldn't tear down the whole consumer. Log and keep going
+            // (the next event will likely succeed; if the channel is
+            // fundamentally broken the `finalize` call will surface it).
+            debug!(
+                run_id = %run_id,
+                error = %e,
+                "status adapter set_status failed; continuing"
+            );
+        }
     }
     terminal
 }
