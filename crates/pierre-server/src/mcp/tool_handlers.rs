@@ -26,6 +26,7 @@ use pierre_auth::auth::AuthMethod as AuthResultMethod;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::models::usage::InsertLlmUsage;
+use pierre_core::models::ConversationTurnId;
 use pierre_database::plugins::NotificationRepository;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
@@ -516,6 +517,14 @@ impl ToolHandlers {
         #[allow(clippy::cast_possible_wrap)]
         let exec_time_ms = duration_ms as i64;
 
+        // A direct MCP tool invocation is its own inbound boundary — no
+        // upstream chat turn exists to propagate from, so the turn id is
+        // generated here and the `tools_called` list carries the single
+        // tool that just executed.
+        let turn_id = ConversationTurnId::new();
+        let tools_called_json =
+            serde_json::to_string(&[tool_name]).unwrap_or_else(|_| "[]".to_owned());
+
         if let Err(e) = resources
             .repos
             .llm_usage
@@ -523,6 +532,7 @@ impl ToolHandlers {
                 tenant_id,
                 user_id,
                 conversation_id: None,
+                turn_id,
                 provider: "direct",
                 // model column stores the tool name for mcp_tool call_type
                 // (no LLM model involved in direct tool execution)
@@ -532,6 +542,7 @@ impl ToolHandlers {
                 total_tokens: 0,
                 call_type: "mcp_tool",
                 tool_calls_count: 1,
+                tools_called: &tools_called_json,
                 execution_time_ms: Some(exec_time_ms),
             })
             .await

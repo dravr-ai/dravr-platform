@@ -19,6 +19,7 @@
 
 use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, OutgoingMessage};
 use pierre_messaging::renderer::ResponseRenderer;
+use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use uuid::Uuid;
 
 // ── Helper: create test OutgoingMessage ──
@@ -30,7 +31,7 @@ fn text_message(channel: ChannelType, text: &str) -> OutgoingMessage {
         content: MessageContent::Text {
             body: text.to_owned(),
         },
-        correlation_id: Uuid::nil(),
+        turn_id: CanotTurnId::from_uuid(Uuid::nil()),
         reply_to: None,
         thread_id: None,
     }
@@ -45,7 +46,7 @@ fn media_message(channel: ChannelType) -> OutgoingMessage {
             mime_type: "image/jpeg".to_owned(),
             caption: Some("A photo".to_owned()),
         },
-        correlation_id: Uuid::nil(),
+        turn_id: CanotTurnId::from_uuid(Uuid::nil()),
         reply_to: None,
         thread_id: None,
     }
@@ -59,7 +60,7 @@ fn location_message(channel: ChannelType) -> OutgoingMessage {
             latitude: 48.8566,
             longitude: 2.3522,
         },
-        correlation_id: Uuid::nil(),
+        turn_id: CanotTurnId::from_uuid(Uuid::nil()),
         reply_to: None,
         thread_id: None,
     }
@@ -85,7 +86,7 @@ fn card_message(channel: ChannelType) -> OutgoingMessage {
                 },
             ],
         },
-        correlation_id: Uuid::nil(),
+        turn_id: CanotTurnId::from_uuid(Uuid::nil()),
         reply_to: None,
         thread_id: None,
     }
@@ -387,7 +388,7 @@ mod telegram {
             content: MessageContent::Text {
                 body: "Reply text".to_owned(),
             },
-            correlation_id: Uuid::nil(),
+            turn_id: CanotTurnId::from_uuid(Uuid::nil()),
             reply_to: Some("42".to_owned()),
             thread_id: None,
         };
@@ -425,7 +426,7 @@ mod slack_reply_to {
             content: MessageContent::Text {
                 body: "Threaded reply".to_owned(),
             },
-            correlation_id: Uuid::nil(),
+            turn_id: CanotTurnId::from_uuid(Uuid::nil()),
             reply_to: Some("1234567890.123456".to_owned()),
             thread_id: None,
         };

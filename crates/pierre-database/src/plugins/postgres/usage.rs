@@ -11,11 +11,14 @@ use chrono::{DateTime, Utc};
 use pierre_core::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_core::models::TenantId;
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
-use pierre_core::models::{JwtUsage, LlmUsageRecord, RequestLog, ToolUsage, UsageCounterRecord};
-use sqlx::Postgres;
-use sqlx::Row;
+use pierre_core::models::{
+    ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, TenantId, ToolUsage,
+    UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
+};
+use sqlx::postgres::PgArguments;
+use sqlx::query::QueryAs;
+use sqlx::{PgPool, Postgres, Row};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -513,14 +516,15 @@ impl LlmUsageRepository for PostgresDatabase {
 
         sqlx::query(
             r"
-            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, execution_time_ms, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ",
         )
         .bind(&id)
         .bind(params.tenant_id)
         .bind(params.user_id)
         .bind(params.conversation_id)
+        .bind(params.turn_id.as_uuid())
         .bind(params.provider)
         .bind(params.model)
         .bind(params.prompt_tokens)
@@ -528,6 +532,7 @@ impl LlmUsageRepository for PostgresDatabase {
         .bind(params.total_tokens)
         .bind(params.call_type)
         .bind(params.tool_calls_count)
+        .bind(params.tools_called)
         .bind(params.execution_time_ms)
         .bind(now)
         .execute(&self.pool)
@@ -539,6 +544,7 @@ impl LlmUsageRepository for PostgresDatabase {
             tenant_id: params.tenant_id.to_owned(),
             user_id: params.user_id.to_owned(),
             conversation_id: params.conversation_id.map(ToOwned::to_owned),
+            turn_id: params.turn_id,
             provider: params.provider.to_owned(),
             model: params.model.to_owned(),
             prompt_tokens: params.prompt_tokens,
@@ -546,6 +552,7 @@ impl LlmUsageRepository for PostgresDatabase {
             total_tokens: params.total_tokens,
             call_type: params.call_type.to_owned(),
             tool_calls_count: params.tool_calls_count,
+            tools_called: params.tools_called.to_owned(),
             execution_time_ms: params.execution_time_ms,
             created_at: now.to_rfc3339(),
         })
@@ -564,13 +571,14 @@ impl LlmUsageRepository for PostgresDatabase {
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
                    COUNT(*)::BIGINT as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2::timestamptz
+            WHERE tenant_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
             GROUP BY provider, model, call_type
             ORDER BY total_tokens DESC
             ",
         )
         .bind(tenant_id)
         .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to query LLM usage aggregates: {e}")))?;
@@ -614,13 +622,14 @@ impl LlmUsageRepository for PostgresDatabase {
                    COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
                    COUNT(*)::BIGINT as calls
             FROM llm_usage
-            WHERE tenant_id = $1 AND created_at >= $2::timestamptz
+            WHERE tenant_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
             GROUP BY created_at::DATE
             ORDER BY date ASC
             ",
         )
         .bind(tenant_id)
         .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to query LLM usage daily series: {e}")))?;
@@ -640,73 +649,18 @@ impl LlmUsageRepository for PostgresDatabase {
     }
 
     async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>> {
-        let rows = sqlx::query_as::<
-            _,
-            (
-                String,
-                String,
-                String,
-                Option<String>,
-                String,
-                String,
-                i64,
-                i64,
-                i64,
-                String,
-                i64,
-                Option<i64>,
-                String,
-            ),
-        >(
-            "SELECT id, tenant_id, user_id, conversation_id, provider, model, \
+        fetch_llm_usage_rows(
+            &self.pool,
+            "SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model, \
                     prompt_tokens, completion_tokens, total_tokens, call_type, \
-                    tool_calls_count, execution_time_ms, \
+                    tool_calls_count, tools_called, execution_time_ms, \
                     TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at \
              FROM llm_usage \
              ORDER BY created_at DESC \
              LIMIT $1",
+            |q| q.bind(limit),
         )
-        .bind(limit)
-        .fetch_all(&self.pool)
         .await
-        .map_err(|e| AppError::database(format!("Failed to query recent LLM calls: {e}")))?;
-
-        Ok(rows
-            .into_iter()
-            .map(
-                |(
-                    id,
-                    tenant_id,
-                    user_id,
-                    conversation_id,
-                    provider,
-                    model,
-                    prompt_tokens,
-                    completion_tokens,
-                    total_tokens,
-                    call_type,
-                    tool_calls_count,
-                    execution_time_ms,
-                    created_at,
-                )| {
-                    LlmUsageRecord {
-                        id,
-                        tenant_id,
-                        user_id,
-                        conversation_id,
-                        provider,
-                        model,
-                        prompt_tokens,
-                        completion_tokens,
-                        total_tokens,
-                        call_type,
-                        tool_calls_count,
-                        execution_time_ms,
-                        created_at,
-                    }
-                },
-            )
-            .collect())
     }
 
     async fn count_llm_calls_since(&self, since: &str) -> AppResult<i64> {
@@ -736,5 +690,91 @@ impl LlmUsageRepository for PostgresDatabase {
         .map_err(|e| AppError::database(format!("Failed to sum LLM usage: {e}")))?;
 
         Ok(row)
+    }
+
+    async fn find_llm_usage_by_turn_id(
+        &self,
+        turn_id: ConversationTurnId,
+    ) -> AppResult<Vec<LlmUsageRecord>> {
+        let turn_uuid = turn_id.as_uuid();
+        fetch_llm_usage_rows(
+            &self.pool,
+            "SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model, \
+                    prompt_tokens, completion_tokens, total_tokens, call_type, \
+                    tool_calls_count, tools_called, execution_time_ms, \
+                    TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at \
+             FROM llm_usage \
+             WHERE turn_id = $1 \
+             ORDER BY created_at ASC",
+            move |q| q.bind(turn_uuid),
+        )
+        .await
+    }
+}
+
+/// Postgres row-fetch helper for `llm_usage`. Mirrors the `SQLite`
+/// helper in `database/llm_usage.rs`: both call sites share the same
+/// projection and record-building logic, which keeps
+/// `get_recent_llm_calls_admin` and `find_llm_usage_by_turn_id` in
+/// lockstep.
+async fn fetch_llm_usage_rows<F>(
+    pool: &PgPool,
+    sql: &str,
+    bind: F,
+) -> AppResult<Vec<LlmUsageRecord>>
+where
+    F: for<'a> FnOnce(
+        QueryAs<'a, Postgres, LlmUsageRow, PgArguments>,
+    ) -> QueryAs<'a, Postgres, LlmUsageRow, PgArguments>,
+{
+    let query = sqlx::query_as::<_, LlmUsageRow>(sql);
+    let rows = bind(query)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to query LLM usage rows: {e}")))?;
+    Ok(rows.into_iter().map(LlmUsageRow::into_record).collect())
+}
+
+/// Raw row projection matching the Postgres `llm_usage` column list.
+/// `turn_id` rides on a native UUID column, so there's no string parsing
+/// like the `SQLite` path needs.
+#[derive(sqlx::FromRow)]
+struct LlmUsageRow {
+    id: String,
+    tenant_id: String,
+    user_id: String,
+    conversation_id: Option<String>,
+    turn_id: Uuid,
+    provider: String,
+    model: String,
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    total_tokens: i64,
+    call_type: String,
+    tool_calls_count: i64,
+    tools_called: String,
+    execution_time_ms: Option<i64>,
+    created_at: String,
+}
+
+impl LlmUsageRow {
+    fn into_record(self) -> LlmUsageRecord {
+        LlmUsageRecord {
+            id: self.id,
+            tenant_id: self.tenant_id,
+            user_id: self.user_id,
+            conversation_id: self.conversation_id,
+            turn_id: ConversationTurnId::from_uuid(self.turn_id),
+            provider: self.provider,
+            model: self.model,
+            prompt_tokens: self.prompt_tokens,
+            completion_tokens: self.completion_tokens,
+            total_tokens: self.total_tokens,
+            call_type: self.call_type,
+            tool_calls_count: self.tool_calls_count,
+            tools_called: self.tools_called,
+            execution_time_ms: self.execution_time_ms,
+            created_at: self.created_at,
+        }
     }
 }

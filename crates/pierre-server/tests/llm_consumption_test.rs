@@ -7,6 +7,7 @@
 // Test files: allow missing_docs (rustc lint) and unwrap (valid in tests per CLAUDE.md guidelines)
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use pierre_core::models::ConversationTurnId;
 use pierre_database::database::llm_usage::InsertLlmUsage;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::test_utils::create_test_db;
@@ -29,6 +30,7 @@ async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams
         tenant_id: params.tenant_id,
         user_id: params.user_id,
         conversation_id: None,
+        turn_id: ConversationTurnId::new(),
         provider: params.provider,
         model: params.model,
         prompt_tokens: params.prompt_tokens,
@@ -36,6 +38,7 @@ async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams
         total_tokens: params.prompt_tokens + params.completion_tokens,
         call_type: params.call_type,
         tool_calls_count: 0,
+        tools_called: "[]",
         execution_time_ms: Some(500),
     };
     db.insert_llm_usage(&insert).await.unwrap();

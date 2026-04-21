@@ -15,6 +15,7 @@ use pierre_database::plugins::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use pierre_messaging::retry::{compute_retry_update, RetryDecision};
+use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use serde_json::Value;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -70,16 +71,29 @@ struct EntryFields<'a> {
     tenant_id_str: &'a str,
     payload_str: &'a str,
     attempt_count: i64,
+    /// Conversation-turn correlation identifier persisted on the queue row.
+    /// Threaded into the retry `send_raw` call so the resulting
+    /// [`DeliveryReceipt`] keeps the same turn id as the original send.
+    ///
+    /// Malformed or missing values fall back to the nil UUID sentinel —
+    /// the same one the `turn_id` DB column defaults to for rows that
+    /// predate turn-id threading.
+    turn_id: CanotTurnId,
 }
 
 /// Extract fields from a raw JSON outbound entry
 fn parse_entry_fields(entry: &Value) -> EntryFields<'_> {
+    let turn_uuid = entry["turn_id"]
+        .as_str()
+        .and_then(|s| uuid::Uuid::parse_str(s).ok())
+        .unwrap_or_else(uuid::Uuid::nil);
     EntryFields {
         entry_id: entry["id"].as_str().unwrap_or_default(),
         channel_type_str: entry["channel_type"].as_str().unwrap_or_default(),
         tenant_id_str: entry["tenant_id"].as_str().unwrap_or_default(),
         payload_str: entry["payload"].as_str().unwrap_or("{}"),
         attempt_count: entry["attempt_count"].as_i64().unwrap_or(0),
+        turn_id: CanotTurnId::from_uuid(turn_uuid),
     }
 }
 
@@ -188,7 +202,10 @@ async fn attempt_delivery(
 ) {
     let hashed_tenant = hash_id(fields.tenant_id_str);
 
-    match adapter.send_raw(payload, channel_config).await {
+    match adapter
+        .send_raw(payload, fields.turn_id, channel_config)
+        .await
+    {
         Ok(receipt) => {
             let channel_msg_id = receipt.channel_message_id.as_deref().unwrap_or("");
             info!(

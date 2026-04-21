@@ -41,9 +41,9 @@ mod messaging_tests {
     use pierre_messaging::renderer::ResponseRenderer;
     use pierre_messaging::retry::{compute_retry_update, RetryDecision};
     use pierre_messaging::transport::TransportAdapter;
+    use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
     use sha2::Sha256;
     use std::sync::Arc;
-    use uuid::Uuid;
 
     // ════════════════════════════════════════════════════════════════
     // Slack signature verification tests
@@ -656,7 +656,7 @@ mod messaging_tests {
             content: MessageContent::Text {
                 body: text.to_owned(),
             },
-            correlation_id: Uuid::new_v4(),
+            turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: None,
         }
@@ -682,7 +682,7 @@ mod messaging_tests {
                     },
                 ],
             },
-            correlation_id: Uuid::new_v4(),
+            turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: None,
         }
@@ -697,7 +697,7 @@ mod messaging_tests {
                 mime_type: "image/png".to_owned(),
                 caption: Some("Your weekly progress".to_owned()),
             },
-            correlation_id: Uuid::new_v4(),
+            turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: None,
         }
@@ -814,7 +814,7 @@ mod messaging_tests {
                 latitude: 48.8566,
                 longitude: 2.3522,
             },
-            correlation_id: Uuid::new_v4(),
+            turn_id: CanotTurnId::new(),
             reply_to: None,
             thread_id: None,
         };

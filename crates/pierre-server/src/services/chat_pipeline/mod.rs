@@ -41,6 +41,10 @@ pub use channel_profile::{Channel, ChannelProfile, MaxIterations, ModelPolicy};
 pub use hooks::{
     AgUiRun, PipelineHooks, QuotaGate, QuotaWarning, ResponsePostProcess, UsageRecorder,
 };
+// Re-exported so that flows which build `ToolLoopParams` directly (the
+// insight route, the messaging ingress) can attach the same per-call
+// recorder the chat pipeline uses.
+pub use self::UsageRepoCallRecorder as TurnCallRecorder;
 pub use turn::{
     CreateConversationResult, DispatchResult, TurnContext, TurnInput, UserMessageResult,
 };
@@ -48,8 +52,10 @@ pub use turn::{
 use std::sync::Arc;
 use std::time::Instant;
 
-use pierre_core::models::{AddMessageParams, CoachRuntimeContext};
+use pierre_core::models::usage::InsertLlmUsage;
+use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId};
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT;
 use tracing::{debug, info, warn};
@@ -183,20 +189,112 @@ const DEFAULT_MAX_TOOL_ITERATIONS: usize = 10;
 /// misconfigured tenant from wedging a turn in a near-infinite tool loop.
 const MAX_ADMIN_CONFIG_TOOL_ITERATIONS: usize = 50;
 
-/// Run a single user turn through the unified pipeline.
+/// Pick the `call_type` string used for per-LLM-call `llm_usage` rows
+/// produced by the chat pipeline. Web-chat turns are tagged `"chat"`;
+/// messaging-channel turns are tagged `"messaging"` so the analytics
+/// aggregates stay consistent with the terminal summary row the route
+/// layer writes.
+fn call_type_for_profile(profile: &ChannelProfile) -> &'static str {
+    match profile.channel {
+        Channel::WebChat => "chat",
+        Channel::Telegram
+        | Channel::WhatsApp
+        | Channel::Discord
+        | Channel::Slack
+        | Channel::Messenger => "messaging",
+    }
+}
+
+/// Per-call sink that persists one `llm_usage` row per LLM
+/// invocation.
 ///
-/// Stages execute in a fixed order; [`ChannelProfile`] gates per-channel
-/// behavior (model override policy, max tool iterations, response-constraints
-/// prompt suffix). Hooks ([`QuotaGate`], [`UsageRecorder`],
-/// [`ResponsePostProcess`]) plug in channel-specific side effects at the edges.
+/// Each row is attributed to the turn that created this recorder.
+/// The write is dispatched on a detached tokio task so the
+/// synchronous `record` method never blocks the tool loop.
+///
+/// The chat pipeline, the insight flow, and the messaging ingress all
+/// construct one of these per turn so their tool loops emit per-call
+/// rows that the `/internal/conversation-turn/{id}` endpoint surfaces
+/// as the `llm_calls` array.
+pub struct UsageRepoCallRecorder {
+    llm_usage: Arc<dyn LlmUsageRepository>,
+    tenant_id: String,
+    user_id: String,
+    conversation_id: Option<String>,
+    turn_id: ConversationTurnId,
+    call_type: &'static str,
+}
+
+impl UsageRepoCallRecorder {
+    /// Build a recorder scoped to a single turn.
+    pub fn new(
+        llm_usage: Arc<dyn LlmUsageRepository>,
+        tenant_id: String,
+        user_id: String,
+        conversation_id: Option<String>,
+        turn_id: ConversationTurnId,
+        call_type: &'static str,
+    ) -> Self {
+        Self {
+            llm_usage,
+            tenant_id,
+            user_id,
+            conversation_id,
+            turn_id,
+            call_type,
+        }
+    }
+}
+
+impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
+    fn record(&self, record: chat_tool_loop::LlmCallRecord) {
+        let llm_usage = Arc::clone(&self.llm_usage);
+        let tenant_id = self.tenant_id.clone();
+        let user_id = self.user_id.clone();
+        let conversation_id = self.conversation_id.clone();
+        let turn_id = self.turn_id;
+        let call_type = self.call_type;
+        tokio::spawn(async move {
+            let total_tokens = record.prompt_tokens + record.completion_tokens;
+            let params = InsertLlmUsage {
+                tenant_id: &tenant_id,
+                user_id: &user_id,
+                conversation_id: conversation_id.as_deref(),
+                turn_id,
+                provider: &record.provider,
+                model: &record.model,
+                prompt_tokens: record.prompt_tokens,
+                completion_tokens: record.completion_tokens,
+                total_tokens,
+                call_type,
+                tool_calls_count: 0,
+                tools_called: "[]",
+                execution_time_ms: Some(record.latency_ms),
+            };
+            if let Err(e) = llm_usage.insert_llm_usage(&params).await {
+                warn!("Failed to record per-LLM-call usage: {e}");
+            }
+        });
+    }
+}
+
+/// Run a single turn through the unified chat pipeline.
+///
+/// Coordinates memory recall, prompt assembly, the tool loop, and the
+/// response post-processing stages for both the web chat route and
+/// messaging ingress. Per-channel behaviour is gated by the supplied
+/// [`ChannelProfile`]; optional hooks
+/// ([`QuotaGate`], [`ResponsePostProcess`]) plug in at the edges.
+///
+/// Per-LLM-call usage is written from inside the tool loop via the
+/// [`UsageRepoCallRecorder`] this function constructs; the caller
+/// writes the turn-summary row after `run` returns.
 ///
 /// # Errors
 ///
-/// Returns `AppError` variants produced by any stage: database errors on
-/// persistence, LLM provider errors during the tool loop, quota exhaustion
-/// from the [`QuotaGate`], etc. The pipeline never panics on invalid input —
-/// structured errors are propagated to the caller so channel adapters can
-/// render a channel-appropriate failure reply.
+/// Returns `AppError` variants produced by any stage: database errors
+/// on persistence, LLM provider errors during the tool loop, quota
+/// exhaustion from a [`QuotaGate`], etc.
 pub async fn run(
     resources: &Arc<ServerResources>,
     input: TurnInput,
@@ -406,6 +504,8 @@ async fn run_turn(
         content: result.content,
         usage: result.usage,
         tool_calls_count: result.tool_calls_count,
+        tools_called: result.tools_called,
+        turn_id: input.turn_id,
         finish_reason: result.finish_reason,
         activity_list: result.activity_list,
         model: active_model,
@@ -552,6 +652,21 @@ async fn dispatch_llm_with_tools(
     let max_iterations = resolve_max_iterations(profile.max_iterations, resources, coach_ctx).await;
 
     // Stage 14: Multi-turn tool execution loop.
+    //
+    // Build a per-turn call recorder so that every LLM call inside the
+    // tool loop writes its own `llm_usage` row keyed on this turn's id.
+    // The chat route's terminal `record_llm_usage` call afterwards
+    // writes a zero-token summary row that owns `tools_called` and the
+    // end-to-end execution time.
+    let call_recorder: Option<Arc<dyn chat_tool_loop::LlmCallRecorder>> =
+        Some(Arc::new(UsageRepoCallRecorder::new(
+            Arc::clone(&resources.repos.llm_usage),
+            input.conversation_tenant_id.to_string(),
+            input.user_id.clone(),
+            Some(input.conversation_id.clone()),
+            input.turn_id,
+            call_type_for_profile(profile),
+        )));
     let tools = build_mcp_tools();
     let tool_params = ToolLoopParams {
         provider: &provider,
@@ -561,6 +676,7 @@ async fn dispatch_llm_with_tools(
         user_id: &input.user_id,
         tenant_id: input.tool_tenant_id,
         max_iterations,
+        call_recorder,
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
 
@@ -584,6 +700,7 @@ async fn dispatch_llm_with_tools(
 
     info!(
         conversation_id = %input.conversation_id,
+        turn_id = %input.turn_id,
         channel = profile.channel.as_str(),
         content_len = result.content.len(),
         tool_calls = result.tool_calls_count,

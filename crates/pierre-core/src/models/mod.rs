@@ -135,7 +135,8 @@ pub use user_mcp_token::{
 // Chat conversation and message record types
 mod conversation;
 pub use conversation::{
-    AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary, MessageRecord,
+    AddMessageParams, CoachRuntimeContext, ConversationRecord, ConversationSummary,
+    ConversationTurnId, MessageRecord,
 };
 
 // Security audit event types
@@ -159,8 +160,9 @@ pub use a2a::{A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatu
 /// Usage, dashboard, and quota tracking types.
 pub mod usage;
 pub use usage::{
-    InsertLlmUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog,
-    ToolUsage, UsageCounterRecord,
+    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtUsage,
+    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog, ToolUsage,
+    UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// Coach (AI persona) data types for custom AI coaching personas

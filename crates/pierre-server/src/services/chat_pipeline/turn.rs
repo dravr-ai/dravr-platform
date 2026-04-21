@@ -6,6 +6,7 @@
 
 //! Turn input and output types for [`super::run`].
 
+use pierre_core::models::ConversationTurnId;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use crate::llm::TokenUsage;
@@ -49,6 +50,12 @@ pub struct TurnInput {
     /// should fall back to the registry's `DEFAULT_LOCALE`. Web chat may
     /// leave this `None` until the web-side locale picker lands.
     pub locale: Option<String>,
+    /// Conversation-turn correlation identifier generated at the inbound
+    /// boundary (web chat handler, messaging ingress, CLI entry). Threaded
+    /// through every downstream LLM call and the persisted LLM usage row so
+    /// per-turn observability can attribute cost/latency/tools to the
+    /// originating utterance.
+    pub turn_id: ConversationTurnId,
 }
 
 /// Read-only view of the current turn available to hooks and stages.
@@ -102,6 +109,14 @@ pub struct DispatchResult {
     pub usage: Option<TokenUsage>,
     /// Number of tool calls made during the turn's tool loop.
     pub tool_calls_count: u32,
+    /// Names of every MCP tool invoked during the turn, in call order.
+    /// Persisted on the per-turn LLM usage record for observability.
+    pub tools_called: Vec<String>,
+    /// Conversation-turn correlation identifier echoed back from the
+    /// originating [`TurnInput::turn_id`], so callers that record usage
+    /// can thread the identifier onto the LLM usage row without needing
+    /// a separate reference.
+    pub turn_id: ConversationTurnId,
     /// Finish reason from the LLM provider.
     pub finish_reason: Option<String>,
     /// Formatted activity list captured from the tool loop, surfaced as

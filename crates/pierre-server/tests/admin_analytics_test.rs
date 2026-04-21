@@ -19,7 +19,7 @@ mod helpers;
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::{AddMessageParams, InsertLlmUsage, TenantId};
+use pierre_core::models::{AddMessageParams, ConversationTurnId, InsertLlmUsage, TenantId};
 use pierre_mcp_server::{
     mcp::resources::ServerResources,
     models::{Tenant, User, UserStatus},
@@ -138,6 +138,7 @@ async fn seed_llm_usage(
             tenant_id,
             user_id,
             conversation_id: None,
+            turn_id: ConversationTurnId::new(),
             provider: providers[idx],
             model: models[idx],
             prompt_tokens: 100 + (offset * 10),
@@ -145,6 +146,7 @@ async fn seed_llm_usage(
             total_tokens: 150 + (offset * 15),
             call_type: "chat",
             tool_calls_count: 0,
+            tools_called: "[]",
             execution_time_ms: Some(200 + (offset * 50)),
         };
         resources
