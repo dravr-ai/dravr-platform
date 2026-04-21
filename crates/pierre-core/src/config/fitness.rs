@@ -426,3 +426,25 @@ impl Default for WeatherApiConfig {
         }
     }
 }
+
+/// Default threshold for auto-promoting `get_activities` to detailed mode.
+///
+/// When a caller asks for this many activities or fewer, the handler issues
+/// an N+1 lookup against `FitnessProvider::get_activity` so the LLM sees the
+/// full sensor record (heart rate, elevation, splits, weather context) rather
+/// than the shallow summary returned by the provider's list endpoint.
+pub const DEFAULT_ACTIVITY_DETAIL_THRESHOLD: usize = 3;
+
+/// Resolve the activity detail threshold from the environment.
+///
+/// Reads `ACTIVITY_DETAIL_THRESHOLD`, falling back to
+/// [`DEFAULT_ACTIVITY_DETAIL_THRESHOLD`] when the variable is absent or
+/// unparseable. A value of `0` disables auto-promotion entirely (only
+/// explicit `mode=detailed` fetches detail).
+#[must_use]
+pub fn activity_detail_threshold() -> usize {
+    env::var("ACTIVITY_DETAIL_THRESHOLD")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_ACTIVITY_DETAIL_THRESHOLD)
+}

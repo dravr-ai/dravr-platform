@@ -6,6 +6,7 @@
 
 use crate::cache::{factory::Cache, CacheKey, CacheResource};
 use crate::config::environment::default_provider;
+use crate::config::fitness::activity_detail_threshold;
 use crate::formatters::{format_output, OutputFormat};
 use crate::intelligence::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
@@ -1018,7 +1019,10 @@ pub fn handle_get_activities(
             .map_or_else(default_provider, String::from);
 
         // Extract mode parameter: "summary" (default) or "detailed"
-        // Parse mode/format FIRST to determine format-aware default limit
+        // Parse mode/format FIRST to determine format-aware default limit.
+        // Track whether the caller explicitly picked a mode so we can auto-promote
+        // small-limit queries to detail without overriding explicit choices.
+        let mode_explicit = request.parameters.get("mode").is_some();
         let mode = request
             .parameters
             .get("mode")
@@ -1150,31 +1154,45 @@ pub fn handle_get_activities(
             has_more: returned_count == limit,
         };
 
-        // Try to get from cache first
-        if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
-            cache: &executor.resources.cache,
-            cache_key: &cache_key,
-            user_uuid,
-            tenant_id: request.tenant_id.clone(),
-            provider_name: &provider_name,
-            mode,
-            output_format,
-            limit,
-            offset: offset.unwrap_or(0),
-            default_time_window_applied,
-            analysis_type,
-        })
-        .await
-        {
-            // Report completion if we got from cache
-            if let Some(reporter) = &request.progress_reporter {
-                reporter.report(
-                    100.0,
-                    Some(100.0),
-                    Some("Activities loaded from cache".to_owned()),
-                );
+        // Decide whether to auto-promote this request to a detailed response.
+        // Small-limit queries (e.g. "my last activity") should expose the full
+        // sensor record (HR, elevation, splits) — the provider list endpoint only
+        // returns a shallow summary, so we round-trip each id through get_activity.
+        // Callers who explicitly pass mode=summary retain the compact payload.
+        let detail_threshold = activity_detail_threshold();
+        let auto_promote_to_detail =
+            !mode_explicit && detail_threshold > 0 && limit <= detail_threshold;
+
+        // Try to get from cache first. Skip when auto-promoting because the
+        // cache key does not include mode — a cached summary cannot satisfy a
+        // detail-promoted response, and a cached detailed payload cannot satisfy
+        // an explicit summary request.
+        if !auto_promote_to_detail {
+            if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
+                cache: &executor.resources.cache,
+                cache_key: &cache_key,
+                user_uuid,
+                tenant_id: request.tenant_id.clone(),
+                provider_name: &provider_name,
+                mode,
+                output_format,
+                limit,
+                offset: offset.unwrap_or(0),
+                default_time_window_applied,
+                analysis_type,
+            })
+            .await
+            {
+                // Report completion if we got from cache
+                if let Some(reporter) = &request.progress_reporter {
+                    reporter.report(
+                        100.0,
+                        Some(100.0),
+                        Some("Activities loaded from cache".to_owned()),
+                    );
+                }
+                return Ok(cached_response);
             }
-            return Ok(cached_response);
         }
 
         // Report progress after cache miss
@@ -1234,6 +1252,39 @@ pub fn handle_get_activities(
                         // Sort by start_date descending (newest first) for consistent ordering
                         filtered_activities.sort_by_key(|a| Reverse(a.start_date()));
 
+                        // Auto-promote small-limit queries to detailed by issuing
+                        // get_activity per id. This is an N+1 fetch but is bounded by
+                        // detail_threshold (default 3), which is much smaller than the
+                        // provider rate limits.
+                        let effective_mode = if auto_promote_to_detail
+                            && !filtered_activities.is_empty()
+                        {
+                            let mut detailed = Vec::with_capacity(filtered_activities.len());
+                            let original_count = filtered_activities.len();
+                            for activity in &filtered_activities {
+                                match provider.get_activity(activity.id()).await {
+                                    Ok(detail) => detailed.push(detail),
+                                    Err(err) => {
+                                        warn!(
+                                            activity_id = %activity.id(),
+                                            error = %err,
+                                            "Detail fetch failed — retaining summary for this activity"
+                                        );
+                                        detailed.push(activity.clone());
+                                    }
+                                }
+                            }
+                            debug!(
+                                count = original_count,
+                                threshold = detail_threshold,
+                                "Auto-promoted get_activities to detailed (N+1 fetch)"
+                            );
+                            filtered_activities = detailed;
+                            "detailed"
+                        } else {
+                            mode
+                        };
+
                         // Report completion
                         if let Some(reporter) = &request.progress_reporter {
                             reporter.report(
@@ -1249,14 +1300,20 @@ pub fn handle_get_activities(
                             );
                         }
 
-                        // Cache the filtered activities (cache key includes sport_type)
-                        cache_activities_result(
-                            &executor.resources.cache,
-                            &cache_key,
-                            &filtered_activities,
-                            per_page,
-                        )
-                        .await;
+                        // Cache the filtered activities when the result is
+                        // cache-safe (explicit mode or not auto-promoted). The
+                        // cache key does not include mode, so auto-promoted
+                        // detailed payloads must not be written under the same
+                        // key a summary request would read.
+                        if !auto_promote_to_detail {
+                            cache_activities_result(
+                                &executor.resources.cache,
+                                &cache_key,
+                                &filtered_activities,
+                                per_page,
+                            )
+                            .await;
+                        }
 
                         // Create pagination info for fresh results
                         let pagination = create_pagination(filtered_activities.len());
@@ -1267,7 +1324,7 @@ pub fn handle_get_activities(
                                 user_uuid,
                                 tenant_id: request.tenant_id,
                                 provider_name: &provider_name,
-                                mode,
+                                mode: effective_mode,
                                 output_format,
                                 pagination: Some(&pagination),
                                 default_time_window_applied,
