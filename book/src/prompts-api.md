@@ -3,7 +3,7 @@
 
 # Prompts API
 
-Pierre provides REST APIs for managing AI chat prompt suggestions. Prompts are tenant-isolated and organized into three pillars: Activity, Nutrition, and Recovery.
+Dravr provides REST APIs for managing AI chat prompt suggestions. Prompts are tenant-isolated and organized into three pillars: Activity, Nutrition, and Recovery.
 
 ## Overview
 
@@ -67,7 +67,7 @@ Authorization: Bearer <jwt_token>
       ]
     }
   ],
-  "welcome_prompt": "Welcome to Pierre! I'm your fitness AI assistant. Connect your fitness tracker to get personalized insights.",
+  "welcome_prompt": "Welcome to Dravr! I'm your fitness AI assistant. Connect your fitness tracker to get personalized insights.",
   "metadata": {
     "timestamp": "2025-01-07T12:00:00Z",
     "api_version": "1.0"
@@ -216,7 +216,7 @@ Authorization: Bearer <admin_jwt_token>
 **Response** `200 OK`:
 ```json
 {
-  "prompt_text": "Welcome to Pierre! I'm your fitness AI assistant."
+  "prompt_text": "Welcome to Dravr! I'm your fitness AI assistant."
 }
 ```
 
@@ -230,14 +230,14 @@ Authorization: Bearer <admin_jwt_token>
 Content-Type: application/json
 
 {
-  "prompt_text": "Hello! I'm Pierre, your personal fitness coach. How can I help you today?"
+  "prompt_text": "Hello! I'm Dravr, your personal fitness coach. How can I help you today?"
 }
 ```
 
 **Response** `200 OK`:
 ```json
 {
-  "prompt_text": "Hello! I'm Pierre, your personal fitness coach. How can I help you today?"
+  "prompt_text": "Hello! I'm Dravr, your personal fitness coach. How can I help you today?"
 }
 ```
 
