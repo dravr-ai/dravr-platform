@@ -178,8 +178,8 @@ fn test_get_system_prompt_returns_content() {
         "pierre_system prompt should not be empty"
     );
     assert!(
-        prompt.contains("Pierre"),
-        "pierre_system should mention Pierre"
+        prompt.contains("Dravr"),
+        "pierre_system should mention Dravr"
     );
 }
 

@@ -72,7 +72,7 @@ pub const KEY_VERIFICATION_WARN_SUFFIX: &str = "messaging.verification.warn_suff
 pub const KEY_VERIFICATION_BLOCK_FALLBACK: &str = "messaging.verification.block_fallback";
 
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
-// Emitted by messaging_ingress while the user is not yet linked to a Pierre
+// Emitted by messaging_ingress while the user is not yet linked to a Dravr
 // account, so locale resolution here cannot consult `users.locale`. Callers
 // fall back to `DEFAULT_LOCALE` and optionally the channel-link override if
 // one exists from a prior logout.
@@ -88,7 +88,7 @@ pub const KEY_LINK_LOGOUT_COMPLETE: &str = "messaging.link.logout_complete";
 pub const KEY_LINK_CANCELLED: &str = "messaging.link.cancelled";
 /// Key: generic "something went wrong" for unexpected DB/infra errors.
 pub const KEY_LINK_GENERIC_ERROR: &str = "messaging.link.generic_error";
-/// Key: email-entry matches no Pierre account. `{0}` = registration URL.
+/// Key: email-entry matches no Dravr account. `{0}` = registration URL.
 pub const KEY_LINK_NO_ACCOUNT: &str = "messaging.link.no_account";
 /// Key: email resolved to a user with zero tenant memberships.
 pub const KEY_LINK_NO_TENANT: &str = "messaging.link.no_tenant";
@@ -229,7 +229,7 @@ pub const KEY_COACH_ASSIGN_FORBIDDEN: &str = "commands.coach.assign_forbidden";
 // ── Compiled-in defaults: French (DEFAULT_LOCALE) ────────────────────────
 
 /// French default for [`KEY_ERROR_GENERIC`]. `{0}` = 8-char correlation id.
-pub const FR_ERROR_GENERIC: &str = "Pierre est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})";
+pub const FR_ERROR_GENERIC: &str = "Dravr est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})";
 /// French default for [`KEY_EMPTY_REPLY`].
 pub const FR_EMPTY_REPLY: &str =
     "Hmm, je n'ai pas réussi à formuler une réponse. Peux-tu reformuler ta question?";
@@ -246,15 +246,15 @@ pub const FR_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Attention — je ne suis p
 /// French default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const FR_VERIFICATION_BLOCK_FALLBACK: &str = "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?";
 
-pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Pierre, relie d'abord ton compte. Ouvre l'app web Pierre pour connecter ce canal.";
-pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Pierre, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
+pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
+pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
 pub(crate) const FR_LINK_LOGOUT_COMPLETE: &str =
-    "Tu es déconnecté de Pierre. Envoie un message à tout moment pour relier ton compte.";
+    "Tu es déconnecté de Dravr. Envoie un message à tout moment pour relier ton compte.";
 pub(crate) const FR_LINK_CANCELLED: &str =
     "Liaison annulée. Envoie un message à tout moment pour recommencer.";
 pub(crate) const FR_LINK_GENERIC_ERROR: &str =
     "Quelque chose a mal tourné. Réessaie dans un moment.";
-pub(crate) const FR_LINK_NO_ACCOUNT: &str = "Aucun compte Pierre trouvé avec cette adresse. Tu peux t'inscrire sur {0} puis réessayer, ou tape « cancel » pour arrêter.";
+pub(crate) const FR_LINK_NO_ACCOUNT: &str = "Aucun compte Dravr trouvé avec cette adresse. Tu peux t'inscrire sur {0} puis réessayer, ou tape « cancel » pour arrêter.";
 pub(crate) const FR_LINK_NO_TENANT: &str =
     "Ce compte n'est associé à aucune organisation. Contacte le support.";
 pub(crate) const FR_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -262,7 +262,7 @@ pub(crate) const FR_LINK_EMAIL_NOT_CONFIGURED: &str =
 pub(crate) const FR_LINK_EMAIL_SEND_FAILED: &str =
     "Impossible d'envoyer l'e-mail de vérification. Réessaie dans un moment.";
 pub(crate) const FR_LINK_INVALID_EMAIL: &str =
-    "Cela ne ressemble pas à une adresse e-mail. Tape l'adresse e-mail de ton compte Pierre.";
+    "Cela ne ressemble pas à une adresse e-mail. Tape l'adresse e-mail de ton compte Dravr.";
 pub(crate) const FR_LINK_OTP_SENT: &str = "J'ai envoyé un code à 6 chiffres à {0}. Tape-le ici dans les 10 prochaines minutes.\nTape « cancel » pour arrêter.";
 pub(crate) const FR_LINK_TOO_MANY_ATTEMPTS: &str = "Trop de tentatives incorrectes. La session de liaison est annulée. Envoie un message pour recommencer.";
 pub(crate) const FR_LINK_INCORRECT_CODE: &str =
@@ -274,9 +274,9 @@ pub(crate) const FR_LINK_OTP_PROMPT: &str =
     "Tape le code à 6 chiffres envoyé par e-mail, ou tape « cancel » pour arrêter.";
 pub(crate) const FR_LINK_SESSION_EXPIRED: &str =
     "Ta session de liaison a expiré. Envoie un message pour recommencer.";
-pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu peux discuter avec Pierre depuis ce canal.\n\nTape « logout » à tout moment pour te déconnecter.";
+pub(crate) const FR_LINK_SUCCESS: &str = "Ton compte est maintenant lié ! Tu peux discuter avec Dravr depuis ce canal.\n\nTape « logout » à tout moment pour te déconnecter.";
 
-pub(crate) const FR_STATUS_HEADER: &str = "Ton statut Pierre :\n";
+pub(crate) const FR_STATUS_HEADER: &str = "Ton statut Dravr :\n";
 pub(crate) const FR_STATUS_PROVIDERS_NONE: &str = "\nFournisseurs : aucun connecté";
 pub(crate) const FR_STATUS_PROVIDERS_LABEL: &str = "\nFournisseurs : {0}";
 pub(crate) const FR_STATUS_GROUPS_LABEL: &str = "\nGroupes : {0}";
@@ -291,12 +291,12 @@ pub(crate) const FR_HELP_DOMAIN_PROVIDER: &str = "Fournisseurs";
 pub(crate) const FR_HELP_DOMAIN_ACCOUNT: &str = "Compte";
 pub(crate) const FR_HELP_FOOTER: &str = "\nOu écris-moi simplement pour discuter avec ton coach.";
 
-pub(crate) const FR_LOGOUT_CONFIRM_PROMPT: &str = "Ceci va délier ton compte {0} de Pierre.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer.";
+pub(crate) const FR_LOGOUT_CONFIRM_PROMPT: &str = "Ceci va délier ton compte {0} de Dravr.\nIl faudra le relier pour réutiliser la messagerie.\n\nTape « logout » pour confirmer.";
 
 pub(crate) const FR_PRIVACY_STATUS_LINE: &str = "Le consentement aux statistiques anonymes est actuellement <b>{0}</b>.\n\nUtilise <code>/privacy on</code> pour l'activer ou <code>/privacy off</code> pour le désactiver.";
 pub(crate) const FR_PRIVACY_STATUS_ENABLED: &str = "activé";
 pub(crate) const FR_PRIVACY_STATUS_DISABLED: &str = "désactivé";
-pub(crate) const FR_PRIVACY_ON_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>activé</b>. Merci de nous aider à améliorer Pierre !\n\nUtilise <code>/privacy off</code> pour te retirer à tout moment.";
+pub(crate) const FR_PRIVACY_ON_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>activé</b>. Merci de nous aider à améliorer Dravr !\n\nUtilise <code>/privacy off</code> pour te retirer à tout moment.";
 pub(crate) const FR_PRIVACY_OFF_CONFIRMATION: &str = "Le consentement aux statistiques anonymes est maintenant <b>désactivé</b>. Aucune donnée d'usage anonyme ne sera collectée.\n\nUtilise <code>/privacy on</code> pour te réinscrire à tout moment.";
 
 pub(crate) const FR_GROUP_LIST_EMPTY: &str =
@@ -341,7 +341,7 @@ pub(crate) const FR_COACH_ASSIGN_FORBIDDEN: &str =
 // ── Compiled-in defaults: English ─────────────────────────────────────────
 
 /// English default for [`KEY_ERROR_GENERIC`]. `{0}` = 8-char correlation id.
-pub const EN_ERROR_GENERIC: &str = "Pierre is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})";
+pub const EN_ERROR_GENERIC: &str = "Dravr is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})";
 /// English default for [`KEY_EMPTY_REPLY`].
 pub const EN_EMPTY_REPLY: &str =
     "Hmm, I couldn't put a reply together. Can you rephrase your question?";
@@ -354,15 +354,15 @@ pub const EN_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Heads up — I'm not fully
 /// English default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const EN_VERIFICATION_BLOCK_FALLBACK: &str = "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?";
 
-pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Pierre, please link your account first. Visit the Pierre web app to connect this channel.";
+pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
-    "Hi! To chat with Pierre, link your account first:\n{0}\n\nThis link expires in 10 minutes.";
+    "Hi! To chat with Dravr, link your account first:\n{0}\n\nThis link expires in 10 minutes.";
 pub(crate) const EN_LINK_LOGOUT_COMPLETE: &str =
-    "You've been logged out from Pierre. Send a message anytime to link your account again.";
+    "You've been logged out from Dravr. Send a message anytime to link your account again.";
 pub(crate) const EN_LINK_CANCELLED: &str =
     "Linking cancelled. Send a message anytime to start again.";
 pub(crate) const EN_LINK_GENERIC_ERROR: &str = "Something went wrong. Please try again later.";
-pub(crate) const EN_LINK_NO_ACCOUNT: &str = "No Pierre account found with that email. You can register at {0} and then try again, or type \"cancel\" to stop.";
+pub(crate) const EN_LINK_NO_ACCOUNT: &str = "No Dravr account found with that email. You can register at {0} and then try again, or type \"cancel\" to stop.";
 pub(crate) const EN_LINK_NO_TENANT: &str =
     "This account is not associated with any organization. Please contact support.";
 pub(crate) const EN_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -370,7 +370,7 @@ pub(crate) const EN_LINK_EMAIL_NOT_CONFIGURED: &str =
 pub(crate) const EN_LINK_EMAIL_SEND_FAILED: &str =
     "Failed to send the verification email. Please try again later.";
 pub(crate) const EN_LINK_INVALID_EMAIL: &str =
-    "That doesn't look like an email address. Please type your Pierre account email.";
+    "That doesn't look like an email address. Please type your Dravr account email.";
 pub(crate) const EN_LINK_OTP_SENT: &str = "I've sent a 6-digit code to {0}. Please type it here within 10 minutes.\nType \"cancel\" to stop.";
 pub(crate) const EN_LINK_TOO_MANY_ATTEMPTS: &str = "Too many incorrect attempts. The linking session has been cancelled. Send a message to start again.";
 pub(crate) const EN_LINK_INCORRECT_CODE: &str = "Incorrect code. You have {0} attempt(s) remaining. Please try again or type \"cancel\" to stop.";
@@ -382,9 +382,9 @@ pub(crate) const EN_LINK_OTP_PROMPT: &str =
     "Please type the 6-digit code sent to your email, or type \"cancel\" to stop.";
 pub(crate) const EN_LINK_SESSION_EXPIRED: &str =
     "Your linking session has expired. Send a message to start again.";
-pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfully! You can now chat with Pierre through this channel.\n\nType \"logout\" anytime to disconnect.";
+pub(crate) const EN_LINK_SUCCESS: &str = "Your account has been linked successfully! You can now chat with Dravr through this channel.\n\nType \"logout\" anytime to disconnect.";
 
-pub(crate) const EN_STATUS_HEADER: &str = "Your Pierre status:\n";
+pub(crate) const EN_STATUS_HEADER: &str = "Your Dravr status:\n";
 pub(crate) const EN_STATUS_PROVIDERS_NONE: &str = "\nProviders: none connected";
 pub(crate) const EN_STATUS_PROVIDERS_LABEL: &str = "\nProviders: {0}";
 pub(crate) const EN_STATUS_GROUPS_LABEL: &str = "\nGroups: {0}";
@@ -399,12 +399,12 @@ pub(crate) const EN_HELP_DOMAIN_PROVIDER: &str = "Providers";
 pub(crate) const EN_HELP_DOMAIN_ACCOUNT: &str = "Account";
 pub(crate) const EN_HELP_FOOTER: &str = "\nOr just send a message to chat with your coach.";
 
-pub(crate) const EN_LOGOUT_CONFIRM_PROMPT: &str = "This will unlink your {0} account from Pierre.\nYou will need to re-link to use messaging again.\n\nType \"logout\" to confirm.";
+pub(crate) const EN_LOGOUT_CONFIRM_PROMPT: &str = "This will unlink your {0} account from Dravr.\nYou will need to re-link to use messaging again.\n\nType \"logout\" to confirm.";
 
 pub(crate) const EN_PRIVACY_STATUS_LINE: &str = "Analytics consent is currently <b>{0}</b>.\n\nUse <code>/privacy on</code> to enable or <code>/privacy off</code> to disable anonymous analytics.";
 pub(crate) const EN_PRIVACY_STATUS_ENABLED: &str = "enabled";
 pub(crate) const EN_PRIVACY_STATUS_DISABLED: &str = "disabled";
-pub(crate) const EN_PRIVACY_ON_CONFIRMATION: &str = "Analytics consent has been <b>enabled</b>. Thank you for helping us improve Pierre!\n\nUse <code>/privacy off</code> to opt out at any time.";
+pub(crate) const EN_PRIVACY_ON_CONFIRMATION: &str = "Analytics consent has been <b>enabled</b>. Thank you for helping us improve Dravr!\n\nUse <code>/privacy off</code> to opt out at any time.";
 pub(crate) const EN_PRIVACY_OFF_CONFIRMATION: &str = "Analytics consent has been <b>disabled</b>. No anonymous usage data will be collected.\n\nUse <code>/privacy on</code> to opt back in at any time.";
 
 pub(crate) const EN_GROUP_LIST_EMPTY: &str =
@@ -447,7 +447,7 @@ pub(crate) const EN_COACH_ASSIGN_FORBIDDEN: &str =
 
 // ── Compiled-in defaults: Spanish ─────────────────────────────────────────
 
-pub(crate) const ES_ERROR_GENERIC: &str = "Pierre no está disponible temporalmente. El equipo ha sido notificado — inténtalo de nuevo en unos minutos. (ref: {0})";
+pub(crate) const ES_ERROR_GENERIC: &str = "Dravr no está disponible temporalmente. El equipo ha sido notificado — inténtalo de nuevo en unos minutos. (ref: {0})";
 pub(crate) const ES_EMPTY_REPLY: &str =
     "Hmm, no pude armar una respuesta. ¿Puedes reformular tu pregunta?";
 pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga lista, pero supera el límite configurado. ¿Quieres que te la resuma más brevemente?";
@@ -455,13 +455,13 @@ pub(crate) const ES_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiero no tratar ese tema
 pub(crate) const ES_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atención — no estoy del todo seguro de {0} afirmación/es anterior/es. Pídeme las fuentes si quieres verificarlas.";
 pub(crate) const ES_VERIFICATION_BLOCK_FALLBACK: &str = "Empecé a responder, pero algunas afirmaciones no coincidían con las fuentes que considero fiables. Déjame reformular — ¿puedes preguntarme de nuevo con un poco más de contexto sobre lo que intentas entender?";
 
-pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Pierre, primero vincula tu cuenta. Abre la app web de Pierre para conectar este canal.";
-pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Pierre, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
-pub(crate) const ES_LINK_LOGOUT_COMPLETE: &str = "Has cerrado sesión en Pierre. Envía un mensaje cuando quieras para volver a vincular tu cuenta.";
+pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
+pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
+pub(crate) const ES_LINK_LOGOUT_COMPLETE: &str = "Has cerrado sesión en Dravr. Envía un mensaje cuando quieras para volver a vincular tu cuenta.";
 pub(crate) const ES_LINK_CANCELLED: &str =
     "Vinculación cancelada. Envía un mensaje cuando quieras para empezar de nuevo.";
 pub(crate) const ES_LINK_GENERIC_ERROR: &str = "Algo salió mal. Inténtalo de nuevo más tarde.";
-pub(crate) const ES_LINK_NO_ACCOUNT: &str = "No se encontró ninguna cuenta de Pierre con ese correo. Puedes registrarte en {0} y volver a intentarlo, o escribe «cancel» para detener.";
+pub(crate) const ES_LINK_NO_ACCOUNT: &str = "No se encontró ninguna cuenta de Dravr con ese correo. Puedes registrarte en {0} y volver a intentarlo, o escribe «cancel» para detener.";
 pub(crate) const ES_LINK_NO_TENANT: &str =
     "Esta cuenta no está asociada a ninguna organización. Contacta con el soporte.";
 pub(crate) const ES_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -469,7 +469,7 @@ pub(crate) const ES_LINK_EMAIL_NOT_CONFIGURED: &str =
 pub(crate) const ES_LINK_EMAIL_SEND_FAILED: &str =
     "No se pudo enviar el correo de verificación. Inténtalo de nuevo más tarde.";
 pub(crate) const ES_LINK_INVALID_EMAIL: &str =
-    "Eso no parece una dirección de correo. Escribe el correo de tu cuenta Pierre.";
+    "Eso no parece una dirección de correo. Escribe el correo de tu cuenta Dravr.";
 pub(crate) const ES_LINK_OTP_SENT: &str = "He enviado un código de 6 cifras a {0}. Escríbelo aquí en los próximos 10 minutos.\nEscribe «cancel» para detener.";
 pub(crate) const ES_LINK_TOO_MANY_ATTEMPTS: &str = "Demasiados intentos incorrectos. La sesión de vinculación se ha cancelado. Envía un mensaje para empezar de nuevo.";
 pub(crate) const ES_LINK_INCORRECT_CODE: &str = "Código incorrecto. Te quedan {0} intento(s). Inténtalo de nuevo o escribe «cancel» para detener.";
@@ -480,9 +480,9 @@ pub(crate) const ES_LINK_OTP_PROMPT: &str =
     "Escribe el código de 6 cifras enviado a tu correo, o escribe «cancel» para detener.";
 pub(crate) const ES_LINK_SESSION_EXPIRED: &str =
     "Tu sesión de vinculación ha expirado. Envía un mensaje para empezar de nuevo.";
-pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctamente! Ya puedes hablar con Pierre desde este canal.\n\nEscribe «logout» en cualquier momento para desconectar.";
+pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctamente! Ya puedes hablar con Dravr desde este canal.\n\nEscribe «logout» en cualquier momento para desconectar.";
 
-pub(crate) const ES_STATUS_HEADER: &str = "Tu estado en Pierre:\n";
+pub(crate) const ES_STATUS_HEADER: &str = "Tu estado en Dravr:\n";
 pub(crate) const ES_STATUS_PROVIDERS_NONE: &str = "\nProveedores: ninguno conectado";
 pub(crate) const ES_STATUS_PROVIDERS_LABEL: &str = "\nProveedores: {0}";
 pub(crate) const ES_STATUS_GROUPS_LABEL: &str = "\nGrupos: {0}";
@@ -497,12 +497,12 @@ pub(crate) const ES_HELP_DOMAIN_PROVIDER: &str = "Proveedores";
 pub(crate) const ES_HELP_DOMAIN_ACCOUNT: &str = "Cuenta";
 pub(crate) const ES_HELP_FOOTER: &str = "\nO simplemente escríbeme para conversar con tu coach.";
 
-pub(crate) const ES_LOGOUT_CONFIRM_PROMPT: &str = "Esto desvinculará tu cuenta de {0} de Pierre.\nTendrás que volver a vincularla para usar la mensajería.\n\nEscribe «logout» para confirmar.";
+pub(crate) const ES_LOGOUT_CONFIRM_PROMPT: &str = "Esto desvinculará tu cuenta de {0} de Dravr.\nTendrás que volver a vincularla para usar la mensajería.\n\nEscribe «logout» para confirmar.";
 
 pub(crate) const ES_PRIVACY_STATUS_LINE: &str = "El consentimiento de analíticas está actualmente <b>{0}</b>.\n\nUsa <code>/privacy on</code> para activarlo o <code>/privacy off</code> para desactivarlo.";
 pub(crate) const ES_PRIVACY_STATUS_ENABLED: &str = "activado";
 pub(crate) const ES_PRIVACY_STATUS_DISABLED: &str = "desactivado";
-pub(crate) const ES_PRIVACY_ON_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>activado</b>. ¡Gracias por ayudarnos a mejorar Pierre!\n\nUsa <code>/privacy off</code> para darte de baja en cualquier momento.";
+pub(crate) const ES_PRIVACY_ON_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>activado</b>. ¡Gracias por ayudarnos a mejorar Dravr!\n\nUsa <code>/privacy off</code> para darte de baja en cualquier momento.";
 pub(crate) const ES_PRIVACY_OFF_CONFIRMATION: &str = "El consentimiento de analíticas está ahora <b>desactivado</b>. No se recogerán datos de uso anónimos.\n\nUsa <code>/privacy on</code> para volver a activarlo cuando quieras.";
 
 pub(crate) const ES_GROUP_LIST_EMPTY: &str =
@@ -546,7 +546,7 @@ pub(crate) const ES_COACH_ASSIGN_FORBIDDEN: &str =
 
 // ── Compiled-in defaults: German ──────────────────────────────────────────
 
-pub(crate) const DE_ERROR_GENERIC: &str = "Pierre ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})";
+pub(crate) const DE_ERROR_GENERIC: &str = "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})";
 pub(crate) const DE_EMPTY_REPLY: &str =
     "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?";
 pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort bereit, aber sie überschreitet das konfigurierte Längenlimit. Soll ich sie dir kürzer zusammenfassen?";
@@ -554,14 +554,14 @@ pub(crate) const DE_GUARDRAIL_BLOCKED_TOPIC: &str = "Dieses Thema möchte ich hi
 pub(crate) const DE_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Hinweis — ich bin mir bei {0} Aussage(n) oben nicht ganz sicher. Frag mich nach Belegen, wenn du die Quellen sehen willst.";
 pub(crate) const DE_VERIFICATION_BLOCK_FALLBACK: &str = "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?";
 
-pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Pierre zu chatten, verknüpfe zuerst dein Konto. Öffne die Pierre-Web-App, um diesen Kanal zu verbinden.";
-pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Pierre zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
-pub(crate) const DE_LINK_LOGOUT_COMPLETE: &str = "Du bist von Pierre abgemeldet. Schreib jederzeit eine Nachricht, um dein Konto erneut zu verknüpfen.";
+pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
+pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
+pub(crate) const DE_LINK_LOGOUT_COMPLETE: &str = "Du bist von Dravr abgemeldet. Schreib jederzeit eine Nachricht, um dein Konto erneut zu verknüpfen.";
 pub(crate) const DE_LINK_CANCELLED: &str =
     "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.";
 pub(crate) const DE_LINK_GENERIC_ERROR: &str =
     "Etwas ist schiefgelaufen. Bitte versuch es später erneut.";
-pub(crate) const DE_LINK_NO_ACCOUNT: &str = "Kein Pierre-Konto mit dieser E-Mail gefunden. Du kannst dich unter {0} registrieren und es erneut versuchen, oder tippe „cancel\", um abzubrechen.";
+pub(crate) const DE_LINK_NO_ACCOUNT: &str = "Kein Dravr-Konto mit dieser E-Mail gefunden. Du kannst dich unter {0} registrieren und es erneut versuchen, oder tippe „cancel\", um abzubrechen.";
 pub(crate) const DE_LINK_NO_TENANT: &str =
     "Dieses Konto ist mit keiner Organisation verknüpft. Wende dich an den Support.";
 pub(crate) const DE_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -569,7 +569,7 @@ pub(crate) const DE_LINK_EMAIL_NOT_CONFIGURED: &str =
 pub(crate) const DE_LINK_EMAIL_SEND_FAILED: &str =
     "Die Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuch es später erneut.";
 pub(crate) const DE_LINK_INVALID_EMAIL: &str =
-    "Das sieht nicht nach einer E-Mail-Adresse aus. Tippe die E-Mail deines Pierre-Kontos.";
+    "Das sieht nicht nach einer E-Mail-Adresse aus. Tippe die E-Mail deines Dravr-Kontos.";
 pub(crate) const DE_LINK_OTP_SENT: &str = "Ich habe einen 6-stelligen Code an {0} gesendet. Tippe ihn hier innerhalb von 10 Minuten ein.\nTippe „cancel\", um abzubrechen.";
 pub(crate) const DE_LINK_TOO_MANY_ATTEMPTS: &str = "Zu viele falsche Versuche. Die Verknüpfungssitzung wurde abgebrochen. Schreib eine Nachricht, um neu zu beginnen.";
 pub(crate) const DE_LINK_INCORRECT_CODE: &str = "Falscher Code. Du hast noch {0} Versuch(e). Versuch es erneut oder tippe „cancel\", um abzubrechen.";
@@ -579,9 +579,9 @@ pub(crate) const DE_LINK_IDENTITY_COLLISION: &str = "Dein Konto konnte nicht ver
 pub(crate) const DE_LINK_OTP_PROMPT: &str = "Tippe den 6-stelligen Code, den wir dir per E-Mail geschickt haben, oder tippe „cancel\", um abzubrechen.";
 pub(crate) const DE_LINK_SESSION_EXPIRED: &str =
     "Deine Verknüpfungssitzung ist abgelaufen. Schreib eine Nachricht, um neu zu beginnen.";
-pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du kannst über diesen Kanal mit Pierre chatten.\n\nTippe jederzeit „logout\", um dich abzumelden.";
+pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du kannst über diesen Kanal mit Dravr chatten.\n\nTippe jederzeit „logout\", um dich abzumelden.";
 
-pub(crate) const DE_STATUS_HEADER: &str = "Dein Pierre-Status:\n";
+pub(crate) const DE_STATUS_HEADER: &str = "Dein Dravr-Status:\n";
 pub(crate) const DE_STATUS_PROVIDERS_NONE: &str = "\nAnbieter: keine verbunden";
 pub(crate) const DE_STATUS_PROVIDERS_LABEL: &str = "\nAnbieter: {0}";
 pub(crate) const DE_STATUS_GROUPS_LABEL: &str = "\nGruppen: {0}";
@@ -597,12 +597,12 @@ pub(crate) const DE_HELP_DOMAIN_ACCOUNT: &str = "Konto";
 pub(crate) const DE_HELP_FOOTER: &str =
     "\nOder schreib mir einfach, um mit deinem Coach zu chatten.";
 
-pub(crate) const DE_LOGOUT_CONFIRM_PROMPT: &str = "Damit wird dein {0}-Konto von Pierre entkoppelt.\nDu musst es neu verknüpfen, um die Messaging-Funktion wieder zu nutzen.\n\nTippe „logout\", um zu bestätigen.";
+pub(crate) const DE_LOGOUT_CONFIRM_PROMPT: &str = "Damit wird dein {0}-Konto von Dravr entkoppelt.\nDu musst es neu verknüpfen, um die Messaging-Funktion wieder zu nutzen.\n\nTippe „logout\", um zu bestätigen.";
 
 pub(crate) const DE_PRIVACY_STATUS_LINE: &str = "Die Einwilligung zu anonymen Statistiken ist derzeit <b>{0}</b>.\n\nNutze <code>/privacy on</code> zum Aktivieren oder <code>/privacy off</code> zum Deaktivieren.";
 pub(crate) const DE_PRIVACY_STATUS_ENABLED: &str = "aktiviert";
 pub(crate) const DE_PRIVACY_STATUS_DISABLED: &str = "deaktiviert";
-pub(crate) const DE_PRIVACY_ON_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>aktiviert</b>. Danke, dass du hilfst, Pierre zu verbessern!\n\nNutze <code>/privacy off</code>, um dich jederzeit abzumelden.";
+pub(crate) const DE_PRIVACY_ON_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>aktiviert</b>. Danke, dass du hilfst, Dravr zu verbessern!\n\nNutze <code>/privacy off</code>, um dich jederzeit abzumelden.";
 pub(crate) const DE_PRIVACY_OFF_CONFIRMATION: &str = "Die Einwilligung zu anonymen Statistiken ist jetzt <b>deaktiviert</b>. Es werden keine anonymen Nutzungsdaten erhoben.\n\nNutze <code>/privacy on</code>, um dich jederzeit wieder anzumelden.";
 
 pub(crate) const DE_GROUP_LIST_EMPTY: &str =
@@ -645,7 +645,7 @@ pub(crate) const DE_COACH_ASSIGN_FORBIDDEN: &str =
 
 // ── Compiled-in defaults: Portuguese ──────────────────────────────────────
 
-pub(crate) const PT_ERROR_GENERIC: &str = "O Pierre está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})";
+pub(crate) const PT_ERROR_GENERIC: &str = "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})";
 pub(crate) const PT_EMPTY_REPLY: &str =
     "Hmm, não consegui formular uma resposta. Podes reformular a tua pergunta?";
 pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pronta, mas excede o limite configurado. Queres que a resuma mais brevemente?";
@@ -653,13 +653,13 @@ pub(crate) const PT_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiro não abordar esse t
 pub(crate) const PT_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atenção — não tenho total certeza sobre {0} afirmação(ões) acima. Pede-me as fontes se quiseres verificá-las.";
 pub(crate) const PT_VERIFICATION_BLOCK_FALLBACK: &str = "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?";
 
-pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Pierre, liga primeiro a tua conta. Abre a app web do Pierre para ligar este canal.";
-pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Pierre, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
-pub(crate) const PT_LINK_LOGOUT_COMPLETE: &str = "Saíste da sessão do Pierre. Envia uma mensagem a qualquer momento para ligar novamente a tua conta.";
+pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
+pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
+pub(crate) const PT_LINK_LOGOUT_COMPLETE: &str = "Saíste da sessão do Dravr. Envia uma mensagem a qualquer momento para ligar novamente a tua conta.";
 pub(crate) const PT_LINK_CANCELLED: &str =
     "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.";
 pub(crate) const PT_LINK_GENERIC_ERROR: &str = "Algo correu mal. Tenta de novo mais tarde.";
-pub(crate) const PT_LINK_NO_ACCOUNT: &str = "Nenhuma conta Pierre encontrada com esse e-mail. Podes registar-te em {0} e voltar a tentar, ou escreve «cancel» para parar.";
+pub(crate) const PT_LINK_NO_ACCOUNT: &str = "Nenhuma conta Dravr encontrada com esse e-mail. Podes registar-te em {0} e voltar a tentar, ou escreve «cancel» para parar.";
 pub(crate) const PT_LINK_NO_TENANT: &str =
     "Esta conta não está associada a nenhuma organização. Contacta o suporte.";
 pub(crate) const PT_LINK_EMAIL_NOT_CONFIGURED: &str =
@@ -667,7 +667,7 @@ pub(crate) const PT_LINK_EMAIL_NOT_CONFIGURED: &str =
 pub(crate) const PT_LINK_EMAIL_SEND_FAILED: &str =
     "Não foi possível enviar o e-mail de verificação. Tenta de novo mais tarde.";
 pub(crate) const PT_LINK_INVALID_EMAIL: &str =
-    "Isto não parece um endereço de e-mail. Escreve o e-mail da tua conta Pierre.";
+    "Isto não parece um endereço de e-mail. Escreve o e-mail da tua conta Dravr.";
 pub(crate) const PT_LINK_OTP_SENT: &str = "Enviei um código de 6 dígitos para {0}. Escreve-o aqui nos próximos 10 minutos.\nEscreve «cancel» para parar.";
 pub(crate) const PT_LINK_TOO_MANY_ATTEMPTS: &str = "Demasiadas tentativas incorretas. A sessão de ligação foi cancelada. Envia uma mensagem para começar de novo.";
 pub(crate) const PT_LINK_INCORRECT_CODE: &str = "Código incorreto. Tens {0} tentativa(s) restantes. Tenta de novo ou escreve «cancel» para parar.";
@@ -678,9 +678,9 @@ pub(crate) const PT_LINK_OTP_PROMPT: &str =
     "Escreve o código de 6 dígitos enviado por e-mail, ou escreve «cancel» para parar.";
 pub(crate) const PT_LINK_SESSION_EXPIRED: &str =
     "A tua sessão de ligação expirou. Envia uma mensagem para começar de novo.";
-pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! Já podes falar com o Pierre através deste canal.\n\nEscreve «logout» a qualquer momento para desligar.";
+pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! Já podes falar com o Dravr através deste canal.\n\nEscreve «logout» a qualquer momento para desligar.";
 
-pub(crate) const PT_STATUS_HEADER: &str = "O teu estado no Pierre:\n";
+pub(crate) const PT_STATUS_HEADER: &str = "O teu estado no Dravr:\n";
 pub(crate) const PT_STATUS_PROVIDERS_NONE: &str = "\nFornecedores: nenhum ligado";
 pub(crate) const PT_STATUS_PROVIDERS_LABEL: &str = "\nFornecedores: {0}";
 pub(crate) const PT_STATUS_GROUPS_LABEL: &str = "\nGrupos: {0}";
@@ -695,12 +695,12 @@ pub(crate) const PT_HELP_DOMAIN_PROVIDER: &str = "Fornecedores";
 pub(crate) const PT_HELP_DOMAIN_ACCOUNT: &str = "Conta";
 pub(crate) const PT_HELP_FOOTER: &str = "\nOu escreve-me para conversar com o teu coach.";
 
-pub(crate) const PT_LOGOUT_CONFIRM_PROMPT: &str = "Isto vai desvincular a tua conta {0} do Pierre.\nVais precisar de voltar a ligá-la para usar o messaging.\n\nEscreve «logout» para confirmar.";
+pub(crate) const PT_LOGOUT_CONFIRM_PROMPT: &str = "Isto vai desvincular a tua conta {0} do Dravr.\nVais precisar de voltar a ligá-la para usar o messaging.\n\nEscreve «logout» para confirmar.";
 
 pub(crate) const PT_PRIVACY_STATUS_LINE: &str = "O consentimento de estatísticas anónimas está atualmente <b>{0}</b>.\n\nUsa <code>/privacy on</code> para ativar ou <code>/privacy off</code> para desativar.";
 pub(crate) const PT_PRIVACY_STATUS_ENABLED: &str = "ativado";
 pub(crate) const PT_PRIVACY_STATUS_DISABLED: &str = "desativado";
-pub(crate) const PT_PRIVACY_ON_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>ativado</b>. Obrigado por ajudares a melhorar o Pierre!\n\nUsa <code>/privacy off</code> para cancelar a qualquer momento.";
+pub(crate) const PT_PRIVACY_ON_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>ativado</b>. Obrigado por ajudares a melhorar o Dravr!\n\nUsa <code>/privacy off</code> para cancelar a qualquer momento.";
 pub(crate) const PT_PRIVACY_OFF_CONFIRMATION: &str = "O consentimento de estatísticas anónimas está agora <b>desativado</b>. Não serão recolhidos dados de uso anónimos.\n\nUsa <code>/privacy on</code> para voltar a ativar a qualquer momento.";
 
 pub(crate) const PT_GROUP_LIST_EMPTY: &str =

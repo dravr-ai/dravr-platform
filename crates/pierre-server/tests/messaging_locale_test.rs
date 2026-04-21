@@ -119,7 +119,7 @@ async fn status_handler_renders_french_by_default() {
 
     let response = StatusHandler.execute(&ctx).await.expect("status FR");
     assert!(
-        response.text.starts_with("Ton statut Pierre"),
+        response.text.starts_with("Ton statut Dravr"),
         "expected FR header, got: {}",
         response.text
     );
@@ -145,7 +145,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
 
     let response = StatusHandler.execute(&ctx).await.expect("status EN");
     assert!(
-        response.text.starts_with("Your Pierre status"),
+        response.text.starts_with("Your Dravr status"),
         "expected EN header, got: {}",
         response.text
     );
