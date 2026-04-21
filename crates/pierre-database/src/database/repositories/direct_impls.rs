@@ -584,6 +584,7 @@ impl CoachesRepository for Database {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
             purpose: request.purpose.clone(),
@@ -608,10 +609,10 @@ impl CoachesRepository for Database {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
                 content_hash
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
             ",
         )
         .bind(id.to_string()).bind(user_id.to_string()).bind(tenant_id)
@@ -619,7 +620,7 @@ impl CoachesRepository for Database {
         .bind(request.category.as_str()).bind(&tags_json).bind(&sample_prompts_json)
         .bind(i64::from(token_count)).bind(now.to_rfc3339())
         .bind(0i64).bind(CoachVisibility::Private.as_str())
-        .bind(Option::<String>::None).bind(Option::<String>::None).bind(Option::<i32>::None)
+        .bind(Option::<String>::None).bind(Option::<String>::None).bind(Option::<i32>::None).bind(Option::<f32>::None)
         .bind(&request.startup_query).bind(&data_requirements_json)
         .bind(&request.purpose).bind(&request.when_to_use).bind(&request.instructions)
         .bind(&request.example_inputs).bind(&request.example_outputs)
@@ -657,6 +658,7 @@ impl CoachesRepository for Database {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: request.startup_query.clone(),
             data_requirements: request.data_requirements.clone(),
             purpose: request.purpose.clone(),
@@ -679,7 +681,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND (
                 (user_id = $2 AND tenant_id = $3)
@@ -727,7 +729,7 @@ impl CoachesRepository for Database {
             r"SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria,
                    CASE WHEN ca.coach_id IS NOT NULL THEN 1 ELSE 0 END as is_assigned,
                    COALESCE(ca.is_favorite, 0) as is_favorite,
@@ -954,7 +956,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches
             WHERE user_id = $1 AND tenant_id = $2 AND (title LIKE $3 OR description LIKE $3 OR tags LIKE $3)
@@ -1011,9 +1013,9 @@ impl CoachesRepository for Database {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements,
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                 purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)",
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)",
         )
         .bind(id.to_string()).bind(user_id.to_string()).bind(tenant_id)
         .bind(&source.title).bind(&source.description).bind(&source.system_prompt)
@@ -1021,7 +1023,7 @@ impl CoachesRepository for Database {
         .bind(i64::from(source.token_count)).bind(now.to_rfc3339())
         .bind(0i64).bind(CoachVisibility::Private.as_str())
         .bind(&prerequisites_json).bind(source_coach_id)
-        .bind(source.max_tool_iterations).bind(&source.startup_query)
+        .bind(source.max_tool_iterations).bind(source.temperature).bind(&source.startup_query)
         .bind(&source_data_requirements_json)
         .bind(&source.purpose).bind(&source.when_to_use).bind(&source.instructions)
         .bind(&source.example_inputs).bind(&source.example_outputs).bind(&source.success_criteria)
@@ -1056,6 +1058,7 @@ impl CoachesRepository for Database {
             prerequisites: source.prerequisites,
             forked_from: Some(source_coach_id.to_owned()),
             max_tool_iterations: source.max_tool_iterations,
+            temperature: source.temperature,
             startup_query: source.startup_query,
             data_requirements: source.data_requirements,
             purpose: source.purpose,
@@ -1120,7 +1123,7 @@ impl CoachesRepository for Database {
             r"SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations, c.startup_query, c.data_requirements,
+                   c.forked_from, c.max_tool_iterations, c.temperature, c.startup_query, c.data_requirements,
                    c.purpose, c.when_to_use, c.instructions, c.example_inputs, c.example_outputs, c.success_criteria
             FROM coaches c
             JOIN coach_assignments ca ON c.id = ca.coach_id AND ca.user_id = $1
@@ -1140,7 +1143,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE content_hash = $1 AND user_id = $2 AND tenant_id = $3 LIMIT 1",
         ).bind(content_hash).bind(user_id.to_string()).bind(tenant_id)
@@ -1167,8 +1170,8 @@ impl CoachesRepository for Database {
                 id, user_id, tenant_id, title, description, system_prompt,
                 category, tags, sample_prompts, token_count,
                 created_at, updated_at, is_system, visibility, prerequisites,
-                forked_from, max_tool_iterations, startup_query, data_requirements
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18)",
+                forked_from, max_tool_iterations, temperature, startup_query, data_requirements
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, $15, $16, $17, $18, $19)",
         )
         .bind(id.to_string()).bind(admin_user_id.to_string()).bind(tenant_id)
         .bind(&request.title).bind(&request.description).bind(&request.system_prompt)
@@ -1176,7 +1179,7 @@ impl CoachesRepository for Database {
         .bind(i64::from(token_count)).bind(now.to_rfc3339())
         .bind(1i64).bind(request.visibility.as_str())
         .bind(Option::<String>::None).bind(Option::<String>::None)
-        .bind(Option::<i32>::None).bind(Option::<String>::None).bind(Option::<String>::None)
+        .bind(Option::<i32>::None).bind(Option::<f32>::None).bind(Option::<String>::None).bind(Option::<String>::None)
         .execute(self.pool()).await
         .map_err(|e| AppError::database(format!("Failed to create system coach: {e}")))?;
 
@@ -1198,6 +1201,7 @@ impl CoachesRepository for Database {
             prerequisites: CoachPrerequisites::default(),
             forked_from: None,
             max_tool_iterations: None,
+            temperature: None,
             startup_query: None,
             data_requirements: None,
             purpose: None,
@@ -1215,7 +1219,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE tenant_id = $1 AND is_system = 1 ORDER BY created_at DESC",
         ).bind(tenant_id).fetch_all(self.pool()).await
@@ -1232,7 +1236,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND tenant_id = $2 AND is_system = 1",
         ).bind(coach_id).bind(tenant_id).fetch_optional(self.pool()).await
@@ -1245,7 +1249,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND is_system = 1",
         ).bind(coach_id).fetch_optional(self.pool()).await
@@ -1462,7 +1466,7 @@ impl CoachesRepository for Database {
             r"SELECT c.id, c.user_id, c.tenant_id, c.title, c.description, c.system_prompt,
                    c.category, c.tags, c.sample_prompts, c.token_count,
                    c.created_at, c.updated_at, c.is_system, c.visibility, c.prerequisites,
-                   c.forked_from, c.max_tool_iterations
+                   c.forked_from, c.max_tool_iterations, c.temperature
             FROM coaches c
             INNER JOIN user_coach_preferences ucp ON c.id = ucp.coach_id
             WHERE ucp.user_id = $1 AND ucp.is_hidden = 1 AND c.tenant_id = $2
@@ -1488,7 +1492,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1",
         ).bind(coach_id).fetch_optional(self.pool()).await
@@ -1650,7 +1654,7 @@ impl CoachesRepository for Database {
             r"SELECT id, user_id, tenant_id, title, description, system_prompt,
                    category, tags, sample_prompts, token_count,
                    created_at, updated_at, is_system, visibility, prerequisites,
-                   forked_from, max_tool_iterations, startup_query, data_requirements,
+                   forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
                    purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria
             FROM coaches WHERE id = $1 AND tenant_id = $2",
         ).bind(coach_id).bind(tenant_id).fetch_optional(self.pool()).await
@@ -1672,9 +1676,15 @@ impl CoachesRepository for Database {
         coach_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Option<CoachRuntimeContext>> {
-        type Row = (String, Option<String>, Option<String>, Option<i32>);
+        type Row = (
+            String,
+            Option<String>,
+            Option<String>,
+            Option<i32>,
+            Option<f32>,
+        );
         let row: Option<Row> = sqlx::query_as(
-            r"SELECT system_prompt, startup_query, data_requirements, max_tool_iterations
+            r"SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature
             FROM coaches WHERE id = $1 AND (tenant_id = $2 OR is_system = 1) LIMIT 1",
         )
         .bind(coach_id)
@@ -1683,12 +1693,19 @@ impl CoachesRepository for Database {
         .await
         .map_err(|e| AppError::database(format!("Failed to get coach runtime context: {e}")))?;
         Ok(row.map(
-            |(system_prompt, startup_query, data_requirements, max_tool_iterations)| {
+            |(
+                system_prompt,
+                startup_query,
+                data_requirements,
+                max_tool_iterations,
+                temperature,
+            )| {
                 CoachRuntimeContext {
                     system_prompt,
                     startup_query,
                     data_requirements,
                     max_tool_iterations,
+                    temperature,
                 }
             },
         ))

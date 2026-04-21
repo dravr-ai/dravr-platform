@@ -105,6 +105,7 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         serde_json::from_str(&prerequisites_json).unwrap_or_default();
 
     let max_tool_iterations: Option<i32> = row.try_get("max_tool_iterations").ok().flatten();
+    let temperature: Option<f32> = row.try_get("temperature").ok().flatten();
     let startup_query: Option<String> = row.try_get("startup_query").ok().flatten();
     let data_requirements_json: Option<String> = row.try_get("data_requirements").ok().flatten();
     let data_requirements: Option<DataRequirements> =
@@ -146,6 +147,7 @@ pub fn row_to_coach(row: &SqliteRow) -> AppResult<Coach> {
         prerequisites,
         forked_from,
         max_tool_iterations,
+        temperature,
         startup_query,
         data_requirements,
         purpose,

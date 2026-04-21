@@ -677,6 +677,7 @@ async fn dispatch_llm_with_tools(
         tenant_id: input.tool_tenant_id,
         max_iterations,
         call_recorder,
+        temperature: coach_ctx.and_then(|c| c.temperature),
     };
     let result = chat_tool_loop::run_tool_loop(&tool_params, llm_messages).await?;
 

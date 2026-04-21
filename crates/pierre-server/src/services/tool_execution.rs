@@ -88,6 +88,10 @@ pub struct ToolLoopParams<'a> {
     /// When absent, the loop still accumulates cumulative usage for
     /// the returned [`ToolLoopResult`] without recording individual calls.
     pub call_recorder: Option<Arc<dyn LlmCallRecorder>>,
+    /// Optional per-coach LLM sampling temperature. When `Some`, applied
+    /// to every `ChatRequest` in the loop via `with_temperature`. When
+    /// `None`, the provider/server default is used.
+    pub temperature: Option<f32>,
 }
 
 /// Result of running the multi-turn tool execution loop
@@ -133,7 +137,13 @@ pub async fn run_api_tool_loop(
     };
 
     for iteration in 0..params.max_iterations {
-        let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+        let llm_request = {
+            let req = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+            match params.temperature {
+                Some(t) => req.with_temperature(t),
+                None => req,
+            }
+        };
         let call_start = Instant::now();
         let response_result = params
             .provider
@@ -283,7 +293,13 @@ pub async fn run_cli_tool_loop(
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
 
     for iteration in 0..max_iterations {
-        let llm_request = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+        let llm_request = {
+            let req = ChatRequest::new(llm_messages.clone()).with_model(params.model);
+            match params.temperature {
+                Some(t) => req.with_temperature(t),
+                None => req,
+            }
+        };
         let call_start = Instant::now();
         let response_result = params.provider.complete(&llm_request).await;
         let latency_ms = millis_elapsed(call_start);
@@ -771,7 +787,13 @@ async fn run_headless_tool_loop(
     info!("Headless tool loop: invoking Copilot ACP converse()");
 
     // Build the ChatRequest from the accumulated messages
-    let request = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
+    let request = {
+        let req = ChatRequest::new(llm_messages.to_vec()).with_model(params.model);
+        match params.temperature {
+            Some(t) => req.with_temperature(t),
+            None => req,
+        }
+    };
 
     // Copilot Headless handles tool execution internally via ACP
     let call_start = Instant::now();

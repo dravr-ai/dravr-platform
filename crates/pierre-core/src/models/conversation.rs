@@ -156,6 +156,9 @@ pub struct CoachRuntimeContext {
     pub data_requirements: Option<String>,
     /// Optional per-coach override for max tool-call iterations per turn
     pub max_tool_iterations: Option<i32>,
+    /// Optional per-coach LLM sampling temperature override. `None` → use
+    /// provider/server default.
+    pub temperature: Option<f32>,
 }
 
 /// Database representation of a chat message

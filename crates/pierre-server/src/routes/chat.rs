@@ -906,6 +906,7 @@ impl ChatRoutes {
             tenant_id,
             max_iterations: DEFAULT_MAX_TOOL_ITERATIONS,
             call_recorder,
+            temperature: None,
         };
         let result = chat_tool_loop::run_tool_loop(&tool_params, &mut llm_messages).await?;
 

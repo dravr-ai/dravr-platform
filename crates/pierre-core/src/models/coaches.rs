@@ -302,6 +302,10 @@ pub struct Coach {
     /// Maximum tool call iterations for this coach (overrides global config)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_iterations: Option<i32>,
+    /// LLM sampling temperature override for this coach. `None` means use the
+    /// provider/server default. Expected range 0.0..=2.0; not clamped here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
     /// Query auto-sent on first message to provide analysis context
     #[serde(skip_serializing_if = "Option::is_none")]
     pub startup_query: Option<String>,
