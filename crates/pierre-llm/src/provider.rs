@@ -19,6 +19,7 @@
 //! - `openai_api`/`openai`: Use an `OpenAI`-compatible HTTP API via embacle
 
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -44,6 +45,11 @@ pub enum ChatProvider {
     Local(OpenAiCompatibleProvider),
     /// Embacle-based LLM provider (CLI runners and SDK runners)
     Cli(CliLlmProvider),
+    /// Custom provider supplied by the caller (used by tests to inject a
+    /// deterministic mock). Never constructed in production code paths —
+    /// production providers are resolved via [`ChatProvider::from_env`] or
+    /// the per-tenant credential factory.
+    Custom(Arc<dyn LlmProvider>),
 }
 
 impl ChatProvider {
@@ -225,7 +231,9 @@ impl ChatProvider {
     #[must_use]
     pub fn provider_type(&self) -> LlmProviderType {
         match self {
-            Self::Gemini(_) => LlmProviderType::Gemini,
+            // Test-injected custom providers report as Gemini for metrics/analytics
+            // — the variant is test-only and not part of the production taxonomy.
+            Self::Gemini(_) | Self::Custom(_) => LlmProviderType::Gemini,
             Self::Groq(_) => LlmProviderType::Groq,
             Self::Local(_) => LlmProviderType::Local,
             Self::Cli(p) => p.provider_type(),
@@ -271,6 +279,19 @@ impl ChatProvider {
             Self::Cli(_) => Err(AppError::invalid_input(
                 "Embacle-based providers do not support structured tool calling via this path",
             )),
+            // Custom providers run through the plain `complete()` path. Tools
+            // are advertised via the system prompt; the mock in tests replies
+            // with plain text so there is no tool-call payload to decode.
+            Self::Custom(inner) => {
+                let response = inner.complete(request).await?;
+                Ok(ChatResponseWithTools {
+                    content: Some(response.content),
+                    model: response.model,
+                    usage: response.usage,
+                    function_calls: None,
+                    finish_reason: response.finish_reason,
+                })
+            }
         }
     }
 
@@ -393,6 +414,7 @@ impl fmt::Debug for ChatProvider {
             Self::Groq(_) => f.debug_tuple("ChatProvider::Groq").finish(),
             Self::Local(_) => f.debug_tuple("ChatProvider::Local").finish(),
             Self::Cli(_) => f.debug_tuple("ChatProvider::Cli").finish(),
+            Self::Custom(_) => f.debug_tuple("ChatProvider::Custom").finish(),
         }
     }
 }
@@ -406,6 +428,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.name(),
             Self::Local(p) => p.name(),
             Self::Cli(p) => p.name(),
+            Self::Custom(p) => p.name(),
         }
     }
 
@@ -415,6 +438,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.display_name(),
             Self::Local(p) => p.display_name(),
             Self::Cli(p) => p.display_name(),
+            Self::Custom(p) => p.display_name(),
         }
     }
 
@@ -424,6 +448,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.capabilities(),
             Self::Local(p) => p.capabilities(),
             Self::Cli(p) => p.capabilities(),
+            Self::Custom(p) => p.capabilities(),
         }
     }
 
@@ -433,6 +458,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.default_model(),
             Self::Local(p) => p.default_model(),
             Self::Cli(p) => p.default_model(),
+            Self::Custom(p) => p.default_model(),
         }
     }
 
@@ -442,6 +468,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.available_models(),
             Self::Local(p) => p.available_models(),
             Self::Cli(p) => p.available_models(),
+            Self::Custom(p) => p.available_models(),
         }
     }
 
@@ -451,6 +478,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.complete(request).await,
             Self::Local(p) => p.complete(request).await,
             Self::Cli(p) => p.complete(request).await,
+            Self::Custom(p) => p.complete(request).await,
         }
     }
 
@@ -460,6 +488,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.complete_stream(request).await,
             Self::Local(p) => p.complete_stream(request).await,
             Self::Cli(p) => p.complete_stream(request).await,
+            Self::Custom(p) => p.complete_stream(request).await,
         }
     }
 
@@ -469,6 +498,7 @@ impl LlmProvider for ChatProvider {
             Self::Groq(p) => p.health_check().await,
             Self::Local(p) => p.health_check().await,
             Self::Cli(p) => p.health_check().await,
+            Self::Custom(p) => p.health_check().await,
         }
     }
 }
