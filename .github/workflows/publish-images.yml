@@ -31,11 +31,15 @@ jobs:
   resolve-sha:
     name: Resolve Commit SHA
     runs-on: ubuntu-latest
-    # Skip if triggered by a failed CI run
+    # Skip if triggered by a failed CI run, or by a CI run that was itself
+    # triggered by a schedule (cron) — nightly CI on main rebuilds the same
+    # commit SHA and would create a new Cloud Run revision for zero code
+    # change. Only deploy when the upstream CI was triggered by a real push.
     if: >
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
 
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
