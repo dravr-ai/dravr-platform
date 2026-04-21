@@ -327,6 +327,113 @@ async fn returns_400_for_invalid_uuid() -> Result<()> {
     Ok(())
 }
 
+/// Simulates the end-to-end cross-repo data flow: canot generates the
+/// turn id at its webhook boundary (`dravr_canot::ConversationTurnId`),
+/// the platform bridges it into `pierre_core::ConversationTurnId` via
+/// `From<CanotTurnId>`, writes `llm_usage` rows keyed to that id, and
+/// the admin endpoint returns them when queried by the original id
+/// rendered as a UUID string.
+///
+/// This is the integration contract the gist's "one turn id flows from
+/// webhook to /internal/conversation-turn" requirement relies on.
+#[tokio::test]
+#[serial]
+async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
+    use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
+
+    let resources = create_test_server_resources().await?;
+    let (user, tenant, auth) =
+        create_admin_user_and_token(&resources, "turn-bridge-admin@test.com").await;
+
+    // Canot-side id that the webhook adapter would have stamped onto
+    // `IncomingMessage.turn_id`.
+    let canot_id = CanotTurnId::new();
+
+    // Platform bridges via the `From<CanotTurnId>` impl — what
+    // messaging_ingress does when building `PendingDispatch`.
+    let platform_id: ConversationTurnId = canot_id.into();
+
+    // Seed one per-call row + one summary row keyed to `platform_id`.
+    let tenant_str = tenant.to_string();
+    let user_str = user.to_string();
+    resources
+        .repos
+        .llm_usage
+        .insert_llm_usage(&InsertLlmUsage {
+            tenant_id: &tenant_str,
+            user_id: &user_str,
+            conversation_id: Some("conv-bridge"),
+            turn_id: platform_id,
+            provider: "google",
+            model: "gemini-2.0-flash-exp",
+            prompt_tokens: 77,
+            completion_tokens: 11,
+            total_tokens: 88,
+            call_type: "chat",
+            tool_calls_count: 0,
+            tools_called: "[]",
+            execution_time_ms: Some(123),
+        })
+        .await?;
+    resources
+        .repos
+        .llm_usage
+        .insert_llm_usage(&InsertLlmUsage {
+            tenant_id: &tenant_str,
+            user_id: &user_str,
+            conversation_id: Some("conv-bridge"),
+            turn_id: platform_id,
+            provider: "gemini",
+            model: "gemini-2.0-flash-exp",
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            total_tokens: 0,
+            call_type: TURN_SUMMARY_CALL_TYPE,
+            tool_calls_count: 0,
+            tools_called: "[]",
+            execution_time_ms: Some(150),
+        })
+        .await?;
+
+    // Query the endpoint using the canot UUID rendered as a string —
+    // the wire shape an external Botium/on-call tool would send.
+    let router = build_router(resources);
+    let response = AxumTestRequest::get(&format!(
+        "/internal/conversation-turn/{}",
+        canot_id.as_uuid()
+    ))
+    .header("authorization", &auth)
+    .send(router)
+    .await;
+
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json::<Value>();
+    assert_eq!(body["turn_id"], canot_id.as_uuid().to_string());
+    assert_eq!(body["llm_calls"].as_array().unwrap().len(), 1);
+    assert_eq!(body["total_tokens"].as_u64().unwrap(), 88);
+    Ok(())
+}
+
+/// Nil UUID is the pre-migration sentinel for `llm_usage.turn_id`;
+/// returning the lumped set would be misleading, so the handler must
+/// reject it explicitly with 400.
+#[tokio::test]
+#[serial]
+async fn returns_400_for_nil_uuid() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (_, _, auth) = create_admin_user_and_token(&resources, "turn-admin-nil@test.com").await;
+
+    let router = build_router(resources);
+    let response =
+        AxumTestRequest::get("/internal/conversation-turn/00000000-0000-0000-0000-000000000000")
+            .header("authorization", &auth)
+            .send(router)
+            .await;
+
+    assert_eq!(response.status(), 400);
+    Ok(())
+}
+
 #[tokio::test]
 #[serial]
 async fn rejects_non_admin_caller() -> Result<()> {

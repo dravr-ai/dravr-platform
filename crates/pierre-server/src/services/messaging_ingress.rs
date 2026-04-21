@@ -151,6 +151,11 @@ pub(crate) struct PendingDispatch {
     /// language. Populated via [`resolve_messaging_locale`] when the
     /// dispatch is enqueued.
     locale: String,
+    /// Conversation-turn correlation identifier set by canot's webhook
+    /// adapter on [`IncomingMessage::turn_id`]. Threaded through the
+    /// pipeline so every LLM call, tool invocation, and outbound reply
+    /// shares one id end-to-end.
+    turn_id: ConversationTurnId,
 }
 
 /// Parameters for the OTP code verification step of the channel linking flow
@@ -1537,6 +1542,11 @@ async fn persist_single_message(
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
                     locale: locale.clone(),
+                    // Canot generates the turn id at the webhook boundary
+                    // (see canot's IncomingMessage::turn_id); adopt it so
+                    // canot-emitted log spans and the platform's
+                    // /internal/conversation-turn row share one key.
+                    turn_id: message.turn_id.into(),
                 },
             )))
         },
@@ -2077,10 +2087,12 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     let hashed_user = hash_id(&dispatch.session.user_id);
 
     let profile = build_messaging_profile(&dispatch);
-    // Generate the turn id here — the messaging inbound webhook is the
-    // boundary for platform-side observability. A single inbound message
-    // plus its full LLM/tool chain is one turn.
-    let turn_id = ConversationTurnId::new();
+    // Reuse the turn id canot generated at the webhook boundary
+    // (stored on `dispatch.turn_id`). The inbound webhook is the
+    // boundary for platform-side observability: a single inbound
+    // message plus its full LLM/tool chain is one turn, and canot's
+    // log spans already key off this id.
+    let turn_id = dispatch.turn_id;
     let turn_input = TurnInput {
         conversation_id: dispatch.session.conversation.clone(),
         user_id: dispatch.session.user_id.clone(),
