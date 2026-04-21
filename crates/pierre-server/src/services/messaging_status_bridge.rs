@@ -52,10 +52,6 @@ use tracing::{debug, warn};
 
 use crate::agui::RunRegistry;
 
-/// Channel-neutral placeholder text used by every adapter. Kept here
-/// (not per-channel) so the UX is uniform across Telegram/Slack/Discord.
-const PLACEHOLDER_TEXT: &str = "thinking…";
-
 /// Parameters for opening a channel-specific [`StatusAdapter`].
 ///
 /// Carries the per-tenant `ChannelConfig` (holds the bot token /
@@ -82,6 +78,11 @@ pub struct OpenStatusParams<'a> {
     /// placeholder should land there too — not as a top-level
     /// channel message.
     pub thread_id: Option<&'a str>,
+    /// Localized "thinking…" placeholder shown while the LLM composes
+    /// its reply. Caller resolves this from the messaging-strings
+    /// registry for the user's locale so the UX matches the reply
+    /// language (French "réflexion…", English "thinking…", etc.).
+    pub placeholder_text: &'a str,
     /// Optional override for the channel platform's base URL.
     ///
     /// Production code always sets this to `None`, hitting
@@ -132,7 +133,7 @@ async fn open_telegram(
             bot_token,
             params.conversation_id,
             thread_id,
-            PLACEHOLDER_TEXT,
+            params.placeholder_text,
             base,
         )
         .await
@@ -141,7 +142,7 @@ async fn open_telegram(
             bot_token,
             params.conversation_id,
             thread_id,
-            PLACEHOLDER_TEXT,
+            params.placeholder_text,
         )
         .await
     };
@@ -165,7 +166,7 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapt
             bot_token,
             params.conversation_id,
             thread_ts,
-            PLACEHOLDER_TEXT,
+            params.placeholder_text,
             base,
         )
         .await
@@ -174,7 +175,7 @@ async fn open_slack(params: &OpenStatusParams<'_>) -> Option<Arc<dyn StatusAdapt
             bot_token,
             params.conversation_id,
             thread_ts,
-            PLACEHOLDER_TEXT,
+            params.placeholder_text,
         )
         .await
     };
@@ -195,12 +196,12 @@ async fn open_discord(
         DiscordStatusAdapter::open_with_base(
             bot_token,
             params.conversation_id,
-            PLACEHOLDER_TEXT,
+            params.placeholder_text,
             base,
         )
         .await
     } else {
-        DiscordStatusAdapter::open(bot_token, params.conversation_id, PLACEHOLDER_TEXT).await
+        DiscordStatusAdapter::open(bot_token, params.conversation_id, params.placeholder_text).await
     };
     match result {
         Ok(adapter) => Some(Arc::new(adapter) as Arc<dyn StatusAdapter + Send + Sync>),

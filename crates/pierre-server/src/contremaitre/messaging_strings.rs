@@ -70,15 +70,22 @@ pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic
 pub const KEY_VERIFICATION_WARN_SUFFIX: &str = "messaging.verification.warn_suffix";
 /// Key: Tier 5.5 `Block` fallback that fully replaces the LLM reply.
 pub const KEY_VERIFICATION_BLOCK_FALLBACK: &str = "messaging.verification.block_fallback";
-/// Key: canonical refusal emitted when the user asks something outside the
-/// fitness-assistant scope (pricing, trivia, general web lookups, etc.).
-/// Interpolated into [`super::registry::PromptRegistry::pierre_system_prompt`]
-/// at turn-time so the LLM emits exactly this string instead of translating.
+/// Key: canonical refusal for off-scope requests.
+///
+/// Emitted when the user asks something outside the fitness-assistant
+/// scope (pricing, trivia, general web lookups, etc.). Interpolated into
+/// [`super::registry::PromptRegistry::pierre_system_prompt`] at turn-time
+/// so the LLM emits exactly this string instead of translating.
 pub const KEY_SCOPE_REFUSAL: &str = "messaging.scope.refusal";
-/// Key: canonical refusal emitted when the user asks for a capability the
-/// assistant does not have (web scraping, image generation, etc.).
-/// Interpolated into the system prompt at turn-time for deterministic output.
+/// Key: canonical refusal for missing-capability requests.
+///
+/// Emitted when the user asks for a capability the assistant does not have
+/// (web scraping, image generation, etc.). Interpolated into the system
+/// prompt at turn-time for deterministic output.
 pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
+/// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
+/// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
+pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
 
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
@@ -259,6 +266,8 @@ pub const FR_SCOPE_REFUSAL: &str =
     "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.";
 /// French canonical refusal for missing-capability requests.
 pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
+/// French placeholder shown while the LLM is composing its reply.
+pub const FR_THINKING_PLACEHOLDER: &str = "réflexion…";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -372,6 +381,8 @@ pub const EN_SCOPE_REFUSAL: &str =
     "That's outside what I can help with — I'm your fitness assistant.";
 /// English canonical refusal for missing-capability requests.
 pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
+/// English placeholder shown while the LLM is composing its reply.
+pub const EN_THINKING_PLACEHOLDER: &str = "thinking…";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -478,6 +489,8 @@ pub(crate) const ES_SCOPE_REFUSAL: &str =
     "Eso está fuera de lo que puedo hacer — soy tu asistente de fitness.";
 /// Spanish canonical refusal for missing-capability requests.
 pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
+/// Spanish placeholder shown while the LLM is composing its reply.
+pub(crate) const ES_THINKING_PLACEHOLDER: &str = "pensando…";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -582,6 +595,8 @@ pub(crate) const DE_SCOPE_REFUSAL: &str =
     "Das liegt außerhalb meines Bereichs — ich bin dein Fitness-Assistent.";
 /// German canonical refusal for missing-capability requests.
 pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
+/// German placeholder shown while the LLM is composing its reply.
+pub(crate) const DE_THINKING_PLACEHOLDER: &str = "denke nach…";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -687,6 +702,8 @@ pub(crate) const PT_SCOPE_REFUSAL: &str =
 /// Portuguese canonical refusal for missing-capability requests.
 pub(crate) const PT_CAPABILITY_REFUSAL: &str =
     "Não consigo fazer isso com as ferramentas que tenho.";
+/// Portuguese placeholder shown while the LLM is composing its reply.
+pub(crate) const PT_THINKING_PLACEHOLDER: &str = "a pensar…";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -789,6 +806,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "fr", FR_VERIFICATION_BLOCK_FALLBACK),
     (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
+    (KEY_THINKING_PLACEHOLDER, "fr", FR_THINKING_PLACEHOLDER),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -856,6 +874,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── English ─────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
+    (KEY_THINKING_PLACEHOLDER, "en", EN_THINKING_PLACEHOLDER),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -929,6 +948,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── Spanish ─────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
+    (KEY_THINKING_PLACEHOLDER, "es", ES_THINKING_PLACEHOLDER),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -1002,6 +1022,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── German ──────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
+    (KEY_THINKING_PLACEHOLDER, "de", DE_THINKING_PLACEHOLDER),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1075,6 +1096,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── Portuguese ──────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
+    (KEY_THINKING_PLACEHOLDER, "pt", PT_THINKING_PLACEHOLDER),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
