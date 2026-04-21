@@ -123,6 +123,7 @@ async fn dispatch_whatsapp_and_messenger_skip_adapter() {
             channel_config: &cfg,
             conversation_id: "conv-1",
             thread_id: None,
+            placeholder_text: "thinking…",
             api_base_override: Some(&mock_base),
         };
         let result = open_status_adapter(&params).await;
@@ -159,6 +160,7 @@ async fn dispatch_telegram_hits_send_message() {
         channel_config: &cfg,
         conversation_id: "chat-123",
         thread_id: None,
+        placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
     let adapter = open_status_adapter(&params).await;
@@ -191,6 +193,7 @@ async fn dispatch_slack_hits_chat_post_message() {
         channel_config: &cfg,
         conversation_id: "C1",
         thread_id: None,
+        placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
     let adapter = open_status_adapter(&params).await;
@@ -223,6 +226,7 @@ async fn dispatch_discord_hits_channel_messages() {
         channel_config: &cfg,
         conversation_id: "discord-chan-42",
         thread_id: None,
+        placeholder_text: "thinking…",
         api_base_override: Some(&mock_base),
     };
     let adapter = open_status_adapter(&params).await;

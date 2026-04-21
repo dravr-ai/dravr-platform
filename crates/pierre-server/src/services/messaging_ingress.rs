@@ -44,6 +44,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_LINK_INITIAL_PROMPT, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
     KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
+    KEY_THINKING_PLACEHOLDER,
 };
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
@@ -1970,11 +1971,20 @@ async fn maybe_open_status_bridge(
         _ => return (None, None),
     };
 
+    // Localized "thinking…" placeholder — resolved from the messaging-strings
+    // registry for the user's locale so Telegram/Slack/Discord show the
+    // matching-language progress message.
+    let placeholder_text = dispatch
+        .resources
+        .messaging_strings_registry
+        .get(KEY_THINKING_PLACEHOLDER, &dispatch.locale);
+
     let params = OpenStatusParams {
         channel_type: dispatch.channel_type,
         channel_config,
         conversation_id,
         thread_id: dispatch.thread_id.as_deref(),
+        placeholder_text: &placeholder_text,
         // Production always hits the real platform base URLs; the
         // override exists so integration tests can point at a local
         // mock server to verify dispatch routing per `ChannelType`.
