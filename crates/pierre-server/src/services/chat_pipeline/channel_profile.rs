@@ -53,6 +53,22 @@ impl Channel {
             Self::Messenger => "messenger",
         }
     }
+
+    /// Whether this channel is a mobile messaging channel.
+    ///
+    /// Messaging channels render plain text only — no markdown, no code
+    /// fences, no structured formatting. Used to gate the tool-discipline
+    /// prompt variant (messaging drops the XML code-fence example that
+    /// biases models toward markdown output) and any other channel-aware
+    /// behavior that should split along the tool-capable / plain-text
+    /// boundary.
+    #[must_use]
+    pub const fn is_messaging(self) -> bool {
+        match self {
+            Self::WebChat => false,
+            Self::Telegram | Self::WhatsApp | Self::Discord | Self::Slack | Self::Messenger => true,
+        }
+    }
 }
 
 /// Policy for resolving the active LLM model on a turn.

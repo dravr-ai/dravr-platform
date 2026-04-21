@@ -39,7 +39,14 @@ critical = [
     "Intelligence analysis requires authenticated provider access",
     "requires authenticated provider access",
     "This handler.*delegates to.*services",
-    "success: false,\\s*result: None,\\s*error: Some"
+    "success: false,\\s*result: None,\\s*error: Some",
+    # "under investigation" is the hallmark of a silent-fix safety net:
+    # shipping a user-facing workaround for a bug whose root cause the
+    # author hasn't diagnosed. Either find the cause and fix it, or
+    # leave the symptom visible so someone else does — never paper it
+    # over with a dedup/retry/clamp that future debugging has to
+    # defeat first.
+    "under investigation"
 ]
 
 # Migration/compatibility patterns - should be rare and justified

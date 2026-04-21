@@ -157,3 +157,40 @@ pub async fn build_provider_context(resources: &Arc<ServerResources>, user_id: U
 
     context
 }
+
+/// Build the "Available Tools" section from the runtime tool registry.
+///
+/// Replaces the previously-static tool list that lived in
+/// `pierre_system.md`. Generating it from the registry at assembly time
+/// prevents the two from drifting as tools are added, renamed, or
+/// removed — a drift that historically led the LLM to invent
+/// capabilities (e.g. "look up Uber Eats menus") when the static list
+/// stopped reflecting reality. Each user-visible tool gets one line:
+/// `` - `name`: description ``. Admin-only tools are excluded.
+#[must_use]
+pub fn build_tools_section(resources: &Arc<ServerResources>) -> String {
+    let schemas = resources.tool_registry.user_visible_schemas();
+
+    let mut out = String::with_capacity(2_048);
+    out.push_str("## Available Tools\n\n");
+    out.push_str("You have exactly the tools listed below. You do **not** have any tool that is not in this list: ");
+    out.push_str(
+        "you cannot browse the web, scrape menus, look up prices, use third-party services, ",
+    );
+    out.push_str(
+        "or run arbitrary code. If a request requires a capability not covered here, say so ",
+    );
+    out.push_str("honestly rather than inventing a plan. Call tools with the parameters described in their schemas.\n\n");
+
+    for schema in schemas {
+        // One line per tool: `- `name`: description (first line only)`.
+        // Multi-line descriptions exist for a handful of tools; the LLM
+        // sees the full schema via native function-calling, so trimming
+        // the prompt-side description to the lead sentence keeps the
+        // system prompt compact.
+        let description_lead = schema.description.lines().next().unwrap_or("").trim();
+        let _ = writeln!(out, "- `{}`: {}", schema.name, description_lead);
+    }
+
+    out
+}

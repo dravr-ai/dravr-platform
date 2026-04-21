@@ -57,7 +57,7 @@ use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTur
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT;
+use pierre_llm::prompts::{TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT};
 use tracing::{debug, info, warn};
 
 use crate::contremaitre::messaging_strings::{
@@ -177,7 +177,7 @@ use stages::persistence::{
 use stages::prefetch::inject_startup_context;
 #[cfg(feature = "tools-groups")]
 use stages::prompt_builder::resolve_group_context;
-use stages::prompt_builder::{build_llm_messages, build_provider_context};
+use stages::prompt_builder::{build_llm_messages, build_provider_context, build_tools_section};
 use stages::refresh::inject_refresh_context;
 #[cfg(feature = "tools-verification")]
 use stages::verification::{
@@ -774,6 +774,15 @@ async fn assemble_prompt_and_messages(
     // rather than letting the LLM translate on the fly.
     let base_prompt = interpolate_refusal_placeholders(resources, input, &base_prompt);
 
+    // Stage 7a.2: Append the runtime-generated "Available Tools" section.
+    // Both the default Pierre system prompt and every coach's custom
+    // system_prompt flow through this stage so neither can drift from
+    // the actual tool registry. The registry is the single source of
+    // truth; if a tool is added, renamed, or removed, the prompt
+    // immediately reflects the change without a prompt edit.
+    let tools_section = build_tools_section(resources);
+    let base_prompt = format!("{base_prompt}\n\n{tools_section}");
+
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
     let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
@@ -844,10 +853,21 @@ async fn assemble_prompt_and_messages(
     // the system prompt, immediately before the user turn. LLMs
     // (claude-opus-4.7 especially) recency-bias heavily — mid-prompt rules
     // get drowned out by 20 KB of coach persona + provider context.
-    // Keeping this block last ensures the tool-call format and
-    // "no narration" constraint are the freshest instructions when the
-    // model starts generating.
-    let raw_system_prompt = format!("{raw_system_prompt}\n\n{TOOL_DISCIPLINE_PROMPT}");
+    // Keeping this block last ensures the tool-call and "no narration"
+    // constraints are the freshest instructions when the model starts
+    // generating.
+    //
+    // Messaging channels use a prose-only variant that omits the
+    // `<tool_call>` markdown code-fence example, which conflicts with
+    // the plain-text mandate in `messaging_context.md` and biases the
+    // model toward structured output on channels where the user sees
+    // only plain text.
+    let tool_discipline_prompt = if profile.channel.is_messaging() {
+        TOOL_DISCIPLINE_MESSAGING_PROMPT
+    } else {
+        TOOL_DISCIPLINE_PROMPT
+    };
+    let raw_system_prompt = format!("{raw_system_prompt}\n\n{tool_discipline_prompt}");
 
     // Stage 7h: Harden the prompt with a per-turn canary.
     let prompt_guard = prompt_leak::harden_system_prompt(
