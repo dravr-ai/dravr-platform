@@ -43,16 +43,22 @@ pub const INSIGHT_GENERATION_PROMPT: &str = include_str!("insight_generation.md"
 /// keep responses concise and mobile-friendly.
 pub const MESSAGING_CONTEXT_PROMPT: &str = include_str!("messaging_context.md");
 
-/// Mandatory tool-discipline prompt
+/// Mandatory tool-discipline prompt — tool-capable channel variant.
 ///
-/// Appended to **every** system prompt — including custom coach prompts —
-/// so the LLM cannot opt out of calling `discover_routes` for route
-/// requests or `get_activities` for activity references. Resolves the
-/// failure mode where custom coach personas inherited the
-/// "never fabricate data" instruction but lacked knowledge of the tools
-/// that make compliance possible, forcing the LLM to refuse requests
-/// rather than satisfy them with real tool-sourced data.
+/// Appended to every system prompt on channels that render markdown and
+/// can surface structured output to the user (web chat, MCP clients, A2A).
+/// Contains the full rule set including the `<tool_call>` format example.
 pub const TOOL_DISCIPLINE_PROMPT: &str = include_str!("tool_discipline.md");
+
+/// Mandatory tool-discipline prompt — messaging channel variant.
+///
+/// Appended to every system prompt on mobile messaging channels
+/// (`WhatsApp`, Telegram, Slack, Discord, Messenger). Keeps the
+/// data-honesty and tool-usage rules but drops the markdown-heavy XML
+/// format block, which conflicts with [`MESSAGING_CONTEXT_PROMPT`]'s
+/// plain-text mandate and biases models toward structured output on
+/// channels where the user only sees plain text.
+pub const TOOL_DISCIPLINE_MESSAGING_PROMPT: &str = include_str!("tool_discipline_messaging.md");
 
 /// Recommendation analysis user prompt template
 ///
@@ -130,14 +136,16 @@ pub const fn get_messaging_context_prompt() -> &'static str {
     MESSAGING_CONTEXT_PROMPT
 }
 
-/// Get the mandatory tool-discipline prompt.
-///
-/// Appended to every system prompt in `chat_pipeline::run` so custom
-/// coach personas inherit the non-overridable rules for calling
-/// `discover_routes` and `get_activities`.
+/// Get the tool-discipline prompt for tool-capable channels (web / MCP).
 #[must_use]
 pub const fn get_tool_discipline_prompt() -> &'static str {
     TOOL_DISCIPLINE_PROMPT
+}
+
+/// Get the tool-discipline prompt for messaging channels.
+#[must_use]
+pub const fn get_tool_discipline_messaging_prompt() -> &'static str {
+    TOOL_DISCIPLINE_MESSAGING_PROMPT
 }
 
 /// Get the recommendation analysis user prompt template
