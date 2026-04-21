@@ -19,8 +19,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use pierre_database::plugins::CreateChannelLinkParams;
 use pierre_mcp_server::contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_COACH_ASSIGN_FORBIDDEN, KEY_GROUP_LIST_EMPTY, KEY_HELP_FOOTER,
-    KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
+    MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
+    KEY_GROUP_LIST_EMPTY, KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL,
+    KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
 };
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
@@ -53,6 +54,35 @@ fn registry_has_five_compiled_locales_for_hot_keys() {
             );
         }
     }
+}
+
+/// Scope + capability refusal strings must exist in all 5 compiled-in
+/// locales. Off-topic and missing-capability asks route through these keys
+/// so the LLM emits a deterministic localized refusal instead of
+/// translating on the fly.
+#[test]
+fn registry_exposes_refusal_strings_for_every_locale() {
+    let reg = MessagingStringsRegistry::new();
+    for locale in ["fr", "en", "es", "de", "pt"] {
+        let scope = reg.get(KEY_SCOPE_REFUSAL, locale);
+        let capability = reg.get(KEY_CAPABILITY_REFUSAL, locale);
+        assert!(
+            !scope.trim().is_empty(),
+            "missing scope refusal for {locale}"
+        );
+        assert!(
+            !capability.trim().is_empty(),
+            "missing capability refusal for {locale}"
+        );
+    }
+    // Canonical French + English anchors so drift from the agreed wording
+    // fails loudly instead of silently translating per-build.
+    assert!(reg
+        .get(KEY_SCOPE_REFUSAL, "fr")
+        .contains("assistant fitness"));
+    assert!(reg
+        .get(KEY_SCOPE_REFUSAL, "en")
+        .contains("fitness assistant"));
 }
 
 /// Requested locale matches → exact string. Requested unknown locale (`"xx"`)

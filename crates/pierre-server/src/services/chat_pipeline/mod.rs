@@ -60,6 +60,10 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT;
 use tracing::{debug, info, warn};
 
+use crate::contremaitre::messaging_strings::{
+    DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
+};
+
 use crate::agui::AgUiEvent;
 
 /// Emit an AG-UI `STEP_STARTED` event if a sink is wired.
@@ -532,6 +536,30 @@ async fn run_turn(
 /// config bump (e.g. `PIERRE_LLM_MODEL` sonnet → opus) takes effect for
 /// long-lived conversations. Web chat uses [`ModelPolicy::UseStored`] to
 /// honor an explicit per-conversation model choice.
+/// Replace `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}` in the system prompt
+/// with the locale-appropriate canonical strings from
+/// [`messaging_strings_registry`]. Returns the prompt unchanged when neither
+/// placeholder is present (coach-defined prompts usually won't have them).
+fn interpolate_refusal_placeholders(
+    resources: &Arc<ServerResources>,
+    input: &TurnInput,
+    prompt: &str,
+) -> String {
+    if !prompt.contains("{{SCOPE_REFUSAL}}") && !prompt.contains("{{CAPABILITY_REFUSAL}}") {
+        return prompt.to_owned();
+    }
+    let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
+    let scope = resources
+        .messaging_strings_registry
+        .get(KEY_SCOPE_REFUSAL, locale);
+    let capability = resources
+        .messaging_strings_registry
+        .get(KEY_CAPABILITY_REFUSAL, locale);
+    prompt
+        .replace("{{SCOPE_REFUSAL}}", &scope)
+        .replace("{{CAPABILITY_REFUSAL}}", &capability)
+}
+
 fn resolve_active_model(policy: ModelPolicy, conversation_id: &str, stored_model: &str) -> String {
     match policy {
         ModelPolicy::UseStored => stored_model.to_owned(),
@@ -739,6 +767,12 @@ async fn assemble_prompt_and_messages(
         || resources.pierre_system_prompt(),
         |c| c.system_prompt.clone(),
     );
+
+    // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}`
+    // placeholders to canonical localized strings from the messaging registry.
+    // Emitting these verbatim gives deterministic refusal copy per locale
+    // rather than letting the LLM translate on the fly.
+    let base_prompt = interpolate_refusal_placeholders(resources, input, &base_prompt);
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.

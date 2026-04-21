@@ -70,6 +70,15 @@ pub const KEY_GUARDRAIL_BLOCKED_TOPIC: &str = "messaging.guardrail.blocked_topic
 pub const KEY_VERIFICATION_WARN_SUFFIX: &str = "messaging.verification.warn_suffix";
 /// Key: Tier 5.5 `Block` fallback that fully replaces the LLM reply.
 pub const KEY_VERIFICATION_BLOCK_FALLBACK: &str = "messaging.verification.block_fallback";
+/// Key: canonical refusal emitted when the user asks something outside the
+/// fitness-assistant scope (pricing, trivia, general web lookups, etc.).
+/// Interpolated into [`super::registry::PromptRegistry::pierre_system_prompt`]
+/// at turn-time so the LLM emits exactly this string instead of translating.
+pub const KEY_SCOPE_REFUSAL: &str = "messaging.scope.refusal";
+/// Key: canonical refusal emitted when the user asks for a capability the
+/// assistant does not have (web scraping, image generation, etc.).
+/// Interpolated into the system prompt at turn-time for deterministic output.
+pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 
 // ── OTP / channel-linking flow keys ───────────────────────────────────────
 // Emitted by messaging_ingress while the user is not yet linked to a Dravr
@@ -245,6 +254,11 @@ pub const FR_GUARDRAIL_BLOCKED_TOPIC: &str = "Je préfère ne pas aborder ce suj
 pub const FR_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Attention — je ne suis pas tout à fait sûr de {0} affirmation(s) ci-dessus. Demande-moi de les étayer si tu veux voir les sources.";
 /// French default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const FR_VERIFICATION_BLOCK_FALLBACK: &str = "J'ai commencé à répondre, mais quelques-unes des affirmations que j'allais faire ne correspondaient pas aux sources que je considère fiables. Laisse-moi reformuler — peux-tu me reposer la question avec un peu plus de contexte sur ce que tu cherches à comprendre?";
+/// French canonical refusal for off-scope requests.
+pub const FR_SCOPE_REFUSAL: &str =
+    "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.";
+/// French canonical refusal for missing-capability requests.
+pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
 
 pub(crate) const FR_LINK_FALLBACK_PROMPT: &str = "Pour discuter avec Dravr, relie d'abord ton compte. Ouvre l'app web Dravr pour connecter ce canal.";
 pub(crate) const FR_LINK_INITIAL_PROMPT: &str = "Salut ! Pour discuter avec Dravr, relie d'abord ton compte :\n{0}\n\nCe lien expire dans 10 minutes.";
@@ -353,6 +367,11 @@ pub const EN_GUARDRAIL_BLOCKED_TOPIC: &str = "I'd rather not get into that here.
 pub const EN_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Heads up — I'm not fully confident in {0} claim(s) above. Ask me to back them up if you want the evidence.";
 /// English default for [`KEY_VERIFICATION_BLOCK_FALLBACK`].
 pub const EN_VERIFICATION_BLOCK_FALLBACK: &str = "I started to answer, but a couple of the claims I was about to make didn't match the evidence I trust. Let me reword that — can you ask me again with a bit more context on what you're trying to figure out?";
+/// English canonical refusal for off-scope requests.
+pub const EN_SCOPE_REFUSAL: &str =
+    "That's outside what I can help with — I'm your fitness assistant.";
+/// English canonical refusal for missing-capability requests.
+pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
 
 pub(crate) const EN_LINK_FALLBACK_PROMPT: &str = "To chat with Dravr, please link your account first. Visit the Dravr web app to connect this channel.";
 pub(crate) const EN_LINK_INITIAL_PROMPT: &str =
@@ -454,6 +473,11 @@ pub(crate) const ES_GUARDRAIL_TOO_LONG: &str = "Tengo una respuesta más larga l
 pub(crate) const ES_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiero no tratar ese tema aquí. Concentrémonos en tu entrenamiento y recuperación. ¿Hay algo concreto en lo que pueda ayudarte?";
 pub(crate) const ES_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atención — no estoy del todo seguro de {0} afirmación/es anterior/es. Pídeme las fuentes si quieres verificarlas.";
 pub(crate) const ES_VERIFICATION_BLOCK_FALLBACK: &str = "Empecé a responder, pero algunas afirmaciones no coincidían con las fuentes que considero fiables. Déjame reformular — ¿puedes preguntarme de nuevo con un poco más de contexto sobre lo que intentas entender?";
+/// Spanish canonical refusal for off-scope requests.
+pub(crate) const ES_SCOPE_REFUSAL: &str =
+    "Eso está fuera de lo que puedo hacer — soy tu asistente de fitness.";
+/// Spanish canonical refusal for missing-capability requests.
+pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
 
 pub(crate) const ES_LINK_FALLBACK_PROMPT: &str = "Para hablar con Dravr, primero vincula tu cuenta. Abre la app web de Dravr para conectar este canal.";
 pub(crate) const ES_LINK_INITIAL_PROMPT: &str = "¡Hola! Para hablar con Dravr, vincula primero tu cuenta:\n{0}\n\nEste enlace expira en 10 minutos.";
@@ -553,6 +577,11 @@ pub(crate) const DE_GUARDRAIL_TOO_LONG: &str = "Ich habe eine längere Antwort b
 pub(crate) const DE_GUARDRAIL_BLOCKED_TOPIC: &str = "Dieses Thema möchte ich hier lieber nicht ansprechen. Bleiben wir bei deinem Training und deiner Erholung. Gibt es etwas Konkretes, womit ich dir helfen kann?";
 pub(crate) const DE_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Hinweis — ich bin mir bei {0} Aussage(n) oben nicht ganz sicher. Frag mich nach Belegen, wenn du die Quellen sehen willst.";
 pub(crate) const DE_VERIFICATION_BLOCK_FALLBACK: &str = "Ich habe angefangen zu antworten, aber einige der geplanten Aussagen passten nicht zu den Quellen, denen ich vertraue. Lass mich umformulieren — kannst du deine Frage noch einmal stellen, mit etwas mehr Kontext zu dem, was du verstehen willst?";
+/// German canonical refusal for off-scope requests.
+pub(crate) const DE_SCOPE_REFUSAL: &str =
+    "Das liegt außerhalb meines Bereichs — ich bin dein Fitness-Assistent.";
+/// German canonical refusal for missing-capability requests.
+pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
 
 pub(crate) const DE_LINK_FALLBACK_PROMPT: &str = "Um mit Dravr zu chatten, verknüpfe zuerst dein Konto. Öffne die Dravr-Web-App, um diesen Kanal zu verbinden.";
 pub(crate) const DE_LINK_INITIAL_PROMPT: &str = "Hallo! Um mit Dravr zu chatten, verknüpfe zuerst dein Konto:\n{0}\n\nDieser Link läuft in 10 Minuten ab.";
@@ -652,6 +681,12 @@ pub(crate) const PT_GUARDRAIL_TOO_LONG: &str = "Tenho uma resposta mais longa pr
 pub(crate) const PT_GUARDRAIL_BLOCKED_TOPIC: &str = "Prefiro não abordar esse tema aqui. Vamos manter o foco no teu treino e recuperação. Há algo específico em que possa ajudar?";
 pub(crate) const PT_VERIFICATION_WARN_SUFFIX: &str = "⚠️ Atenção — não tenho total certeza sobre {0} afirmação(ões) acima. Pede-me as fontes se quiseres verificá-las.";
 pub(crate) const PT_VERIFICATION_BLOCK_FALLBACK: &str = "Comecei a responder, mas algumas das afirmações que iria fazer não correspondiam às fontes em que confio. Deixa-me reformular — podes perguntar de novo com um pouco mais de contexto sobre o que queres entender?";
+/// Portuguese canonical refusal for off-scope requests.
+pub(crate) const PT_SCOPE_REFUSAL: &str =
+    "Isso está fora do que posso ajudar — sou o teu assistente de fitness.";
+/// Portuguese canonical refusal for missing-capability requests.
+pub(crate) const PT_CAPABILITY_REFUSAL: &str =
+    "Não consigo fazer isso com as ferramentas que tenho.";
 
 pub(crate) const PT_LINK_FALLBACK_PROMPT: &str = "Para falar com o Dravr, liga primeiro a tua conta. Abre a app web do Dravr para ligar este canal.";
 pub(crate) const PT_LINK_INITIAL_PROMPT: &str = "Olá! Para falar com o Dravr, liga primeiro a tua conta:\n{0}\n\nEste link expira em 10 minutos.";
@@ -752,6 +787,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_GUARDRAIL_BLOCKED_TOPIC, "fr", FR_GUARDRAIL_BLOCKED_TOPIC),
     (KEY_VERIFICATION_WARN_SUFFIX, "fr", FR_VERIFICATION_WARN_SUFFIX),
     (KEY_VERIFICATION_BLOCK_FALLBACK, "fr", FR_VERIFICATION_BLOCK_FALLBACK),
+    (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
+    (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
     (KEY_LINK_FALLBACK_PROMPT, "fr", FR_LINK_FALLBACK_PROMPT),
     (KEY_LINK_INITIAL_PROMPT, "fr", FR_LINK_INITIAL_PROMPT),
     (KEY_LINK_LOGOUT_COMPLETE, "fr", FR_LINK_LOGOUT_COMPLETE),
@@ -817,6 +854,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "fr", FR_COACH_ASSIGN_FORBIDDEN),
 
     // ── English ─────────────────────────────────────────────────────────
+    (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
+    (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
     (KEY_ERROR_GENERIC, "en", EN_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "en", EN_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "en", EN_GUARDRAIL_TOO_LONG),
@@ -888,6 +927,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "en", EN_COACH_ASSIGN_FORBIDDEN),
 
     // ── Spanish ─────────────────────────────────────────────────────────
+    (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
+    (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
     (KEY_ERROR_GENERIC, "es", ES_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "es", ES_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "es", ES_GUARDRAIL_TOO_LONG),
@@ -959,6 +1000,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "es", ES_COACH_ASSIGN_FORBIDDEN),
 
     // ── German ──────────────────────────────────────────────────────────
+    (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
+    (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
     (KEY_ERROR_GENERIC, "de", DE_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "de", DE_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "de", DE_GUARDRAIL_TOO_LONG),
@@ -1030,6 +1073,8 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_ASSIGN_FORBIDDEN, "de", DE_COACH_ASSIGN_FORBIDDEN),
 
     // ── Portuguese ──────────────────────────────────────────────────────
+    (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
+    (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
     (KEY_ERROR_GENERIC, "pt", PT_ERROR_GENERIC),
     (KEY_EMPTY_REPLY, "pt", PT_EMPTY_REPLY),
     (KEY_GUARDRAIL_TOO_LONG, "pt", PT_GUARDRAIL_TOO_LONG),
