@@ -39,6 +39,7 @@
 - [LLM Providers](llm-providers.md)
 - [Messaging Gateway](messaging-gateway.md)
 - [Admin Tool Management](admin-tool-management.md)
+- [Conversation-Turn Observability](conversation-turn-observability.md)
 
 # Development
 

@@ -335,6 +335,16 @@ impl LlmConsumptionRoutes {
         let parsed_uuid = turn_id
             .parse::<Uuid>()
             .map_err(|_| AppError::invalid_input("Invalid turn_id (expected UUID)"))?;
+
+        // Pre-migration llm_usage rows default to the nil UUID. Querying
+        // that value would return every such row lumped together as a
+        // single synthetic "turn", which is misleading. Reject the nil
+        // UUID explicitly — the endpoint is for observing one real turn.
+        if parsed_uuid.is_nil() {
+            return Err(AppError::invalid_input(
+                "turn_id must not be the nil UUID (used as pre-migration sentinel)",
+            ));
+        }
         let turn = ConversationTurnId::from_uuid(parsed_uuid);
 
         let rows = resources
