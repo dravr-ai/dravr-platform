@@ -1538,6 +1538,11 @@ async fn persist_single_message(
         },
         |text_content| {
             let sanitized = sanitize_for_dispatch(channel, &session.user_id, text_content);
+            // Prefer the language of the message itself over the stored
+            // `users.locale` so status placeholders / refusal lines match
+            // the language the LLM will reply in (LLMs mirror the user's
+            // current message language, not the stored preference).
+            let turn_locale = detect_turn_locale(&sanitized, &locale);
             Ok(PersistOutcome::StoredWithDispatch(Box::new(
                 PendingDispatch {
                     resources: Arc::clone(resources),
@@ -1552,7 +1557,7 @@ async fn persist_single_message(
                     text_content: sanitized,
                     channel_message_id: message.channel_message_id.clone(),
                     thread_id,
-                    locale: locale.clone(),
+                    locale: turn_locale,
                     // Canot generates the turn id at the webhook boundary
                     // (see canot's IncomingMessage::turn_id); adopt it so
                     // canot-emitted log spans and the platform's
@@ -1812,6 +1817,41 @@ pub async fn resolve_messaging_locale(
     }
 
     DEFAULT_LOCALE.to_owned()
+}
+
+/// Detect the turn's *content* locale from the raw user text.
+///
+/// Used for text that must match the LLM reply's language — status
+/// placeholders ("thinking…" / "réflexion…"), scope-refusal
+/// interpolation, guardrail fallbacks. When detection succeeds and the
+/// language is one of our supported locales (`fr`, `en`, `es`, `de`,
+/// `pt`), returns that BCP-47 short code. Otherwise returns `fallback`
+/// (normally the user's stored `users.locale`, which is already the
+/// right default for OTP/error flows that should stay consistent).
+///
+/// Short messages (<12 chars) skip detection because whatlang's signal
+/// is unreliable on tiny samples ("ok", "oui") and the fallback is
+/// almost always what the user wants anyway.
+#[must_use]
+pub fn detect_turn_locale(text: &str, fallback: &str) -> String {
+    const MIN_LEN: usize = 12;
+    if text.trim().chars().count() < MIN_LEN {
+        return fallback.to_owned();
+    }
+    let Some(info) = whatlang::detect(text) else {
+        return fallback.to_owned();
+    };
+    if !info.is_reliable() {
+        return fallback.to_owned();
+    }
+    match info.lang() {
+        whatlang::Lang::Fra => "fr".to_owned(),
+        whatlang::Lang::Eng => "en".to_owned(),
+        whatlang::Lang::Spa => "es".to_owned(),
+        whatlang::Lang::Deu => "de".to_owned(),
+        whatlang::Lang::Por => "pt".to_owned(),
+        _ => fallback.to_owned(),
+    }
 }
 
 /// Per-conversation dispatch locks ensuring sequential LLM processing.
