@@ -334,7 +334,7 @@ async fn hydrate_analytics_consent(resources: &ServerResources, user_id: &str) {
         }
         Ok(None) => {}
         Err(e) => {
-            warn!(error = %e, user_id = %user_id, "Failed to load user for analytics consent hydration");
+            error!(error = %e, user_id = %user_id, "Failed to load user for analytics consent hydration");
         }
     }
 }
@@ -420,7 +420,7 @@ async fn resolve_linked_session(
         };
 
         if let Err(e) = db.touch_session(&session_id).await {
-            warn!(error = %e, session_id = %session_id, "Failed to touch session");
+            error!(error = %e, session_id = %session_id, "Failed to touch session");
         }
 
         hydrate_analytics_consent(resources, &user_id).await;
@@ -527,7 +527,7 @@ async fn create_link_and_prompt(
     };
 
     if let Err(e) = db.create_link_state(&params).await {
-        warn!(error = %e, "Failed to create link state for unlinked user");
+        error!(error = %e, "Failed to create link state for unlinked user");
         let body = resources
             .messaging_strings_registry
             .get(KEY_LINK_FALLBACK_PROMPT, DEFAULT_LOCALE);
@@ -587,7 +587,7 @@ async fn handle_logout(
         .logout_channel_sender(tenant_id, channel, sender_id)
         .await
     {
-        warn!(error = %e, "Failed to logout channel sender");
+        error!(error = %e, "Failed to logout channel sender");
     }
 
     info!(
@@ -782,7 +782,7 @@ async fn validate_email_user(
             ));
         }
         Err(e) => {
-            warn!(error = %e, "Failed to look up user by email during OTP flow");
+            error!(error = %e, "Failed to look up user by email during OTP flow");
             return Err(otp_reply(
                 channel_type,
                 sender_id,
@@ -798,7 +798,7 @@ async fn validate_email_user(
     let tenants = match db_tenant.list_for_user(user.id).await {
         Ok(t) => t,
         Err(e) => {
-            warn!(error = %e, user_id = %user.id, "Failed to list tenants for user during OTP flow");
+            error!(error = %e, user_id = %user.id, "Failed to list tenants for user during OTP flow");
             return Err(otp_reply(
                 channel_type,
                 sender_id,
@@ -841,7 +841,7 @@ async fn generate_and_send_otp(
         .set_otp_on_link_state(state_id, email, &otp_hashed)
         .await
     {
-        warn!(error = %e, "Failed to set OTP on link state");
+        error!(error = %e, "Failed to set OTP on link state");
         return Err(otp_reply(
             channel_type,
             sender_id,
@@ -868,7 +868,7 @@ async fn generate_and_send_otp(
         .send_channel_linking_code(email, &otp_code, &channel_display_name)
         .await
     {
-        warn!(error = %e, "Failed to send OTP email for channel linking");
+        error!(error = %e, "Failed to send OTP email for channel linking");
         return Err(otp_reply(
             channel_type,
             sender_id,
@@ -1010,7 +1010,7 @@ async fn create_verified_channel_link(
     };
 
     if let Err(e) = db_msg.create_channel_link(&link_params).await {
-        warn!(error = %e, "Failed to create channel link during OTP verification");
+        error!(error = %e, "Failed to create channel link during OTP verification");
         return Err(otp_reply(
             params.channel_type,
             params.sender_id,
@@ -1150,7 +1150,7 @@ async fn start_otp_flow(
     };
 
     if let Err(e) = db.create_link_state(&params).await {
-        warn!(error = %e, "Failed to create OTP link state for unlinked user");
+        error!(error = %e, "Failed to create OTP link state for unlinked user");
         return otp_reply(
             channel_type,
             sender_id,
@@ -1163,7 +1163,7 @@ async fn start_otp_flow(
     // Set otp_step via set_otp_on_link_state (sets to 'awaiting_otp' with empty email,
     // which handle_otp_flow interprets as "awaiting email input")
     if let Err(e) = db.set_otp_on_link_state(&id, "", "").await {
-        warn!(error = %e, "Failed to initialize OTP step on link state");
+        error!(error = %e, "Failed to initialize OTP step on link state");
         return otp_reply(
             channel_type,
             sender_id,
@@ -1235,7 +1235,7 @@ async fn send_channel_response(
         let adapter_clone = Arc::clone(adapter);
         tokio::spawn(async move {
             if let Err(e) = adapter_clone.send(&message, &cfg).await {
-                warn!(error = %e, "Failed to send channel response");
+                error!(error = %e, "Failed to send channel response");
             }
         });
     }
@@ -2354,7 +2354,7 @@ async fn record_messaging_llm_usage(
     let exec_time = execution_time_ms as i64;
 
     let tools_called_json = serde_json::to_string(&result.tools_called).unwrap_or_else(|e| {
-        warn!("Failed to serialize tools_called for messaging, storing empty array: {e}");
+        error!("Failed to serialize tools_called for messaging, storing empty array: {e}");
         "[]".to_owned()
     });
 
@@ -2379,7 +2379,7 @@ async fn record_messaging_llm_usage(
         })
         .await
     {
-        warn!("Failed to record LLM usage summary for messaging: {e}");
+        error!("Failed to record LLM usage summary for messaging: {e}");
     }
 }
 
@@ -2425,7 +2425,7 @@ async fn increment_messaging_usage_counters(dispatch: &PendingDispatch, result: 
             )
             .await
         {
-            warn!("Failed to increment {counter_type} counter for messaging: {e}");
+            error!("Failed to increment {counter_type} counter for messaging: {e}");
         }
     }
 }
@@ -2472,7 +2472,7 @@ async fn load_channel_config(
             return None;
         }
         Err(e) => {
-            warn!(error = %e, "Failed to load channel config for outbound");
+            error!(error = %e, "Failed to load channel config for outbound");
             return None;
         }
     };
@@ -2480,7 +2480,7 @@ async fn load_channel_config(
     match serde_json::from_value::<ChannelConfig>(config) {
         Ok(c) => Some(c),
         Err(e) => {
-            warn!(error = %e, "Failed to deserialize channel config");
+            error!(error = %e, "Failed to deserialize channel config");
             None
         }
     }
@@ -2510,7 +2510,7 @@ async fn persist_outbound_message(
         raw_payload: None,
     };
     if let Err(e) = db.insert_message(&out_params).await {
-        warn!(error = %e, "Failed to persist outbound message");
+        error!(error = %e, "Failed to persist outbound message");
     }
 }
 
@@ -2524,7 +2524,7 @@ async fn enqueue_failed_outbound(
     outgoing: &OutgoingMessage,
 ) {
     if let Err(e) = try_enqueue_for_retry(db, dispatch, outgoing).await {
-        warn!(error = %e, channel = %dispatch.channel, "Failed to enqueue outbound for retry");
+        error!(error = %e, channel = %dispatch.channel, "Failed to enqueue outbound for retry");
     }
 }
 

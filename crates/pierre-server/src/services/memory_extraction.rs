@@ -26,7 +26,7 @@ use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_memory::{FactKind, MemoryScope, UserFact};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::llm::ChatProvider;
 use crate::mcp::resources::ServerResources;
@@ -102,7 +102,7 @@ where
     let raw = match run_llm_extraction(provider, req.user_message, req.assistant_reply).await {
         Ok(v) => v,
         Err(e) => {
-            warn!(error = %e, "memory extraction LLM call failed");
+            error!(error = %e, "memory extraction LLM call failed");
             return Ok(ExtractionOutcome::empty());
         }
     };
@@ -172,7 +172,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         match repo.upsert_user_fact(&params).await {
             Ok(row) => out.push(row),
             Err(e) => {
-                warn!(error = %e, kind = ?kind, "failed to upsert extracted user fact");
+                error!(error = %e, kind = ?kind, "failed to upsert extracted user fact");
             }
         }
     }
@@ -288,7 +288,7 @@ pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtra
         let provider = match create_chat_provider().await {
             Ok(p) => p,
             Err(e) => {
-                warn!(error = %e, "memory extraction skipped: cannot build chat provider");
+                error!(error = %e, "memory extraction skipped: cannot build chat provider");
                 return;
             }
         };
@@ -306,7 +306,7 @@ pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtra
                 persisted = outcome.persisted.len(),
                 "background memory extraction complete"
             ),
-            Err(e) => warn!(error = %e, "background memory extraction failed"),
+            Err(e) => error!(error = %e, "background memory extraction failed"),
         }
         drop(extraction_permit);
     });
