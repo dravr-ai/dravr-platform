@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_mcp_server::agui::{AgUiEvent, RunOwner, RunRegistry};
+use pierre_mcp_server::contremaitre::MessagingStringsRegistry;
 use pierre_mcp_server::models::TenantId;
 use pierre_mcp_server::services::messaging_status_bridge::spawn_status_consumer;
 use pierre_messaging::agui_status::StatusAdapter;
@@ -134,8 +135,15 @@ async fn bridge_drives_slack_edits_through_registry() {
 
     // Spawn the consumer. It must drain the backlog before waiting on
     // the live receiver.
-    let consumer_handle = spawn_status_consumer(&registry, run_id.clone(), Arc::clone(&adapter))
-        .expect("consumer spawned");
+    let strings = Arc::new(MessagingStringsRegistry::new());
+    let consumer_handle = spawn_status_consumer(
+        &registry,
+        run_id.clone(),
+        Arc::clone(&adapter),
+        Arc::clone(&strings),
+        "en".to_owned(),
+    )
+    .expect("consumer spawned");
 
     // Publish the remaining events AFTER subscribe — these exercise
     // the live-receiver path.
