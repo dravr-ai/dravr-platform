@@ -27,8 +27,14 @@ pub mod followups;
 pub mod guardrails;
 pub mod memory;
 pub mod persistence;
+/// Post-LLM content processing: canary scan, guardrails, verification, hook.
+pub mod post_process;
 pub mod prefetch;
+/// Prompt assembly: coach/default → provider/group/memory → canary → messages.
+pub mod prompt_assembly;
 pub mod prompt_builder;
 pub mod refresh;
+/// Pre-dispatch prep + multi-turn tool execution loop.
+pub mod tool_dispatch;
 #[cfg(feature = "tools-verification")]
 pub mod verification;
