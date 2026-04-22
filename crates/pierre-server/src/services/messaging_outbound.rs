@@ -18,7 +18,7 @@ use pierre_messaging::retry::{compute_retry_update, RetryDecision};
 use pierre_messaging::turn::ConversationTurnId as CanotTurnId;
 use serde_json::Value;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::mcp::resources::ServerResources;
 use crate::services::analytics::{analytics, hash_id};
@@ -39,7 +39,7 @@ pub fn start_outbound_worker(resources: Arc<ServerResources>) {
         info!("Messaging outbound retry worker started");
         loop {
             if let Err(e) = process_pending_batch(&resources).await {
-                warn!(error = %e, "Outbound retry worker batch failed");
+                error!(error = %e, "Outbound retry worker batch failed");
             }
             sleep(POLL_INTERVAL).await;
         }
@@ -149,7 +149,7 @@ async fn prepare_delivery(
     let adapter = match create_adapter_from_config(channel_type, &config) {
         Ok(a) => a,
         Err(e) => {
-            warn!(error = %e, "Failed to create adapter for retry");
+            error!(error = %e, "Failed to create adapter for retry");
             return None;
         }
     };
@@ -158,7 +158,7 @@ async fn prepare_delivery(
     let channel_config = match serde_json::from_value::<ChannelConfig>(config) {
         Ok(c) => c,
         Err(e) => {
-            warn!(error = %e, "Failed to deserialize channel config for retry");
+            error!(error = %e, "Failed to deserialize channel config for retry");
             return None;
         }
     };
@@ -186,7 +186,7 @@ async fn load_entry_config(
             None
         }
         Err(e) => {
-            warn!(error = %e, "Failed to load channel config for retry");
+            error!(error = %e, "Failed to load channel config for retry");
             None
         }
     }

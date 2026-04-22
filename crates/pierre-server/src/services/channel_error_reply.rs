@@ -34,8 +34,8 @@
 //!   both the log entry and the user-visible message so on-call can grep the
 //!   server log for the full error chain without needing conversation IDs.
 
-use pierre_core::errors::AppError;
-use tracing::warn;
+use pierre_core::errors::{AppError, ErrorCode};
+use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::contremaitre::messaging_strings::{format_template, KEY_ERROR_GENERIC};
@@ -69,12 +69,26 @@ impl ChannelErrorReply for AppError {
         scope: &'static str,
     ) -> (String, Uuid) {
         let correlation_id = Uuid::new_v4();
-        warn!(
-            scope = scope,
-            error = %self,
-            correlation_id = %correlation_id,
-            "channel reply surfaced an error"
-        );
+        // Severity follows the error category so dravr-tronc's Slack/email
+        // notifier only alerts on ERROR-level events. Validation and quota
+        // errors are user mistakes (stay at warn); everything else (DB,
+        // internal, external-service, auth) is an operator concern and
+        // must reach the on-call channel via the ERROR subscriber.
+        if is_user_facing_category(self.code) {
+            warn!(
+                scope = scope,
+                error = %self,
+                correlation_id = %correlation_id,
+                "channel reply surfaced a user-category error"
+            );
+        } else {
+            error!(
+                scope = scope,
+                error = %self,
+                correlation_id = %correlation_id,
+                "channel reply surfaced an operator-category error"
+            );
+        }
 
         let sanitized = self.sanitized_message();
         // Fall back to the locale-specific generic template when the
@@ -97,4 +111,21 @@ impl ChannelErrorReply for AppError {
 
         (body, correlation_id)
     }
+}
+
+/// Whether the error category describes a user mistake that's safe to
+/// display verbatim. The complementary categories (database, internal,
+/// external-service, auth failures) are operator concerns that must reach
+/// the ERROR subscriber so on-call sees them in Slack.
+const fn is_user_facing_category(code: ErrorCode) -> bool {
+    matches!(
+        code,
+        ErrorCode::InvalidInput
+            | ErrorCode::MissingRequiredField
+            | ErrorCode::InvalidFormat
+            | ErrorCode::ValueOutOfRange
+            | ErrorCode::RateLimitExceeded
+            | ErrorCode::QuotaExceeded
+            | ErrorCode::ResourceNotFound
+    )
 }
