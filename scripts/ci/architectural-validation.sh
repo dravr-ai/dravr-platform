@@ -1154,6 +1154,12 @@ if [ "$APPLY_SKILLS" = true ]; then
     else
         echo -e "${YELLOW}⚠️  scripts/ci/check-input-validation.sh not found or not executable${NC}"
     fi
+
+    if [ -x "$SCRIPT_DIR/check-channel-error-sanitization.sh" ]; then
+        "$SCRIPT_DIR/check-channel-error-sanitization.sh" || VALIDATION_FAILED=true
+    else
+        echo -e "${YELLOW}⚠️  scripts/ci/check-channel-error-sanitization.sh not found or not executable${NC}"
+    fi
 fi
 
 echo ""
