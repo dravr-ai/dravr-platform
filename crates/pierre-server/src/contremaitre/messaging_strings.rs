@@ -86,6 +86,10 @@ pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
+/// Key: reply when the user types a `/something` prefix that doesn't match any
+/// registered command (typos like `/.coach`, obsolete names, etc.). Short-circuits
+/// the LLM dispatch so typos don't eat quota or spam the channel.
+pub const KEY_UNKNOWN_COMMAND: &str = "messaging.unknown_command";
 /// Key: progress status shown during prompt-assembly stage.
 pub const KEY_STATUS_READING_QUESTION: &str = "messaging.status.reading_question";
 /// Key: progress status shown during LLM dispatch stage.
@@ -276,6 +280,9 @@ pub const FR_SCOPE_REFUSAL: &str =
 pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
 /// French placeholder shown while the LLM is composing its reply.
 pub const FR_THINKING_PLACEHOLDER: &str = "réflexion…";
+/// French unknown-command reply.
+pub const FR_UNKNOWN_COMMAND: &str =
+    "Commande inconnue. Tape /help pour voir la liste des commandes disponibles.";
 /// French progress status during prompt-assembly.
 pub const FR_STATUS_READING_QUESTION: &str = "lecture de ta question…";
 /// French progress status during LLM dispatch.
@@ -399,6 +406,8 @@ pub const EN_SCOPE_REFUSAL: &str =
 pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
 /// English placeholder shown while the LLM is composing its reply.
 pub const EN_THINKING_PLACEHOLDER: &str = "thinking…";
+/// English unknown-command reply.
+pub const EN_UNKNOWN_COMMAND: &str = "Unknown command. Type /help to see the available commands.";
 /// English progress status during prompt-assembly.
 pub const EN_STATUS_READING_QUESTION: &str = "reading your question…";
 /// English progress status during LLM dispatch.
@@ -515,6 +524,9 @@ pub(crate) const ES_SCOPE_REFUSAL: &str =
 pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
 /// Spanish placeholder shown while the LLM is composing its reply.
 pub(crate) const ES_THINKING_PLACEHOLDER: &str = "pensando…";
+/// Spanish unknown-command reply.
+pub(crate) const ES_UNKNOWN_COMMAND: &str =
+    "Comando desconocido. Escribe /help para ver los comandos disponibles.";
 /// Spanish progress status during prompt-assembly.
 pub(crate) const ES_STATUS_READING_QUESTION: &str = "leyendo tu pregunta…";
 /// Spanish progress status during LLM dispatch.
@@ -629,6 +641,9 @@ pub(crate) const DE_SCOPE_REFUSAL: &str =
 pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
 /// German placeholder shown while the LLM is composing its reply.
 pub(crate) const DE_THINKING_PLACEHOLDER: &str = "denke nach…";
+/// German unknown-command reply.
+pub(crate) const DE_UNKNOWN_COMMAND: &str =
+    "Unbekannter Befehl. Tippe /help für die Liste der verfügbaren Befehle.";
 /// German progress status during prompt-assembly.
 pub(crate) const DE_STATUS_READING_QUESTION: &str = "lese deine Frage…";
 /// German progress status during LLM dispatch.
@@ -744,6 +759,9 @@ pub(crate) const PT_CAPABILITY_REFUSAL: &str =
     "Não consigo fazer isso com as ferramentas que tenho.";
 /// Portuguese placeholder shown while the LLM is composing its reply.
 pub(crate) const PT_THINKING_PLACEHOLDER: &str = "a pensar…";
+/// Portuguese unknown-command reply.
+pub(crate) const PT_UNKNOWN_COMMAND: &str =
+    "Comando desconhecido. Escreve /help para ver os comandos disponíveis.";
 /// Portuguese progress status during prompt-assembly.
 pub(crate) const PT_STATUS_READING_QUESTION: &str = "a ler a tua pergunta…";
 /// Portuguese progress status during LLM dispatch.
@@ -855,6 +873,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "fr", FR_THINKING_PLACEHOLDER),
+    (KEY_UNKNOWN_COMMAND, "fr", FR_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "fr", FR_STATUS_READING_QUESTION),
     (KEY_STATUS_GENERATING_RESPONSE, "fr", FR_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "fr", FR_STATUS_CALLING_TOOL),
@@ -927,6 +946,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "en", EN_THINKING_PLACEHOLDER),
+    (KEY_UNKNOWN_COMMAND, "en", EN_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "en", EN_STATUS_READING_QUESTION),
     (KEY_STATUS_GENERATING_RESPONSE, "en", EN_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "en", EN_STATUS_CALLING_TOOL),
@@ -1005,6 +1025,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "es", ES_THINKING_PLACEHOLDER),
+    (KEY_UNKNOWN_COMMAND, "es", ES_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "es", ES_STATUS_READING_QUESTION),
     (KEY_STATUS_GENERATING_RESPONSE, "es", ES_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "es", ES_STATUS_CALLING_TOOL),
@@ -1083,6 +1104,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "de", DE_THINKING_PLACEHOLDER),
+    (KEY_UNKNOWN_COMMAND, "de", DE_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "de", DE_STATUS_READING_QUESTION),
     (KEY_STATUS_GENERATING_RESPONSE, "de", DE_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "de", DE_STATUS_CALLING_TOOL),
@@ -1161,6 +1183,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
     (KEY_THINKING_PLACEHOLDER, "pt", PT_THINKING_PLACEHOLDER),
+    (KEY_UNKNOWN_COMMAND, "pt", PT_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "pt", PT_STATUS_READING_QUESTION),
     (KEY_STATUS_GENERATING_RESPONSE, "pt", PT_STATUS_GENERATING_RESPONSE),
     (KEY_STATUS_CALLING_TOOL, "pt", PT_STATUS_CALLING_TOOL),
