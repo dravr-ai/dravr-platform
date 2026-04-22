@@ -27,7 +27,9 @@ use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
 use pierre_mcp_server::services::commands::status::StatusHandler;
 use pierre_mcp_server::services::commands::{CommandHandler, PlatformCommandContext};
-use pierre_mcp_server::services::messaging_ingress::resolve_messaging_locale;
+use pierre_mcp_server::services::messaging_ingress::{
+    detect_turn_locale, resolve_messaging_locale,
+};
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
 
@@ -83,6 +85,40 @@ fn registry_exposes_refusal_strings_for_every_locale() {
     assert!(reg
         .get(KEY_SCOPE_REFUSAL, "en")
         .contains("fitness assistant"));
+}
+
+/// `detect_turn_locale` picks the message-content language over the stored
+/// fallback so status placeholders match the LLM's reply language even when
+/// the user is writing in a language different from their saved preference.
+#[test]
+fn detect_turn_locale_matches_message_language_over_fallback() {
+    // English sentence, user.locale = "fr" → detected "en".
+    let l = detect_turn_locale(
+        "Are my latest workouts making me on track for the race on May 29?",
+        "fr",
+    );
+    assert_eq!(l, "en", "English message must override French fallback");
+
+    // French sentence, user.locale = "en" → detected "fr".
+    let l = detect_turn_locale(
+        "Peux-tu analyser ma dernière sortie et me dire si je suis sur la bonne voie?",
+        "en",
+    );
+    assert_eq!(l, "fr", "French message must override English fallback");
+
+    // Short message (<12 chars) → fallback regardless of content.
+    assert_eq!(detect_turn_locale("ok", "fr"), "fr");
+    assert_eq!(detect_turn_locale("oui", "en"), "en");
+
+    // Message in an unsupported locale → fallback.
+    // Japanese text is clearly detected but not in our locale set.
+    assert_eq!(
+        detect_turn_locale(
+            "これは日本語のテストメッセージです。トレーニングについて質問があります。",
+            "fr"
+        ),
+        "fr"
+    );
 }
 
 /// Requested locale matches → exact string. Requested unknown locale (`"xx"`)

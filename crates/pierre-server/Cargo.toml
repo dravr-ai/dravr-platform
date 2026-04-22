@@ -225,6 +225,11 @@ tower-http = { version = "0.6", features = ["trace", "request-id", "cors", "time
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
+# Lightweight language detector used to pick the message-local locale for
+# status/thinking placeholders and scope-refusal interpolation. Falls back
+# to the user's stored locale when the score is below whatlang's confidence
+# threshold (short / mixed-language messages).
+whatlang = "0.16"
 base64 = "0.22"
 bytes = "1.11"
 url = "2.5"
