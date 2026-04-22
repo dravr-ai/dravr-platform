@@ -44,7 +44,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_LINK_INITIAL_PROMPT, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
     KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
-    KEY_THINKING_PLACEHOLDER,
+    KEY_THINKING_PLACEHOLDER, KEY_UNKNOWN_COMMAND,
 };
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
@@ -1275,17 +1275,46 @@ async fn try_handle_slash_command(
         let handler_registry = resources.command_handler_registry.as_ref()?;
 
         let matcher = CommandMatcher::from_registry(cmd_registry);
-        let parsed = matcher.try_match(text, cmd_registry)?;
 
-        // Look up handler
-        let handler = handler_registry.get(&parsed.name)?;
-
-        // Build platform context
+        // Build locale + reply target up-front so the unknown-command short-circuit
+        // (slash-prefix with no registered match) can emit a localized reply without
+        // plumbing the context through two branches.
         let user_uuid = parse_uuid(&session.user_id).ok()?;
         let fallback_tenant = TenantId::from_uuid(user_uuid);
         let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
         let locale =
             resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
+        let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
+
+        let Some(parsed) = matcher.try_match(text, cmd_registry) else {
+            // Slash-prefix but no matching command (typo like "/.coach",
+            // renamed command, etc.). Short-circuit with a localized
+            // unknown-command reply so the message never reaches the LLM
+            // and doesn't consume quota / trigger a "thinking…" spinner.
+            let body = resources
+                .messaging_strings_registry
+                .get(KEY_UNKNOWN_COMMAND, &locale);
+            let hashed_tenant = hash_id(&user_tenant.to_string());
+            let hashed_user = hash_id(&session.user_id);
+            analytics().track_command_executed(
+                channel,
+                &hashed_tenant,
+                &hashed_user,
+                "unknown",
+                false,
+            );
+            return Some(OutgoingMessage {
+                channel_type,
+                recipient_id: reply_target,
+                content: MessageContent::Text { body },
+                turn_id: CanotTurnId::new(),
+                reply_to: None,
+                thread_id,
+            });
+        };
+
+        // Look up handler
+        let handler = handler_registry.get(&parsed.name)?;
 
         let ctx = PlatformCommandContext {
             user_id: user_uuid,
@@ -1296,10 +1325,6 @@ async fn try_handle_slash_command(
             resources: Arc::clone(resources),
             locale,
         };
-
-        // Use conversation_id (group chat) when available, fall back to sender_id
-        // for DM platforms — same logic as the LLM dispatch path
-        let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
 
         let hashed_tenant = hash_id(&user_tenant.to_string());
         let hashed_user = hash_id(&session.user_id);
