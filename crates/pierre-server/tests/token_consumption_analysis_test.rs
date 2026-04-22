@@ -341,9 +341,14 @@ mod axis2_prompt_sizes {
             println!("{turns:<8} {total_billed:>14} {total_output:>14} {cost_3flash:>15.6} {cost_25flash:>15.6}");
         }
 
+        // Sanity floor: the static compiled-in prompt lost ~800 tokens of
+        // "Available Tools" listing when that section moved to runtime
+        // generation via `build_tools_section` (pipeline Stage 7a.2).
+        // Current size ~2800 tokens; the floor catches accidental truncation
+        // to near-empty without pinning the exact token count.
         assert!(
-            system_tokens > 3000,
-            "System prompt should be > 3000 tokens, got {system_tokens}"
+            system_tokens > 2500,
+            "System prompt should be > 2500 tokens, got {system_tokens}"
         );
     }
 }
