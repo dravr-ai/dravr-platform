@@ -50,6 +50,7 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::routes::messaging::linking::generate_link_code;
 use crate::services::analytics::{analytics, hash_id};
+use crate::services::channel_error_reply::ChannelErrorReply;
 use crate::services::chat_orchestration;
 use crate::services::chat_pipeline::{
     self, ChannelProfile, DispatchResult, PipelineHooks, TurnInput,
@@ -1355,27 +1356,15 @@ async fn try_handle_slash_command(
                     &parsed.name,
                     false,
                 );
-                // Full error (including DB / internal details) goes to the
-                // server log with a correlation id. The user sees only the
-                // sanitized message — validation errors pass through as-is
-                // (e.g. "Missing coach ID. Usage: /coach select <id>"),
-                // everything else becomes a generic category description so
-                // raw SQL / sqlx / column-name detail never leaks.
-                let correlation_id = Uuid::new_v4();
-                warn!(
-                    command = %parsed.name,
-                    error = %e,
-                    correlation_id = %correlation_id,
-                    "Slash command execution failed"
-                );
-                let short_id = correlation_id.to_string()[..8].to_owned();
-                let sanitized = e.sanitized_message();
+                // Single centralized funnel — logs the full error with a
+                // correlation id and returns a channel-safe body. Never
+                // interpolate the raw error into the reply text by hand:
+                // the grep gate in architectural-validation.sh blocks it.
+                let (body, _correlation_id) = e.to_channel_reply(resources, &ctx.locale, "command");
                 Some(OutgoingMessage {
                     channel_type,
                     recipient_id: reply_target,
-                    content: MessageContent::Text {
-                        body: format!("Command failed: {sanitized} (ref: {short_id})"),
-                    },
+                    content: MessageContent::Text { body },
                     turn_id: CanotTurnId::new(),
                     reply_to: None,
                     thread_id,

@@ -86,6 +86,10 @@ pub mod usage_counter;
 /// Background task for periodic pruning of old usage counter records
 pub mod usage_pruning;
 
+/// Extension trait for turning `AppError` into a channel-safe reply
+#[cfg(feature = "client-messaging")]
+pub mod channel_error_reply;
+
 /// Background outbound retry worker for messaging delivery queue
 #[cfg(feature = "client-messaging")]
 pub mod messaging_outbound;
