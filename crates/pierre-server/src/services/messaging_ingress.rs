@@ -1355,16 +1355,26 @@ async fn try_handle_slash_command(
                     &parsed.name,
                     false,
                 );
+                // Full error (including DB / internal details) goes to the
+                // server log with a correlation id. The user sees only the
+                // sanitized message — validation errors pass through as-is
+                // (e.g. "Missing coach ID. Usage: /coach select <id>"),
+                // everything else becomes a generic category description so
+                // raw SQL / sqlx / column-name detail never leaks.
+                let correlation_id = Uuid::new_v4();
                 warn!(
                     command = %parsed.name,
                     error = %e,
+                    correlation_id = %correlation_id,
                     "Slash command execution failed"
                 );
+                let short_id = correlation_id.to_string()[..8].to_owned();
+                let sanitized = e.sanitized_message();
                 Some(OutgoingMessage {
                     channel_type,
                     recipient_id: reply_target,
                     content: MessageContent::Text {
-                        body: format!("Command failed: {e}"),
+                        body: format!("Command failed: {sanitized} (ref: {short_id})"),
                     },
                     turn_id: CanotTurnId::new(),
                     reply_to: None,
