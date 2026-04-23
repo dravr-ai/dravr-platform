@@ -322,7 +322,7 @@ mod phase_1_integration {
         // 3. Tool-called assertion in inverted mode — the mock did not
         //    emit tool_calls, so tools_called is empty. The asserter
         //    MUST flag this. This is the hallucination-detection
-        //    behavior we rely on in real Botium scenarios.
+        //    behavior we rely on in real-platform scenarios.
         let err = assert_tool_called(&endpoint_json, "get_activities")
             .expect_err("mock did not invoke any tool; asserter must flag the absence");
         assert_eq!(err.expected, "get_activities");

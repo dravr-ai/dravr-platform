@@ -16,7 +16,7 @@
 //! asserters are the safety net that verifies those defenses are
 //! holding.
 //!
-//! This suite enumerates the five classes of hallucination the Botium
+//! This suite enumerates the five classes of hallucination the messaging-eval
 //! plan calls out and proves that each asserter fires correctly on
 //! the adversarial reply shape the class produces:
 //!

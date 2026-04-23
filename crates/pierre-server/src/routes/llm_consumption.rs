@@ -307,8 +307,8 @@ impl LlmConsumptionRoutes {
     /// is not an admin of the tenant that owns the turn.
     ///
     /// The endpoint is scoped to `/internal/` because it is consumed by
-    /// the Botium test harness, on-call investigators, and future
-    /// per-turn dashboards — never end users.
+    /// the messaging-eval test harness, on-call investigators, and
+    /// future per-turn dashboards — never end users.
     async fn get_conversation_turn(
         State(resources): State<Arc<ServerResources>>,
         headers: HeaderMap,

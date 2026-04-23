@@ -396,7 +396,7 @@ async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
         .await?;
 
     // Query the endpoint using the canot UUID rendered as a string —
-    // the wire shape an external Botium/on-call tool would send.
+    // the wire shape an external QA/on-call tool would send.
     let router = build_router(resources);
     let response = AxumTestRequest::get(&format!(
         "/internal/conversation-turn/{}",
