@@ -36,11 +36,21 @@ impl CommandHandler for CoachListHandler {
         let locale = ctx.locale.as_str();
         let filter = ListCoachesFilter::with_defaults();
 
-        let coaches = ctx
+        let mut coaches = ctx
             .resources
             .repos
             .coaches
             .list(ctx.user_id, ctx.tenant_id, &filter)
+            .await?;
+
+        // Overlay per-locale translations on title/description/purpose/
+        // instructions. Canonical English stays on the coaches row; missing
+        // translations fall back to English automatically. Fast-path for
+        // locale == "en" avoids a round-trip.
+        ctx.resources
+            .repos
+            .coaches
+            .apply_translations(&mut coaches, locale)
             .await?;
 
         if coaches.is_empty() {
