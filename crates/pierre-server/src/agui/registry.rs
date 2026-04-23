@@ -273,21 +273,37 @@ impl RunRegistry {
     /// benign "no subscribers yet" case from the buggy "publishing
     /// to an unregistered run" case. Non-blocking — the underlying
     /// broadcast channel drops the oldest messages on overflow.
+    ///
+    /// The buffer push and the broadcast send run under the same
+    /// `recent` mutex that [`snapshot`] holds across subscribe + copy,
+    /// so a new subscriber cannot observe a state where the event is
+    /// both in the backlog *and* still pending delivery on its live
+    /// receiver (or vice versa). Either the event was fully published
+    /// before the snapshot (in which case it's in the backlog and the
+    /// new receiver won't see it) or it lands fully after the snapshot
+    /// (in which case the live receiver gets it and the backlog does
+    /// not) — never both, never neither.
     #[must_use]
     pub fn publish(&self, run_id: &str, serialized_event: String) -> PublishOutcome {
         let Some(entry) = self.inner.channels.get(run_id) else {
             return PublishOutcome::NoSlot;
         };
         let slot = entry.value();
-        if let Ok(mut buf) = slot.recent.lock() {
-            if buf.len() >= AGUI_RUN_REPLAY_BUFFER_SIZE {
-                buf.pop_front();
-            }
-            buf.push_back(serialized_event.clone());
+        let Ok(mut buf) = slot.recent.lock() else {
+            // Poisoned mutex is unrecoverable here — drop the event
+            // rather than split buffer-vs-broadcast state.
+            warn!(run_id = %run_id, "AG-UI replay buffer mutex poisoned; dropping event");
+            return PublishOutcome::NoSlot;
+        };
+        if buf.len() >= AGUI_RUN_REPLAY_BUFFER_SIZE {
+            buf.pop_front();
         }
+        buf.push_back(serialized_event.clone());
         // `send` only errors when there are zero receivers — the
         // event still landed in the replay buffer above so any
-        // late-arriving subscriber will still see it.
+        // late-arriving subscriber will still see it. Held under
+        // `recent` lock so the push + broadcast are atomic relative
+        // to `snapshot`'s subscribe + copy.
         slot.sender
             .send(serialized_event)
             .map_or(PublishOutcome::NoSubscribers, PublishOutcome::Delivered)
@@ -347,12 +363,31 @@ impl Drop for RunScope {
 }
 
 /// Snapshot a registry slot under a held entry borrow.
+///
+/// Acquires the `recent` mutex first, then subscribes to the broadcast
+/// channel, then copies the backlog — all under the same lock. This
+/// matches the ordering in [`RunRegistry::publish`] (lock → push →
+/// send → unlock) so a concurrent publish either fully precedes the
+/// snapshot (event ends up only in the backlog; the new receiver was
+/// not yet subscribed when `send` ran) or fully follows it (event
+/// reaches only the receiver; it was pushed to the buffer after the
+/// copy). Without this pairing a publish that interleaves between
+/// `subscribe` and the buffer copy would land in both, causing the
+/// messaging channel to emit the same payload twice (Bug C3).
 fn snapshot(slot: &RunSlot) -> RunSubscription {
+    let Ok(buf) = slot.recent.lock() else {
+        // Poisoned mutex — return an empty subscription. The receiver
+        // still works for any publishes that recover the lock (they
+        // short-circuit to NoSlot on poison, so practically this path
+        // yields a receiver that never fires; the caller observes the
+        // broadcast close when the run unregisters).
+        return RunSubscription {
+            backlog: Vec::new(),
+            receiver: slot.sender.subscribe(),
+        };
+    };
     let receiver = slot.sender.subscribe();
-    let backlog: Vec<String> = slot
-        .recent
-        .lock()
-        .map(|buf| buf.iter().cloned().collect())
-        .unwrap_or_default();
+    let backlog: Vec<String> = buf.iter().cloned().collect();
+    drop(buf);
     RunSubscription { backlog, receiver }
 }

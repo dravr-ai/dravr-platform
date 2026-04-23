@@ -13,6 +13,7 @@ use pierre_mcp_server::agui::{
     AgUiEvent, AgUiEventFilter, AuthorizedSubscribe, PublishOutcome, RunOwner, RunRegistry,
 };
 use pierre_mcp_server::models::TenantId;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 /// Synthetic owner for sink-level tests — real runs bind to the
@@ -222,6 +223,50 @@ async fn publish_distinguishes_no_slot_from_no_subscribers() {
         panic!("subscribe must succeed");
     };
     assert_eq!(sub.backlog.len(), 1);
+}
+
+/// A subscribe taken after a publish returns that event once, via the
+/// backlog, and never again on the live receiver (Bug C3 defensive:
+/// the snapshot path holds the replay mutex across both `subscribe`
+/// and the buffer copy so a concurrent publish cannot land in both at
+/// once). Asserts the single-delivery invariant the ordering fix is
+/// designed to preserve.
+#[tokio::test]
+async fn subscribe_after_publish_does_not_redeliver_on_receiver() {
+    let registry = RunRegistry::new();
+    let run_id = "run_no_redelivery_test";
+    let _producer = registry.register(run_id, test_owner());
+
+    // Publish one event, then subscribe — the event MUST appear in the
+    // backlog once, and the live receiver MUST NOT yield it.
+    assert_eq!(
+        registry.publish(run_id, "event_1".into()),
+        PublishOutcome::NoSubscribers,
+    );
+
+    let Some(mut subscription) = registry.subscribe_self(run_id) else {
+        panic!("subscribe must succeed");
+    };
+    assert_eq!(subscription.backlog, vec!["event_1".to_owned()]);
+    match subscription.receiver.try_recv() {
+        Err(broadcast::error::TryRecvError::Empty) => {}
+        Ok(redelivery) => panic!(
+            "live receiver re-delivered backlog event {redelivery:?} — Bug C3 race regression"
+        ),
+        Err(other) => panic!("unexpected receiver state: {other:?}"),
+    }
+
+    // A subsequent publish still reaches the live receiver, so the
+    // subscribe lock ordering did not accidentally break live delivery.
+    let _ = registry.publish(run_id, "event_2".into());
+    let live = subscription
+        .receiver
+        .recv()
+        .await
+        .expect("live receiver must yield post-subscribe publish");
+    assert_eq!(live, "event_2");
+
+    registry.unregister(run_id);
 }
 
 /// `register_scoped` returns an RAII guard that unregisters the run
