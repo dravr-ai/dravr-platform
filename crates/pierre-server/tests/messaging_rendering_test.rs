@@ -1,12 +1,12 @@
 // ABOUTME: Golden-file rendering snapshots per channel — catches format-drift regressions
-// ABOUTME: Tier L3 from the Botium plan, implemented as inline Rust JSON assertions
+// ABOUTME: Tier L3 from the messaging-eval plan, implemented as inline Rust JSON assertions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Per-channel outbound rendering snapshots.
 //!
-//! Realizes Tier L3 of the Botium plan's channel-fidelity safety net:
+//! Realizes Tier L3 of the messaging-eval plan's channel-fidelity safety net:
 //! a canonical `OutgoingMessage` is fed through each of the five
 //! channel renderers (`SlackRenderer`, `TelegramRenderer`,
 //! `DiscordRenderer`, `WhatsAppRenderer`, `MessengerRenderer`) and the

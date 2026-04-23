@@ -312,7 +312,7 @@ mod conversation_turn_e2e_tests {
         );
 
         // Query the admin /internal endpoint — this is the observability
-        // path that on-call and Botium consume.
+        // path that on-call and the messaging-eval harness consume.
         let router = LlmConsumptionRoutes::routes(Arc::clone(&resources));
         let resp = AxumTestRequest::get(&format!("/internal/conversation-turn/{turn_id}"))
             .header("authorization", &admin_auth)

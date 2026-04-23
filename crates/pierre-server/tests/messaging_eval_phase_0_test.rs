@@ -1,10 +1,10 @@
-// ABOUTME: Botium plan Phase 0 spike — synthetic activities → fixture → asserter round trip
+// ABOUTME: messaging-eval plan Phase 0 spike — synthetic activities → fixture → asserter round trip
 // ABOUTME: Validates assertion-adapter + fixture-generator approach end-to-end without a full pipeline
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Phase 0 of the Botium messaging-eval plan.
+//! Phase 0 of the messaging-eval messaging-eval plan.
 //!
 //! This test exercises the minimum viable round trip described in the
 //! plan's assertion-adapter approach:

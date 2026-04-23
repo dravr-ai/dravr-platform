@@ -1,4 +1,4 @@
-// ABOUTME: Botium-plan assertion helpers for messaging-eval integration tests
+// ABOUTME: messaging-eval plan assertion helpers for messaging-eval integration tests
 // ABOUTME: Pure functions: CitationFixture, assert_citation_grounded, assert_guardrail
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! Messaging evaluation assertion helpers.
 //!
-//! Pure-Rust realization of the Botium plan's assertion-adapter
+//! Pure-Rust realization of the messaging-eval plan's assertion-adapter
 //! approach: small composable functions that each assert one
 //! property of a coach reply. Callers compose them to describe the
 //! correctness of a scenario.
@@ -141,7 +141,7 @@
 //!
 //! # Related design documents
 //!
-//! - Botium plan gist:
+//! - messaging-eval plan gist:
 //!   <https://gist.github.com/jfarcand/10d7ad2ffe9daf937ee8a3f0b4fdbf91>
 //! - Correlation-ID threading plan:
 //!   <https://gist.github.com/jfarcand/8b4c9fbdf888f786296a2ba518e07042>
@@ -517,7 +517,7 @@ pub fn assert_citation_grounded(
 // them up by POSTing a Slack event, capturing the turn_id from the
 // `llm_usage` table, calling the admin endpoint, and passing the parsed
 // JSON to these asserters. Operating on `Value` keeps the helpers
-// usable by any consumer of the endpoint (Rust tests, future JS Botium
+// usable by any consumer of the endpoint (Rust tests, future JS messaging-eval
 // asserters via an HTTP bridge, operator CLIs).
 
 /// Reason the tool-called assertion failed.
