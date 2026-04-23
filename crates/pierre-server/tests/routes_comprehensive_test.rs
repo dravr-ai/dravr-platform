@@ -86,6 +86,7 @@ async fn create_test_auth_routes() -> Result<AuthService> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -340,6 +341,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -644,6 +646,7 @@ async fn test_user_login_success() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -943,6 +946,7 @@ async fn test_token_refresh_success() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -1190,6 +1194,7 @@ async fn test_token_refresh_mismatched_user() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -1715,6 +1720,7 @@ async fn test_complete_auth_flow() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -2045,6 +2051,7 @@ async fn test_concurrent_logins() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,

@@ -46,6 +46,7 @@ async fn test_unknown_method_handler() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -98,6 +99,7 @@ async fn test_connect_strava_handler_errors() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -134,6 +136,7 @@ async fn test_disconnect_provider_handler() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -171,6 +174,7 @@ async fn test_authentication_error_handling() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -216,6 +220,7 @@ async fn test_rate_limiting_enforcement() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -260,6 +265,7 @@ async fn test_provider_initialization_errors() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -297,6 +303,7 @@ async fn test_jsonrpc_error_responses() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -332,6 +339,7 @@ async fn test_session_state_edge_cases() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -367,6 +375,7 @@ async fn test_database_error_handling() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -402,6 +411,7 @@ async fn test_tool_call_parameter_validation() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,

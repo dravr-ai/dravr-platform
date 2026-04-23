@@ -1,0 +1,19 @@
+{
+  "_comment_purpose": "Botium connector configuration for real-Slack messaging-eval scenarios. Consumed by botium-cli via package.json. Env vars below live in .envrc on main; add BOTIUM_SLACK_* variants pointing at the *second* (test-driver) Slack app once it is installed in the #qa-automation channel of the test workspace.",
+  "_comment_activation": "Until the second Slack app exists this config is a scaffold. See .github/workflows/messaging-eval.yml 'Phase 2 activation checklist' for the step-by-step, and the Botium plan gist https://gist.github.com/jfarcand/10d7ad2ffe9daf937ee8a3f0b4fdbf91 for the full architecture.",
+  "botium": {
+    "Capabilities": {
+      "PROJECTNAME": "Dravr Messaging Eval",
+      "CONTAINERMODE": "slack",
+      "SLACK_BOT_TOKEN": "${BOTIUM_SLACK_BOT_TOKEN}",
+      "SLACK_APP_TOKEN": "${BOTIUM_SLACK_APP_TOKEN}",
+      "SLACK_SIGNING_SECRET": "${BOTIUM_SLACK_SIGNING_SECRET}",
+      "SLACK_CHANNEL": "${BOTIUM_SLACK_CHANNEL}",
+      "SLACK_COACH_BOT_USER_ID": "${BOTIUM_SLACK_COACH_BOT_USER_ID}",
+      "SIMPLEREST_BODY_JSONPATH": "$.text",
+      "SIMPLEREST_RESPONSE_JSONPATH": "$.text"
+    },
+    "Sources": {},
+    "Envs": {}
+  }
+}

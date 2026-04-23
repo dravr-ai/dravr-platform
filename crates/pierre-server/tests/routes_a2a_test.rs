@@ -279,6 +279,7 @@ impl A2ATestSetup {
                     rsa_key_size_bits: Some(2048),
                     jwks_manager: Some(common::get_shared_test_jwks()),
                     llm_provider: None,
+                    extra_tools: Vec::new(),
                 },
             )
             .await,
