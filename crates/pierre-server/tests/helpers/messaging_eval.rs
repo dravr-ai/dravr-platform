@@ -6,40 +6,163 @@
 
 //! Messaging evaluation assertion helpers.
 //!
-//! Realizes the Botium plan's assertion-adapter approach as pure Rust
-//! functions consumable from integration tests. The spike scope covers
-//! the two asserters that do not depend on the per-turn observability
-//! endpoint (`CITATION_GROUNDED` and `GUARDRAIL`); the correlation-ID
-//! dependent asserters (tool-called, cost, latency) are implemented in
-//! a later phase against `GET /internal/conversation-turn/{id}`.
+//! Pure-Rust realization of the Botium plan's assertion-adapter
+//! approach: small composable functions that each assert one
+//! property of a coach reply. Callers compose them to describe the
+//! correctness of a scenario.
 //!
-//! ## Citation grounding
+//! # Asserter catalog
+//!
+//! The module ships five asserters grouped by what they read:
+//!
+//! | Asserter | Reads | Catches |
+//! |---|---|---|
+//! | [`assert_citation_grounded`] | Reply text + [`CitationFixture`] | Hallucinated counts, distances, CTL/ATL/TSB |
+//! | [`assert_guardrail`] | Reply text + expected substring | Scope/capability refusal emitted as LLM completion instead of the canonical localized string |
+//! | [`assert_tool_called`] | JSON from `/internal/conversation-turn/{id}` | Coach claimed a tool-derived answer without actually invoking the tool |
+//! | [`assert_latency_ms_at_most`] | Same endpoint JSON | Per-turn end-to-end latency SLO violation |
+//! | [`assert_tokens_at_most`] | Same endpoint JSON | Per-turn token budget (cost proxy until pricing tables land) |
+//!
+//! The first two are *textual* asserters — they run on the reply
+//! string alone and need no server round-trip. The last three are
+//! *observability* asserters — they parse the admin endpoint's
+//! response and need the correlation-ID threading landed on main
+//! ([`pierre_core::models::ConversationTurnId`]).
+//!
+//! # Citation grounding
 //!
 //! A coach reply is *grounded* if every numeric claim it makes about
 //! the user's data matches the value pre-computed from the seeded
-//! activities, within a per-metric tolerance. Two claim kinds are
-//! extracted for the spike:
+//! activities, within a per-metric tolerance. Three claim kinds are
+//! extracted today:
 //!
 //! - activity count — patterns like `"5 runs"`, `"10 activities"`,
-//!   `"7 workouts"`
-//! - distance — patterns like `"45.3 km"`, `"120 kilometers"`
+//!   `"7 séances"` (English + French)
+//! - distance — patterns like `"45.3 km"`, `"120 kilometers"`,
+//!   `"45,3 km"` (period or comma decimal)
+//! - training load — patterns like `"CTL of 72"`, `"ATL: 48"`,
+//!   `"TSB = -6"`, `"TSB −6"` (ASCII or Unicode minus)
 //!
 //! If the reply contains no extractable claims, the asserter returns
 //! `Ok(())`: there is nothing to ground. Callers who want to fail on
 //! missing evidence should use [`assert_guardrail`] with an expected
 //! refusal string, or extend this module with a "required-claim" rule.
 //!
-//! ## Guardrail matching
+//! # Guardrail matching
 //!
 //! A fuzzy substring match: the reply must contain the expected
 //! guardrail text after whitespace normalization, or the assertion
 //! fails. Guardrail strings come from `dravr-contremaitre`'s
 //! `messaging_strings_registry` so test fixtures track the shipping
 //! copy.
+//!
+//! # Fixture derivation
+//!
+//! Integration tests seed activities with the existing
+//! [`super::synthetic_data::SyntheticDataBuilder`] and derive a
+//! [`CitationFixture`] via [`CitationFixture::from_activities`]:
+//!
+//! ```ignore
+//! use helpers::messaging_eval::{assert_citation_grounded, CitationFixture, Tolerances};
+//! use helpers::synthetic_data::SyntheticDataBuilder;
+//!
+//! let activities: Vec<_> = {
+//!     let mut gen = SyntheticDataBuilder::new(42);
+//!     (0..10).map(|_| gen.generate_run().distance_km(5.0).build()).collect()
+//! };
+//! let fixture = CitationFixture::from_activities(&activities);
+//! // fixture.activity_count == 10, total_distance_km == 50.0
+//!
+//! let reply = "You logged 10 runs totaling 50 km.";
+//! assert!(assert_citation_grounded(reply, &fixture, Tolerances::loose()).is_ok());
+//! ```
+//!
+//! When the seeded athlete profile (FTP, HR thresholds, weight)
+//! matters for CTL/ATL/TSB accuracy, use
+//! [`CitationFixture::from_activities_with_physiology`] to override
+//! the defaults.
+//!
+//! # Observability asserters + endpoint contract
+//!
+//! The per-turn observability endpoint (`GET
+//! /internal/conversation-turn/{turn_id}`, admin-only) returns a
+//! [`pierre_core::models::ConversationTurnSummary`] shape:
+//!
+//! ```json
+//! {
+//!   "turn_id": "…",
+//!   "tenant_id": "…",
+//!   "user_id": "…",
+//!   "tools_called": ["get_activities", "get_training_load"],
+//!   "llm_calls": [ { "provider": "…", "model": "…", "latency_ms": 1842, … } ],
+//!   "total_tokens": 1234,
+//!   "total_latency_ms": 3200,
+//!   …
+//! }
+//! ```
+//!
+//! [`assert_tool_called`], [`assert_latency_ms_at_most`], and
+//! [`assert_tokens_at_most`] all consume this response as a
+//! [`serde_json::Value`]. The integration tests parse it once via
+//! [`crate::helpers::axum_test::AxumTestRequest::json`] and pass the
+//! `Value` into each asserter — no repeated HTTP calls, no
+//! intermediate struct.
+//!
+//! # Adding a new scenario
+//!
+//! 1. Decide which asserters apply (textual, observability, or both).
+//! 2. Seed a tenant with [`super::synthetic_data::SyntheticDataBuilder`]
+//!    for activity-grounded scenarios, or directly via
+//!    `LlmUsageRepository::insert_llm_usage` (see
+//!    `messaging_eval_tool_called_happy_path_test.rs`) when you need
+//!    to precisely control what lands on the summary row.
+//! 3. Drive the input — Slack webhook POST via `AxumTestRequest`
+//!    (`messaging_eval_phase_1_integration_test.rs` for the pattern)
+//!    or a direct repository call.
+//! 4. Read the reply (mock-LLM canned content) or the endpoint JSON
+//!    (admin query) and run the asserters.
+//! 5. Treat the asserter's [`Err`] variant payloads as the failure
+//!    diagnostic — the `expected`/`cited`/`actual` fields tell the
+//!    reader exactly what went wrong without any manual message
+//!    construction.
+//!
+//! # Adding a new asserter
+//!
+//! - New textual asserter → add a `fn assert_foo(reply: &str, …)`
+//!   here alongside a dedicated `FooMismatch` error type.
+//! - New observability asserter → read the relevant field from the
+//!   endpoint JSON (`turn_data.get("…")`), return `Ok(())` when the
+//!   field is missing so the asserter stays a safety net not a
+//!   presence check.
+//! - Every new asserter gets unit tests in the `tests` submodule
+//!   below covering (a) happy path, (b) the specific failure it's
+//!   supposed to catch, and (c) edge cases the field can surface
+//!   (locale, Unicode, empty input).
+//!
+//! # Related design documents
+//!
+//! - Botium plan gist:
+//!   <https://gist.github.com/jfarcand/10d7ad2ffe9daf937ee8a3f0b4fdbf91>
+//! - Correlation-ID threading plan:
+//!   <https://gist.github.com/jfarcand/8b4c9fbdf888f786296a2ba518e07042>
 
 #![allow(dead_code)] // helpers exist for tests that will land in a follow-up commit
 
+use pierre_intelligence::training_load::{TrainingLoad, TrainingLoadCalculator};
 use pierre_mcp_server::models::Activity;
+
+/// Default athlete physiology used when deriving training-load metrics
+/// from synthetic activities. These match the middle of the
+/// recreational-endurance range and are a reasonable prior when the
+/// test fixture doesn't model a specific athlete profile. Integration
+/// tests that want precise training-load numbers should seed real
+/// physiology onto the `SyntheticDataBuilder` and pass it into
+/// [`CitationFixture::from_activities_with_physiology`].
+const DEFAULT_FTP_WATTS: f64 = 250.0;
+const DEFAULT_LTHR_BPM: f64 = 160.0;
+const DEFAULT_MAX_HR_BPM: f64 = 190.0;
+const DEFAULT_RESTING_HR_BPM: f64 = 60.0;
+const DEFAULT_WEIGHT_KG: f64 = 70.0;
 
 /// Pre-computed expected metrics for a tenant's seeded activities.
 ///
@@ -52,25 +175,83 @@ pub struct CitationFixture {
     pub activity_count: u32,
     /// Total distance in kilometers across the evaluation window.
     pub total_distance_km: f64,
+    /// Chronic Training Load (42-day EMA of TSS). `0.0` when the
+    /// activities carry no HR or power data that TSS can be derived
+    /// from.
+    pub ctl: f64,
+    /// Acute Training Load (7-day EMA of TSS).
+    pub atl: f64,
+    /// Training Stress Balance (`ctl - atl`). Can be negative for
+    /// high-acute-load blocks.
+    pub tsb: f64,
 }
 
 impl CitationFixture {
-    /// Derive a fixture from an in-memory slice of activities.
+    /// Derive a fixture from an in-memory slice of activities using
+    /// [default athlete physiology](DEFAULT_FTP_WATTS).
     ///
     /// Sums distance from every activity that reports one; activities
     /// without `distance_meters` (swims without GPS, strength sessions)
     /// contribute 0 to the total but still count toward
-    /// [`CitationFixture::activity_count`].
+    /// [`CitationFixture::activity_count`]. Training-load metrics come
+    /// from [`dravr_cageux::training_load::TrainingLoadCalculator`];
+    /// when the calculator can't derive TSS for any activity (no HR,
+    /// no power, no FTP baseline) all three default to `0.0`.
     #[must_use]
     pub fn from_activities(activities: &[Activity]) -> Self {
+        Self::from_activities_with_physiology(
+            activities,
+            DEFAULT_FTP_WATTS,
+            DEFAULT_LTHR_BPM,
+            DEFAULT_MAX_HR_BPM,
+            DEFAULT_RESTING_HR_BPM,
+            DEFAULT_WEIGHT_KG,
+        )
+    }
+
+    /// Derive a fixture with caller-supplied athlete physiology.
+    ///
+    /// Use this when the test seeds a specific athlete profile (elite
+    /// runner, beginner, masters, etc.) and the defaults would skew
+    /// the CTL/ATL/TSB enough to make the asserter's tolerance band
+    /// misleading.
+    #[must_use]
+    pub fn from_activities_with_physiology(
+        activities: &[Activity],
+        ftp_watts: f64,
+        lthr_bpm: f64,
+        max_hr_bpm: f64,
+        resting_hr_bpm: f64,
+        weight_kg: f64,
+    ) -> Self {
         let count = u32::try_from(activities.len()).unwrap_or(u32::MAX);
         let total_meters: f64 = activities
             .iter()
             .filter_map(Activity::distance_meters)
             .sum();
+
+        let training_load = TrainingLoadCalculator::new()
+            .calculate_training_load(
+                activities,
+                Some(ftp_watts),
+                Some(lthr_bpm),
+                Some(max_hr_bpm),
+                Some(resting_hr_bpm),
+                Some(weight_kg),
+            )
+            .unwrap_or_else(|_| TrainingLoad {
+                ctl: 0.0,
+                atl: 0.0,
+                tsb: 0.0,
+                tss_history: Vec::new(),
+            });
+
         Self {
             activity_count: count,
             total_distance_km: total_meters / 1000.0,
+            ctl: training_load.ctl,
+            atl: training_load.atl,
+            tsb: training_load.tsb,
         }
     }
 }
@@ -80,12 +261,16 @@ impl CitationFixture {
 /// Counts are always asserted exactly — "6 runs" vs "5 runs" is never
 /// a rounding problem and always a content error. Distances allow a
 /// relative tolerance to absorb unit-conversion rounding (meters →
-/// km, for example).
+/// km, for example). Training-load metrics (CTL/ATL/TSB) use an
+/// absolute tolerance because TSB is frequently `0` or negative and
+/// a percentage would divide by zero or flip sign.
 #[derive(Debug, Clone, Copy)]
 pub struct Tolerances {
     /// Relative tolerance for distance claims, as a fraction
     /// (0.02 = ±2%).
     pub distance_pct: f64,
+    /// Absolute tolerance in TSS/day for CTL, ATL, and TSB claims.
+    pub training_load_abs: f64,
 }
 
 impl Tolerances {
@@ -96,14 +281,42 @@ impl Tolerances {
     pub const fn strict() -> Self {
         Self {
             distance_pct: 0.001,
+            training_load_abs: 0.5,
         }
     }
 
     /// Loose tolerances suitable for real-LLM scenarios where the
-    /// model rounds distances to whole kilometers.
+    /// model rounds distances to whole kilometers and CTL/ATL to the
+    /// nearest integer.
     #[must_use]
     pub const fn loose() -> Self {
-        Self { distance_pct: 0.05 }
+        Self {
+            distance_pct: 0.05,
+            training_load_abs: 2.0,
+        }
+    }
+}
+
+/// Which training-load metric a mismatch refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrainingLoadMetric {
+    /// Chronic Training Load (42-day EMA of TSS).
+    Ctl,
+    /// Acute Training Load (7-day EMA of TSS).
+    Atl,
+    /// Training Stress Balance (CTL - ATL).
+    Tsb,
+}
+
+impl TrainingLoadMetric {
+    /// Short label suitable for panic messages and debug output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ctl => "CTL",
+            Self::Atl => "ATL",
+            Self::Tsb => "TSB",
+        }
     }
 }
 
@@ -128,6 +341,18 @@ pub enum CitationMismatch {
         /// Observed absolute fractional difference
         /// (`|cited - expected| / expected`).
         pct_diff: f64,
+    },
+    /// The reply cited a CTL, ATL, or TSB value outside the
+    /// configured absolute tolerance.
+    TrainingLoadOutOfTolerance {
+        /// Which metric was cited.
+        metric: TrainingLoadMetric,
+        /// Value detected in the reply.
+        cited: f64,
+        /// Value in the fixture.
+        expected: f64,
+        /// `|cited - expected|`.
+        abs_diff: f64,
     },
 }
 
@@ -158,6 +383,25 @@ fn activity_count_regex() -> regex::Regex {
 fn distance_km_regex() -> regex::Regex {
     regex::Regex::new(r"(?i)\b(\d+(?:[.,]\d+)?)\s*(?:km|kilometers?|kilom[èe]tres?)\b")
         .expect("distance-km regex compiles")
+}
+
+/// Regex for CTL / ATL / TSB numeric claims.
+///
+/// Captures the metric name and a signed decimal value in a handful
+/// of shapes the LLM actually produces:
+///
+/// - `"CTL of 72"` / `"CTL: 72"` / `"CTL = 72"` / `"CTL is 72"`
+/// - `"your CTL 72"` (no connector)
+/// - `"TSB -6"` / `"TSB −6"` (ASCII or Unicode minus)
+///
+/// Case-insensitive; the metric label must be a standalone acronym
+/// (bounded by `\b`) so the regex doesn't match `"your CTLs"` or
+/// `"CTLab"`.
+fn training_load_regex() -> regex::Regex {
+    regex::Regex::new(
+        r"(?i)\b(CTL|ATL|TSB)\b(?:\s+(?:of|is|was))?\s*[:=]?\s*([+\-−]?\d+(?:[.,]\d+)?)\b",
+    )
+    .expect("training-load regex compiles")
 }
 
 /// Normalize a reply for fuzzy comparison: lowercase, collapse runs
@@ -219,6 +463,45 @@ pub fn assert_citation_grounded(
                 cited_km: cited,
                 expected_km: expected,
                 pct_diff,
+            });
+        }
+    }
+
+    for cap in training_load_regex().captures_iter(reply) {
+        let Some(metric_raw) = cap.get(1).map(|m| m.as_str()) else {
+            continue;
+        };
+        let Some(value_raw) = cap.get(2) else {
+            continue;
+        };
+        // Normalize Unicode minus (−, U+2212) to ASCII minus, and
+        // comma-decimal to dot-decimal.
+        let normalized = value_raw
+            .as_str()
+            .replace('\u{2212}', "-")
+            .replace(',', ".");
+        let Ok(cited) = normalized.parse::<f64>() else {
+            continue;
+        };
+
+        let metric = match metric_raw.to_uppercase().as_str() {
+            "CTL" => TrainingLoadMetric::Ctl,
+            "ATL" => TrainingLoadMetric::Atl,
+            "TSB" => TrainingLoadMetric::Tsb,
+            _ => continue,
+        };
+        let expected = match metric {
+            TrainingLoadMetric::Ctl => fixture.ctl,
+            TrainingLoadMetric::Atl => fixture.atl,
+            TrainingLoadMetric::Tsb => fixture.tsb,
+        };
+        let abs_diff = (cited - expected).abs();
+        if abs_diff > tolerances.training_load_abs {
+            return Err(CitationMismatch::TrainingLoadOutOfTolerance {
+                metric,
+                cited,
+                expected,
+                abs_diff,
             });
         }
     }
@@ -389,11 +672,15 @@ pub fn assert_guardrail(reply: &str, expected: &str) -> Result<(), GuardrailMism
 mod tests {
     use super::{
         assert_citation_grounded, assert_guardrail, CitationFixture, CitationMismatch, Tolerances,
+        TrainingLoadMetric,
     };
 
     const FIXTURE: CitationFixture = CitationFixture {
         activity_count: 7,
         total_distance_km: 45.3,
+        ctl: 65.0,
+        atl: 72.0,
+        tsb: -7.0,
     };
 
     #[test]
@@ -439,6 +726,10 @@ mod tests {
             CitationMismatch::ActivityCountWrong { cited, expected } => {
                 panic!("expected distance mismatch, got ActivityCountWrong(cited={cited}, expected={expected})")
             }
+            CitationMismatch::TrainingLoadOutOfTolerance { metric, cited, expected, .. } => panic!(
+                "expected distance mismatch, got TrainingLoadOutOfTolerance({}: cited={cited}, expected={expected})",
+                metric.as_str(),
+            ),
         }
     }
 
@@ -490,6 +781,90 @@ mod tests {
         let err = assert_guardrail(reply, "outside what I can help with")
             .expect_err("refusal string is not present");
         assert_eq!(err.expected, "outside what i can help with");
+    }
+
+    // ── Training-load citation tests ─────────────────────────────
+
+    #[test]
+    fn citation_passes_when_training_load_cited_correctly() {
+        let reply =
+            "Your CTL of 65 and ATL of 72 put TSB at -7 — classic build-week freshness dip.";
+        assert!(assert_citation_grounded(reply, &FIXTURE, Tolerances::strict()).is_ok());
+    }
+
+    #[test]
+    fn citation_allows_rounding_on_training_load_with_loose_tolerance() {
+        // CTL 65.0 cited as 66 — within the 2.0-TSS loose tolerance.
+        let reply = "You're at CTL 66 heading into peak week.";
+        assert!(assert_citation_grounded(reply, &FIXTURE, Tolerances::loose()).is_ok());
+    }
+
+    #[test]
+    fn citation_catches_hallucinated_ctl() {
+        let reply = "Your CTL of 120 suggests you're ready to peak.";
+        let err = assert_citation_grounded(reply, &FIXTURE, Tolerances::strict())
+            .expect_err("CTL 120 ≠ 65 must fail");
+        match err {
+            CitationMismatch::TrainingLoadOutOfTolerance {
+                metric,
+                cited,
+                expected,
+                ..
+            } => {
+                assert_eq!(metric, TrainingLoadMetric::Ctl);
+                assert!((cited - 120.0).abs() < f64::EPSILON);
+                assert!((expected - 65.0).abs() < f64::EPSILON);
+            }
+            CitationMismatch::ActivityCountWrong { cited, expected } => panic!(
+                "expected training-load mismatch, got ActivityCountWrong(cited={cited}, expected={expected})"
+            ),
+            CitationMismatch::DistanceOutOfTolerance { cited_km, expected_km, .. } => panic!(
+                "expected training-load mismatch, got DistanceOutOfTolerance(cited={cited_km}, expected={expected_km})"
+            ),
+        }
+    }
+
+    #[test]
+    fn citation_catches_hallucinated_tsb_sign_flip() {
+        // TSB -7 cited as +7 — 14 TSS/day gap, well over any tolerance.
+        let reply = "TSB is +7 — you're fresh.";
+        let err = assert_citation_grounded(reply, &FIXTURE, Tolerances::loose())
+            .expect_err("TSB sign-flip must fail even on loose tolerance");
+        match err {
+            CitationMismatch::TrainingLoadOutOfTolerance {
+                metric,
+                cited,
+                expected,
+                ..
+            } => {
+                assert_eq!(metric, TrainingLoadMetric::Tsb);
+                assert!((cited - 7.0).abs() < f64::EPSILON);
+                assert!((expected - (-7.0)).abs() < f64::EPSILON);
+            }
+            other => panic!("expected training-load mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn citation_accepts_unicode_minus_in_tsb_claim() {
+        // Some LLMs emit U+2212 (MINUS SIGN) instead of ASCII hyphen-minus.
+        let reply = "TSB is −7 right now.";
+        assert!(assert_citation_grounded(reply, &FIXTURE, Tolerances::strict()).is_ok());
+    }
+
+    #[test]
+    fn citation_accepts_colon_and_equals_separators_in_training_load() {
+        let reply_colon = "CTL: 65, ATL: 72";
+        let reply_equals = "CTL = 65, ATL = 72";
+        assert!(assert_citation_grounded(reply_colon, &FIXTURE, Tolerances::strict()).is_ok());
+        assert!(assert_citation_grounded(reply_equals, &FIXTURE, Tolerances::strict()).is_ok());
+    }
+
+    #[test]
+    fn citation_ignores_ctl_inside_unrelated_word() {
+        // Acronym must be bounded — "CTLab" or "helpful" must not trigger.
+        let reply = "Just a helpful note: no training load commentary here.";
+        assert!(assert_citation_grounded(reply, &FIXTURE, Tolerances::strict()).is_ok());
     }
 
     // ── Phase 1 asserter tests ───────────────────────────────────
