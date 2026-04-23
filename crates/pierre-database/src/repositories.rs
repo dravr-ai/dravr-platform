@@ -1531,6 +1531,24 @@ pub trait CoachesRepository: Send + Sync {
         tenant_id: TenantId,
         filter: &ListCoachesFilter,
     ) -> AppResult<Vec<CoachListItem>>;
+    /// Apply per-locale translation overlays to a list of coaches.
+    ///
+    /// Reads `coach_translations` for `locale` and overlays
+    /// `title`/`description`/`purpose`/`instructions` on each matching coach
+    /// in-place. Coaches without a matching translation row keep their
+    /// canonical English copy. Called after `list` when a channel locale has
+    /// been resolved.
+    ///
+    /// Fast-path: `locale == "en"` returns immediately without touching the
+    /// database. English lives on the canonical `coaches` row itself; a
+    /// `coach_translations` row with `locale = "en"` is only interesting when
+    /// an operator wants to override the canonical, which is out of scope for
+    /// Phase 1.
+    async fn apply_translations(
+        &self,
+        coaches: &mut [CoachListItem],
+        locale: &str,
+    ) -> AppResult<()>;
     /// Update an existing coach
     async fn update(
         &self,

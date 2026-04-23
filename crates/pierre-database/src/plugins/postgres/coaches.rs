@@ -10,8 +10,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
-    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, DataRequirements,
+    Coach, CoachAssignment, CoachCategory, CoachFieldOverlay, CoachListItem, CoachPrerequisites,
+    CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, DataRequirements,
     ListCoachesFilter, UpdateCoachRequest,
 };
 use pierre_core::models::CoachRuntimeContext;
@@ -20,6 +20,7 @@ use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
@@ -585,6 +586,58 @@ impl CoachesRepository for PostgresDatabase {
             .map_err(|e| AppError::database(format!("Failed to list coaches: {e}")))?;
 
         rows.iter().map(row_to_coach_list_item_pg).collect()
+    }
+
+    async fn apply_translations(
+        &self,
+        coaches: &mut [CoachListItem],
+        locale: &str,
+    ) -> AppResult<()> {
+        // English is canonical — skip the round-trip entirely.
+        if locale == "en" || coaches.is_empty() {
+            return Ok(());
+        }
+
+        let coach_ids: Vec<String> = coaches.iter().map(|it| it.coach.id.to_string()).collect();
+
+        let rows = sqlx::query(
+            r"
+            SELECT coach_id, title, description, purpose, instructions
+            FROM coach_translations
+            WHERE locale = $1 AND coach_id = ANY($2)
+            ",
+        )
+        .bind(locale)
+        .bind(&coach_ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to load coach translations: {e}")))?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        // coach_id → (title, description, purpose, instructions) overlay
+        let mut overlays: HashMap<String, CoachFieldOverlay> = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let id: String = row.get("coach_id");
+            overlays.insert(
+                id,
+                CoachFieldOverlay {
+                    title: row.try_get("title").ok(),
+                    description: row.try_get("description").ok(),
+                    purpose: row.try_get("purpose").ok(),
+                    instructions: row.try_get("instructions").ok(),
+                },
+            );
+        }
+
+        for item in coaches.iter_mut() {
+            if let Some(ov) = overlays.get(&item.coach.id.to_string()) {
+                ov.apply(&mut item.coach);
+            }
+        }
+        Ok(())
     }
 
     async fn update(

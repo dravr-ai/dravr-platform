@@ -341,6 +341,99 @@ fn default_source() -> String {
     "custom".to_owned()
 }
 
+/// Per-locale overlay for a [`Coach`]'s user-facing content.
+///
+/// The canonical English copy stays on the `coaches` row (title / description
+/// / purpose / instructions columns). A `CoachTranslation` row provides the
+/// localized copy for a given BCP-47 short locale ("fr", "en", "es", "de",
+/// "pt"). Fields are individually optional so translators can ship partial
+/// rows without blocking on full content parity.
+///
+/// `source_sha` holds the first 16 hex chars of `sha256(en.md)` captured at
+/// translation time. At read time the repository compares it to the current
+/// English-source hash; a mismatch marks the translation stale and the caller
+/// falls back to the canonical English fields on [`Coach`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoachTranslation {
+    /// References `coaches.id`. Cascade-deleted with the parent row.
+    pub coach_id: String,
+    /// BCP-47 short locale code the translation applies to (`fr`, `en`, `es`,
+    /// `de`, `pt`). The canonical English lives on the `coaches` row itself;
+    /// a `coach_translations` row with `locale = "en"` is only used if someone
+    /// wants to override the canonical without rewriting the coach file.
+    pub locale: String,
+    /// Localized display title; falls back to `coaches.title` when `None`.
+    pub title: Option<String>,
+    /// Localized short description; falls back to `coaches.description`.
+    pub description: Option<String>,
+    /// Localized purpose section; falls back to `coaches.purpose`.
+    pub purpose: Option<String>,
+    /// Localized instruction block fed to the LLM. Falls back to
+    /// `coaches.instructions` when `None` or when `source_sha` is stale.
+    pub instructions: Option<String>,
+    /// First 16 hex chars of `sha256(en.md)` at translation time. `None`
+    /// means the translation predates drift-tracking and is always treated as
+    /// "stale" (reader falls back to English).
+    pub source_sha: Option<String>,
+    /// Translation row creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last-updated timestamp bumped on retranslation.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl CoachTranslation {
+    /// Returns `true` when the translation is safe to surface to the user.
+    ///
+    /// A translation is fresh when its [`Self::source_sha`] matches the
+    /// canonical English source hash passed in. A missing `source_sha` or any
+    /// mismatch is treated as stale; the caller should fall back to the
+    /// canonical English fields and log a warning.
+    #[must_use]
+    pub fn is_fresh(&self, canonical_sha: &str) -> bool {
+        self.source_sha
+            .as_deref()
+            .is_some_and(|s| s == canonical_sha)
+    }
+}
+
+/// Lightweight overlay of translatable [`Coach`] fields.
+///
+/// Built by the repository from a `coach_translations` row and applied onto
+/// a canonical English `Coach` to produce the locale-aware view surfaced to
+/// the user. Each field is independently optional — partial translations
+/// keep their English siblings.
+#[derive(Debug, Clone, Default)]
+pub struct CoachFieldOverlay {
+    /// Localized display title; when `Some`, replaces `Coach::title`.
+    pub title: Option<String>,
+    /// Localized short description; when `Some`, replaces `Coach::description`.
+    pub description: Option<String>,
+    /// Localized purpose section; when `Some`, replaces `Coach::purpose`.
+    pub purpose: Option<String>,
+    /// Localized instruction block; when `Some`, replaces `Coach::instructions`.
+    pub instructions: Option<String>,
+}
+
+impl CoachFieldOverlay {
+    /// Overlay any `Some` fields onto `coach` in place. `None` fields leave
+    /// the canonical English intact — partial translations are the norm, not
+    /// the exception.
+    pub fn apply(&self, coach: &mut Coach) {
+        if let Some(title) = self.title.clone() {
+            coach.title = title;
+        }
+        if self.description.is_some() {
+            coach.description.clone_from(&self.description);
+        }
+        if self.purpose.is_some() {
+            coach.purpose.clone_from(&self.purpose);
+        }
+        if self.instructions.is_some() {
+            coach.instructions.clone_from(&self.instructions);
+        }
+    }
+}
+
 /// Token estimation constant: average characters per token for system prompts
 const CHARS_PER_TOKEN: usize = 4;
 

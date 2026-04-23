@@ -30,8 +30,8 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::intelligence::InsightSharingPolicy;
 use pierre_core::models::coaches::{
-    Coach, CoachAssignment, CoachCategory, CoachListItem, CoachPrerequisites, CoachVersion,
-    CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
+    Coach, CoachAssignment, CoachCategory, CoachFieldOverlay, CoachListItem, CoachPrerequisites,
+    CoachVersion, CoachVisibility, CreateCoachRequest, CreateSystemCoachRequest, ListCoachesFilter,
     PublishStatus, StoreAdminStats, UpdateCoachRequest,
 };
 use pierre_core::models::mobility::{
@@ -49,6 +49,7 @@ use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use uuid::Uuid;
 
 #[async_trait]
@@ -755,6 +756,67 @@ impl CoachesRepository for Database {
             .await
             .map_err(|e| AppError::database(format!("Failed to list coaches: {e}")))?;
         rows.iter().map(row_to_coach_list_item).collect()
+    }
+
+    async fn apply_translations(
+        &self,
+        coaches: &mut [CoachListItem],
+        locale: &str,
+    ) -> AppResult<()> {
+        // English is canonical — skip the round-trip entirely.
+        if locale == "en" || coaches.is_empty() {
+            return Ok(());
+        }
+
+        // SQLite lacks `= ANY($2)`; build an IN list with one bind per coach.
+        // Coach counts per turn are bounded by ListCoachesFilter::limit (default
+        // 50) so the placeholder growth stays well under SQLite's 32766 cap.
+        let mut query_str = String::from(
+            "SELECT coach_id, title, description, purpose, instructions \
+             FROM coach_translations WHERE locale = ?1 AND coach_id IN (",
+        );
+        for i in 0..coaches.len() {
+            if i > 0 {
+                query_str.push(',');
+            }
+            // SQLite positional binds are 1-indexed; reserve slot 1 for locale.
+            let _ = write!(query_str, "?{}", i + 2);
+        }
+        query_str.push(')');
+
+        let mut q = sqlx::query(&query_str).bind(locale);
+        for item in coaches.iter() {
+            q = q.bind(item.coach.id.to_string());
+        }
+        let rows = q
+            .fetch_all(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to load coach translations: {e}")))?;
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let mut overlays: HashMap<String, CoachFieldOverlay> = HashMap::with_capacity(rows.len());
+        for row in &rows {
+            let id: String = row.get("coach_id");
+            overlays.insert(
+                id,
+                CoachFieldOverlay {
+                    title: row.try_get("title").ok(),
+                    description: row.try_get("description").ok(),
+                    purpose: row.try_get("purpose").ok(),
+                    instructions: row.try_get("instructions").ok(),
+                },
+            );
+        }
+
+        for item in coaches.iter_mut() {
+            if let Some(ov) = overlays.get(&item.coach.id.to_string()) {
+                ov.apply(&mut item.coach);
+            }
+        }
+        Ok(())
     }
 
     async fn update(
