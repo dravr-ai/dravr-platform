@@ -86,9 +86,12 @@ pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
-/// Key: reply when the user types a `/something` prefix that doesn't match any
-/// registered command (typos like `/.coach`, obsolete names, etc.). Short-circuits
-/// the LLM dispatch so typos don't eat quota or spam the channel.
+/// Key: reply for unmatched slash commands.
+///
+/// Fires when the user types a `/something` prefix that doesn't match any
+/// registered command (typos like `/.coach`, obsolete names, etc.).
+/// Short-circuits the LLM dispatch so typos don't eat quota or spam the
+/// channel.
 pub const KEY_UNKNOWN_COMMAND: &str = "messaging.unknown_command";
 /// Key: progress status shown during prompt-assembly stage.
 pub const KEY_STATUS_READING_QUESTION: &str = "messaging.status.reading_question";
