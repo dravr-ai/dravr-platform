@@ -1,0 +1,138 @@
+# ABOUTME: Dedicated CI for messaging-eval (Botium plan) integration and scenario tests
+# ABOUTME: Dormant — workflow_dispatch only; see PHASE 2 ACTIVATION notes below
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+
+# Dedicated workflow for the messaging-eval test track.
+#
+# Currently in DORMANT mode: triggers on `workflow_dispatch` only, so
+# it runs on-demand from the Actions tab but never on push/schedule.
+# The Phase 0+1 asserter tests already run inside `ci-backend.yml`
+# (cargo test pulls them in as part of the Rust test suite); duplicating
+# them here while the suite is small would waste CI minutes.
+#
+# ## Phase 2 activation checklist
+#
+# Flip this workflow out of dormant mode when the first of these lands:
+#
+# 1. **Real-API Botium scenarios** — actual `.convo.txt` files driven
+#    against live Slack/Telegram/Discord/WhatsApp/Messenger test
+#    workspaces. Needs scheduled runs (so live-API flake doesn't block
+#    PRs) + platform-specific secret routing.
+# 2. **Botium JS runtime** — `botium-cli` + `botium-connector-*` under
+#    `crates/pierre-canot/tests/messaging_eval/`. Different execution
+#    environment than `cargo test`; wants its own node setup step and
+#    artifact reporter.
+# 3. **Golden-file visual diffs** — per-channel rendering snapshots
+#    under `tests/fixtures/messaging_rendering/`. Needs git-LFS
+#    checkout and snapshot-diff artifact upload.
+#
+# When you flip it on:
+#
+# - Uncomment the `schedule` and `push`-on-path triggers below.
+# - Add per-channel matrix entries under `botium-scenarios` with the
+#   secrets each platform needs (SLACK_BOT_TOKEN already in .envrc on
+#   main; TG/WA/Discord tokens already present, Messenger/TW need
+#   dedicated test numbers).
+# - Wire a reporter step that posts failures to the Obsidian vault
+#   tracking note (see `feedback_ci_must_be_green.md` for the "red
+#   nightly → vault note, don't block PR" convention).
+# - Set `concurrency` below to cancel-in-progress so a live session
+#   doesn't pile up if the schedule fires while a run is still going.
+#
+# ## When NOT to activate
+#
+# If the messaging-eval work stays entirely in-process (mock LLM +
+# synthetic activities + assertion helpers), keep this dormant —
+# `ci-backend.yml` already covers it. Dedicated workflow pays off only
+# when messaging-eval has its own flake profile / secret surface /
+# runtime.
+
+name: "CI: Messaging Eval"
+
+on:
+  # Dormant mode — manual dispatch only.
+  workflow_dispatch:
+
+  # Uncomment when Phase 2 lands (see activation checklist above):
+  #
+  # schedule:
+  #   - cron: "0 4 * * *"   # 04:00 UTC nightly
+  #
+  # push:
+  #   paths:
+  #     - "crates/pierre-server/tests/helpers/messaging_eval.rs"
+  #     - "crates/pierre-server/tests/messaging_eval_*.rs"
+  #     - "crates/pierre-canot/tests/messaging_eval/**"
+  #     - ".github/workflows/messaging-eval.yml"
+
+# Kept commented so a manual dispatch never clashes with another manual
+# dispatch (they'd just queue); uncomment when the schedule fires to
+# prevent a slow run overlapping with the next cron tick.
+#
+# concurrency:
+#   group: messaging-eval-${{ github.ref }}
+#   cancel-in-progress: true
+
+jobs:
+  rust-asserters:
+    name: Rust asserters (Phase 0 + Phase 1)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+      CARGO_HOME: /home/runner/.cargo
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run messaging-eval tests
+        run: |
+          cargo test \
+            --test messaging_eval_phase_0_test \
+            --test messaging_eval_phase_1_integration_test \
+            -- --nocapture
+
+  # ── Phase 2 matrix (dormant) ──────────────────────────────────
+  #
+  # Uncomment when real-API Botium scenarios land. Each entry needs the
+  # platform-specific secrets routed in from GitHub Secrets; the values
+  # currently live in `.envrc` on main and must be added as repo
+  # secrets with the same names before the matrix can run.
+  #
+  # botium-scenarios:
+  #   name: Botium scenarios (${{ matrix.platform }})
+  #   needs: rust-asserters
+  #   runs-on: self-hosted  # lives next to the Android farm
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       platform: [slack, telegram, discord, whatsapp, messenger]
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
+  #         lfs: true  # needed for Tier-2 golden images
+  #     - name: Run Botium scenarios
+  #       working-directory: crates/pierre-canot/tests/messaging_eval
+  #       env:
+  #         SLACK_BOT_TOKEN: ${{ secrets.BOTIUM_SLACK_BOT_TOKEN }}
+  #         SLACK_SIGNING_SECRET: ${{ secrets.BOTIUM_SLACK_SIGNING_SECRET }}
+  #         TELEGRAM_BOT_TOKEN: ${{ secrets.BOTIUM_TELEGRAM_BOT_TOKEN }}
+  #         DISCORD_BOT_TOKEN: ${{ secrets.BOTIUM_DISCORD_BOT_TOKEN }}
+  #         # WA / Messenger need dedicated test numbers
+  #       run: ./run.sh --platform ${{ matrix.platform }} --reporter junit
+  #     - uses: actions/upload-artifact@v4
+  #       if: always()
+  #       with:
+  #         name: botium-${{ matrix.platform }}-reports
+  #         path: crates/pierre-canot/tests/messaging_eval/reports/

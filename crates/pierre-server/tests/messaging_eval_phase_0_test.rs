@@ -94,6 +94,10 @@ fn citation_catches_hallucinated_distance_in_seeded_tenant() {
         CitationMismatch::ActivityCountWrong { cited, expected } => {
             panic!("expected distance mismatch, got ActivityCountWrong(cited={cited}, expected={expected})")
         }
+        CitationMismatch::TrainingLoadOutOfTolerance { metric, cited, expected, .. } => panic!(
+            "expected distance mismatch, got TrainingLoadOutOfTolerance({}: cited={cited}, expected={expected})",
+            metric.as_str(),
+        ),
     }
 }
 
