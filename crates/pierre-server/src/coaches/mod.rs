@@ -31,7 +31,8 @@
 pub mod parser;
 
 pub use parser::{
-    parse_coach_content, parse_coach_file, parse_frontmatter, parse_sections, to_markdown,
-    CoachDefinition, CoachFrontmatter, CoachSections, CoachStartup, RelatedCoach, RelationType,
+    is_locale_code, parse_coach_content, parse_coach_file, parse_frontmatter, parse_sections,
+    to_markdown, CoachDefinition, CoachFrontmatter, CoachSections, CoachStartup, RelatedCoach,
+    RelationType, CANONICAL_LOCALE, SUPPORTED_LOCALES,
 };
 pub use pierre_core::models::coaches::CoachPrerequisites;

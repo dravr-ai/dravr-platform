@@ -16,9 +16,9 @@ use super::Database;
 use crate::repositories::{SeedTable, SeederRepository};
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
-    SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
-    SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight, SeedSocialSettings,
-    SeedStoreListing, SeedSyntheticActivity, SeedTenant,
+    SeedCoachAuthor, SeedCoachRelation, SeedCoachTranslation, SeedDemoUser, SeedFriendConnection,
+    SeedInsightReaction, SeedLlmUsageRecord, SeedProviderConnection, SeedSharedInsight,
+    SeedSocialSettings, SeedStoreListing, SeedSyntheticActivity, SeedTenant,
 };
 
 #[async_trait]
@@ -1051,5 +1051,36 @@ impl SeederRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to insert store listing: {e}")))?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    async fn seed_upsert_coach_translation(
+        &self,
+        translation: &SeedCoachTranslation,
+    ) -> AppResult<()> {
+        // SQLite UPSERT via ON CONFLICT — primary key is (coach_id, locale).
+        // Re-running the seeder after a file edit refreshes the content + sha.
+        sqlx::query(
+            "INSERT INTO coach_translations \
+             (coach_id, locale, title, description, purpose, instructions, source_sha, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) \
+             ON CONFLICT(coach_id, locale) DO UPDATE SET \
+               title = excluded.title, \
+               description = excluded.description, \
+               purpose = excluded.purpose, \
+               instructions = excluded.instructions, \
+               source_sha = excluded.source_sha, \
+               updated_at = CURRENT_TIMESTAMP",
+        )
+        .bind(&translation.coach_id)
+        .bind(&translation.locale)
+        .bind(&translation.title)
+        .bind(&translation.description)
+        .bind(&translation.purpose)
+        .bind(&translation.instructions)
+        .bind(&translation.source_sha)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to upsert coach translation: {e}")))?;
+        Ok(())
     }
 }

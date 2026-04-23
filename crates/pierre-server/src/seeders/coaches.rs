@@ -28,13 +28,15 @@ use glob::glob;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::seed_models::{
-    SeedCoach, SeedCoachAuthor, SeedCoachRelation, SeedStoreListing,
+    SeedCoach, SeedCoachAuthor, SeedCoachRelation, SeedCoachTranslation, SeedStoreListing,
 };
 use pierre_database::RepositoryRegistry;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::coaches::{parse_coach_file, CoachDefinition, RelatedCoach, RelationType};
+use crate::coaches::{
+    is_locale_code, parse_coach_file, CoachDefinition, RelatedCoach, RelationType, CANONICAL_LOCALE,
+};
 
 /// CLI arguments for the coaches seeder.
 #[derive(clap::Args)]
@@ -96,16 +98,18 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     finalize_stats(&stats)
 }
 
-/// Execute the three coach sync passes (upsert, relations, store publishing) and return the
-/// accumulated stats.
+/// Execute the four coach sync passes (canonical upsert, translation upsert, relations,
+/// store publishing) and return the accumulated stats.
 async fn run_coach_passes(
     repos: &RepositoryRegistry,
-    coaches: &[CoachDefinition],
+    coaches: &[CoachWithTranslations],
     admin: &AdminUser,
     dry_run: bool,
 ) -> SeedStats {
-    let (mut stats, slug_to_id) = sync_coaches(repos, coaches, admin, dry_run).await;
-    sync_relations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
+    let canon: Vec<&CoachDefinition> = coaches.iter().map(|c| &c.canonical).collect();
+    let (mut stats, slug_to_id) = sync_coaches(repos, &canon, admin, dry_run).await;
+    sync_translations(repos, coaches, &slug_to_id, &mut stats, dry_run).await;
+    sync_relations(repos, &canon, &slug_to_id, &mut stats, dry_run).await;
     publish_to_store(repos, &slug_to_id, admin, &mut stats, dry_run).await;
     stats
 }
@@ -124,7 +128,7 @@ fn finalize_stats(stats: &SeedStats) -> AppResult<()> {
 /// Sync all coaches to the database (Pass 1)
 async fn sync_coaches(
     repos: &RepositoryRegistry,
-    coaches: &[CoachDefinition],
+    coaches: &[&CoachDefinition],
     admin: &AdminUser,
     dry_run: bool,
 ) -> (SeedStats, HashMap<String, String>) {
@@ -151,6 +155,94 @@ async fn sync_coaches(
     (stats, slug_to_id)
 }
 
+/// Sync per-locale translations to `coach_translations` (Pass 2).
+///
+/// Runs AFTER [`sync_coaches`] so every `coach_id` referenced here is already
+/// present in the `coaches` table. Skips coaches that failed canonical
+/// upsert; never re-parents translations onto a different slug.
+async fn sync_translations(
+    repos: &RepositoryRegistry,
+    coaches: &[CoachWithTranslations],
+    slug_to_id: &HashMap<String, String>,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) {
+    info!("");
+    info!("=== Pass 2: Syncing Translations ===");
+    let mut synced = 0u32;
+    for item in coaches {
+        synced += sync_translations_for_coach(repos, item, slug_to_id, stats, dry_run).await;
+    }
+    info!("  → {} translation(s) synced", synced);
+}
+
+/// Upsert every translation file for one coach; returns the number synced.
+async fn sync_translations_for_coach(
+    repos: &RepositoryRegistry,
+    item: &CoachWithTranslations,
+    slug_to_id: &HashMap<String, String>,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) -> u32 {
+    let slug = &item.canonical.frontmatter.name;
+    let Some(coach_id) = slug_to_id.get(slug) else {
+        return 0;
+    };
+    let mut synced = 0u32;
+    for tr in &item.translations {
+        if upsert_single_translation(repos, slug, coach_id, tr, stats, dry_run).await {
+            synced += 1;
+        }
+    }
+    synced
+}
+
+/// Apply a single [`CoachTranslationFile`] to `coach_translations`.
+///
+/// Returns `true` when the row was upserted (or would be, under dry-run).
+/// Errors accumulate into `stats.errors`; callers use the return value for
+/// progress counting only.
+async fn upsert_single_translation(
+    repos: &RepositoryRegistry,
+    slug: &str,
+    coach_id: &str,
+    tr: &CoachTranslationFile,
+    stats: &mut SeedStats,
+    dry_run: bool,
+) -> bool {
+    if dry_run {
+        info!("  + [dry-run] {} [{}]", slug, tr.locale);
+        return true;
+    }
+    // description mirrors `## Purpose` per the same convention the
+    // canonical seeder uses (see `build_seed_coach`). `purpose` carries
+    // the same copy explicitly so a caller reading Coach.purpose still
+    // sees the translated text.
+    let seed = SeedCoachTranslation {
+        coach_id: coach_id.to_owned(),
+        locale: tr.locale.clone(),
+        title: Some(tr.coach.frontmatter.title.clone()),
+        description: Some(tr.coach.sections.purpose.clone()),
+        purpose: Some(tr.coach.sections.purpose.clone()),
+        instructions: Some(tr.coach.sections.instructions.clone()),
+        // Prefer the canonical English content hash for drift tracking when
+        // the translation file doesn't declare its own source_sha. Phase 3
+        // will add a frontmatter `source_sha:` override path.
+        source_sha: Some(tr.source_sha_hint.clone()),
+    };
+    match repos.seeder.seed_upsert_coach_translation(&seed).await {
+        Ok(()) => {
+            debug!("  + {} [{}] (upserted)", slug, tr.locale);
+            true
+        }
+        Err(e) => {
+            warn!("  ✗ {} [{}] - Error: {}", slug, tr.locale, e);
+            stats.errors.push(format!("{slug}/{}: {}", tr.locale, e));
+            false
+        }
+    }
+}
+
 /// Log the result of an upsert operation and update stats
 fn log_upsert_result(title: &str, action: &UpsertAction, stats: &mut SeedStats) {
     match action {
@@ -169,10 +261,10 @@ fn log_upsert_result(title: &str, action: &UpsertAction, stats: &mut SeedStats) 
     }
 }
 
-/// Sync coach relations to the database (Pass 2)
+/// Sync coach relations to the database (Pass 3)
 async fn sync_relations(
     repos: &RepositoryRegistry,
-    coaches: &[CoachDefinition],
+    coaches: &[&CoachDefinition],
     slug_to_id: &HashMap<String, String>,
     stats: &mut SeedStats,
     dry_run: bool,
@@ -379,49 +471,159 @@ async fn publish_single_coach(
         .await
 }
 
-/// Discover and parse all coach markdown files
-fn discover_coaches(coaches_dir: &Path) -> AppResult<Vec<CoachDefinition>> {
-    let pattern = coaches_dir.join("**/*.md");
+/// Discover canonical coach definitions + their non-canonical translations.
+///
+/// Expected layout: `coaches_dir/<category>/<slug>/<locale>.md` where `<locale>`
+/// is one of [`crate::coaches::SUPPORTED_LOCALES`]. Each coach directory MUST
+/// contain `en.md` (the canonical source); optional `fr.md` / `es.md` / `de.md`
+/// / `pt.md` siblings become [`CoachTranslationFile`] rows that layer over the
+/// canonical copy at read time via
+/// [`pierre_database::CoachesRepository::apply_translations`].
+///
+/// Directories without `en.md` are skipped with a warning — the seeder never
+/// stores a coach whose canonical English content is missing.
+fn discover_coaches(coaches_dir: &Path) -> AppResult<Vec<CoachWithTranslations>> {
+    let (canonical, translations) = scan_coach_files(coaches_dir)?;
+    Ok(pivot_and_sort(canonical, translations))
+}
+
+/// Two-map snapshot of the filesystem scan: canonical coaches keyed by slug,
+/// plus a list of translation files keyed by the same slug.
+type ScannedCoaches = (
+    HashMap<String, CoachDefinition>,
+    HashMap<String, Vec<CoachTranslationFile>>,
+);
+
+/// Walk `coaches_dir/<category>/<slug>/*.md` and bucket by slug into two maps.
+///
+/// Filters out non-locale filenames (README.md, stray `*.md` files) up-front
+/// so the caller only ever sees valid per-locale entries. Parsing errors are
+/// logged and skipped — one malformed file never blocks the whole seed.
+fn scan_coach_files(coaches_dir: &Path) -> AppResult<ScannedCoaches> {
+    let pattern = coaches_dir.join("*/*/*.md");
     let pattern_str = pattern.to_string_lossy();
 
-    let mut coaches = Vec::new();
+    let mut canonical: HashMap<String, CoachDefinition> = HashMap::new();
+    let mut translations: HashMap<String, Vec<CoachTranslationFile>> = HashMap::new();
 
     for entry in
         glob(&pattern_str).map_err(|e| AppError::internal(format!("Glob pattern error: {e}")))?
     {
         let path = entry.map_err(|e| AppError::internal(format!("Glob error: {e}")))?;
+        record_coach_path(&path, &mut canonical, &mut translations);
+    }
+    Ok((canonical, translations))
+}
 
-        // Skip README files
-        if path.file_name().is_some_and(|n| n == "README.md") {
-            continue;
+/// Parse `path` and route it into either the canonical or translations map.
+///
+/// Non-locale filenames are logged at debug and ignored. Parse errors get a
+/// warning but never bubble up so one broken file can't block the seeder.
+fn record_coach_path(
+    path: &Path,
+    canonical: &mut HashMap<String, CoachDefinition>,
+    translations: &mut HashMap<String, Vec<CoachTranslationFile>>,
+) {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    if !is_locale_code(stem) {
+        debug!(
+            "Skipping non-locale coach file (expected en/fr/es/de/pt): {}",
+            path.display()
+        );
+        return;
+    }
+    let coach = match parse_coach_file(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to parse {}: {}", path.display(), e);
+            return;
         }
+    };
+    let slug = coach.frontmatter.name.clone();
+    if stem == CANONICAL_LOCALE {
+        canonical.insert(slug, coach);
+    } else {
+        let canonical_sha = CoachDefinition::source_sha_prefix(&coach.content_hash);
+        translations
+            .entry(slug)
+            .or_default()
+            .push(CoachTranslationFile {
+                locale: stem.to_owned(),
+                coach,
+                source_sha_hint: canonical_sha,
+            });
+    }
+}
 
-        match parse_coach_file(&path) {
-            Ok(coach) => {
-                debug!("Parsed: {} ({})", coach.frontmatter.name, path.display());
-                coaches.push(coach);
-            }
-            Err(e) => {
-                warn!("Failed to parse {}: {}", path.display(), e);
-            }
-        }
+/// Pivot the two scan maps into a sorted `Vec<CoachWithTranslations>`.
+///
+/// Coaches without an `en.md` are dropped with a warning so we never store
+/// orphan translations. Output is sorted by category then slug for
+/// deterministic test output and log stability.
+fn pivot_and_sort(
+    canonical: HashMap<String, CoachDefinition>,
+    mut translations: HashMap<String, Vec<CoachTranslationFile>>,
+) -> Vec<CoachWithTranslations> {
+    let mut out: Vec<CoachWithTranslations> = Vec::with_capacity(canonical.len());
+    for (slug, canon) in canonical {
+        let trs = translations.remove(&slug).unwrap_or_default();
+        out.push(CoachWithTranslations {
+            canonical: canon,
+            translations: trs,
+        });
+    }
+    for (slug, _) in translations {
+        warn!(
+            "Orphan translations for slug '{}' (no en.md canonical source); skipping",
+            slug
+        );
     }
 
-    // Sort by category then name for consistent ordering
-    coaches.sort_by(|a, b| {
+    out.sort_by(|a, b| {
         let cat_cmp = a
+            .canonical
             .frontmatter
             .category
             .as_str()
-            .cmp(b.frontmatter.category.as_str());
+            .cmp(b.canonical.frontmatter.category.as_str());
         if cat_cmp == Ordering::Equal {
-            a.frontmatter.name.cmp(&b.frontmatter.name)
+            a.canonical
+                .frontmatter
+                .name
+                .cmp(&b.canonical.frontmatter.name)
         } else {
             cat_cmp
         }
     });
+    out
+}
 
-    Ok(coaches)
+/// Canonical coach + optional locale translation siblings discovered together.
+/// Produced by [`discover_coaches`] and consumed by the canonical + translation
+/// seeder passes so the two always see a consistent view of what's on disk.
+pub(crate) struct CoachWithTranslations {
+    /// English source of truth.
+    pub canonical: CoachDefinition,
+    /// Non-English siblings: one [`CoachTranslationFile`] per `<locale>.md`.
+    pub translations: Vec<CoachTranslationFile>,
+}
+
+/// A single `<slug>/<locale>.md` translation file (non-canonical).
+pub(crate) struct CoachTranslationFile {
+    /// BCP-47 short locale code captured from the filename stem.
+    pub locale: String,
+    /// Parsed `CoachDefinition` view of the translated file — only
+    /// `title`/`description`/`purpose`/`instructions` will be overlaid
+    /// onto the canonical row; the rest is ignored at upsert time.
+    pub coach: CoachDefinition,
+    /// First 16 hex chars of `sha256(<this-file-content>)`, used as the
+    /// `source_sha` placeholder when the translation file does not ship an
+    /// explicit `source_sha:` frontmatter field. Callers should prefer the
+    /// translation's declared `source_sha` when present.
+    pub source_sha_hint: String,
 }
 
 /// Admin user info needed for seeding
