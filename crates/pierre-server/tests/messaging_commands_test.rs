@@ -287,17 +287,22 @@ mod command_tests {
     }
 
     #[tokio::test]
-    async fn test_unknown_command_falls_through() {
+    async fn test_unknown_command_short_circuits() {
         let resources = create_test_server_resources().await.unwrap();
         let (router, ..) = setup_linked_user(&resources).await;
 
-        // Unrecognized /command should pass through to LLM dispatch
+        // Per commit 4602505, a `/slash` prefix with no matching handler
+        // is replied to inline with KEY_UNKNOWN_COMMAND so typos like
+        // `/.coach` don't eat LLM quota or spin up a "thinking…"
+        // placeholder. The webhook still returns OK; the message is
+        // handled synchronously (not stored for dispatch).
         let (status, body) = send_command(&router, "/unknown_command", 12).await;
         assert_eq!(status, StatusCode::OK);
-        // The webhook returns OK but the message is stored for LLM dispatch
-        // (not handled as a command)
         let stored = body["messages_stored"].as_i64().unwrap_or(0);
-        assert!(stored > 0, "Unrecognized command should be stored for LLM");
+        assert_eq!(
+            stored, 0,
+            "Unknown /command must short-circuit, not go through LLM dispatch"
+        );
     }
 
     #[tokio::test]
