@@ -49,6 +49,27 @@ pub enum RelationType {
     Sequel,
 }
 
+/// BCP-47 short codes the seeder recognizes as translation filenames.
+///
+/// Matches the compiled-in locales in
+/// [`crate::contremaitre::messaging_strings::COMPILED_IN`]; adding a new
+/// locale requires only appending here and shipping the corresponding
+/// `<slug>/<locale>.md` file.
+pub const SUPPORTED_LOCALES: &[&str] = &["en", "fr", "es", "de", "pt"];
+
+/// Canonical locale for coach content.
+///
+/// The directory MUST contain a `<locale>.md` file for this code; the
+/// seeder treats it as the English source of truth. Missing canonical
+/// files cause the seeder to skip the coach directory with a warning.
+pub const CANONICAL_LOCALE: &str = "en";
+
+/// `true` when `stem` is one of [`SUPPORTED_LOCALES`].
+#[must_use]
+pub fn is_locale_code(stem: &str) -> bool {
+    SUPPORTED_LOCALES.contains(&stem)
+}
+
 impl RelationType {
     /// Parse relation type from string
     #[must_use]
@@ -147,6 +168,16 @@ pub struct CoachDefinition {
 }
 
 impl CoachDefinition {
+    /// First 16 hex chars of an already-computed content hash.
+    ///
+    /// Used by the seeder to stamp `coach_translations.source_sha` with a
+    /// short canonical-English fingerprint — the 16-char prefix is enough to
+    /// detect drift and matches the width the loader expects.
+    #[must_use]
+    pub fn source_sha_prefix(full_hash: &str) -> String {
+        full_hash.chars().take(16).collect()
+    }
+
     /// Calculate token count from sections that count toward budget
     ///
     /// Counted: `purpose`, `instructions`, `example_inputs`, `example_outputs`, `success_criteria`
@@ -390,18 +421,33 @@ pub fn parse_coach_file(path: &Path) -> AppResult<CoachDefinition> {
     let frontmatter = parse_frontmatter(&content)?;
     let sections = parse_sections(&content)?;
 
-    // Validate that name matches filename
+    // Validate that `name` matches either the filename stem (non-locale file,
+    // rare — used only by ad-hoc parses) or the parent directory (standard
+    // per-locale layout, e.g. marathon-coach/en.md).
     let filename = path
         .file_stem()
         .and_then(|s| s.to_str())
         .ok_or_else(|| AppError::new(ErrorCode::InvalidFormat, "Invalid coach filename"))?;
 
-    if frontmatter.name != filename {
+    // Locale filenames (en, fr, es, de, pt) mean we're in the per-locale layout:
+    // <category>/<slug>/<locale>.md. Cross-check against the parent directory.
+    let expected_slug = if is_locale_code(filename) {
+        path.parent()
+            .and_then(Path::file_name)
+            .and_then(|s| s.to_str())
+            .unwrap_or(filename)
+    } else {
+        filename
+    };
+
+    if frontmatter.name != expected_slug {
         return Err(AppError::new(
             ErrorCode::InvalidFormat,
             format!(
-                "Coach name '{}' does not match filename '{}'",
-                frontmatter.name, filename
+                "Coach name '{}' does not match expected slug '{}' (file {})",
+                frontmatter.name,
+                expected_slug,
+                path.display()
             ),
         ));
     }

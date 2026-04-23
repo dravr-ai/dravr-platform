@@ -386,6 +386,29 @@ pub struct SeedCoach {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Per-locale translation overlay for a seeded coach.
+///
+/// Produced by the seeder when a `coaches/<category>/<slug>/<locale>.md` file
+/// (with `<locale>` ≠ `en`) is discovered; persisted into the
+/// `coach_translations` table keyed by `(coach_id, locale)`.
+pub struct SeedCoachTranslation {
+    /// Coach this translation applies to; must match an existing row in `coaches`.
+    pub coach_id: String,
+    /// BCP-47 short locale (`fr`, `es`, `de`, `pt`).
+    pub locale: String,
+    /// Localized display title; `None` leaves `coaches.title` visible.
+    pub title: Option<String>,
+    /// Localized short description; `None` leaves `coaches.description` visible.
+    pub description: Option<String>,
+    /// Localized `## Purpose` section; `None` leaves `coaches.purpose` visible.
+    pub purpose: Option<String>,
+    /// Localized `## Instructions` section; `None` leaves `coaches.instructions` visible.
+    pub instructions: Option<String>,
+    /// First 16 hex chars of `sha256(en.md)` at translation time — used by the
+    /// reader to detect when English has drifted past this translation.
+    pub source_sha: Option<String>,
+}
+
 /// Coach relation for seeding
 pub struct SeedCoachRelation {
     /// Relation ID

@@ -57,6 +57,7 @@ use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::database::store_listings::{CoachWithListing, StoreListing};
+use crate::seed_models::SeedCoachTranslation;
 use crate::seed_models::{
     SeedA2AClient, SeedA2AUsage, SeedAdaptedInsight, SeedApiKey, SeedApiKeyUsage, SeedCoach,
     SeedCoachAuthor, SeedCoachRelation, SeedDemoUser, SeedFriendConnection, SeedInsightReaction,
@@ -2460,6 +2461,17 @@ pub trait SeederRepository: Send + Sync {
         &self,
         listing: &SeedStoreListing,
     ) -> AppResult<bool>;
+
+    /// Upsert a `coach_translations` row for `(coach_id, locale)`.
+    ///
+    /// Replaces existing translation content so re-running the seeder after a
+    /// file edit brings the row back in sync. `source_sha` captures the first
+    /// 16 hex chars of `sha256(en.md)` at translation time; the loader uses it
+    /// later to detect drift when English content changes.
+    async fn seed_upsert_coach_translation(
+        &self,
+        translation: &SeedCoachTranslation,
+    ) -> AppResult<()>;
 }
 
 // ================================
