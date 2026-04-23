@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use pierre_core::errors::AppError;
+use pierre_core::markdown::strip_emphasis;
 use pierre_core::models::coaches::ListCoachesFilter;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_messaging::commands::{CommandAction, CommandResponse};
@@ -18,7 +19,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_COACH_ASSIGN_FORBIDDEN, KEY_COACH_ASSIGN_NOT_A_MEMBER, KEY_COACH_GROUP_UPDATED,
     KEY_COACH_LIST_CARD_TITLE, KEY_COACH_LIST_EMPTY, KEY_COACH_LIST_ITEM,
     KEY_COACH_MULTI_GROUP_CARD_TITLE, KEY_COACH_MULTI_GROUP_ITEM, KEY_COACH_MULTI_GROUP_PROMPT,
-    KEY_COACH_NO_DESCRIPTION,
+    KEY_COACH_NO_DESCRIPTION, KEY_COACH_USER_UPDATED,
 };
 
 use super::{CommandHandler, PlatformCommandContext};
@@ -68,15 +69,21 @@ impl CommandHandler for CoachListHandler {
             .take(MAX_COACH_BUTTONS)
             .map(|item| {
                 let category = item.coach.category.display_name();
-                let desc = item
+                let raw_desc = item
                     .coach
                     .description
                     .as_deref()
                     .unwrap_or(no_description.as_str());
+                // Coach markdown files use CommonMark emphasis (*x*, **x**,
+                // _x_, __x__). Only Slack's renderer interprets asterisks
+                // natively; Telegram/Discord/WhatsApp/Messenger render them
+                // literally. Strip here so every channel gets uniform plain
+                // text.
+                let desc = strip_emphasis(raw_desc);
                 body.push_str(&reg.render(
                     KEY_COACH_LIST_ITEM,
                     locale,
-                    &[&item.coach.title, category, desc],
+                    &[&item.coach.title, category, &desc],
                 ));
 
                 CommandAction {
@@ -117,7 +124,29 @@ impl CommandHandler for CoachSelectHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Coach {coach_id}")))?;
 
-        // Fetch user's groups and filter to only those in the current tenant
+        let reg = &ctx.resources.messaging_strings_registry;
+        let locale = ctx.locale.as_str();
+
+        // DM path: coach selection is user-scoped. Never auto-creates a
+        // group — groups are a group-chat concept. Persists on users
+        // .default_coach_id and renders a DM-flavored confirmation that
+        // omits any "for group X" wording.
+        if ctx.is_direct_message {
+            ctx.resources
+                .repos
+                .users
+                .set_default_coach(ctx.user_id, Some(coach_id))
+                .await?;
+
+            return Ok(CommandResponse::text(reg.render(
+                KEY_COACH_USER_UPDATED,
+                locale,
+                &[&coach.title],
+            )));
+        }
+
+        // Group path: fetch user's groups and filter to only those in the
+        // current tenant where the user can modify settings.
         let all_groups = ctx
             .resources
             .repos
@@ -128,15 +157,12 @@ impl CommandHandler for CoachSelectHandler {
         let tenant_groups: Vec<_> = all_groups
             .into_iter()
             .filter(|g| {
-                // Verify group belongs to this tenant by checking via get_group
-                // GroupSummary doesn't carry tenant_id, so we filter by checking
-                // the user's admin/owner role (only owners/admins should change coach)
+                // GroupSummary doesn't carry tenant_id, so we filter by
+                // role — only owners/admins should change the group coach.
                 g.my_role.can_modify_settings()
             })
             .collect();
 
-        let reg = &ctx.resources.messaging_strings_registry;
-        let locale = ctx.locale.as_str();
         match tenant_groups.len() {
             0 => {
                 // No groups with admin/owner role — create a new one

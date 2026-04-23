@@ -175,6 +175,12 @@ pub trait UserRepository: Send + Sync {
     /// DEFAULT 'fr'` so an unset user always resolves to French; this method
     /// overrides that default with an explicit choice.
     async fn update_locale(&self, user_id: Uuid, locale: &str) -> AppResult<()>;
+    /// Set the user's personal default coach (nullable — pass `None` to clear).
+    ///
+    /// Called by `/coach select` in DM conversations. The column has a FK on
+    /// `coaches(id)` with `ON DELETE SET NULL`, so a deleted coach cleanly
+    /// detaches instead of orphaning the user row.
+    async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()>;
 }
 
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)

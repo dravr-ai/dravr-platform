@@ -109,6 +109,7 @@ async fn update_existing_admin_user(
         analytics_consent: existing_user.analytics_consent,
         analytics_consent_at: existing_user.analytics_consent_at,
         locale: existing_user.locale,
+        default_coach_id: existing_user.default_coach_id.clone(),
     };
 
     repos.users.create(&updated_user).await?;
@@ -220,6 +221,7 @@ fn build_admin_user(
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     }
 }
 

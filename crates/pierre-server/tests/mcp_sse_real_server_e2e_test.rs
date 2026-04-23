@@ -205,6 +205,7 @@ impl TestServer {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
 
         self.database.repositories().users.create(&user).await?;

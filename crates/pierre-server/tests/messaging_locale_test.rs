@@ -181,6 +181,7 @@ async fn status_handler_renders_french_by_default() {
         raw_text: "/status".to_owned(),
         resources: Arc::clone(&resources),
         locale: "fr".to_owned(),
+        is_direct_message: false,
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status FR");
@@ -207,6 +208,7 @@ async fn status_handler_switches_to_english_when_locale_set() {
         raw_text: "/status".to_owned(),
         resources: Arc::clone(&resources),
         locale: "en".to_owned(),
+        is_direct_message: false,
     };
 
     let response = StatusHandler.execute(&ctx).await.expect("status EN");

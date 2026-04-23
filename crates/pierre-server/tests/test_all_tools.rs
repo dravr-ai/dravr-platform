@@ -340,6 +340,7 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     executor.resources.repos.users.create(&user).await?;

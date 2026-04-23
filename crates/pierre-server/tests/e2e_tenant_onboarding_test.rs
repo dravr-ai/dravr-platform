@@ -101,6 +101,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     let beta_admin = User {
@@ -124,6 +125,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     database.repositories().users.create(&acme_admin).await?;
@@ -466,6 +468,7 @@ async fn setup_multitenant_scenario(
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     database.repositories().users.create(&user).await?;

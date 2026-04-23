@@ -583,6 +583,7 @@ async fn test_get_activities_with_expired_token() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -673,6 +674,7 @@ async fn test_connection_status_with_oauth_manager() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -752,6 +754,7 @@ async fn test_analyze_activity_token_refresh() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -851,6 +854,7 @@ async fn test_concurrent_token_operations() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -934,6 +938,7 @@ async fn test_oauth_provider_init_failure() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

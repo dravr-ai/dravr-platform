@@ -57,6 +57,7 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let repos = server.database().repositories();
     repos.users.create(&user).await?;
@@ -111,6 +112,7 @@ async fn test_model_serialization_coverage() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     // Test serialization
@@ -158,6 +160,7 @@ async fn test_admin_auth_flow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     let repos = database.repositories();
@@ -211,6 +214,7 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
         repos.users.create(&user).await?;
         users.push(user);
@@ -259,6 +263,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     // Create first user
@@ -287,6 +292,7 @@ async fn test_production_database_scenarios() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     let result = repos.users.create(&user2).await;
@@ -323,6 +329,7 @@ async fn test_production_rate_limiting() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     let repos = database.repositories();

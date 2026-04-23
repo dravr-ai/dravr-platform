@@ -263,6 +263,7 @@ async fn test_oauth_authorization_url_generation() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let admin_id = database
         .repositories()
@@ -765,6 +766,7 @@ async fn test_connection_status_no_providers() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&user).await.unwrap();
 
@@ -1235,6 +1237,7 @@ async fn test_disconnect_provider() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     server_context
         .data()
@@ -1326,6 +1329,7 @@ async fn test_oauth_urls_contain_required_parameters() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let admin_id = database
         .repositories()

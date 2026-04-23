@@ -477,6 +477,7 @@ async fn test_oauth_callback_error_handling() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let admin_id = database
         .repositories()
@@ -525,6 +526,7 @@ async fn test_oauth_callback_error_handling() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let test_user_id = database
         .repositories()
@@ -782,6 +784,7 @@ async fn test_oauth_state_csrf_protection() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let admin_id = database
         .repositories()

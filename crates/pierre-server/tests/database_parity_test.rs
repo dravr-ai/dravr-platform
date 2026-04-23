@@ -610,6 +610,7 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     repos

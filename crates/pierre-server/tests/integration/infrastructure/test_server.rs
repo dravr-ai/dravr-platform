@@ -188,6 +188,7 @@ impl IntegrationTestServer {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
 
         let repos = self.resources.database.repositories();
@@ -253,6 +254,7 @@ impl IntegrationTestServer {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
 
         let repos = self.resources.database.repositories();

@@ -45,6 +45,7 @@ async fn test_create_and_get_user() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     // Create user
@@ -100,6 +101,7 @@ async fn test_last_active_update() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     UserRepository::create(&db, &user)
@@ -152,6 +154,7 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     }
 }
 

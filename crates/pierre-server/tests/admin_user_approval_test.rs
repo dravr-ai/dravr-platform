@@ -105,6 +105,7 @@ async fn setup_test_database() -> Result<(Database, String, Uuid)> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let admin_user_id = admin_user.id;
     database.repositories().users.create(&admin_user).await?;
@@ -158,6 +159,7 @@ async fn test_get_pending_users() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&pending_user).await?;
 
@@ -182,6 +184,7 @@ async fn test_get_pending_users() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&active_user).await?;
 
@@ -227,6 +230,7 @@ async fn test_approve_user() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let user_id = pending_user.id;
     database.repositories().users.create(&pending_user).await?;
@@ -266,6 +270,7 @@ async fn test_approve_user() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     // This should succeed since the admin user exists
@@ -319,6 +324,7 @@ async fn test_suspend_user() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let user_id = user.id;
     database.repositories().users.create(&user).await?;
@@ -372,6 +378,7 @@ async fn test_user_status_transitions() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let user_id = user.id;
     database.repositories().users.create(&user).await?;
@@ -432,6 +439,7 @@ async fn test_approve_user_assigns_admin_tenant() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&pending_user).await?;
 
@@ -507,6 +515,7 @@ async fn test_approved_users_share_tenant_with_admin() -> Result<()> {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
         database.repositories().users.create(&user).await?;
 
@@ -578,6 +587,7 @@ async fn test_delete_user() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let user_id = user_to_delete.id;
     database
@@ -657,6 +667,7 @@ async fn test_update_tenant_id_creates_tenant_users_entry() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     let user_id = user.id;
     repos.users.create(&user).await?;
@@ -717,6 +728,7 @@ async fn test_get_by_status_none_returns_all_users() -> Result<()> {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
         repos.users.create(&user).await?;
         repos.users.update_tenant_id(user.id, tid).await?;
@@ -790,6 +802,7 @@ async fn test_pending_users_visible_without_tenant_entry() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     repos.users.create(&pending).await?;
 
@@ -850,6 +863,7 @@ async fn test_update_tenant_id_idempotent() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     repos.users.create(&user).await?;
 

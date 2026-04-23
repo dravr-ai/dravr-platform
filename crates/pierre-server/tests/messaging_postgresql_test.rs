@@ -47,6 +47,7 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     db.repositories()
         .users
