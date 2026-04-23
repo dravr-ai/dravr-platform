@@ -55,6 +55,7 @@ fn generate_test_user() -> User {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     }
 }
 

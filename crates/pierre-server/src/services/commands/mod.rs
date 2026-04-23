@@ -50,6 +50,14 @@ pub struct PlatformCommandContext {
     /// this to `MessagingStringsRegistry::render` for every user-facing
     /// string.
     pub locale: String,
+    /// `true` when the user invoked the command from a 1:1 DM with the bot.
+    /// Sourced from `IncomingMessage::is_direct_message` — each transport
+    /// extracts this from its native chat-kind signal (Telegram `chat.type`,
+    /// Slack `event.channel_type`, Discord `guild_id` absence, `WhatsApp`
+    /// / Messenger always true). Commands with different DM vs group
+    /// semantics (notably `/coach select` → user-scoped default coach in
+    /// DM, group coach binding otherwise) branch on this flag.
+    pub is_direct_message: bool,
 }
 
 /// Handler for a slash command.

@@ -245,6 +245,9 @@ pub const KEY_COACH_GROUP_CREATED: &str = "commands.coach.group_created";
 pub const KEY_COACH_GROUP_CREATION_UNAVAILABLE: &str = "commands.coach.group_creation_unavailable";
 /// Key: `/coach select` / `/coach assign` success. `{0}` = coach, `{1}` = group.
 pub const KEY_COACH_GROUP_UPDATED: &str = "commands.coach.group_updated";
+/// Key: `/coach select` success in a DM (user-scoped coach). `{0}` = coach title.
+/// Distinct from [`KEY_COACH_GROUP_UPDATED`] so DM replies don't mention any "group".
+pub const KEY_COACH_USER_UPDATED: &str = "commands.coach.user_updated";
 /// Key: `/coach select` prompt when the user manages multiple groups.
 /// `{0}` = group count, `{1}` = coach title.
 pub const KEY_COACH_MULTI_GROUP_PROMPT: &str = "commands.coach.multi_group_prompt";
@@ -379,6 +382,7 @@ pub(crate) const FR_COACH_GROUP_CREATED: &str =
 pub(crate) const FR_COACH_GROUP_CREATION_UNAVAILABLE: &str =
     "Coach sélectionné : {0}. La création de groupe n'est pas disponible.";
 pub(crate) const FR_COACH_GROUP_UPDATED: &str = "Coach mis à jour sur {0} pour le groupe {1}.";
+pub(crate) const FR_COACH_USER_UPDATED: &str = "Coach sélectionné : {0}.";
 pub(crate) const FR_COACH_MULTI_GROUP_PROMPT: &str =
     "Tu gères {0} groupes. Lequel doit utiliser {1} ?\n";
 pub(crate) const FR_COACH_MULTI_GROUP_CARD_TITLE: &str = "Choisis un groupe";
@@ -503,6 +507,7 @@ pub(crate) const EN_COACH_GROUP_CREATED: &str =
 pub(crate) const EN_COACH_GROUP_CREATION_UNAVAILABLE: &str =
     "Selected coach: {0}. Group creation is not available.";
 pub(crate) const EN_COACH_GROUP_UPDATED: &str = "Coach updated to {0} for group {1}.";
+pub(crate) const EN_COACH_USER_UPDATED: &str = "Coach selected: {0}.";
 pub(crate) const EN_COACH_MULTI_GROUP_PROMPT: &str =
     "You manage {0} groups. Which one should use {1}?\n";
 pub(crate) const EN_COACH_MULTI_GROUP_CARD_TITLE: &str = "Choose a group";
@@ -620,6 +625,7 @@ pub(crate) const ES_COACH_GROUP_CREATED: &str =
 pub(crate) const ES_COACH_GROUP_CREATION_UNAVAILABLE: &str =
     "Coach seleccionado: {0}. La creación de grupos no está disponible.";
 pub(crate) const ES_COACH_GROUP_UPDATED: &str = "Coach actualizado a {0} para el grupo {1}.";
+pub(crate) const ES_COACH_USER_UPDATED: &str = "Coach seleccionado: {0}.";
 pub(crate) const ES_COACH_MULTI_GROUP_PROMPT: &str =
     "Gestionas {0} grupos. ¿Cuál debería usar {1}?\n";
 pub(crate) const ES_COACH_MULTI_GROUP_CARD_TITLE: &str = "Elige un grupo";
@@ -737,6 +743,7 @@ pub(crate) const DE_COACH_GROUP_CREATED: &str =
 pub(crate) const DE_COACH_GROUP_CREATION_UNAVAILABLE: &str =
     "Ausgewählter Coach: {0}. Gruppenerstellung ist nicht verfügbar.";
 pub(crate) const DE_COACH_GROUP_UPDATED: &str = "Coach auf {0} für Gruppe {1} aktualisiert.";
+pub(crate) const DE_COACH_USER_UPDATED: &str = "Coach gewählt: {0}.";
 pub(crate) const DE_COACH_MULTI_GROUP_PROMPT: &str =
     "Du verwaltest {0} Gruppen. Welche soll {1} nutzen?\n";
 pub(crate) const DE_COACH_MULTI_GROUP_CARD_TITLE: &str = "Gruppe wählen";
@@ -854,6 +861,7 @@ pub(crate) const PT_COACH_GROUP_CREATED: &str =
 pub(crate) const PT_COACH_GROUP_CREATION_UNAVAILABLE: &str =
     "Coach selecionado: {0}. A criação de grupos não está disponível.";
 pub(crate) const PT_COACH_GROUP_UPDATED: &str = "Coach atualizado para {0} no grupo {1}.";
+pub(crate) const PT_COACH_USER_UPDATED: &str = "Treinador selecionado: {0}.";
 pub(crate) const PT_COACH_MULTI_GROUP_PROMPT: &str = "Geres {0} grupos. Qual deve usar {1}?\n";
 pub(crate) const PT_COACH_MULTI_GROUP_CARD_TITLE: &str = "Escolhe um grupo";
 pub(crate) const PT_COACH_MULTI_GROUP_ITEM: &str = "• {0} ({1} membros)";
@@ -939,6 +947,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_GROUP_CREATED, "fr", FR_COACH_GROUP_CREATED),
     (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "fr", FR_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "fr", FR_COACH_GROUP_UPDATED),
+    (KEY_COACH_USER_UPDATED, "fr", FR_COACH_USER_UPDATED),
     (KEY_COACH_MULTI_GROUP_PROMPT, "fr", FR_COACH_MULTI_GROUP_PROMPT),
     (KEY_COACH_MULTI_GROUP_CARD_TITLE, "fr", FR_COACH_MULTI_GROUP_CARD_TITLE),
     (KEY_COACH_MULTI_GROUP_ITEM, "fr", FR_COACH_MULTI_GROUP_ITEM),
@@ -1018,6 +1027,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_GROUP_CREATED, "en", EN_COACH_GROUP_CREATED),
     (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "en", EN_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "en", EN_COACH_GROUP_UPDATED),
+    (KEY_COACH_USER_UPDATED, "en", EN_COACH_USER_UPDATED),
     (KEY_COACH_MULTI_GROUP_PROMPT, "en", EN_COACH_MULTI_GROUP_PROMPT),
     (KEY_COACH_MULTI_GROUP_CARD_TITLE, "en", EN_COACH_MULTI_GROUP_CARD_TITLE),
     (KEY_COACH_MULTI_GROUP_ITEM, "en", EN_COACH_MULTI_GROUP_ITEM),
@@ -1097,6 +1107,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_GROUP_CREATED, "es", ES_COACH_GROUP_CREATED),
     (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "es", ES_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "es", ES_COACH_GROUP_UPDATED),
+    (KEY_COACH_USER_UPDATED, "es", ES_COACH_USER_UPDATED),
     (KEY_COACH_MULTI_GROUP_PROMPT, "es", ES_COACH_MULTI_GROUP_PROMPT),
     (KEY_COACH_MULTI_GROUP_CARD_TITLE, "es", ES_COACH_MULTI_GROUP_CARD_TITLE),
     (KEY_COACH_MULTI_GROUP_ITEM, "es", ES_COACH_MULTI_GROUP_ITEM),
@@ -1176,6 +1187,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_GROUP_CREATED, "de", DE_COACH_GROUP_CREATED),
     (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "de", DE_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "de", DE_COACH_GROUP_UPDATED),
+    (KEY_COACH_USER_UPDATED, "de", DE_COACH_USER_UPDATED),
     (KEY_COACH_MULTI_GROUP_PROMPT, "de", DE_COACH_MULTI_GROUP_PROMPT),
     (KEY_COACH_MULTI_GROUP_CARD_TITLE, "de", DE_COACH_MULTI_GROUP_CARD_TITLE),
     (KEY_COACH_MULTI_GROUP_ITEM, "de", DE_COACH_MULTI_GROUP_ITEM),
@@ -1255,6 +1267,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_COACH_GROUP_CREATED, "pt", PT_COACH_GROUP_CREATED),
     (KEY_COACH_GROUP_CREATION_UNAVAILABLE, "pt", PT_COACH_GROUP_CREATION_UNAVAILABLE),
     (KEY_COACH_GROUP_UPDATED, "pt", PT_COACH_GROUP_UPDATED),
+    (KEY_COACH_USER_UPDATED, "pt", PT_COACH_USER_UPDATED),
     (KEY_COACH_MULTI_GROUP_PROMPT, "pt", PT_COACH_MULTI_GROUP_PROMPT),
     (KEY_COACH_MULTI_GROUP_CARD_TITLE, "pt", PT_COACH_MULTI_GROUP_CARD_TITLE),
     (KEY_COACH_MULTI_GROUP_ITEM, "pt", PT_COACH_MULTI_GROUP_ITEM),

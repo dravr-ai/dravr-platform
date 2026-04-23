@@ -76,6 +76,7 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&user).await?;
     Ok(user_id)

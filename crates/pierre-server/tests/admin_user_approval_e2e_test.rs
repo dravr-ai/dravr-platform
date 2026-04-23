@@ -130,6 +130,7 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     let user_id = database.repositories().users.create(&test_user).await?;
@@ -528,6 +529,7 @@ async fn create_test_pending_user(database: &Database) -> Result<uuid::Uuid> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     database.repositories().users.create(&test_user).await?;
     Ok(test_user_id)

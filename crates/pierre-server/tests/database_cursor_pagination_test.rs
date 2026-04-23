@@ -62,6 +62,7 @@ async fn test_get_users_by_status_cursor() -> Result<()> {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
 
         repos.users.create(&user).await?;
@@ -189,6 +190,7 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
             analytics_consent: false,
             analytics_consent_at: None,
             locale: "fr".to_owned(),
+            default_coach_id: None,
         };
         repos.users.create(&user).await?;
         sleep(Duration::from_millis(10)).await;
@@ -223,6 +225,7 @@ async fn test_cursor_pagination_consistency() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     repos.users.create(&new_user).await?;
 

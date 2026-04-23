@@ -44,6 +44,7 @@ async fn test_strava_token_storage() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     UserRepository::create(&db, &user)
@@ -148,6 +149,7 @@ async fn test_fitbit_token_storage() {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
 
     UserRepository::create(&db, &user)

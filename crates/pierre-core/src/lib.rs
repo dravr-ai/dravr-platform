@@ -61,6 +61,9 @@ pub mod uuid_utils;
 /// Character-based LLM token estimation (single source of truth for the ~4 chars/token heuristic)
 pub mod tokens;
 
+/// Plain-text markdown stripper for messaging output
+pub mod markdown;
+
 /// LLM provider trait and shared types for pluggable AI model integration
 #[cfg(feature = "llm")]
 pub mod llm;

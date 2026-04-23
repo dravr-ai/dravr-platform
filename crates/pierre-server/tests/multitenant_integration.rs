@@ -431,6 +431,7 @@ async fn test_multitenant_auth_flow() -> Result<()> {
         analytics_consent: false,
         analytics_consent_at: None,
         locale: "fr".to_owned(),
+        default_coach_id: None,
     };
     repos.users.create(&admin_user).await?;
 

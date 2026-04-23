@@ -248,6 +248,10 @@ async fn handle_command_postback(
         raw_text: parsed.raw_text,
         resources: Arc::clone(resources),
         locale,
+        // Slack block_actions payloads don't expose event.channel_type;
+        // use the channel ID prefix convention ("D" = IM, "C" = channel,
+        // "G" = private group).
+        is_direct_message: action.channel_id.starts_with('D'),
     };
 
     let response = handler.execute(&ctx).await?;

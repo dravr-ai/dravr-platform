@@ -1258,6 +1258,7 @@ async fn try_handle_slash_command(
     sender_id: &str,
     conversation_id: Option<&str>,
     thread_id: Option<String>,
+    is_direct_message: bool,
 ) -> Option<OutgoingMessage> {
     use pierre_messaging::commands::CommandMatcher;
 
@@ -1324,6 +1325,7 @@ async fn try_handle_slash_command(
             raw_text: parsed.raw_text,
             resources: Arc::clone(resources),
             locale,
+            is_direct_message,
         };
 
         let hashed_tenant = hash_id(&user_tenant.to_string());
@@ -1501,6 +1503,7 @@ async fn persist_single_message(
             &message.sender_id,
             message.conversation_id.as_deref(),
             thread_id.clone(),
+            message.is_direct_message,
         )
         .await
         {
