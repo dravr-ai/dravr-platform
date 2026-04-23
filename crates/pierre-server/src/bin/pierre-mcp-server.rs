@@ -545,6 +545,7 @@ async fn create_server(
             rsa_key_size_bits: Some(rsa_key_size),
             jwks_manager: None, // Generate new JWKS manager for production
             llm_provider: None, // Use ChatProvider::from_env() for LLM in production
+            extra_tools: Vec::new(),
         },
     )
     .await;

@@ -44,6 +44,7 @@ use pierre_mcp_server::{
     middleware::McpAuthMiddleware,
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     routes::mcp::McpRoutes,
+    tools::traits::McpTool,
     utils,
 };
 use rand::Rng;
@@ -395,7 +396,7 @@ pub async fn setup_test_environment_with_tier(tier: UserTier) -> Result<(Arc<Dat
 /// Create test `ServerResources` with all components properly initialized
 /// This replaces individual resource creation for proper architectural patterns
 pub async fn create_test_server_resources() -> Result<Arc<ServerResources>> {
-    create_test_server_resources_inner(None).await
+    create_test_server_resources_inner(None, Vec::new()).await
 }
 
 /// Same as [`create_test_server_resources`] but injects a caller-supplied
@@ -407,11 +408,28 @@ pub async fn create_test_server_resources() -> Result<Arc<ServerResources>> {
 pub async fn create_test_server_resources_with_llm(
     provider: Arc<dyn LlmProvider + 'static>,
 ) -> Result<Arc<ServerResources>> {
-    create_test_server_resources_inner(Some(provider)).await
+    create_test_server_resources_inner(Some(provider), Vec::new()).await
+}
+
+/// Same as [`create_test_server_resources_with_llm`] plus caller-supplied
+/// MCP tools injected into the default registry.
+///
+/// Used by messaging-eval integration tests that need a no-auth stub
+/// tool to exercise the tool-execution loop end-to-end: the mock LLM
+/// emits a `<tool_call>` block for the stub's name, the pipeline
+/// routes to it via the registry, the stub returns canned data, and
+/// the summary row records `tools_called` with the real pipeline-
+/// populated value rather than a direct `llm_usage` seed.
+pub async fn create_test_server_resources_with_llm_and_tools(
+    provider: Arc<dyn LlmProvider + 'static>,
+    extra_tools: Vec<Arc<dyn McpTool>>,
+) -> Result<Arc<ServerResources>> {
+    create_test_server_resources_inner(Some(provider), extra_tools).await
 }
 
 async fn create_test_server_resources_inner(
     llm_provider: Option<Arc<dyn LlmProvider + 'static>>,
+    extra_tools: Vec<Arc<dyn McpTool>>,
 ) -> Result<Arc<ServerResources>> {
     init_test_logging();
     init_test_http_clients();
@@ -458,6 +476,7 @@ async fn create_test_server_resources_inner(
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(jwks_manager),
                 llm_provider,
+                extra_tools,
             },
         )
         .await,

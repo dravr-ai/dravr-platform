@@ -555,6 +555,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -738,6 +739,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -844,6 +846,7 @@ async fn test_mcp_initialization_no_auth() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -932,6 +935,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,
@@ -1045,6 +1049,7 @@ async fn test_multitenant_server_config() -> Result<()> {
                 rsa_key_size_bits: Some(2048),
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 llm_provider: None,
+                extra_tools: Vec::new(),
             },
         )
         .await,

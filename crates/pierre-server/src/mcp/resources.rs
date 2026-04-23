@@ -66,6 +66,7 @@ use crate::services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use crate::sse::SseManager;
 use crate::tools::registry::ToolRegistry;
+use crate::tools::traits::McpTool;
 #[cfg(feature = "transport-websocket")]
 use crate::websocket::WebSocketManager;
 use chrono::Utc;
@@ -108,26 +109,36 @@ pub struct ServerResourcesOptions {
     pub jwks_manager: Option<Arc<JwksManager>>,
     /// LLM provider for insight validation (injected for testing with mock providers)
     pub llm_provider: Option<Arc<dyn LlmProvider>>,
+    /// Extra MCP tools to register in the default tool registry.
+    ///
+    /// Populated by messaging-eval integration tests that need a
+    /// no-auth stub tool to exercise the tool-execution loop
+    /// end-to-end without requiring a real provider connection.
+    /// Production callers leave this empty — the default registry
+    /// already holds every user-facing tool.
+    pub extra_tools: Vec<Arc<dyn McpTool>>,
 }
 
 impl ServerResourcesOptions {
     /// Create options with production defaults (4096-bit RSA keys)
     #[must_use]
-    pub const fn production() -> Self {
+    pub fn production() -> Self {
         Self {
             rsa_key_size_bits: Some(4096),
             jwks_manager: None,
             llm_provider: None,
+            extra_tools: Vec::new(),
         }
     }
 
     /// Create options for testing (2048-bit RSA keys for speed)
     #[must_use]
-    pub const fn testing() -> Self {
+    pub fn testing() -> Self {
         Self {
             rsa_key_size_bits: Some(2048),
             jwks_manager: None,
             llm_provider: None,
+            extra_tools: Vec::new(),
         }
     }
 
@@ -524,8 +535,19 @@ impl ServerResources {
             (Some(registry), Some(Arc::new(handler_reg)))
         };
 
-        // Create and populate tool registry with all built-in tools
-        let tool_registry = Arc::new(Self::create_tool_registry());
+        // Create and populate tool registry with all built-in tools. Any
+        // `extra_tools` supplied via `ServerResourcesOptions` (used by
+        // messaging-eval integration tests that need a no-auth stub
+        // tool) land in the same registry as the built-ins, so the
+        // pipeline's tool dispatcher can route to them with zero
+        // special-casing.
+        let tool_registry = {
+            let mut registry = Self::create_tool_registry();
+            for tool in options.extra_tools {
+                registry.register(tool);
+            }
+            Arc::new(registry)
+        };
 
         // Sync tool_catalog table with registry so tenant filtering always has complete data
         Self::run_tool_catalog_sync(&tool_registry, &repos).await;
@@ -1233,6 +1255,7 @@ impl ServerResourcesBuilder {
             rsa_key_size_bits: Some(self.rsa_key_size_bits),
             jwks_manager: self.jwks_manager,
             llm_provider: self.llm_provider,
+            extra_tools: Vec::new(),
         };
 
         let resources = ServerResources::new(
