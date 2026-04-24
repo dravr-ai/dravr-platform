@@ -430,10 +430,19 @@ impl Default for WeatherApiConfig {
 /// Default threshold for auto-promoting `get_activities` to detailed mode.
 ///
 /// When a caller asks for this many activities or fewer, the handler issues
-/// an N+1 lookup against `FitnessProvider::get_activity` so the LLM sees the
-/// full sensor record (heart rate, elevation, splits, weather context) rather
-/// than the shallow summary returned by the provider's list endpoint.
-pub const DEFAULT_ACTIVITY_DETAIL_THRESHOLD: usize = 3;
+/// an N+1 lookup against `FitnessProvider::get_activity_detailed` so the LLM
+/// sees the full sensor record (heart rate, elevation, splits, laps, segment
+/// efforts, weather context) rather than the expanded summary returned by
+/// the provider's list endpoint.
+///
+/// 20 matches Strava's per-15-minute rate-limit budget comfortably (100
+/// requests / 15 min / user, so a single `limit <= 20` query burns at most
+/// 20% of the window) while covering the overwhelming majority of coach
+/// questions ("my last run", "last 10 rides this week", "last 20 workouts
+/// for fitness trend"). Above 20, the expanded summary shape still carries
+/// HR, elevation, cadence, power, and calories per activity — coaches can
+/// reason about load without the N+1 cost.
+pub const DEFAULT_ACTIVITY_DETAIL_THRESHOLD: usize = 20;
 
 /// Resolve the activity detail threshold from the environment.
 ///

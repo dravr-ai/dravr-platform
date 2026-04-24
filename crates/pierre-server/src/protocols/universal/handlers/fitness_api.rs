@@ -23,6 +23,7 @@ use serde::Serialize;
 use serde_json::{json, to_value, Value};
 use std::cmp::Reverse;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::future::Future;
 use std::hash::BuildHasher;
 use std::pin::Pin;
@@ -31,8 +32,16 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-/// Activity summary with minimal fields for efficient list queries
-/// Used when mode=summary to reduce payload size and preserve LLM context
+/// Activity summary with scalar sensor fields for efficient list queries.
+///
+/// Used when `mode=summary`. Carries the full set of scalar fields every
+/// coach persona needs for basic reasoning (HR zones, elevation load,
+/// calorie estimate, cadence, power) without the arrays (splits, laps,
+/// segments, HR zones, power zones, time-series data) that only a deep
+/// per-activity analysis coach needs. All sensor fields are `Option<T>`
+/// and `#[serde(skip_serializing_if = "Option::is_none")]` so activities
+/// recorded without an HRM or on indoor trainers render cleanly without
+/// null noise.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActivitySummary {
     /// Unique activity identifier
@@ -47,6 +56,28 @@ pub struct ActivitySummary {
     pub distance_meters: f64,
     /// Duration in seconds
     pub duration_seconds: u64,
+    /// Total elevation gained in meters, when the provider reports it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elevation_gain_meters: Option<f64>,
+    /// Average heart rate in BPM over the activity, when the user wore an HRM.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_heart_rate: Option<u32>,
+    /// Maximum heart rate in BPM over the activity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_heart_rate: Option<u32>,
+    /// Provider-reported calorie estimate, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calories: Option<u32>,
+    /// Average cadence (rpm for cycling, spm for running).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_cadence: Option<u32>,
+    /// Average power output in watts (cycling / rowing / running power meters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_power: Option<u32>,
+    /// Strava's "Suffer Score" (Relative Effort) when available. Surrogate for
+    /// perceived exertion grounded in HR-in-zone time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suffer_score: Option<u32>,
 }
 
 impl From<&Activity> for ActivitySummary {
@@ -58,6 +89,13 @@ impl From<&Activity> for ActivitySummary {
             start_date: activity.start_date().to_rfc3339(),
             distance_meters: activity.distance_meters().unwrap_or(0.0),
             duration_seconds: activity.duration_seconds(),
+            elevation_gain_meters: activity.elevation_gain(),
+            average_heart_rate: activity.average_heart_rate(),
+            max_heart_rate: activity.max_heart_rate(),
+            calories: activity.calories(),
+            average_cadence: activity.average_cadence(),
+            average_power: activity.average_power(),
+            suffer_score: activity.suffer_score(),
         }
     }
 }
@@ -93,14 +131,46 @@ fn format_activities_as_list(activities: &[Activity]) -> String {
             format!("{minutes}:{seconds:02}")
         };
 
+        // Append scalar sensor fields when the provider returned them.
+        // Small models that skip the JSON tool result still see the
+        // enrichment inline — no more "I don't have HR" when the data
+        // was on the row all along. `write!` on a String is infallible
+        // so the Result is intentionally discarded — matches
+        // clippy::format_push_string guidance.
+        let mut extras = String::new();
+        match (activity.average_heart_rate(), activity.max_heart_rate()) {
+            (Some(avg), Some(max)) => {
+                let _ = write!(extras, " - HR {avg}/{max}");
+            }
+            (Some(avg), None) => {
+                let _ = write!(extras, " - HR {avg} avg");
+            }
+            (None, Some(max)) => {
+                let _ = write!(extras, " - HR {max} max");
+            }
+            (None, None) => {}
+        }
+        if let Some(elevation) = activity.elevation_gain() {
+            // Round to whole meters — the coach reasoning doesn't need
+            // decimals and the Strava field comes as Option<f32> which
+            // sometimes carries spurious fractional noise.
+            #[allow(clippy::cast_possible_truncation)]
+            let rounded = elevation.round() as i64;
+            let _ = write!(extras, " - +{rounded}m");
+        }
+        if let Some(calories) = activity.calories() {
+            let _ = write!(extras, " - {calories} kcal");
+        }
+
         lines.push(format!(
-            "{}. [{}] {} - {} - {:.2} km - {}",
+            "{}. [{}] {} - {} - {:.2} km - {}{}",
             i + 1,
             sport,
             activity.name(),
             date,
             distance_km,
-            duration_str
+            duration_str,
+            extras
         ));
     }
 
@@ -257,6 +327,18 @@ pub struct ActivityRetrievalContext {
     pub date_range: DateRange,
     /// Assessment of data sufficiency
     pub data_sufficiency: DataSufficiency,
+    /// Actionable advice for the LLM when the requested payload shape
+    /// has trade-offs it should be aware of.
+    ///
+    /// Populated when `limit > activity_detail_threshold`: the response
+    /// is summary-mode, so fields like splits, laps, segment efforts,
+    /// and full time-series are absent. The sentence tells the LLM what
+    /// is still available (HR, elevation, cadence, power, calories in
+    /// the expanded summary) and how to narrow if it needs
+    /// per-activity depth. `None` when no trade-off applies
+    /// (auto-promoted queries).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advice: Option<String>,
 }
 
 /// Date range for activity retrieval
@@ -272,10 +354,19 @@ pub struct DateRange {
 
 impl ActivityRetrievalContext {
     /// Create retrieval context from activities and analysis type
-    /// Calculates date range, sufficiency, and provides recommendation
+    /// Calculates date range, sufficiency, and provides recommendation.
+    ///
+    /// `mode_used` lets the caller tell the LLM when the response is
+    /// summary-mode (limit > threshold): the `advice` field is populated
+    /// with a one-line hint about what is still available (HR, elevation,
+    /// cadence, power, calories) and how to narrow for splits/laps.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
-    pub fn from_activities(activities: &[Activity], analysis_type: AnalysisType) -> Self {
+    pub fn from_activities(
+        activities: &[Activity],
+        analysis_type: AnalysisType,
+        mode_used: &str,
+    ) -> Self {
         let date_range = Self::calculate_date_range(activities);
         let weeks_covered = date_range.days_spanned / 7;
         let activity_type_breakdown = Self::calculate_type_breakdown(activities);
@@ -291,6 +382,20 @@ impl ActivityRetrievalContext {
             analysis_type,
         );
 
+        // Surface the summary-mode trade-off exactly once, to the LLM,
+        // at the point it reads the tool result. Keeps the per-activity
+        // payload compact (no repeated warnings) while still informing
+        // the model that splits/laps/segments were omitted and that
+        // narrower queries (<= ACTIVITY_DETAIL_THRESHOLD) would fetch them.
+        let advice = (mode_used == "summary").then(|| {
+            "Summary mode: each activity carries scalar fields only \
+             (HR avg/max, elevation, cadence, power, calories, suffer score). \
+             Splits, laps, segment efforts, and time-series are omitted. \
+             Request limit <= ACTIVITY_DETAIL_THRESHOLD to auto-promote a \
+             narrower query to full detail."
+                .to_owned()
+        });
+
         Self {
             analysis_type,
             date_range,
@@ -301,6 +406,7 @@ impl ActivityRetrievalContext {
                 has_sufficient_data,
                 recommendation,
             },
+            advice,
         }
     }
 
@@ -810,7 +916,8 @@ fn build_activities_success_response(params: ActivitiesResponseParams<'_>) -> Un
     let token_estimate = TokenEstimate::from_activities(activities.len(), mode_used);
 
     // Calculate retrieval context for LLM data sufficiency guidance
-    let retrieval_context = ActivityRetrievalContext::from_activities(activities, analysis_type);
+    let retrieval_context =
+        ActivityRetrievalContext::from_activities(activities, analysis_type, mode_used);
 
     // Format the activities data according to the requested format
     let (result_json, format_used) = match output_format {
@@ -1253,16 +1360,21 @@ pub fn handle_get_activities(
                         filtered_activities.sort_by_key(|a| Reverse(a.start_date()));
 
                         // Auto-promote small-limit queries to detailed by issuing
-                        // get_activity per id. This is an N+1 fetch but is bounded by
-                        // detail_threshold (default 3), which is much smaller than the
-                        // provider rate limits.
+                        // get_activity_detailed per id. N+1 fetch bounded by
+                        // detail_threshold (default 20, tunable via
+                        // ACTIVITY_DETAIL_THRESHOLD). At 20 we burn at most 20%
+                        // of Strava's 100-req / 15-min per-user budget in a
+                        // single query. The _detailed variant parses the
+                        // richer detail-endpoint shape on providers that have
+                        // one (Strava); providers without a detail endpoint
+                        // inherit the default impl that forwards to get_activity.
                         let effective_mode = if auto_promote_to_detail
                             && !filtered_activities.is_empty()
                         {
                             let mut detailed = Vec::with_capacity(filtered_activities.len());
                             let original_count = filtered_activities.len();
                             for activity in &filtered_activities {
-                                match provider.get_activity(activity.id()).await {
+                                match provider.get_activity_detailed(activity.id()).await {
                                     Ok(detail) => detailed.push(detail),
                                     Err(err) => {
                                         warn!(

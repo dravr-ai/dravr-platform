@@ -29,13 +29,15 @@ fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
 }
 
 #[test]
-fn default_threshold_is_three() {
+fn default_threshold_is_twenty() {
     with_env("ACTIVITY_DETAIL_THRESHOLD", None, || {
         assert_eq!(
             activity_detail_threshold(),
             DEFAULT_ACTIVITY_DETAIL_THRESHOLD
         );
-        assert_eq!(DEFAULT_ACTIVITY_DETAIL_THRESHOLD, 3);
+        // 20 matches Strava's per-15-minute rate-limit budget (100 requests / 15 min / user)
+        // — a single `limit <= 20` auto-promoted query burns at most 20% of the window.
+        assert_eq!(DEFAULT_ACTIVITY_DETAIL_THRESHOLD, 20);
     });
 }
 

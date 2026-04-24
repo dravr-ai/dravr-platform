@@ -49,7 +49,7 @@ pub mod refresh;
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{
-    Activity, ActivityBuilder, HeartRateZone, PowerZone, SegmentEffort, TimeSeriesData,
+    Activity, ActivityBuilder, HeartRateZone, Lap, PowerZone, SegmentEffort, Split, TimeSeriesData,
 };
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
