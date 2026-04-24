@@ -83,6 +83,21 @@ pub const KEY_SCOPE_REFUSAL: &str = "messaging.scope.refusal";
 /// (web scraping, image generation, etc.). Interpolated into the system
 /// prompt at turn-time for deterministic output.
 pub const KEY_CAPABILITY_REFUSAL: &str = "messaging.capability.refusal";
+/// Key: Nutrition-coach carve-out for the generic scope list.
+///
+/// Generic `pierre_system.md` lists "food/meal finders" as out-of-scope
+/// alongside restaurant prices and delivery apps. For Nutrition coaches
+/// that collides with their core purpose — answering meal/dinner/snack
+/// questions grounded in training data. This string reaffirms nutrition
+/// questions ARE in scope and is injected into the system prompt whenever
+/// the active coach's category is Nutrition.
+pub const KEY_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "messaging.scope.carve_out.nutrition";
+/// Key: Recipes-coach carve-out for the generic scope list.
+///
+/// Same rationale as [`KEY_COACH_SCOPE_CARVE_OUT_NUTRITION`] — Recipes
+/// coaches exist to suggest meals and food choices, so the generic
+/// "food/meal finders" refusal must not fire for them.
+pub const KEY_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "messaging.scope.carve_out.recipes";
 /// Key: short placeholder shown in-channel (Telegram/Slack/Discord) while
 /// the LLM is still generating the reply — e.g. "thinking…" / "réflexion…".
 pub const KEY_THINKING_PLACEHOLDER: &str = "messaging.thinking_placeholder";
@@ -284,6 +299,10 @@ pub const FR_SCOPE_REFUSAL: &str =
     "Ça sort de ce que je peux t'aider à faire — je suis ton assistant fitness.";
 /// French canonical refusal for missing-capability requests.
 pub const FR_CAPABILITY_REFUSAL: &str = "Je ne peux pas faire ça avec les outils dont je dispose.";
+/// French Nutrition-coach carve-out for the generic scope list.
+pub const FR_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Précision pour ton rôle de coach nutrition\n\nEn tant que coach nutrition, les questions sur les repas, dîners, petits-déjeuners, collations, choix alimentaires et la planification des repas liée à l'entraînement SONT entièrement dans ton domaine. Réponds directement à ces questions en t'appuyant sur les données d'entraînement de l'utilisateur (intensité, durée, dépense énergétique). La règle « recherche de nourriture hors périmètre » qui apparaît plus haut vise uniquement la recherche de restaurants, d'applications de livraison ou de menus en ligne — pas les conseils nutritionnels basés sur les preuves et sur les données d'entraînement. Ne refuse jamais « que manger après ma sortie », « idées de dîner après mon entraînement », « collation post-séance » ou équivalents.";
+/// French Recipes-coach carve-out for the generic scope list.
+pub const FR_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "## Précision pour ton rôle de coach recettes et repas\n\nEn tant que coach recettes et planification de repas, les suggestions de repas, recettes, idées de plats et choix alimentaires adaptés à l'entraînement SONT entièrement dans ton domaine. La règle « recherche de nourriture hors périmètre » qui apparaît plus haut vise la recherche de restaurants et les applications de livraison — pas la suggestion de recettes maison ou la planification de repas fondées sur les données d'entraînement de l'utilisateur. Réponds directement à ces demandes.";
 /// French placeholder shown while the LLM is composing its reply.
 pub const FR_THINKING_PLACEHOLDER: &str = "réflexion…";
 /// French unknown-command reply.
@@ -411,6 +430,10 @@ pub const EN_SCOPE_REFUSAL: &str =
     "That's outside what I can help with — I'm your fitness assistant.";
 /// English canonical refusal for missing-capability requests.
 pub const EN_CAPABILITY_REFUSAL: &str = "I can't do that with the tools I have.";
+/// English Nutrition-coach carve-out for the generic scope list.
+pub const EN_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Clarification for your nutrition-coach role\n\nAs a nutrition coach, questions about meals, dinner, breakfast, snacks, food choices, and training-linked meal planning are fully within your scope. Answer these directly, grounded in the user's training data (intensity, duration, energy expenditure). The \"food/meal finders out-of-scope\" rule above targets restaurant search, delivery apps, and online menu lookups only — it does not cover evidence-based nutrition advice or meal planning built on the user's training. Never refuse \"what should I eat after my run\", \"dinner ideas after my workout\", \"post-workout snack\" or equivalent.";
+/// English Recipes-coach carve-out for the generic scope list.
+pub const EN_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "## Clarification for your recipes and meal-planning coach role\n\nAs a recipes and meal-planning coach, recipe ideas, meal suggestions, dish ideas, and food choices tuned to training are fully within your scope. The \"food/meal finders out-of-scope\" rule above targets restaurant search and delivery apps — not homemade recipe suggestions or meal planning grounded in the user's training data. Answer these requests directly.";
 /// English placeholder shown while the LLM is composing its reply.
 pub const EN_THINKING_PLACEHOLDER: &str = "thinking…";
 /// English unknown-command reply.
@@ -530,6 +553,10 @@ pub(crate) const ES_SCOPE_REFUSAL: &str =
     "Eso está fuera de lo que puedo hacer — soy tu asistente de fitness.";
 /// Spanish canonical refusal for missing-capability requests.
 pub(crate) const ES_CAPABILITY_REFUSAL: &str = "No puedo hacerlo con las herramientas que tengo.";
+/// Spanish Nutrition-coach carve-out for the generic scope list.
+pub(crate) const ES_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Aclaración para tu rol de coach de nutrición\n\nComo coach de nutrición, las preguntas sobre comidas, cenas, desayunos, snacks, elecciones alimentarias y planificación de comidas vinculadas al entrenamiento están plenamente dentro de tu ámbito. Responde directamente, apoyándote en los datos de entrenamiento del usuario (intensidad, duración, gasto energético). La regla «búsquedas de comida fuera de alcance» de más arriba apunta solo a la búsqueda de restaurantes, apps de entrega y menús en línea — no cubre los consejos nutricionales basados en evidencia ni la planificación de comidas fundada en los datos de entrenamiento. Nunca rechaces «qué comer después de correr», «ideas para la cena tras entrenar», «snack post-entrenamiento» o equivalentes.";
+/// Spanish Recipes-coach carve-out for the generic scope list.
+pub(crate) const ES_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "## Aclaración para tu rol de coach de recetas y planificación de comidas\n\nComo coach de recetas y planificación de comidas, las ideas de recetas, sugerencias de platos y elecciones alimentarias ajustadas al entrenamiento están plenamente dentro de tu ámbito. La regla «búsquedas de comida fuera de alcance» de más arriba apunta a restaurantes y apps de entrega — no a recetas caseras ni a la planificación de comidas basada en los datos de entrenamiento del usuario. Responde directamente a estas peticiones.";
 /// Spanish placeholder shown while the LLM is composing its reply.
 pub(crate) const ES_THINKING_PLACEHOLDER: &str = "pensando…";
 /// Spanish unknown-command reply.
@@ -648,6 +675,10 @@ pub(crate) const DE_SCOPE_REFUSAL: &str =
     "Das liegt außerhalb meines Bereichs — ich bin dein Fitness-Assistent.";
 /// German canonical refusal for missing-capability requests.
 pub(crate) const DE_CAPABILITY_REFUSAL: &str = "Das kann ich mit meinen Werkzeugen nicht tun.";
+/// German Nutrition-coach carve-out for the generic scope list.
+pub(crate) const DE_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Klarstellung für deine Rolle als Ernährungscoach\n\nAls Ernährungscoach liegen Fragen zu Mahlzeiten, Abendessen, Frühstück, Snacks, Lebensmittelentscheidungen und trainingsbezogener Mahlzeitenplanung vollständig in deinem Bereich. Beantworte sie direkt, gestützt auf die Trainingsdaten der Nutzerin oder des Nutzers (Intensität, Dauer, Energieverbrauch). Die Regel oben zu „Essens-/Mahlzeitensuche außerhalb des Bereichs\" zielt ausschließlich auf Restaurantsuche, Lieferdienst-Apps und Online-Speisekarten — nicht auf evidenzbasierte Ernährungsberatung oder Mahlzeitenplanung, die sich auf Trainingsdaten stützt. Weise „Was soll ich nach meinem Lauf essen\", „Abendessen-Ideen nach dem Training\", „Snack nach der Einheit\" oder Ähnliches niemals zurück.";
+/// German Recipes-coach carve-out for the generic scope list.
+pub(crate) const DE_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "## Klarstellung für deine Rolle als Rezepte- und Mahlzeitenplanungscoach\n\nAls Coach für Rezepte und Mahlzeitenplanung gehören Rezeptideen, Mahlzeitenvorschläge, Gerichtideen und auf das Training abgestimmte Lebensmittelentscheidungen vollständig in deinen Bereich. Die Regel oben zu „Essens-/Mahlzeitensuche außerhalb des Bereichs\" zielt auf Restaurantsuche und Lieferdienste — nicht auf hausgemachte Rezeptvorschläge oder Mahlzeitenplanung auf Basis der Trainingsdaten. Beantworte solche Anfragen direkt.";
 /// German placeholder shown while the LLM is composing its reply.
 pub(crate) const DE_THINKING_PLACEHOLDER: &str = "denke nach…";
 /// German unknown-command reply.
@@ -767,6 +798,10 @@ pub(crate) const PT_SCOPE_REFUSAL: &str =
 /// Portuguese canonical refusal for missing-capability requests.
 pub(crate) const PT_CAPABILITY_REFUSAL: &str =
     "Não consigo fazer isso com as ferramentas que tenho.";
+/// Portuguese Nutrition-coach carve-out for the generic scope list.
+pub(crate) const PT_COACH_SCOPE_CARVE_OUT_NUTRITION: &str = "## Esclarecimento para o teu papel de coach de nutrição\n\nComo coach de nutrição, as perguntas sobre refeições, jantares, pequenos-almoços, lanches, escolhas alimentares e planeamento de refeições ligado ao treino estão plenamente no teu domínio. Responde diretamente, apoiando-te nos dados de treino do utilizador (intensidade, duração, gasto energético). A regra «procura de comida fora do âmbito» acima visa apenas procura de restaurantes, apps de entrega e menus online — não cobre conselhos nutricionais baseados em evidência nem planeamento de refeições fundado nos dados de treino. Nunca recuses «o que comer depois da corrida», «ideias para o jantar após treinar», «lanche pós-treino» ou equivalente.";
+/// Portuguese Recipes-coach carve-out for the generic scope list.
+pub(crate) const PT_COACH_SCOPE_CARVE_OUT_RECIPES: &str = "## Esclarecimento para o teu papel de coach de receitas e planeamento de refeições\n\nComo coach de receitas e planeamento de refeições, ideias de receitas, sugestões de pratos e escolhas alimentares ajustadas ao treino estão plenamente no teu domínio. A regra «procura de comida fora do âmbito» acima visa restaurantes e apps de entrega — não receitas caseiras nem planeamento de refeições baseado nos dados de treino do utilizador. Responde diretamente a estes pedidos.";
 /// Portuguese placeholder shown while the LLM is composing its reply.
 pub(crate) const PT_THINKING_PLACEHOLDER: &str = "a pensar…";
 /// Portuguese unknown-command reply.
@@ -883,6 +918,16 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_VERIFICATION_BLOCK_FALLBACK, "fr", FR_VERIFICATION_BLOCK_FALLBACK),
     (KEY_SCOPE_REFUSAL, "fr", FR_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "fr", FR_CAPABILITY_REFUSAL),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+        "fr",
+        FR_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    ),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        "fr",
+        FR_COACH_SCOPE_CARVE_OUT_RECIPES,
+    ),
     (KEY_THINKING_PLACEHOLDER, "fr", FR_THINKING_PLACEHOLDER),
     (KEY_UNKNOWN_COMMAND, "fr", FR_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "fr", FR_STATUS_READING_QUESTION),
@@ -957,6 +1002,16 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── English ─────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "en", EN_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "en", EN_CAPABILITY_REFUSAL),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+        "en",
+        EN_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    ),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        "en",
+        EN_COACH_SCOPE_CARVE_OUT_RECIPES,
+    ),
     (KEY_THINKING_PLACEHOLDER, "en", EN_THINKING_PLACEHOLDER),
     (KEY_UNKNOWN_COMMAND, "en", EN_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "en", EN_STATUS_READING_QUESTION),
@@ -1037,6 +1092,16 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── Spanish ─────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "es", ES_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "es", ES_CAPABILITY_REFUSAL),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+        "es",
+        ES_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    ),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        "es",
+        ES_COACH_SCOPE_CARVE_OUT_RECIPES,
+    ),
     (KEY_THINKING_PLACEHOLDER, "es", ES_THINKING_PLACEHOLDER),
     (KEY_UNKNOWN_COMMAND, "es", ES_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "es", ES_STATUS_READING_QUESTION),
@@ -1117,6 +1182,16 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── German ──────────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "de", DE_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "de", DE_CAPABILITY_REFUSAL),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+        "de",
+        DE_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    ),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        "de",
+        DE_COACH_SCOPE_CARVE_OUT_RECIPES,
+    ),
     (KEY_THINKING_PLACEHOLDER, "de", DE_THINKING_PLACEHOLDER),
     (KEY_UNKNOWN_COMMAND, "de", DE_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "de", DE_STATUS_READING_QUESTION),
@@ -1197,6 +1272,16 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     // ── Portuguese ──────────────────────────────────────────────────────
     (KEY_SCOPE_REFUSAL, "pt", PT_SCOPE_REFUSAL),
     (KEY_CAPABILITY_REFUSAL, "pt", PT_CAPABILITY_REFUSAL),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+        "pt",
+        PT_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    ),
+    (
+        KEY_COACH_SCOPE_CARVE_OUT_RECIPES,
+        "pt",
+        PT_COACH_SCOPE_CARVE_OUT_RECIPES,
+    ),
     (KEY_THINKING_PLACEHOLDER, "pt", PT_THINKING_PLACEHOLDER),
     (KEY_UNKNOWN_COMMAND, "pt", PT_UNKNOWN_COMMAND),
     (KEY_STATUS_READING_QUESTION, "pt", PT_STATUS_READING_QUESTION),

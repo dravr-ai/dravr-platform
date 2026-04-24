@@ -20,8 +20,9 @@ use chrono::Utc;
 use pierre_database::plugins::CreateChannelLinkParams;
 use pierre_mcp_server::contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
-    KEY_GROUP_LIST_EMPTY, KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL,
-    KEY_STATUS_HEADER, KEY_STATUS_PROVIDERS_NONE,
+    KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,
+    KEY_HELP_FOOTER, KEY_SCOPE_REFUSAL, KEY_STATUS_CHANNEL_LABEL, KEY_STATUS_HEADER,
+    KEY_STATUS_PROVIDERS_NONE,
 };
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::{Tenant, TenantId, User, UserStatus};
@@ -85,6 +86,40 @@ fn registry_exposes_refusal_strings_for_every_locale() {
     assert!(reg
         .get(KEY_SCOPE_REFUSAL, "en")
         .contains("fitness assistant"));
+}
+
+/// Per-coach scope carve-outs exist in every locale for the two categories
+/// whose core purpose (answering meal/dinner/snack/recipe questions) would
+/// otherwise collide with the generic "food/meal finders" out-of-scope rule
+/// in `pierre_system.md`. Drift here means Nutrition or Recipes coaches
+/// start refusing core questions again.
+#[test]
+fn registry_exposes_coach_scope_carve_outs_for_every_locale() {
+    let reg = MessagingStringsRegistry::new();
+    for locale in ["fr", "en", "es", "de", "pt"] {
+        let nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, locale);
+        let recipes = reg.get(KEY_COACH_SCOPE_CARVE_OUT_RECIPES, locale);
+        assert!(
+            !nutrition.trim().is_empty(),
+            "missing nutrition carve-out for {locale}"
+        );
+        assert!(
+            !recipes.trim().is_empty(),
+            "missing recipes carve-out for {locale}"
+        );
+    }
+    // Canonical anchor words that must survive any re-translation so the
+    // carve-out keeps counteracting the exact phrase in the scope list.
+    let fr_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "fr");
+    assert!(
+        fr_nutrition.contains("coach nutrition") && fr_nutrition.contains("dîners"),
+        "FR nutrition carve-out lost its anchor terms"
+    );
+    let en_nutrition = reg.get(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, "en");
+    assert!(
+        en_nutrition.contains("nutrition coach") && en_nutrition.contains("dinner"),
+        "EN nutrition carve-out lost its anchor terms"
+    );
 }
 
 /// `detect_turn_locale` picks the message-content language over the stored

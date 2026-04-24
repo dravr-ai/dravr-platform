@@ -10,6 +10,8 @@ use dravr_canot::turn::ConversationTurnId as CanotTurnId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::models::coaches::CoachCategory;
+
 /// Identifier for a single conversation turn.
 ///
 /// A *turn* is one inbound user utterance plus the full chain of LLM
@@ -159,6 +161,10 @@ pub struct CoachRuntimeContext {
     /// Optional per-coach LLM sampling temperature override. `None` → use
     /// provider/server default.
     pub temperature: Option<f32>,
+    /// Coach category — drives category-specific scope carve-outs injected
+    /// into the system prompt (e.g. Nutrition coaches bypass the generic
+    /// "food/meal finders" out-of-scope refusal for meal-planning questions).
+    pub category: CoachCategory,
 }
 
 /// Database representation of a chat message

@@ -1863,10 +1863,11 @@ impl CoachesRepository for PostgresDatabase {
             Option<String>,
             Option<i32>,
             Option<f32>,
+            String,
         );
         let row: Option<Row> = sqlx::query_as(
             r"
-            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature
+            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = TRUE)
@@ -1886,6 +1887,7 @@ impl CoachesRepository for PostgresDatabase {
                 data_requirements,
                 max_tool_iterations,
                 temperature,
+                category,
             )| {
                 CoachRuntimeContext {
                     system_prompt,
@@ -1893,6 +1895,7 @@ impl CoachesRepository for PostgresDatabase {
                     data_requirements,
                     max_tool_iterations,
                     temperature,
+                    category: CoachCategory::parse(&category),
                 }
             },
         ))
