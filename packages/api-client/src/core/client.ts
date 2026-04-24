@@ -45,6 +45,14 @@ export function createAxiosClient(adapter: PlatformAdapter): AxiosInstance {
         config.headers['X-CSRF-Token'] = csrfToken;
       }
 
+      // Tell the server which first-party surface this request came
+      // from so chat slash-command dispatch routes
+      // PlatformCommandContext.channel_type correctly (analytics +
+      // handler branching on /coach, /group, ...).
+      if (config.headers && !config.headers['X-Client-Platform']) {
+        config.headers['X-Client-Platform'] = adapter.platform;
+      }
+
       return config;
     },
     (error: AxiosError) => Promise.reject(error)

@@ -11,7 +11,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use pierre_core::models::ConversationTurnId;
+use pierre_core::models::{default_locale, AddMessageParams, ConversationTurnId};
 use uuid::Uuid;
 
 use crate::agui::{AgUiEventFilter, BroadcastSink, RunOwner, RunScope};
@@ -19,19 +19,28 @@ use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
 use crate::models::TenantId;
 use crate::services::chat_pipeline::{self as pipeline};
+use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
 #[cfg(feature = "client-notifications")]
 use pierre_database::database::ConversationRecord;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::triggers as notification_triggers;
 
 use super::common::{authenticate, get_tenant_id};
-use super::dto::{ChatCompletionResponse, MessageResponse, SendMessageRequest};
+use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas};
 use super::send_insight::send_insight_message;
 use super::usage::{
     increment_usage_counters, record_llm_usage, tokens_from_dispatch, RecordLlmUsageParams,
 };
 use super::{get_llm_provider, INSIGHT_PROMPT_PREFIX};
+
+/// HTTP header carrying the client surface identifier.
+///
+/// Set by first-party Dravr frontends to distinguish web from mobile for
+/// analytics, rate-limiting, and the `PlatformCommandContext.channel_type`
+/// field. Falls back to `"web"` when absent so ad-hoc API callers keep a
+/// sensible default.
+const CLIENT_PLATFORM_HEADER: &str = "x-client-platform";
 
 /// Bundles the AG-UI sink and registry scope for a single chat turn.
 ///
@@ -145,6 +154,33 @@ pub async fn send_message(
         .await;
     }
 
+    // Slash-command pre-pipeline: web and mobile chat share the same
+    // command dispatcher as the messaging channels. When the text starts
+    // with `/`, we resolve it through
+    // [`services::commands::dispatch::try_dispatch`] and persist the
+    // result as a regular conversation turn — no LLM call, no token
+    // spend, no AG-UI pipeline lifecycle. Non-command turns fall through
+    // to the existing pipeline path below.
+    if request.content.trim_start().starts_with('/') {
+        if let Some(response) = try_handle_chat_command(
+            &resources,
+            &headers,
+            auth.user_id,
+            tenant_id,
+            &conversation_id,
+            &user_id_str,
+            &request,
+            usage_warning.clone(),
+        )
+        .await?
+        {
+            return Ok(response);
+        }
+        // Fell through: the matcher treated the `/`-prefixed text as
+        // NotACommand (edge case — shouldn't happen after the prefix
+        // check, but we stay defensive). Continue to the LLM path.
+    }
+
     let turn_input = pipeline::TurnInput {
         conversation_id: conversation_id.clone(),
         user_id: user_id_str.clone(),
@@ -240,6 +276,9 @@ pub async fn send_message(
         model: dispatch.model.clone(),
         execution_time_ms,
         activity_list: dispatch.activity_list.clone(),
+        card_title: None,
+        actions: None,
+        is_command_response: false,
         agui_run_id: agui_wiring.as_ref().map(|w| w.run_id().to_owned()),
     };
 
@@ -256,6 +295,172 @@ pub async fn send_message(
     let mut http_response = (StatusCode::OK, Json(response)).into_response();
     apply_usage_warning_headers(&mut http_response, usage_warning);
     Ok(http_response)
+}
+
+/// Attempt to execute the user's content as a slash command.
+///
+/// Returns `Ok(Some(response))` when the command dispatched (including the
+/// unknown-command case) and the caller should return the response as-is —
+/// no LLM pipeline call, no token usage recording. Returns `Ok(None)` when
+/// the text did not match any command after all (matcher treated it as
+/// `NotACommand` despite the `/` prefix); the caller falls through to the
+/// regular pipeline path.
+///
+/// Persists both the user's original message and the command's reply as
+/// conversation turns so chat history looks uniform across LLM and command
+/// responses. Interactive actions (buttons) ride back on the response DTO
+/// but are **not** persisted — they are live only for the turn that
+/// produced them; reloading the conversation shows the rendered text
+/// body without buttons, and the user can always re-invoke the command.
+#[allow(clippy::too_many_arguments)]
+async fn try_handle_chat_command(
+    resources: &Arc<ServerResources>,
+    headers: &HeaderMap,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    conversation_id: &str,
+    user_id_str: &str,
+    request: &SendMessageRequest,
+    usage_warning: super::quotas::UsageWarning,
+) -> Result<Option<Response>, AppError> {
+    let channel_type = headers
+        .get(CLIENT_PLATFORM_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_ascii_lowercase)
+        .filter(|s| matches!(s.as_str(), "web" | "mobile"))
+        .unwrap_or_else(|| "web".to_owned());
+
+    let user_row = resources
+        .repos
+        .users
+        .get_global(user_id)
+        .await
+        .ok()
+        .flatten();
+    let locale = user_row
+        .as_ref()
+        .map_or_else(default_locale, |u| u.locale.clone());
+
+    let outcome = try_dispatch(DispatchRequest {
+        resources,
+        user_id,
+        tenant_id,
+        channel_type: &channel_type,
+        locale: &locale,
+        // Web and mobile conversations are per-user by definition —
+        // no multi-party DM surface here.
+        is_direct_message: true,
+        text: &request.content,
+    })
+    .await?;
+
+    let (body_text, card_title, actions) = match outcome {
+        DispatchOutcome::NotACommand => return Ok(None),
+        DispatchOutcome::UnknownCommand { body } => (body, None, None),
+        DispatchOutcome::Executed { response, .. } => {
+            let card_title = if response.is_card() {
+                response.card_title.clone()
+            } else {
+                None
+            };
+            let actions = if response.actions.is_empty() {
+                None
+            } else {
+                Some(
+                    response
+                        .actions
+                        .iter()
+                        .map(|a| ChatMessageAction {
+                            label: a.label.clone(),
+                            action_type: a.action_type.clone(),
+                            value: a.value.clone(),
+                        })
+                        .collect(),
+                )
+            };
+            // Render the full body: "title\n\nbody" when a card title is
+            // present, otherwise just the body. History rows (and any
+            // frontend that ignores the actions field) see a readable
+            // text representation.
+            let body_text = match &card_title {
+                Some(title) if !title.is_empty() => format!("{title}\n\n{}", response.text),
+                _ => response.text,
+            };
+            (body_text, card_title, actions)
+        }
+    };
+
+    // Persist both turns. If the conversation doesn't exist for this
+    // user+tenant, add_message surfaces a not-found error which we
+    // propagate back to the caller unchanged.
+    let user_message = resources
+        .repos
+        .chat
+        .add_message(&AddMessageParams {
+            conversation_id,
+            user_id: user_id_str,
+            role: "user",
+            content: &request.content,
+            token_count: None,
+            finish_reason: None,
+            prompt_tokens: None,
+            model: None,
+        })
+        .await?;
+
+    let assistant_message = resources
+        .repos
+        .chat
+        .add_message(&AddMessageParams {
+            conversation_id,
+            user_id: user_id_str,
+            role: "assistant",
+            content: &body_text,
+            token_count: None,
+            finish_reason: Some("command"),
+            prompt_tokens: None,
+            model: Some("command"),
+        })
+        .await?;
+
+    let conversation = resources
+        .repos
+        .chat
+        .get_conversation(conversation_id, user_id_str, tenant_id)
+        .await?
+        .ok_or_else(|| AppError::not_found(format!("Conversation {conversation_id}")))?;
+
+    let chat_response = ChatCompletionResponse {
+        user_message: MessageResponse {
+            id: user_message.id.clone(),
+            role: user_message.role.clone(),
+            content: user_message.content.clone(),
+            token_count: user_message.token_count,
+            created_at: user_message.created_at.clone(),
+        },
+        assistant_message: MessageResponse {
+            id: assistant_message.id.clone(),
+            role: assistant_message.role.clone(),
+            content: assistant_message.content.clone(),
+            token_count: assistant_message.token_count,
+            created_at: assistant_message.created_at.clone(),
+        },
+        conversation_updated_at: conversation.updated_at,
+        model: "command".to_owned(),
+        execution_time_ms: 0,
+        activity_list: None,
+        card_title,
+        actions,
+        is_command_response: true,
+        // Commands bypass the AG-UI pipeline (no stages, no progress
+        // events). If the caller passed agui_run_id, echo it back so
+        // their SSE subscription closes cleanly, but no events flow.
+        agui_run_id: request.agui_run_id.clone(),
+    };
+
+    let mut http_response = (StatusCode::OK, Json(chat_response)).into_response();
+    apply_usage_warning_headers(&mut http_response, usage_warning);
+    Ok(Some(http_response))
 }
 
 /// Fire-and-forget notification when a coach conversation produces a

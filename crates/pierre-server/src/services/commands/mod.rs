@@ -8,6 +8,8 @@
 pub mod account;
 /// Coach selection commands (list, select)
 pub mod coach;
+/// Transport-agnostic slash-command dispatcher — single authority for every chat surface
+pub mod dispatch;
 /// Group coaching commands (status, invite, members, leave)
 pub mod group;
 /// Help command listing available commands

@@ -205,6 +205,12 @@ function CollapsibleActivities({ activityText }: { activityText: string }) {
   );
 }
 
+export interface MessageActionButton {
+  label: string;
+  action_type: string;
+  value: string;
+}
+
 interface MessageListProps {
   messages: Message[];
   coaches: Coach[];
@@ -215,6 +221,8 @@ interface MessageListProps {
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
+  /** Slash-command action buttons keyed by assistant message id. */
+  messageActions?: Record<string, MessageActionButton[]>;
   flatListRef: React.RefObject<FlashListRef<Message> | null>;
   onScrollToBottom: () => void;
   onCoachSelect: (coach: Coach) => void;
@@ -224,6 +232,8 @@ interface MessageListProps {
   onThumbsDown: (messageId: string) => void;
   onRetryMessage: (messageId: string) => void;
   onOpenUrl: (url: string) => void;
+  /** Click handler for a slash-command action button. */
+  onActionClick?: (action: MessageActionButton) => void;
 }
 
 export function MessageList({
@@ -235,6 +245,7 @@ export function MessageList({
   messageFeedback,
   insightMessages,
   activityLists,
+  messageActions,
   flatListRef,
   onScrollToBottom,
   onCoachSelect,
@@ -244,6 +255,7 @@ export function MessageList({
   onThumbsDown,
   onRetryMessage,
   onOpenUrl,
+  onActionClick,
 }: MessageListProps) {
   const handleCopyMessage = async (content: string) => {
     try {
@@ -359,6 +371,24 @@ export function MessageList({
             className={`w-full ${isError ? 'bg-error/10 rounded-xl p-3 border border-error/30' : ''}`}
           >
             {renderMessageContent(item.content, false, item.id)}
+          </View>
+        )}
+        {/* Slash-command action buttons (e.g. per-coach select on /coach).
+            Rendered below the body; tap posts the button's value as the
+            next message through the same dispatch pipeline. Not
+            persisted — buttons only appear on the turn that produced
+            them. */}
+        {!isUser && messageActions && messageActions[item.id] && messageActions[item.id].length > 0 && (
+          <View className="flex-row flex-wrap mt-3 gap-2">
+            {messageActions[item.id].map((action, idx) => (
+              <TouchableOpacity
+                key={`${action.value}-${idx}`}
+                className="px-3 py-2 rounded-lg bg-pierre-violet/15"
+                onPress={() => onActionClick?.(action)}
+              >
+                <Text className="text-sm text-pierre-violet font-medium">{action.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
         {!isUser && (

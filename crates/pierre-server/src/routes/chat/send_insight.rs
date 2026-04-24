@@ -170,6 +170,9 @@ pub async fn send_insight_message(
         model: conv.model.clone(),
         execution_time_ms,
         activity_list: result.activity_list,
+        card_title: None,
+        actions: None,
+        is_command_response: false,
         // Insight requests bypass the unified pipeline and never
         // emit AG-UI events; the field is omitted from the JSON
         // body via `skip_serializing_if = "Option::is_none"`.

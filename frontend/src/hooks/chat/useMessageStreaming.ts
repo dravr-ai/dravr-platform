@@ -21,6 +21,18 @@ interface MessageMetadata {
   executionTimeMs: number;
 }
 
+/**
+ * Interactive action button attached to the last assistant turn when the
+ * server returned a slash-command response (e.g. `/coach` → per-coach
+ * select buttons). Only live for the turn that produced them; reloading
+ * conversation history shows the rendered text body without buttons.
+ */
+export interface MessageAction {
+  label: string;
+  action_type: string;
+  value: string;
+}
+
 interface OAuthProvider {
   provider: string;
   connected: boolean;
@@ -46,6 +58,12 @@ interface UseMessageStreamingReturn {
   errorMessage: string | null;
   errorCountdown: number | null;
   messageMetadata: Map<string, MessageMetadata>;
+  /**
+   * Action buttons attached to an assistant message, keyed by message id.
+   * Populated when the server returns a slash-command response with a
+   * card shape. Cleared on conversation switch.
+   */
+  messageActions: Map<string, MessageAction[]>;
 
   // Setters
   setNewMessage: React.Dispatch<React.SetStateAction<string>>;
@@ -54,6 +72,12 @@ interface UseMessageStreamingReturn {
   // Handlers
   handleSendMessage: () => Promise<void>;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  /**
+   * Submit an action's postback value as the next user message. The server
+   * treats it exactly like a typed command, so `/coach select <uuid>`
+   * from a button click flows through the same dispatcher.
+   */
+  handleActionClick: (action: MessageAction) => Promise<void>;
 }
 
 // List of trusted OAuth provider domains
@@ -87,6 +111,7 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorCountdown, setErrorCountdown] = useState<number | null>(null);
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
+  const [messageActions, setMessageActions] = useState<Map<string, MessageAction[]>>(new Map());
 
   // Parse rate limit countdown from error message
   const parseRateLimitCountdown = useCallback((error: string | null) => {
@@ -161,10 +186,16 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
         })
       );
 
-      // Send message and stream response
+      // Send message and stream response. X-Client-Platform tells the
+      // server that a command (/coach, /group, ...) came from web chat
+      // so analytics/channel_type reflect the real surface; the flag
+      // also feeds PlatformCommandContext for handlers that care.
       const response = await fetch(`/api/chat/conversations/${selectedConversation}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Client-Platform': 'web',
+        },
         credentials: 'include',
         body: JSON.stringify({ content: messageContent }),
       });
@@ -190,6 +221,18 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
             model: responseModel || 'unknown',
             executionTimeMs: responseExecutionTimeMs || 0,
           });
+          return updated;
+        });
+      }
+
+      // Slash-command responses carry an `actions` array (e.g. per-coach
+      // select buttons on `/coach`). Attach to the assistant message id
+      // so MessageItem can render clickable buttons. Actions are not
+      // persisted; they live only for this turn.
+      if (assistantMessageId && Array.isArray(jsonResponse.actions) && jsonResponse.actions.length > 0) {
+        setMessageActions(prev => {
+          const updated = new Map(prev);
+          updated.set(assistantMessageId!, jsonResponse.actions as MessageAction[]);
           return updated;
         });
       }
@@ -258,6 +301,36 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
     }
   }, [handleSendMessage]);
 
+  /**
+   * Handle a click on an interactive action button from a command
+   * response. Postbacks are sent as the user's next chat message so they
+   * flow through the same dispatch path as a typed command. URL actions
+   * open the target in a new tab (respecting the trusted-domain check
+   * we already enforce for OAuth redirects).
+   */
+  const handleActionClick = useCallback(async (action: MessageAction) => {
+    if (action.action_type === 'url') {
+      try {
+        const url = new URL(action.value);
+        if (isTrustedDomain(url.hostname) && (url.protocol === 'http:' || url.protocol === 'https:')) {
+          window.open(url.href, '_blank', 'noopener,noreferrer');
+        } else {
+          console.warn('Action URL blocked: not from a trusted domain', url.hostname);
+        }
+      } catch (e) {
+        console.warn('Action URL parse failed', e);
+      }
+      return;
+    }
+    // postback: seed the input and dispatch through the normal send path.
+    setNewMessage(action.value);
+    // Give React a tick to commit setNewMessage before handleSendMessage
+    // reads it back; without this the send may race with a stale value.
+    setTimeout(() => {
+      void handleSendMessage();
+    }, 0);
+  }, [handleSendMessage]);
+
   return {
     // State
     newMessage,
@@ -266,6 +339,7 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
     errorMessage,
     errorCountdown,
     messageMetadata,
+    messageActions,
 
     // Setters
     setNewMessage,
@@ -274,5 +348,6 @@ export function useMessageStreaming(options: UseMessageStreamingOptions): UseMes
     // Handlers
     handleSendMessage,
     handleKeyDown,
+    handleActionClick,
   };
 }

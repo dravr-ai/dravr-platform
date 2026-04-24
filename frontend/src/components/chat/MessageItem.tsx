@@ -9,7 +9,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Copy, Share2, Users, ThumbsUp, ThumbsDown, RefreshCw, Lightbulb, ShieldAlert } from 'lucide-react';
 import type { ChatVerdictRow } from '@pierre/api-client';
-import type { Message, MessageMetadata, MessageFeedback } from './types';
+import type { Message, MessageActionItem, MessageMetadata, MessageFeedback } from './types';
 import { splitActivityContent, countActivities } from '@pierre/chat-utils';
 import { linkifyUrls, stripContextPrefix } from './utils';
 
@@ -21,6 +21,10 @@ interface MessageItemProps {
   hasInsight?: boolean;
   /** Pre-resolved activity list text (from API field or parsed from old content) */
   activityList?: string;
+  /** Action buttons returned by a slash-command response (e.g. per-coach
+   *  select buttons on `/coach`). Rendered below the message body.
+   *  Not persisted — only present on the turn that produced them. */
+  actions?: MessageActionItem[];
   /** Tier 5.5 claim verdicts attached to this message, if any. */
   verdicts?: ChatVerdictRow[];
   onCopy?: () => void;
@@ -34,6 +38,8 @@ interface MessageItemProps {
   onShowVerdict?: (verdict: ChatVerdictRow) => void;
   /** Send a follow-up user message (used by "ask me about this claim"). */
   onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
+  /** Click handler for a command-response action button (postback or url). */
+  onActionClick?: (action: MessageActionItem) => void;
 }
 
 type WorstStrengthTone = 'success' | 'warning' | 'error' | 'info' | 'secondary';
@@ -105,6 +111,7 @@ const MessageItem = memo(function MessageItem({
   isError = false,
   hasInsight = false,
   activityList,
+  actions,
   verdicts,
   onCopy,
   onShare,
@@ -115,6 +122,7 @@ const MessageItem = memo(function MessageItem({
   onRetry,
   onShowVerdict,
   onAskAboutClaim,
+  onActionClick,
 }: MessageItemProps) {
   const isUser = message.role === 'user';
   const rawContent = stripContextPrefix(message.content);
@@ -175,6 +183,25 @@ const MessageItem = memo(function MessageItem({
             {linkifyUrls(content)}
           </Markdown>
         </div>
+        {/* Command action buttons (e.g. per-coach select on /coach).
+            Rendered below the message body; clicking sends the button's
+            postback value as the user's next turn, flowing through the
+            same dispatcher as a typed command. Present only on the turn
+            that produced them — history re-renders without buttons. */}
+        {!isUser && actions && actions.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {actions.map((action, idx) => (
+              <button
+                key={`${action.value}-${idx}`}
+                type="button"
+                onClick={() => onActionClick?.(action)}
+                className="inline-flex items-center px-3 py-1.5 rounded-lg text-sm bg-pierre-violet/15 text-pierre-violet hover:bg-pierre-violet/25 transition-colors"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Tier 5.5 verdict chips — one summary chip + per-claim drawer triggers */}
         {!isUser && verdictSummary && messageVerdicts.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
