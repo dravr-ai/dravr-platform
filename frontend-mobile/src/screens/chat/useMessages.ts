@@ -8,6 +8,16 @@ import { chatApi } from '../../services/api';
 import { isInsightPrompt, detectInsightMessages, createInsightPrompt } from '@pierre/chat-utils';
 import type { Message } from '../../types';
 
+/**
+ * Slash-command action button (e.g. per-coach select on `/coach`).
+ * Attached to an assistant message for the current turn only.
+ */
+export interface MessageActionItem {
+  label: string;
+  action_type: string;
+  value: string;
+}
+
 export interface MessagesState {
   messages: Message[];
   isSending: boolean;
@@ -16,6 +26,13 @@ export interface MessagesState {
   insightMessages: Set<string>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Record<string, string>;
+  /**
+   * Slash-command action buttons keyed by assistant message id. Present
+   * when the server returned a card with selectable options (e.g.
+   * `/coach` → per-coach buttons). Not persisted — cleared on
+   * conversation switch; history re-renders show the text body only.
+   */
+  messageActions: Record<string, MessageActionItem[]>;
   /**
    * AG-UI run id for the in-flight turn, or `null` between turns.
    * Components pass this into `useAgUiProgress` to render pipeline
@@ -55,6 +72,7 @@ export function useMessages(): MessagesState & MessagesActions {
   const [messageFeedback, setMessageFeedback] = useState<Record<string, 'up' | 'down' | null>>({});
   const [insightMessages, setInsightMessages] = useState<Set<string>>(new Set());
   const [activityLists, setActivityLists] = useState<Record<string, string>>({});
+  const [messageActions, setMessageActions] = useState<Record<string, MessageActionItem[]>>({});
   const [aguiRunId, setAguiRunId] = useState<string | null>(null);
   const flatListRef = useRef<FlashListRef<Message>>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -148,6 +166,20 @@ export function useMessages(): MessagesState & MessagesActions {
         setActivityLists(prev => ({
           ...prev,
           [response.assistant_message.id]: response.activity_list as string,
+        }));
+      }
+
+      // Slash-command responses (e.g. /coach) carry clickable action
+      // buttons. Attach them by assistant message id so the list
+      // renderer can show them below the body.
+      if (
+        Array.isArray(response.actions) &&
+        response.actions.length > 0 &&
+        response.assistant_message?.id
+      ) {
+        setMessageActions(prev => ({
+          ...prev,
+          [response.assistant_message.id]: response.actions as MessageActionItem[],
         }));
       }
 
@@ -321,6 +353,7 @@ export function useMessages(): MessagesState & MessagesActions {
     messageFeedback,
     insightMessages,
     activityLists,
+    messageActions,
     aguiRunId,
     loadMessages,
     sendMessage,

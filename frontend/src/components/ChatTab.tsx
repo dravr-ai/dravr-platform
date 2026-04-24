@@ -32,6 +32,7 @@ import type {
   Conversation,
   Coach,
   MessageMetadata,
+  MessageActionItem,
   MessageFeedback,
   OAuthNotification,
   CoachDeleteConfirmation,
@@ -139,6 +140,10 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
   const [messageMetadata, setMessageMetadata] = useState<Map<string, MessageMetadata>>(new Map());
   const [messageFeedback, setMessageFeedback] = useState<Map<string, MessageFeedback>>(new Map());
   const [activityLists, setActivityLists] = useState<Map<string, string>>(new Map());
+  // Slash-command action buttons (e.g. per-coach select on /coach).
+  // Keyed by assistant message id; not persisted — buttons disappear
+  // when the conversation is reloaded, the text body stays.
+  const [messageActions, setMessageActions] = useState<Map<string, MessageActionItem[]>>(new Map());
   const [showCoachModal, setShowCoachModal] = useState(false);
   const [editingCoachId, setEditingCoachId] = useState<string | null>(null);
   const [coachFormData, setCoachFormData] = useState<CoachFormData>(DEFAULT_COACH_FORM_DATA);
@@ -483,6 +488,11 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          // Tells the server this turn came from the web chat. Routes
+          // channel_type through PlatformCommandContext for /coach,
+          // /group, etc. so analytics hashes and handler branches have
+          // a correct surface.
+          'X-Client-Platform': 'web',
         },
         body: JSON.stringify({ content: messageContent }),
       });
@@ -511,6 +521,18 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
         setActivityLists(prev => {
           const newMap = new Map(prev);
           newMap.set(assistantMessageId, data.activity_list);
+          return newMap;
+        });
+      }
+
+      // Slash-command responses (e.g. /coach) carry clickable action
+      // buttons. Attach them to the assistant message id so MessageItem
+      // renders buttons below the body. Not persisted — only live this
+      // turn; a reload shows the rendered text body without buttons.
+      if (Array.isArray(data.actions) && data.actions.length > 0 && assistantMessageId) {
+        setMessageActions(prev => {
+          const newMap = new Map(prev);
+          newMap.set(assistantMessageId, data.actions as MessageActionItem[]);
           return newMap;
         });
       }
@@ -605,6 +627,27 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
     navigator.clipboard.writeText(stripContextPrefix(content));
     showSuccessToast('Copied', 'Message copied to clipboard', 2000);
   }, [showSuccessToast]);
+
+  /**
+   * Click handler for a command action button (e.g. the per-coach select
+   * buttons on `/coach`). Postback actions seed the composer with the
+   * button's `value` (usually another slash command like
+   * `/coach select <uuid>`) and immediately dispatch, so the click flows
+   * through the exact same pipeline a typed command would.
+   */
+  const handleActionClick = useCallback((action: MessageActionItem) => {
+    if (action.action_type !== 'postback') {
+      // URL actions and unknown types are ignored for now — the server
+      // currently only produces postback actions from /coach, /group.
+      return;
+    }
+    setNewMessage(action.value);
+    // Defer one tick so React commits setNewMessage before handleSendMessage
+    // reads it back on the next render cycle.
+    setTimeout(() => {
+      void handleSendMessage();
+    }, 0);
+  }, [handleSendMessage]);
 
   const handleShareMessage = useCallback((content: string) => {
     // Use native Web Share API if available, otherwise copy to clipboard
@@ -857,6 +900,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 messageMetadata={messageMetadata}
                 messageFeedback={messageFeedback}
                 activityLists={activityLists}
+                messageActions={messageActions}
                 insightMessageIds={new Set<string>()}
                 verdicts={verdicts}
                 isLoading={messagesLoading}
@@ -876,6 +920,7 @@ export default function ChatTab({ selectedConversation, onSelectConversation, on
                 onRetryMessage={handleRetryMessage}
                 onShowVerdict={setSelectedVerdict}
                 onAskAboutClaim={handleAskAboutClaim}
+                onActionClick={handleActionClick}
               />
             </div>
           </div>

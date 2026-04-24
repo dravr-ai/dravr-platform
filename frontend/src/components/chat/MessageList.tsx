@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { isInsightPrompt, detectInsightMessages, splitActivityContent } from '@pierre/chat-utils';
 import MessageItem from './MessageItem';
 import type { ChatVerdictRow } from '@pierre/api-client';
-import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
+import type { Message, MessageActionItem, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
 import { linkifyUrls } from './utils';
 
 interface MessageListProps {
@@ -19,6 +19,11 @@ interface MessageListProps {
   messageFeedback: Map<string, MessageFeedback>;
   /** Activity lists keyed by assistant message ID (from new API field) */
   activityLists: Map<string, string>;
+  /** Slash-command action buttons, keyed by assistant message id.
+   *  Present when the server returned a card with selectable options
+   *  (e.g. per-coach buttons on `/coach`). Not persisted — this map is
+   *  filled by the current turn's response only. */
+  messageActions?: Map<string, MessageActionItem[]>;
   insightMessageIds: Set<string>;
   /** Tier 5.5 claim verdicts for the active conversation, keyed by message_id. */
   verdicts?: ChatVerdictRow[];
@@ -41,6 +46,8 @@ interface MessageListProps {
   onShowVerdict?: (verdict: ChatVerdictRow) => void;
   /** "Ask me about this claim" callback → ChatTab dispatches a follow-up. */
   onAskAboutClaim?: (verdict: ChatVerdictRow) => void;
+  /** Click handler for interactive command action buttons. */
+  onActionClick?: (action: MessageActionItem) => void;
 }
 
 export default function MessageList({
@@ -48,6 +55,7 @@ export default function MessageList({
   messageMetadata,
   messageFeedback,
   activityLists,
+  messageActions,
   insightMessageIds,
   verdicts,
   isLoading,
@@ -67,6 +75,7 @@ export default function MessageList({
   onRetryMessage,
   onShowVerdict,
   onAskAboutClaim,
+  onActionClick,
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -107,6 +116,8 @@ export default function MessageList({
           }
         }
 
+        const actions = msg.role === 'assistant' ? messageActions?.get(msg.id) : undefined;
+
         return (
           <MessageItem
             key={msg.id}
@@ -116,6 +127,7 @@ export default function MessageList({
             isError={msg.isError}
             hasInsight={isInsight}
             activityList={resolvedActivityList}
+            actions={actions}
             verdicts={verdicts}
             onCopy={msg.role === 'assistant' ? () => onCopyMessage(msg.content) : undefined}
             onShare={msg.role === 'assistant' ? () => onShareMessage(msg.content) : undefined}
@@ -126,6 +138,7 @@ export default function MessageList({
             onRetry={msg.role === 'assistant' ? () => onRetryMessage(msg.id) : undefined}
             onShowVerdict={onShowVerdict}
             onAskAboutClaim={onAskAboutClaim}
+            onActionClick={onActionClick}
           />
         );
       })}

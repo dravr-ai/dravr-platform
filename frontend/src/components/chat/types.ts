@@ -25,6 +25,17 @@ export interface MessageMetadata {
   executionTimeMs: number;
 }
 
+/**
+ * Interactive button returned by a slash-command handler (e.g. per-coach
+ * select button on `/coach`). Attached to the current assistant turn;
+ * not persisted on the server.
+ */
+export interface MessageActionItem {
+  label: string;
+  action_type: string;
+  value: string;
+}
+
 export type MessageFeedback = 'up' | 'down' | null;
 
 export interface OAuthNotification {

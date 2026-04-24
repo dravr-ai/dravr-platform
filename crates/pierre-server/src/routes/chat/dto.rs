@@ -126,11 +126,47 @@ pub struct ChatCompletionResponse {
     /// Activity list from `get_activities` tool, kept separate from message content
     #[serde(skip_serializing_if = "Option::is_none")]
     pub activity_list: Option<String>,
+    /// Optional card title for command responses (e.g. `/coach` → "Choose a coach").
+    /// Present only when the assistant reply came from a slash-command handler that
+    /// returned a card shape; absent for regular LLM turns.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card_title: Option<String>,
+    /// Optional action buttons for command responses (e.g. per-coach select buttons).
+    /// Frontends render these as clickable buttons whose click re-POSTs the action's
+    /// `value` (e.g. `/coach select <uuid>`) as the user's next message, flowing back
+    /// through the same dispatch pipeline.
+    ///
+    /// Not persisted — exists only on the turn that produced them. Historical
+    /// messages show the rendered text body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<ChatMessageAction>>,
+    /// When `true`, the assistant response came from a local slash-command
+    /// handler rather than the LLM. Frontends can skip the usual
+    /// "LLM-generated" caveats/UI treatment on these turns.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_command_response: bool,
     /// AG-UI `run_id` echoed back when the request supplied one. The
     /// caller uses it to correlate this turn with its parallel
     /// `/api/agui/runs/{run_id}/stream` subscription.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agui_run_id: Option<String>,
+}
+
+/// Interactive button attached to a command-response turn.
+///
+/// Mirrors the `CommandAction` shape from `pierre-messaging` but lives in
+/// the HTTP DTO layer so frontends don't need to import messaging types.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessageAction {
+    /// User-visible button label.
+    pub label: String,
+    /// Action kind: `"postback"` (re-POST `value` as the next message) or
+    /// `"url"` (open `value` in a browser). Other types are ignored by
+    /// frontends.
+    pub action_type: String,
+    /// For `postback`: the text to send as the next user message (e.g.
+    /// `/coach select <uuid>`). For `url`: the absolute URL to open.
+    pub value: String,
 }
 
 /// Response for messages list

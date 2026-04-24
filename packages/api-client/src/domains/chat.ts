@@ -55,6 +55,30 @@ export interface ChatVerdictsResponse {
   total: number;
 }
 
+/**
+ * Interactive button attached to a command-response turn.
+ *
+ * Returned by the server when a slash command like `/coach` produces a
+ * card shape with selectable options. Frontends render each action as
+ * a clickable button; clicking it re-POSTs `value` as the user's next
+ * message, flowing back through the same dispatcher.
+ */
+export interface ChatMessageAction {
+  /** User-visible button label. */
+  label: string;
+  /**
+   * Action kind. `"postback"` means the frontend should send `value`
+   * as the next chat message. `"url"` means open `value` in a browser.
+   * Unknown types should be ignored.
+   */
+  action_type: string;
+  /**
+   * For `postback`: the text to POST as the next user message
+   * (e.g. `/coach select <uuid>`). For `url`: the absolute URL.
+   */
+  value: string;
+}
+
 export interface SendMessageResponse {
   user_message: Message;
   assistant_message: Message;
@@ -63,6 +87,25 @@ export interface SendMessageResponse {
   execution_time_ms: number;
   /** Activity list from get_activities tool, separate from message content */
   activity_list?: string;
+  /**
+   * Optional card title for command responses (e.g. `/coach` returns
+   * "Choose a coach"). Absent for regular LLM turns.
+   */
+  card_title?: string;
+  /**
+   * Optional action buttons for command responses. Present when the
+   * command handler returned a card with selectable options (e.g. the
+   * per-coach picker on `/coach`). Not persisted — only live for the
+   * turn that produced them; historical messages show the rendered
+   * text body without buttons.
+   */
+  actions?: ChatMessageAction[];
+  /**
+   * `true` when the assistant response came from a local slash-command
+   * handler rather than the LLM. UI can skip LLM-specific treatments
+   * (disclaimers, token-cost chips) on these turns.
+   */
+  is_command_response?: boolean;
   /**
    * Server-echoed AG-UI run id. When the client passed `agui_run_id`
    * in the request, the same UUID comes back here so the client can

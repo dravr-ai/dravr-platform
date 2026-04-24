@@ -44,7 +44,7 @@ use crate::contremaitre::messaging_strings::{
     KEY_LINK_INITIAL_PROMPT, KEY_LINK_INVALID_EMAIL, KEY_LINK_LOGOUT_COMPLETE, KEY_LINK_NO_ACCOUNT,
     KEY_LINK_NO_TENANT, KEY_LINK_OTP_PROMPT, KEY_LINK_OTP_SENT, KEY_LINK_SESSION_EXPIRED,
     KEY_LINK_SUCCESS, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
-    KEY_THINKING_PLACEHOLDER, KEY_UNKNOWN_COMMAND,
+    KEY_THINKING_PLACEHOLDER,
 };
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
@@ -1246,7 +1246,11 @@ async fn send_channel_response(
 /// Returns `Some(OutgoingMessage)` if the message was a recognized command,
 /// `None` if it should be passed through to the LLM pipeline.
 ///
-/// Commands bypass the LLM entirely for deterministic, fast responses.
+/// Delegates parsing + handler execution + analytics to
+/// [`crate::services::commands::dispatch::try_dispatch`] — the single
+/// authority for every chat surface. This function's remaining job is
+/// messaging-specific: resolving auth/tenant/locale from the channel link
+/// and wrapping the outcome into an [`OutgoingMessage`] for the renderer.
 #[cfg(feature = "client-messaging")]
 #[allow(clippy::too_many_arguments)]
 async fn try_handle_slash_command(
@@ -1260,50 +1264,39 @@ async fn try_handle_slash_command(
     thread_id: Option<String>,
     is_direct_message: bool,
 ) -> Option<OutgoingMessage> {
-    use pierre_messaging::commands::CommandMatcher;
+    use crate::services::commands::dispatch::{try_dispatch, DispatchOutcome, DispatchRequest};
+    use pierre_core::uuid_utils::parse_uuid;
 
-    // Fast path: not a command
+    // Fast path: not a command. Avoids any auth/tenant lookups.
     if !text.trim().starts_with('/') {
         return None;
     }
 
-    // Access command registries from ServerResources
+    let user_uuid = parse_uuid(&session.user_id).ok()?;
+    let fallback_tenant = TenantId::from_uuid(user_uuid);
+    let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
+    let locale =
+        resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
+    let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
+
+    let outcome = match try_dispatch(DispatchRequest {
+        resources,
+        user_id: user_uuid,
+        tenant_id: user_tenant,
+        channel_type: channel,
+        locale: &locale,
+        is_direct_message,
+        text,
+    })
+    .await
     {
-        use crate::services::commands::PlatformCommandContext;
-        use pierre_core::uuid_utils::parse_uuid;
-
-        let cmd_registry = resources.command_registry.as_ref()?;
-        let handler_registry = resources.command_handler_registry.as_ref()?;
-
-        let matcher = CommandMatcher::from_registry(cmd_registry);
-
-        // Build locale + reply target up-front so the unknown-command short-circuit
-        // (slash-prefix with no registered match) can emit a localized reply without
-        // plumbing the context through two branches.
-        let user_uuid = parse_uuid(&session.user_id).ok()?;
-        let fallback_tenant = TenantId::from_uuid(user_uuid);
-        let user_tenant = resolve_user_tenant(resources, &session.user_id, fallback_tenant).await;
-        let locale =
-            resolve_messaging_locale(resources, user_tenant, user_uuid, channel, sender_id).await;
-        let reply_target = conversation_id.unwrap_or(sender_id).to_owned();
-
-        let Some(parsed) = matcher.try_match(text, cmd_registry) else {
-            // Slash-prefix but no matching command (typo like "/.coach",
-            // renamed command, etc.). Short-circuit with a localized
-            // unknown-command reply so the message never reaches the LLM
-            // and doesn't consume quota / trigger a "thinking…" spinner.
-            let body = resources
-                .messaging_strings_registry
-                .get(KEY_UNKNOWN_COMMAND, &locale);
-            let hashed_tenant = hash_id(&user_tenant.to_string());
-            let hashed_user = hash_id(&session.user_id);
-            analytics().track_command_executed(
-                channel,
-                &hashed_tenant,
-                &hashed_user,
-                "unknown",
-                false,
-            );
+        Ok(outcome) => outcome,
+        Err(e) => {
+            // Single centralized funnel: logs the full error with a
+            // correlation id and returns a channel-safe body. Never
+            // interpolate the raw error into the reply text by hand —
+            // the grep gate in architectural-validation.sh blocks it.
+            let (body, _correlation_id) = e.to_channel_reply(resources, &locale, "command");
             return Some(OutgoingMessage {
                 channel_type,
                 recipient_id: reply_target,
@@ -1312,91 +1305,56 @@ async fn try_handle_slash_command(
                 reply_to: None,
                 thread_id,
             });
-        };
+        }
+    };
 
-        // Look up handler
-        let handler = handler_registry.get(&parsed.name)?;
-
-        let ctx = PlatformCommandContext {
-            user_id: user_uuid,
-            tenant_id: user_tenant,
-            channel_type: channel.to_owned(),
-            args: parsed.args,
-            raw_text: parsed.raw_text,
-            resources: Arc::clone(resources),
-            locale,
-            is_direct_message,
-        };
-
-        let hashed_tenant = hash_id(&user_tenant.to_string());
-        let hashed_user = hash_id(&session.user_id);
-
-        // Execute command
-        match handler.execute(&ctx).await {
-            Ok(response) => {
-                info!(
-                    command = %parsed.name,
-                    user_id = %session.user_id,
-                    channel = %channel,
-                    "Slash command executed"
-                );
-                analytics().track_command_executed(
-                    channel,
-                    &hashed_tenant,
-                    &hashed_user,
-                    &parsed.name,
-                    true,
-                );
-                let content = if response.is_card() {
-                    MessageContent::Card {
-                        title: response.card_title.unwrap_or_default(),
-                        body: response.text,
-                        actions: response
-                            .actions
-                            .into_iter()
-                            .map(|a| CardAction {
-                                label: a.label,
-                                action_type: a.action_type,
-                                value: a.value,
-                            })
-                            .collect(),
-                    }
-                } else {
-                    MessageContent::Text {
-                        body: response.text,
-                    }
-                };
-                Some(OutgoingMessage {
-                    channel_type,
-                    recipient_id: reply_target,
-                    content,
-                    turn_id: CanotTurnId::new(),
-                    reply_to: None,
-                    thread_id: thread_id.clone(),
-                })
-            }
-            Err(e) => {
-                analytics().track_command_executed(
-                    channel,
-                    &hashed_tenant,
-                    &hashed_user,
-                    &parsed.name,
-                    false,
-                );
-                // Single centralized funnel — logs the full error with a
-                // correlation id and returns a channel-safe body. Never
-                // interpolate the raw error into the reply text by hand:
-                // the grep gate in architectural-validation.sh blocks it.
-                let (body, _correlation_id) = e.to_channel_reply(resources, &ctx.locale, "command");
-                Some(OutgoingMessage {
-                    channel_type,
-                    recipient_id: reply_target,
-                    content: MessageContent::Text { body },
-                    turn_id: CanotTurnId::new(),
-                    reply_to: None,
-                    thread_id,
-                })
-            }
+    match outcome {
+        DispatchOutcome::NotACommand => None,
+        DispatchOutcome::UnknownCommand { body } => Some(OutgoingMessage {
+            channel_type,
+            recipient_id: reply_target,
+            content: MessageContent::Text { body },
+            turn_id: CanotTurnId::new(),
+            reply_to: None,
+            thread_id,
+        }),
+        DispatchOutcome::Executed {
+            command_name,
+            response,
+        } => {
+            info!(
+                command = %command_name,
+                user_id = %session.user_id,
+                channel = %channel,
+                "Slash command executed"
+            );
+            let content = if response.is_card() {
+                MessageContent::Card {
+                    title: response.card_title.unwrap_or_default(),
+                    body: response.text,
+                    actions: response
+                        .actions
+                        .into_iter()
+                        .map(|a| CardAction {
+                            label: a.label,
+                            action_type: a.action_type,
+                            value: a.value,
+                        })
+                        .collect(),
+                }
+            } else {
+                MessageContent::Text {
+                    body: response.text,
+                }
+            };
+            Some(OutgoingMessage {
+                channel_type,
+                recipient_id: reply_target,
+                content,
+                turn_id: CanotTurnId::new(),
+                reply_to: None,
+                thread_id,
+            })
         }
     }
 }

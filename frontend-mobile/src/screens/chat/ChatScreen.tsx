@@ -179,6 +179,29 @@ export function ChatScreen() {
     }
   }, [inputText, messagesHook, conversations, usageStatus]);
 
+  /**
+   * Click handler for a slash-command action button (e.g. per-coach
+   * select on /coach). Postback actions send `value` as the next user
+   * message, flowing through the same dispatch pipeline a typed command
+   * would. URL actions open in the system browser via handleOpenUrl.
+   */
+  const handleActionClick = useCallback(
+    async (action: { action_type: string; value: string }) => {
+      if (action.action_type === 'url') {
+        await handleOpenUrl(action.value);
+        return;
+      }
+      // postback: send value as next turn. Uses existing handleSendMessage
+      // after seeding the composer so quota + error handling stay uniform.
+      setInputText(action.value);
+      // Defer so React commits setInputText before handleSendMessage reads.
+      setTimeout(() => {
+        void handleSendMessage();
+      }, 0);
+    },
+    [handleOpenUrl, handleSendMessage],
+  );
+
   // Insight creation
   const handleCreateInsight = useCallback(async (content: string) => {
     await messagesHook.createInsight(
@@ -412,6 +435,7 @@ export function ChatScreen() {
           messageFeedback={messagesHook.messageFeedback}
           insightMessages={messagesHook.insightMessages}
           activityLists={messagesHook.activityLists}
+          messageActions={messagesHook.messageActions}
           flatListRef={messagesHook.flatListRef}
           onScrollToBottom={messagesHook.scrollToBottom}
           onCoachSelect={handleCoachSelect}
@@ -421,6 +445,7 @@ export function ChatScreen() {
           onThumbsDown={messagesHook.handleThumbsDown}
           onRetryMessage={handleRetryMessage}
           onOpenUrl={handleOpenUrl}
+          onActionClick={handleActionClick}
         />
 
         <ChatProgressStrip runId={messagesHook.aguiRunId} />
