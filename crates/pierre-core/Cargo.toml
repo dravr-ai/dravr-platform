@@ -92,7 +92,7 @@ embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.8" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.9" }
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
