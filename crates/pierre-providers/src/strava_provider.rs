@@ -16,7 +16,10 @@ use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::shared_client;
-use crate::models::{Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats};
+use crate::models::{
+    activity::{Lap, Split},
+    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+};
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
@@ -453,7 +456,15 @@ impl StravaProvider {
     }
 
     /// Convert Strava activity response to internal Activity model
-    fn convert_strava_activity(activity: StravaActivityResponse) -> AppResult<Activity> {
+    /// Build an [`ActivityBuilder`] from a Strava summary response.
+    ///
+    /// Shared entry point for both the summary-path conversion and the
+    /// detailed-path conversion — the detailed path takes the builder
+    /// and layers splits/laps before [`ActivityBuilder::build`].
+    ///
+    /// # Errors
+    /// Returns an error when `start_date` fails to parse as RFC 3339.
+    fn strava_activity_builder(activity: StravaActivityResponse) -> AppResult<ActivityBuilder> {
         let start_date = DateTime::parse_from_rfc3339(&activity.start_date)
             .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?
             .with_timezone(&Utc);
@@ -504,8 +515,11 @@ impl StravaProvider {
         .city_opt(activity.location_city)
         .region_opt(activity.location_state)
         .country_opt(activity.location_country)
-        .sport_type_detail_opt(Some(activity.activity_type.clone()))
-        .build())
+        .sport_type_detail_opt(Some(activity.activity_type.clone())))
+    }
+
+    fn convert_strava_activity(activity: StravaActivityResponse) -> AppResult<Activity> {
+        Ok(Self::strava_activity_builder(activity)?.build())
     }
 
     /// Convert detailed Strava activity response to internal Activity model with all fields populated
@@ -515,22 +529,85 @@ impl StravaProvider {
     pub fn convert_detailed_strava_activity(
         detailed: DetailedActivityResponse,
     ) -> AppResult<Activity> {
-        // Start with summary conversion
-        let activity = Self::convert_strava_activity(detailed.summary)?;
+        let splits = Self::convert_strava_splits(detailed.splits_metric.as_deref());
+        let laps = Self::convert_strava_laps(detailed.laps.as_deref());
 
-        // Add detailed-only fields that weren't in summary
-        // Note: Most fields are already populated by summary conversion
-        // Here we only add what's unique to the detailed endpoint
+        // Time-series data requires a separate call to
+        // `/activities/{id}/streams` and is not yet wired. Kudos, comment,
+        // athlete, photo, and achievement counts are surfaced only to the
+        // Strava UI — not to coach reasoning — so we drop them rather than
+        // growing cageux's [`Activity`] for purely social data.
+        Ok(Self::strava_activity_builder(detailed.summary)?
+            .splits_opt(splits)
+            .laps_opt(laps)
+            .build())
+    }
 
-        // Currently, the detailed endpoint provides splits, laps, and segment efforts
-        // but our Activity model doesn't have explicit fields for these yet.
-        // The time_series_data field could be populated from detailed streams endpoint
-        // (which requires a separate API call to /activities/{id}/streams)
+    /// Map Strava's `splits_metric` array into cageux's [`Split`] shape.
+    ///
+    /// Strava numbers splits implicitly by array position but also carries
+    /// an optional `split` field; prefer the provider-supplied number when
+    /// present, fall back to the 1-based array index otherwise. Splits
+    /// without a distance are skipped — a split entry with no distance
+    /// cannot be located on the timeline and would only add noise.
+    fn convert_strava_splits(raw: Option<&[StravaSplit]>) -> Option<Vec<Split>> {
+        let slice = raw?;
+        let converted: Vec<Split> = slice
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, s)| {
+                let distance_meters = f64::from(s.distance?);
+                let elapsed_time_seconds = u64::from(s.elapsed_time?);
+                #[allow(clippy::cast_possible_truncation)]
+                let index = s.split.unwrap_or_else(|| (pos + 1) as u32);
+                Some(Split {
+                    index,
+                    distance_meters,
+                    elapsed_time_seconds,
+                    moving_time_seconds: s.moving_time.map(u64::from),
+                    elevation_difference_meters: s.elevation_difference.map(f64::from),
+                    average_speed_mps: s.average_speed.map(f64::from),
+                    average_heart_rate: None, // Strava splits don't carry HR
+                    pace_zone: s.pace_zone,
+                })
+            })
+            .collect();
+        (!converted.is_empty()).then_some(converted)
+    }
 
-        // For now, we just return the activity with summary data
-        // Streams data integration can be added when needed
-
-        Ok(activity)
+    /// Map Strava's `laps` array into cageux's [`Lap`] shape.
+    ///
+    /// Strava laps are athlete-triggered or auto-detected intervals with
+    /// richer telemetry than splits. Laps without a distance are skipped.
+    /// The provider's u64 id is stringified so the cageux type stays
+    /// provider-agnostic.
+    fn convert_strava_laps(raw: Option<&[StravaLap]>) -> Option<Vec<Lap>> {
+        let slice = raw?;
+        let converted: Vec<Lap> = slice
+            .iter()
+            .enumerate()
+            .filter_map(|(pos, l)| {
+                let distance_meters = f64::from(l.distance?);
+                let elapsed_time_seconds = u64::from(l.elapsed_time?);
+                #[allow(clippy::cast_possible_truncation)]
+                let index = (pos + 1) as u32;
+                Some(Lap {
+                    id: l.id.map(|n| n.to_string()),
+                    index,
+                    distance_meters,
+                    elapsed_time_seconds,
+                    moving_time_seconds: l.moving_time.map(u64::from),
+                    elevation_gain_meters: l.total_elevation_gain.map(f64::from),
+                    average_speed_mps: l.average_speed.map(f64::from),
+                    max_speed_mps: l.max_speed.map(f64::from),
+                    average_heart_rate: l.average_heartrate.map(f32_to_u32),
+                    max_heart_rate: l.max_heartrate.map(f32_to_u32),
+                    average_cadence: l.average_cadence.map(f32_to_u32),
+                    average_power: l.average_watts.map(f32_to_u32),
+                })
+            })
+            .collect();
+        (!converted.is_empty()).then_some(converted)
     }
 
     /// Fetch detailed activity data from Strava API
@@ -862,6 +939,17 @@ impl FitnessProvider for StravaProvider {
         let endpoint = format!("activities/{id}");
         let strava_activity: StravaActivityResponse = self.api_request(&endpoint).await?;
         Self::convert_strava_activity(strava_activity)
+    }
+
+    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        // Strava's /activities/{id} endpoint returns a richer payload than
+        // the summary shape (splits, laps, segment efforts, elev_high/low,
+        // device_name, kudos/comments). Route the auto-promote path here
+        // so the richer deserialization captures everything Strava returns
+        // — even fields cageux does not yet model become available the
+        // moment cageux grows the corresponding accessors (no server-side
+        // plumbing change needed).
+        self.get_activity_details(id).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

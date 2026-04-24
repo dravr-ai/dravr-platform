@@ -15,7 +15,10 @@
 use async_trait::async_trait;
 use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::{CacheConfig, ScraperConfig};
-use dravr_sciotte::models::{Activity as SciotteActivity, ActivityParams, AuthSession};
+use dravr_sciotte::models::{
+    Activity as SciotteActivity, ActivityParams, AuthSession, Lap as SciotteLap,
+    Split as SciotteSplit,
+};
 use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
 use dravr_sciotte::ActivityScraper;
@@ -27,7 +30,10 @@ use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use crate::errors::{AppError, AppResult};
-use crate::models::{Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats};
+use crate::models::{
+    activity::{Lap, Split},
+    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+};
 use crate::pagination::{CursorPage, PaginationParams};
 
 /// Target fitness platform for the sciotte scraper
@@ -76,6 +82,15 @@ impl SciotteProvider {
 fn convert_activity(sciotte: &SciotteActivity) -> Activity {
     let sport_type = SportType::from_internal_string(sciotte.sport_type.display_name());
 
+    let splits = sciotte
+        .splits
+        .as_ref()
+        .map(|v| v.iter().map(convert_split).collect());
+    let laps = sciotte
+        .laps
+        .as_ref()
+        .map(|v| v.iter().map(convert_lap).collect());
+
     ActivityBuilder::new(
         &sciotte.id,
         &sciotte.name,
@@ -101,7 +116,44 @@ fn convert_activity(sciotte: &SciotteActivity) -> Activity {
     .city_opt(sciotte.city.clone())
     .region_opt(sciotte.region.clone())
     .country_opt(sciotte.country.clone())
+    .splits_opt(splits)
+    .laps_opt(laps)
     .build()
+}
+
+/// Translate sciotte's [`SciotteSplit`] into cageux's [`Split`] — same
+/// field set, re-emitted under cageux's canonical names so the chat
+/// pipeline treats OAuth-Strava splits and scraper-Strava splits
+/// identically.
+fn convert_split(s: &SciotteSplit) -> Split {
+    Split {
+        index: s.index,
+        distance_meters: s.distance_meters,
+        elapsed_time_seconds: s.elapsed_time_seconds,
+        moving_time_seconds: s.moving_time_seconds,
+        elevation_difference_meters: s.elevation_difference_meters,
+        average_speed_mps: s.average_speed_mps,
+        average_heart_rate: s.average_heart_rate,
+        pace_zone: s.pace_zone,
+    }
+}
+
+/// Translate sciotte's [`SciotteLap`] into cageux's [`Lap`].
+fn convert_lap(l: &SciotteLap) -> Lap {
+    Lap {
+        id: l.id.clone(),
+        index: l.index,
+        distance_meters: l.distance_meters,
+        elapsed_time_seconds: l.elapsed_time_seconds,
+        moving_time_seconds: l.moving_time_seconds,
+        elevation_gain_meters: l.elevation_gain_meters,
+        average_speed_mps: l.average_speed_mps,
+        max_speed_mps: l.max_speed_mps,
+        average_heart_rate: l.average_heart_rate,
+        max_heart_rate: l.max_heart_rate,
+        average_cadence: l.average_cadence,
+        average_power: l.average_power,
+    }
 }
 
 #[async_trait]

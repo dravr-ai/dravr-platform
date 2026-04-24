@@ -368,6 +368,15 @@ export RATE_LIMITER_STALE_ENTRY_TIMEOUT_SECS="120"
 # Default when unset: pierre_core::constants::limits::DEFAULT_ACTIVITIES_LIMIT.
 export ACTIVITY_FETCH_LIMIT="20"
 
+# Auto-promote get_activities from summary to detailed mode when the caller
+# requests this many activities or fewer. Detail fetch is N+1 (one API call
+# per activity) so the threshold caps the rate-limit impact. Strava allows
+# 100 req / 15 min / user — a single `limit=20` auto-promoted query burns up
+# to 20% of that window. Set to 0 to disable auto-promotion entirely
+# (callers then only get detail by passing mode=detailed explicitly).
+# Default when unset: pierre_core::config::fitness::DEFAULT_ACTIVITY_DETAIL_THRESHOLD (20).
+export ACTIVITY_DETAIL_THRESHOLD="20"
+
 # ============================================================================
 # CACHE CONFIGURATION
 # ============================================================================

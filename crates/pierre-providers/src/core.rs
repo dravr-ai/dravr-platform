@@ -404,6 +404,26 @@ pub trait FitnessProvider: Send + Sync {
     /// ```
     async fn get_activity(&self, id: &str) -> AppResult<Activity>;
 
+    /// Get specific activity by ID with full detail-endpoint enrichment.
+    ///
+    /// Providers that expose a richer endpoint for a single activity
+    /// (e.g. Strava's `GET /activities/{id}` returning segment efforts,
+    /// laps, splits, `elev_high`/`elev_low`, `device_name`) should
+    /// override this method to parse that response and populate the
+    /// extra fields on the returned [`Activity`]. Providers that do not
+    /// have a detail endpoint inherit the default implementation, which
+    /// delegates to [`get_activity`](Self::get_activity) — equivalent
+    /// to the summary fetch.
+    ///
+    /// The chat pipeline's auto-promote path calls this method when
+    /// the caller's limit is at or below
+    /// [`pierre_core::config::fitness::activity_detail_threshold`], so
+    /// any enrichment a provider adds here flows into coach reasoning
+    /// for "analyze my last run" / "last 10 rides" style queries.
+    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        self.get_activity(id).await
+    }
+
     /// Get user's aggregate statistics
     ///
     /// # Example
