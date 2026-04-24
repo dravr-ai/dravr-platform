@@ -6,13 +6,15 @@
 
 use std::sync::Arc;
 
+use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::CoachRuntimeContext;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::prompts::{TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT};
 
 use crate::contremaitre::messaging_strings::{
-    DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_SCOPE_REFUSAL,
+    DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
+    KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
 };
 use crate::errors::AppResult;
 use crate::llm::ChatMessage;
@@ -28,28 +30,65 @@ use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{build_llm_messages, build_provider_context, build_tools_section};
 use super::refresh::inject_refresh_context;
 
-/// Rewrite canonical refusal placeholders (`{{SCOPE_REFUSAL}}`,
-/// `{{CAPABILITY_REFUSAL}}`) with the locale-appropriate strings from
-/// [`messaging_strings_registry`](ServerResources::messaging_strings_registry).
-/// Returns the prompt unchanged when neither placeholder is present.
-fn interpolate_refusal_placeholders(
+/// Return the [`messaging_strings_registry`](ServerResources::messaging_strings_registry)
+/// key that holds the scope carve-out for a given coach category, or
+/// `None` when the category does not collide with the generic scope list
+/// in `pierre_system.md`.
+///
+/// Only `Nutrition` and `Recipes` currently need a carve-out: both exist
+/// to answer meal/dinner/snack questions that the generic "food/meal
+/// finders" refusal would otherwise block. Training / Recovery /
+/// Mobility / Analysis / Custom do not collide — adding a carve-out for
+/// them only makes sense once a real refusal surfaces.
+const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static str> {
+    match category {
+        CoachCategory::Nutrition => Some(KEY_COACH_SCOPE_CARVE_OUT_NUTRITION),
+        CoachCategory::Recipes => Some(KEY_COACH_SCOPE_CARVE_OUT_RECIPES),
+        CoachCategory::Training
+        | CoachCategory::Recovery
+        | CoachCategory::Mobility
+        | CoachCategory::Analysis
+        | CoachCategory::Custom => None,
+    }
+}
+
+/// Rewrite the prompt-template placeholders with their runtime values.
+///
+/// Handles three placeholders:
+///
+/// - `{{SCOPE_REFUSAL}}` → canonical off-scope refusal sentence
+/// - `{{CAPABILITY_REFUSAL}}` → canonical missing-capability refusal sentence
+/// - `{{COACH_SCOPE_CARVE_OUT}}` → coach-category-specific relaxation that
+///   counteracts the generic scope list (e.g. Nutrition coaches bypass
+///   the "food/meal finders" out-of-scope rule for meal-planning
+///   questions). Empty string when the coach's category does not need a
+///   carve-out or when no coach is attached to the conversation.
+///
+/// Returns the prompt unchanged when none of the placeholders are
+/// present.
+fn interpolate_prompt_placeholders(
     resources: &Arc<ServerResources>,
     input: &TurnInput,
+    coach_ctx: Option<&CoachRuntimeContext>,
     prompt: &str,
 ) -> String {
-    if !prompt.contains("{{SCOPE_REFUSAL}}") && !prompt.contains("{{CAPABILITY_REFUSAL}}") {
+    let has_scope = prompt.contains("{{SCOPE_REFUSAL}}");
+    let has_capability = prompt.contains("{{CAPABILITY_REFUSAL}}");
+    let has_carve_out = prompt.contains("{{COACH_SCOPE_CARVE_OUT}}");
+    if !has_scope && !has_capability && !has_carve_out {
         return prompt.to_owned();
     }
     let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
-    let scope = resources
-        .messaging_strings_registry
-        .get(KEY_SCOPE_REFUSAL, locale);
-    let capability = resources
-        .messaging_strings_registry
-        .get(KEY_CAPABILITY_REFUSAL, locale);
+    let registry = &resources.messaging_strings_registry;
+    let scope = registry.get(KEY_SCOPE_REFUSAL, locale);
+    let capability = registry.get(KEY_CAPABILITY_REFUSAL, locale);
+    let carve_out = coach_ctx
+        .and_then(|c| coach_scope_carve_out_key(c.category))
+        .map_or_else(String::new, |key| registry.get(key, locale));
     prompt
         .replace("{{SCOPE_REFUSAL}}", &scope)
         .replace("{{CAPABILITY_REFUSAL}}", &capability)
+        .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
 }
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -82,11 +121,14 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
         |c| c.system_prompt.clone(),
     );
 
-    // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}`
-    // placeholders to canonical localized strings from the messaging registry.
-    // Emitting these verbatim gives deterministic refusal copy per locale
-    // rather than letting the LLM translate on the fly.
-    let base_prompt = interpolate_refusal_placeholders(resources, input, &base_prompt);
+    // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}` /
+    // `{{COACH_SCOPE_CARVE_OUT}}` placeholders to runtime values from the
+    // messaging registry. Refusals are per-locale canonical strings;
+    // the carve-out is per-(coach-category, locale) and relaxes the
+    // generic scope list for categories whose core purpose would
+    // otherwise be blocked (e.g. Nutrition coaches answering dinner
+    // questions).
+    let base_prompt = interpolate_prompt_placeholders(resources, input, coach_ctx, &base_prompt);
 
     // Stage 7a.2: Append the runtime-generated "Available Tools" section.
     // Both the default Pierre system prompt and every coach's custom

@@ -6,6 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::{CoachRuntimeContext, TenantId};
 use pierre_core::tokens::estimate_prompt_tokens;
 use sqlx::{sqlite::SqliteRow, Row};
@@ -15,14 +16,17 @@ use super::types::{Coach, CoachVersion};
 use super::{compute_content_hash, row_to_coach, CoachesManager};
 
 /// sqlx row shape for [`CoachRuntimeContext`] lookups.
+///
 /// Ordering matches the SELECT list in [`CoachesManager::get_coach_runtime_context`]:
-/// `system_prompt`, `startup_query`, `data_requirements`, `max_tool_iterations`, `temperature`.
+/// `system_prompt`, `startup_query`, `data_requirements`, `max_tool_iterations`,
+/// `temperature`, `category`.
 type CoachRuntimeRow = (
     String,
     Option<String>,
     Option<String>,
     Option<i32>,
     Option<f32>,
+    String,
 );
 
 impl CoachesManager {
@@ -376,7 +380,7 @@ impl CoachesManager {
     ) -> AppResult<Option<CoachRuntimeContext>> {
         let row: Option<CoachRuntimeRow> = sqlx::query_as(
             r"
-            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature
+            SELECT system_prompt, startup_query, data_requirements, max_tool_iterations, temperature, category
             FROM coaches
             WHERE id = $1
               AND (tenant_id = $2 OR is_system = 1)
@@ -396,6 +400,7 @@ impl CoachesManager {
                 data_requirements,
                 max_tool_iterations,
                 temperature,
+                category,
             )| {
                 CoachRuntimeContext {
                     system_prompt,
@@ -403,6 +408,7 @@ impl CoachesManager {
                     data_requirements,
                     max_tool_iterations,
                     temperature,
+                    category: CoachCategory::parse(&category),
                 }
             },
         ))
