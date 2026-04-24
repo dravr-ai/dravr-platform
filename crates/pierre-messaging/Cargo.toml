@@ -24,7 +24,7 @@ agui = ["dravr-canot/agui"]
 all-channels = ["channel-whatsapp", "channel-messenger", "channel-discord", "channel-slack", "channel-telegram", "agui"]
 
 [dependencies]
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.8" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.9" }
 
 [lints]
 workspace = true

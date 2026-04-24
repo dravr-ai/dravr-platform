@@ -16,6 +16,7 @@ use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::env;
 use std::str::FromStr;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -248,7 +249,9 @@ async fn parse_and_verify(
 
     // Try each config's signing secret until one verifies
     for config in &configs {
-        let adapter = match create_adapter_from_config(channel_type, config) {
+        let enriched = enrich_slack_bot_allow_list(channel_type, config);
+        let adapter_config = enriched.as_ref().unwrap_or(config);
+        let adapter = match create_adapter_from_config(channel_type, adapter_config) {
             Ok(a) => a,
             Err(e) => {
                 debug!(
@@ -292,4 +295,38 @@ async fn parse_and_verify(
         "No matching channel configuration for webhook signature"
     );
     Err(AppError::auth_invalid("No matching channel configuration"))
+}
+
+/// Inject `allowed_bot_ids` from the `SLACK_ALLOWED_BOT_IDS` env var into the
+/// Slack config value so canot's factory exposes it on the transport.
+///
+/// The env var is a comma-separated list of Slack bot IDs (e.g.
+/// `"B0ABC123,B0DEF456"`). When set, the listed bots bypass canot's default
+/// bot-loop filter and their messages flow into the pipeline as real user
+/// input. Intended for QA drivers and trusted integration bots only — see
+/// `dravr-canot::channels::slack::SlackTransport::with_allowed_bot_ids` for
+/// the security contract. Never list the workspace's own Pierre bot ID.
+///
+/// Returns `None` when the env var is absent, empty, or the channel isn't
+/// Slack, leaving the original config untouched. The caller should fall back
+/// to the original config in that case.
+fn enrich_slack_bot_allow_list(channel_type: ChannelType, config: &Value) -> Option<Value> {
+    if !matches!(channel_type, ChannelType::Slack) {
+        return None;
+    }
+    let raw = env::var("SLACK_ALLOWED_BOT_IDS").ok()?;
+    let ids: Vec<String> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+    let mut cloned = config.clone();
+    if let Value::Object(map) = &mut cloned {
+        map.insert("allowed_bot_ids".to_owned(), json!(ids));
+    }
+    Some(cloned)
 }
