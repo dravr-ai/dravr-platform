@@ -258,6 +258,9 @@ axum = { version = "0.8", features = ["ws", "json", "query", "macros", "tokio", 
 axum-extra = { version = "0.12", features = ["typed-header"] }
 http = "1.4"
 futures-util = "0.3"
+# WebSocket client for Slack Socket Mode ingress; `connect_async` opens a
+# TLS-protected WSS to Slack after `apps.connections.open` returns an URL.
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 eventsource-stream = "0.2"
 base64ct = "1.8"
 # LRU cache for bounded session storage (DoS prevention)
@@ -294,7 +297,6 @@ cron = "0.15.0"
 embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.3" }
 tempfile = "3.26"
 serial_test = "3.4"
-tokio-tungstenite = "0.24"
 criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
 serde_urlencoded = "0.7"
 # Messaging transport test dependencies (crypto verification)

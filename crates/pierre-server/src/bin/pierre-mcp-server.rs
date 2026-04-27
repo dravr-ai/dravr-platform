@@ -603,6 +603,14 @@ fn initialize_plugins_and_workers(mut resources_instance: ServerResources) -> Ar
         start_discord_gateway(&resources);
     }
 
+    // Start Slack Socket Mode WebSocket client for real-time Slack event delivery
+    // (no-op when SLACK_APP_TOKEN is unset; webhook path remains the default)
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::start_slack_socket_mode;
+        start_slack_socket_mode(&resources);
+    }
+
     resources
 }
 

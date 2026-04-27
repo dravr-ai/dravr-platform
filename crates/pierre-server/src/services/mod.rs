@@ -102,6 +102,10 @@ pub mod messaging_seed;
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;
 
+/// Slack Socket Mode WebSocket client — bridges real-time Slack events to the webhook pipeline
+#[cfg(feature = "client-messaging")]
+pub mod slack_socket;
+
 /// Slack operations notifier for deploy and user lifecycle events
 pub mod slack_ops_notifier;
 

@@ -1,82 +1,58 @@
 # ABOUTME: Dedicated CI for messaging-eval integration and real-platform scenario tests
-# ABOUTME: Dormant — workflow_dispatch only; see activation checklist below
+# ABOUTME: Runs Phase 0-3 asserters on push plus a nightly real-Slack round-trip via Socket Mode
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 
-# Dedicated workflow for the messaging-eval test track.
+# The `rust-asserters` job runs the in-process Phase 0-3 tests on every
+# push that touches messaging-eval code.
 #
-# Currently in DORMANT mode: triggers on `workflow_dispatch` only, so
-# it runs on-demand from the Actions tab but never on push/schedule.
-# The Phase 0–3 asserter tests already run inside `ci-backend.yml`
-# (cargo test pulls them in as part of the Rust test suite);
-# duplicating them here while the suite is small would waste CI
-# minutes.
+# The `real-slack-socket` job boots a Pierre server in Slack Socket Mode
+# (no public URL required) and drives a real post/poll round trip via the
+# QA driver bot. Socket Mode lets the Pierre-in-CI process receive events
+# outbound over a WebSocket keyed on `SLACK_APP_TOKEN`, so no Cloudflare
+# tunnel or webhook URL is needed. Runs on nightly cron and on-demand.
 #
-# ## Activation checklist
+# ## Required repo secrets
 #
-# Flip this workflow out of dormant mode when the first of these
-# lands:
+# QA driver (test harness posts as this bot, polls for the coach's reply):
+#   MESSAGING_EVAL_SLACK_BOT_TOKEN           — QA driver xoxb- token
+#   MESSAGING_EVAL_SLACK_CHANNEL             — channel ID (C…)
+#   MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID   — coach bot user ID (U…)
 #
-# 1. **Real-platform scenarios** — `#[ignore]` Rust integration
-#    tests that drive live Slack/Telegram/Discord/WhatsApp workspaces
-#    via `slack-morphism`, `teloxide`, `serenity`, etc. Need scheduled
-#    runs (so real-API flake doesn't block PRs) + per-platform secret
-#    routing via `MESSAGING_EVAL_*_*` env vars.
-# 2. **Golden-file visual diffs** — per-channel rendering snapshots
-#    under `tests/fixtures/messaging_rendering/`. Needs git-LFS
-#    checkout and snapshot-diff artifact upload.
+# Pierre coach bot (receives events, posts replies):
+#   MESSAGING_EVAL_COACH_BOT_TOKEN           — coach xoxb- token
+#   MESSAGING_EVAL_SLACK_APP_TOKEN           — coach xapp- token (Socket Mode);
+#                                              shared with the driver harness
+#                                              gate check
+#   MESSAGING_EVAL_COACH_SIGNING_SECRET      — coach signing secret (unused at
+#                                              runtime in socket mode but
+#                                              required by the seed step)
 #
-# When you flip it on:
-#
-# - Uncomment the `schedule` and `push`-on-path triggers below.
-# - Add a step that runs the real-platform tests:
-#     cargo test --test messaging_eval_real_slack_test -- --ignored
-#   (same pattern for each platform).
-# - Wire a reporter step that posts failures to the Obsidian vault
-#   tracking note (see `feedback_ci_must_be_green.md` for the "red
-#   nightly → vault note, don't block PR" convention).
-# - Set `concurrency` below to cancel-in-progress so a live session
-#   doesn't pile up if the schedule fires while a run is still going.
-#
-# ## When NOT to activate
-#
-# If messaging-eval work stays entirely in-process (mock LLM +
-# synthetic activities + assertion helpers), keep this dormant —
-# `ci-backend.yml` already covers it. The dedicated workflow pays off
-# only when messaging-eval has its own flake profile / secret
-# surface / runtime.
+# LLM provider:
+#   GEMINI_API_KEY                           — Gemini API key for the chat turn
 
 name: "CI: Messaging Eval"
 
 on:
-  # Dormant mode — manual dispatch only.
   workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * *"  # 04:00 UTC nightly
+  push:
+    paths:
+      - "crates/pierre-server/src/services/slack_socket.rs"
+      - "crates/pierre-server/tests/helpers/messaging_eval.rs"
+      - "crates/pierre-server/tests/messaging_eval_*.rs"
+      - "crates/pierre-server/tests/messaging_rendering_test.rs"
+      - ".github/workflows/messaging-eval.yml"
 
-  # Uncomment when real-platform scenarios land (see activation
-  # checklist above):
-  #
-  # schedule:
-  #   - cron: "0 4 * * *"   # 04:00 UTC nightly
-  #
-  # push:
-  #   paths:
-  #     - "crates/pierre-server/tests/helpers/messaging_eval.rs"
-  #     - "crates/pierre-server/tests/messaging_eval_*.rs"
-  #     - "crates/pierre-server/tests/messaging_rendering_test.rs"
-  #     - ".github/workflows/messaging-eval.yml"
-
-# Kept commented so a manual dispatch never clashes with another
-# manual dispatch (they'd just queue); uncomment when the schedule
-# fires to prevent a slow run overlapping with the next cron tick.
-#
-# concurrency:
-#   group: messaging-eval-${{ github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: messaging-eval-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rust-asserters:
-    name: Rust asserters (Phase 0–3)
+    name: Rust asserters (Phase 0-3)
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -87,6 +63,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Configure git auth for private dravr-* deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -105,36 +84,189 @@ jobs:
             --test messaging_rendering_test \
             -- --nocapture
 
-  # ── Real-platform scenarios (dormant) ───────────────────────────
-  #
-  # Uncomment when the first `#[ignore]` real-platform integration
-  # test lands. Each platform needs its driver secrets threaded in
-  # from GitHub Secrets; the values currently live in `.envrc` on
-  # main and must be added as repo secrets with the same names.
-  #
-  # real-platform-scenarios:
-  #   name: Real-platform scenarios (${{ matrix.platform }})
-  #   needs: rust-asserters
-  #   runs-on: self-hosted
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       platform: [slack, telegram, discord, whatsapp, messenger]
-  #   env:
-  #     MESSAGING_EVAL_SLACK_BOT_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_BOT_TOKEN }}
-  #     MESSAGING_EVAL_SLACK_APP_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_APP_TOKEN }}
-  #     MESSAGING_EVAL_SLACK_SIGNING_SECRET: ${{ secrets.MESSAGING_EVAL_SLACK_SIGNING_SECRET }}
-  #     MESSAGING_EVAL_SLACK_CHANNEL: ${{ secrets.MESSAGING_EVAL_SLACK_CHANNEL }}
-  #     MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID: ${{ secrets.MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #       with:
-  #         submodules: recursive
-  #         lfs: true
-  #     - name: Run real-${{ matrix.platform }} tests
-  #       run: cargo test --test messaging_eval_real_${{ matrix.platform }}_test -- --ignored --nocapture
-  #     - uses: actions/upload-artifact@v4
-  #       if: always()
-  #       with:
-  #         name: real-${{ matrix.platform }}-reports
-  #         path: target/nextest/default/*.xml
+  real-slack-socket:
+    name: Real Slack round trip (Socket Mode)
+    # Only run on schedule + manual dispatch — skip on every push path match
+    # because the Slack API has rate limits and the test depends on live
+    # LLM latency.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    needs: rust-asserters
+    timeout-minutes: 25
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_GIT_FETCH_WITH_CLI: true
+      CARGO_HOME: /home/runner/.cargo
+      CARGO_INCREMENTAL: "0"
+      # QA driver creds consumed by the test harness (posts + polls
+      # conversations.history).
+      MESSAGING_EVAL_SLACK_BOT_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_BOT_TOKEN }}
+      MESSAGING_EVAL_SLACK_CHANNEL: ${{ secrets.MESSAGING_EVAL_SLACK_CHANNEL }}
+      MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID: ${{ secrets.MESSAGING_EVAL_SLACK_COACH_BOT_USER_ID }}
+      # APP_TOKEN presence is a pre-condition the test harness checks to
+      # avoid skipping silently; same value Pierre reads below.
+      MESSAGING_EVAL_SLACK_APP_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_APP_TOKEN }}
+      MESSAGING_EVAL_SLACK_SIGNING_SECRET: ${{ secrets.MESSAGING_EVAL_COACH_SIGNING_SECRET }}
+      # Coach bot creds consumed by the Pierre server at boot. SLACK_APP_TOKEN
+      # is what unlocks the outbound WebSocket (Socket Mode).
+      SLACK_BOT_TOKEN: ${{ secrets.MESSAGING_EVAL_COACH_BOT_TOKEN }}
+      SLACK_SIGNING_SECRET: ${{ secrets.MESSAGING_EVAL_COACH_SIGNING_SECRET }}
+      SLACK_APP_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_APP_TOKEN }}
+      # LLM for the pipeline's chat turn.
+      GEMINI_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_GEMINI_API_KEY }}
+      # Admin/JWT bootstrap.
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: AdminPassword123
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure git auth for private dravr-* deps
+        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build server + CLI
+        run: |
+          cargo build --release --bin pierre-mcp-server --bin pierre-cli
+
+      - name: Resolve QA driver bot_id + user_id
+        id: driver-identity
+        run: |
+          # auth.test with the QA driver's bot token returns its bot_id AND
+          # its Slack user_id. The bot_id feeds SLACK_ALLOWED_BOT_IDS (canot
+          # accepts driver posts as user input); the user_id seeds the
+          # messaging_sessions row so Pierre routes its messages to the
+          # pre-linked admin user instead of replying with an OTP link.
+          RESPONSE=$(curl -sS -H "Authorization: Bearer $MESSAGING_EVAL_SLACK_BOT_TOKEN" \
+            https://slack.com/api/auth.test)
+          echo "auth.test response: $RESPONSE" >&2
+          BOT_ID=$(echo "$RESPONSE" | jq -r '.bot_id // empty')
+          USER_ID=$(echo "$RESPONSE" | jq -r '.user_id // empty')
+          if [ -z "$BOT_ID" ] || [ -z "$USER_ID" ]; then
+            echo "ERROR: auth.test missing bot_id or user_id (driver token may be invalid)" >&2
+            exit 1
+          fi
+          echo "Resolved driver bot_id=$BOT_ID user_id=$USER_ID"
+          {
+            echo "bot_id=$BOT_ID"
+            echo "user_id=$USER_ID"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate ephemeral Pierre master encryption key
+        id: pierre-key
+        run: |
+          # CI-only ephemeral key; the SQLite DB + its encrypted rows are
+          # created fresh each run and discarded at teardown, so key
+          # rotation between runs has no effect.
+          KEY=$(openssl rand -base64 32)
+          echo "::add-mask::$KEY"
+          echo "key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Seed admin user
+        env:
+          DATABASE_URL: sqlite:///tmp/pierre-messaging-eval.db
+          PIERRE_MASTER_ENCRYPTION_KEY: ${{ steps.pierre-key.outputs.key }}
+        run: |
+          mkdir -p /tmp
+          cargo run --release --bin pierre-cli -- user create \
+            --email "$ADMIN_EMAIL" \
+            --password "$ADMIN_PASSWORD"
+
+      - name: Pre-link QA driver Slack user to admin
+        env:
+          DRIVER_USER_ID: ${{ steps.driver-identity.outputs.user_id }}
+        run: |
+          # Bypass the OTP / account-linking flow: seed a messaging_sessions
+          # row that maps the driver's Slack user_id to the admin user. This
+          # lets Pierre run a full coach turn on the probe instead of
+          # replying with the pre-auth link prompt.
+          DB=/tmp/pierre-messaging-eval.db
+          ADMIN_ID=$(sqlite3 "$DB" "SELECT id FROM users WHERE email='$ADMIN_EMAIL';")
+          TENANT_ID=$(sqlite3 "$DB" "SELECT tenant_id FROM tenant_users WHERE user_id='$ADMIN_ID' LIMIT 1;")
+          if [ -z "$ADMIN_ID" ] || [ -z "$TENANT_ID" ]; then
+            echo "ERROR: admin user ($ADMIN_ID) or tenant ($TENANT_ID) lookup failed" >&2
+            sqlite3 "$DB" ".tables"
+            exit 1
+          fi
+          SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+          sqlite3 "$DB" "INSERT INTO messaging_sessions (id, user_id, tenant_id, channel_type, channel_user_id) VALUES ('$SESSION_ID', '$ADMIN_ID', '$TENANT_ID', 'slack', '$DRIVER_USER_ID');"
+          echo "Linked driver Slack user $DRIVER_USER_ID → admin $ADMIN_ID (tenant $TENANT_ID, session $SESSION_ID)"
+
+      - name: Start Pierre (background)
+        env:
+          DATABASE_URL: sqlite:///tmp/pierre-messaging-eval.db
+          PIERRE_MASTER_ENCRYPTION_KEY: ${{ steps.pierre-key.outputs.key }}
+          PIERRE_HOST: 127.0.0.1
+          PIERRE_PORT: "8081"
+          RUST_LOG: "info,pierre_mcp_server::services::slack_socket=debug"
+          SLACK_ALLOWED_BOT_IDS: ${{ steps.driver-identity.outputs.bot_id }}
+          # LLM config — messaging_ingress resolves these per session when
+          # constructing the chat turn. `gemini` matches the repo secret we
+          # wire below; `gemini-2.0-flash` is the fast production model.
+          PIERRE_LLM_PROVIDER: gemini
+          PIERRE_LLM_MODEL: gemini-2.0-flash
+          PIERRE_LLM_DEFAULT_MODEL: gemini-2.0-flash
+          # FALLBACK_MODEL is validated unconditionally by the gemini config
+          # loader even when FALLBACK_ENABLED is false; point it at the same
+          # model so the loader accepts it.
+          PIERRE_LLM_FALLBACK_MODEL: gemini-2.0-flash
+          PIERRE_LLM_FALLBACK_ENABLED: "false"
+          # Sciotte backpressure limiter — required by the pierre-sciotte
+          # feature which ships in the default server-full feature set.
+          # Low-traffic CI numbers: single concurrent scrape, tiny queue,
+          # short retry hints. Values mirror bin/start-server.sh's
+          # pre-flight check.
+          PIERRE_SCIOTTE_MAX_CONCURRENT: "1"
+          PIERRE_SCIOTTE_MAX_QUEUE: "4"
+          PIERRE_SCIOTTE_ACQUIRE_TIMEOUT_SECS: "30"
+          PIERRE_SCIOTTE_PERMIT_MAX_LIFETIME_SECS: "120"
+          PIERRE_SCIOTTE_WATCHDOG_INTERVAL_SECS: "10"
+          PIERRE_SCIOTTE_RETRY_AFTER_HINT_SECS: "5"
+          PIERRE_SCIOTTE_CLOSED_RETRY_AFTER_SECS: "30"
+        run: |
+          mkdir -p "$RUNNER_TEMP/pierre-logs"
+          ./target/release/pierre-mcp-server \
+            > "$RUNNER_TEMP/pierre-logs/server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/pierre.pid"
+
+      - name: Wait for Socket Mode connection
+        run: |
+          # Pierre logs "Slack Socket Mode: hello received" once Slack
+          # accepts the WSS handshake. That's the go-signal that driver
+          # posts will now reach the pipeline.
+          for i in $(seq 1 60); do
+            if grep -q "Slack Socket Mode: hello received" \
+              "$RUNNER_TEMP/pierre-logs/server.log" 2>/dev/null; then
+              echo "Socket Mode ready after ${i} polls"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: Socket Mode did not connect within 120s"
+          tail -200 "$RUNNER_TEMP/pierre-logs/server.log" || true
+          exit 1
+
+      - name: Run real-Slack round trip
+        run: |
+          cargo test --release \
+            --test messaging_eval_real_slack_test \
+            -- --ignored --nocapture --test-threads=1
+
+      - name: Stop Pierre
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/pierre.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/pierre.pid")" || true
+          fi
+
+      - name: Upload Pierre logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pierre-server-logs
+          path: ${{ runner.temp }}/pierre-logs/
+          retention-days: 14

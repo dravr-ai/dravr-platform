@@ -194,6 +194,8 @@ pub use services::discord_gateway::start_discord_gateway;
 pub use services::messaging_outbound::start_outbound_worker;
 #[cfg(feature = "client-messaging")]
 pub use services::messaging_seed;
+#[cfg(feature = "client-messaging")]
+pub use services::slack_socket::start_slack_socket_mode;
 
 // Re-export OAuth flow validation for integration testing
 pub use services::oauth_flow;
