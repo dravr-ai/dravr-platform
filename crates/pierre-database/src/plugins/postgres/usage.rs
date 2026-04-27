@@ -10,10 +10,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::constants::http_status::{BAD_REQUEST, SUCCESS_MAX, SUCCESS_MIN};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::usage::{
-    EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
-    LlmUsageDailyRow,
-};
+use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::{ApiKeyUsage, ApiKeyUsageStats};
 use pierre_core::models::{
     ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, TenantId, ToolUsage,
@@ -519,8 +516,8 @@ impl LlmUsageRepository for PostgresDatabase {
 
         sqlx::query(
             r"
-            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+            INSERT INTO llm_usage (id, tenant_id, user_id, conversation_id, turn_id, provider, model, prompt_tokens, completion_tokens, total_tokens, call_type, tool_calls_count, tools_called, execution_time_ms, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             ",
         )
         .bind(&id)
@@ -533,13 +530,10 @@ impl LlmUsageRepository for PostgresDatabase {
         .bind(params.prompt_tokens)
         .bind(params.completion_tokens)
         .bind(params.total_tokens)
-        .bind(params.cached_tokens)
         .bind(params.call_type)
         .bind(params.tool_calls_count)
         .bind(params.tools_called)
         .bind(params.execution_time_ms)
-        .bind(params.cost_usd)
-        .bind(params.call_sequence.map(|v| i32::try_from(v).unwrap_or(i32::MAX)))
         .bind(now)
         .execute(&self.pool)
         .await
@@ -556,49 +550,10 @@ impl LlmUsageRepository for PostgresDatabase {
             prompt_tokens: params.prompt_tokens,
             completion_tokens: params.completion_tokens,
             total_tokens: params.total_tokens,
-            cached_tokens: params.cached_tokens,
             call_type: params.call_type.to_owned(),
             tool_calls_count: params.tool_calls_count,
             tools_called: params.tools_called.to_owned(),
             execution_time_ms: params.execution_time_ms,
-            cost_usd: params.cost_usd,
-            call_sequence: params.call_sequence,
-            created_at: now.to_rfc3339(),
-        })
-    }
-
-    async fn insert_embedding_usage(
-        &self,
-        params: &InsertEmbeddingUsage<'_>,
-    ) -> AppResult<EmbeddingUsageRecord> {
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        sqlx::query(
-            r"
-            INSERT INTO embedding_usage (id, tenant_id, user_id, provider, model, input_tokens, cost_usd, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-            ",
-        )
-        .bind(id)
-        .bind(params.tenant_id)
-        .bind(params.user_id)
-        .bind(params.provider)
-        .bind(params.model)
-        .bind(params.input_tokens)
-        .bind(params.cost_usd)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to insert embedding usage: {e}")))?;
-
-        Ok(EmbeddingUsageRecord {
-            id: id.to_string(),
-            tenant_id: params.tenant_id.to_owned(),
-            user_id: params.user_id.to_owned(),
-            provider: params.provider.to_owned(),
-            model: params.model.to_owned(),
-            input_tokens: params.input_tokens,
-            cost_usd: params.cost_usd,
             created_at: now.to_rfc3339(),
         })
     }
@@ -697,8 +652,8 @@ impl LlmUsageRepository for PostgresDatabase {
         fetch_llm_usage_rows(
             &self.pool,
             "SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model, \
-                    prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type, \
-                    tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, \
+                    prompt_tokens, completion_tokens, total_tokens, call_type, \
+                    tool_calls_count, tools_called, execution_time_ms, \
                     TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at \
              FROM llm_usage \
              ORDER BY created_at DESC \
@@ -745,12 +700,12 @@ impl LlmUsageRepository for PostgresDatabase {
         fetch_llm_usage_rows(
             &self.pool,
             "SELECT id, tenant_id, user_id, conversation_id, turn_id, provider, model, \
-                    prompt_tokens, completion_tokens, total_tokens, cached_tokens, call_type, \
-                    tool_calls_count, tools_called, execution_time_ms, cost_usd, call_sequence, \
+                    prompt_tokens, completion_tokens, total_tokens, call_type, \
+                    tool_calls_count, tools_called, execution_time_ms, \
                     TO_CHAR(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as created_at \
              FROM llm_usage \
              WHERE turn_id = $1 \
-             ORDER BY call_sequence ASC NULLS LAST, created_at ASC",
+             ORDER BY created_at ASC",
             move |q| q.bind(turn_uuid),
         )
         .await
@@ -795,13 +750,10 @@ struct LlmUsageRow {
     prompt_tokens: i64,
     completion_tokens: i64,
     total_tokens: i64,
-    cached_tokens: i64,
     call_type: String,
     tool_calls_count: i64,
     tools_called: String,
     execution_time_ms: Option<i64>,
-    cost_usd: f64,
-    call_sequence: Option<i32>,
     created_at: String,
 }
 
@@ -818,13 +770,10 @@ impl LlmUsageRow {
             prompt_tokens: self.prompt_tokens,
             completion_tokens: self.completion_tokens,
             total_tokens: self.total_tokens,
-            cached_tokens: self.cached_tokens,
             call_type: self.call_type,
             tool_calls_count: self.tool_calls_count,
             tools_called: self.tools_called,
             execution_time_ms: self.execution_time_ms,
-            cost_usd: self.cost_usd,
-            call_sequence: self.call_sequence.map(i64::from),
             created_at: self.created_at,
         }
     }

@@ -56,7 +56,6 @@ use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::{AddMessageParams, CoachRuntimeContext, ConversationTurnId};
 use pierre_database::database::repositories::LlmUsageRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::pricing::calculate_cost_with_cache;
 use tracing::{debug, info, warn};
 
 use crate::agui::AgUiEvent;
@@ -243,25 +242,9 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
         let user_id = self.user_id.clone();
         let conversation_id = self.conversation_id.clone();
         let turn_id = self.turn_id;
-        let base_call_type = self.call_type;
-        let call_sequence = record.call_sequence;
+        let call_type = self.call_type;
         tokio::spawn(async move {
             let total_tokens = record.prompt_tokens + record.completion_tokens;
-            let cost_usd = calculate_cost_with_cache(
-                &record.provider,
-                &record.model,
-                record.prompt_tokens,
-                record.cached_tokens,
-                record.completion_tokens,
-            );
-            // Rows whose token counts were estimated (CLI runners returning
-            // usage: None) get an `_estimated` call_type suffix so billing
-            // queries can exclude them from "accurate usage" rollups.
-            let call_type_owned = if record.token_counts_estimated {
-                format!("{base_call_type}_estimated")
-            } else {
-                base_call_type.to_owned()
-            };
             let params = InsertLlmUsage {
                 tenant_id: &tenant_id,
                 user_id: &user_id,
@@ -272,13 +255,10 @@ impl chat_tool_loop::LlmCallRecorder for UsageRepoCallRecorder {
                 prompt_tokens: record.prompt_tokens,
                 completion_tokens: record.completion_tokens,
                 total_tokens,
-                cached_tokens: record.cached_tokens,
-                call_type: &call_type_owned,
+                call_type,
                 tool_calls_count: 0,
                 tools_called: "[]",
                 execution_time_ms: Some(record.latency_ms),
-                cost_usd,
-                call_sequence,
             };
             if let Err(e) = llm_usage.insert_llm_usage(&params).await {
                 warn!("Failed to record per-LLM-call usage: {e}");

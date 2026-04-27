@@ -27,10 +27,7 @@ use pierre_core::models::mobility::{
 };
 
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
-use pierre_core::models::usage::{
-    EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
-    LlmUsageDailyRow,
-};
+use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
 use pierre_core::models::DataSource;
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, CoachRuntimeContext,
@@ -1388,14 +1385,6 @@ pub trait ToolSelectionRepository: Send + Sync {
 pub trait LlmUsageRepository: Send + Sync {
     /// Insert a new LLM usage record
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
-
-    /// Insert a new embedding-usage record. Embedding calls live in
-    /// their own table so embedding volume never inflates chat-token
-    /// billing aggregates.
-    async fn insert_embedding_usage(
-        &self,
-        params: &InsertEmbeddingUsage<'_>,
-    ) -> AppResult<EmbeddingUsageRecord>;
 
     /// Query aggregated LLM usage grouped by `provider`, `model`, and `call_type`
     async fn get_llm_usage_aggregates(
