@@ -159,14 +159,10 @@ pub use a2a::{A2AClient, A2ASession, A2ATask, A2AUsage, A2AUsageStats, TaskStatu
 
 /// Usage, dashboard, and quota tracking types.
 pub mod usage;
-
-/// Tier-keyed quota configuration (Starter / Professional / Enterprise).
-pub mod tier_quota;
-pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
 pub use usage::{
-    ConversationTurnLlmCall, ConversationTurnSummary, EmbeddingUsageRecord, InsertEmbeddingUsage,
-    InsertLlmUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog,
-    ToolUsage, UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
+    ConversationTurnLlmCall, ConversationTurnSummary, InsertLlmUsage, JwtUsage,
+    LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog, ToolUsage,
+    UsageCounterRecord, TURN_SUMMARY_CALL_TYPE,
 };
 
 /// Coach (AI persona) data types for custom AI coaching personas

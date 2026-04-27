@@ -540,16 +540,10 @@ impl ToolHandlers {
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 total_tokens: 0,
-                cached_tokens: 0,
                 call_type: "mcp_tool",
                 tool_calls_count: 1,
                 tools_called: &tools_called_json,
                 execution_time_ms: Some(exec_time_ms),
-                // Data-only MCP tool calls (Strava fetch, etc.) are not
-                // LLM requests, so no USD cost applies. They still count
-                // toward `daily_tool_calls` at the counter layer.
-                cost_usd: 0.0,
-                call_sequence: None,
             })
             .await
         {

@@ -353,8 +353,7 @@ pub(super) async fn handle_session(
 
     // Warm the analytics consent cache from the durable user record so PostHog
     // events are not silently dropped after a Cloud Run cold start
-    let hashed_user_id = hash_id(&user_id.to_string());
-    analytics().hydrate_consent(&hashed_user_id, user.analytics_consent);
+    analytics().hydrate_consent(&hash_id(&user_id.to_string()), user.analytics_consent);
 
     // Preserve active_tenant_id from existing JWT, or look up user's default tenant
     let active_tenant_id = if let Some(tid) = auth_result.active_tenant_id {
@@ -369,19 +368,6 @@ pub(super) async fn handle_session(
         tenants.first().map(|t| t.id.to_string())
     };
     let tenant_id_for_response = active_tenant_id.clone();
-
-    // Phase 4: PostHog `$identify` on session restore so user properties
-    // (tier, locale, signup-date) follow every subsequent event for this
-    // user. Tier is sourced from the canonical `users.tier` column; the
-    // tenant id is hashed so PostHog never sees raw IDs.
-    let identify_props = serde_json::json!({
-        "tier": user.tier.to_string(),
-        "tenant_id_hash": tenant_id_for_response.as_deref().map(hash_id).unwrap_or_default(),
-        "signup_date": user.created_at.to_rfc3339(),
-        "primary_locale": user.locale.clone(),
-        "analytics_consent": user.analytics_consent,
-    });
-    analytics().identify(&hashed_user_id, identify_props);
 
     // Generate a fresh JWT token for WebSocket authentication with active_tenant_id
     let server_context = ServerContext::from(resources.as_ref());
