@@ -25,10 +25,7 @@ use crate::services::chat_pipeline::stages::persistence::{
 use super::super::chat_tool_loop::{self, ToolLoopParams};
 use super::dto::{ChatCompletionResponse, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, UsageWarning};
-use super::usage::{
-    extract_or_estimate_tokens, increment_usage_counters, post_process_content, record_llm_usage,
-    RecordLlmUsageParams,
-};
+use super::usage::{extract_or_estimate_tokens, increment_usage_counters, post_process_content};
 use super::{
     build_mcp_tools, get_llm_provider, DEFAULT_MAX_TOOL_ITERATIONS, INSIGHT_PROMPT_PREFIX,
 };
@@ -124,21 +121,10 @@ pub async fn send_insight_message(
         persist_assistant_response(resources.repos.chat.as_ref(), &assistant_params, tenant_id)
             .await?;
 
-    record_llm_usage(
-        &resources,
-        &RecordLlmUsageParams {
-            tenant_id,
-            user_id: &user_id_str,
-            conversation_id: &conversation_id,
-            turn_id,
-            provider: &provider,
-            model: &conv.model,
-            tool_calls_count: result.tool_calls_count,
-            tools_called: &result.tools_called,
-            execution_time_ms,
-        },
-    )
-    .await;
+    // Per-call `llm_usage` rows are written inline by the chat pipeline's
+    // `UsageRepoCallRecorder` with real token counts, cost_usd, and
+    // cached_tokens; the zero-token turn_summary marker row is no longer
+    // written — aggregate queries index the per-call rows directly.
 
     let total_tokens_used =
         i64::from(prompt_tokens.unwrap_or(0)) + i64::from(token_count.unwrap_or(0));

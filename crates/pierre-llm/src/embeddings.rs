@@ -19,7 +19,9 @@
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::http_client::llm_client;
+use pierre_core::models::usage::{EmbeddingUsageRecord, InsertEmbeddingUsage};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Number of dimensions in an embedding vector.
 pub type EmbeddingDim = usize;
@@ -30,12 +32,93 @@ pub trait EmbeddingProvider: Send + Sync {
     /// Stable identifier used in cost tracking and admin UI.
     fn name(&self) -> &'static str;
 
+    /// Default model identifier reported in usage rows.
+    fn model(&self) -> &str;
+
     /// Vector dimensionality — callers use this to pre-size storage and to
     /// refuse to mix embeddings from providers with different widths.
     fn dimensions(&self) -> EmbeddingDim;
 
     /// Turn the input text into a single embedding vector.
     async fn embed(&self, text: &str) -> AppResult<Vec<f32>>;
+}
+
+/// Writer adapter for the `embedding_usage` table.
+///
+/// Decouples [`EmbeddingProvider`] from the full
+/// [`pierre_database`] dependency graph: pierre-llm does not depend on
+/// pierre-database directly, so the server wires an implementation of
+/// this trait that bridges to `LlmUsageRepository::insert_embedding_usage`.
+#[async_trait]
+pub trait EmbeddingUsageSink: Send + Sync {
+    /// Persist a single embedding call.
+    async fn record(&self, params: &InsertEmbeddingUsage<'_>) -> AppResult<EmbeddingUsageRecord>;
+}
+
+/// USD cost per 1000 characters of input, used as the fallback pricing
+/// for embedding calls. Matches Gemini's `text-embedding-004` posted rate
+/// of $0.025 per 1M input tokens (~$0.00625 per 1K characters at 4 chars/token).
+const EMBEDDING_COST_PER_1K_CHARS: f64 = 0.000_006_25;
+
+/// Instrumentation wrapper around a raw [`EmbeddingProvider`].
+///
+/// Records every call in `embedding_usage` via the supplied
+/// [`EmbeddingUsageSink`]. Tenant + user context must be set per-call
+/// via [`Self::embed_for`] — callers that do not carry that context
+/// (e.g. startup seeders) should use the inner provider directly.
+pub struct InstrumentedEmbeddingProvider {
+    inner: Box<dyn EmbeddingProvider>,
+    sink: Arc<dyn EmbeddingUsageSink>,
+}
+
+impl InstrumentedEmbeddingProvider {
+    /// Wrap `inner` so every embed call is written to `embedding_usage`
+    /// via `sink`.
+    #[must_use]
+    pub fn new(inner: Box<dyn EmbeddingProvider>, sink: Arc<dyn EmbeddingUsageSink>) -> Self {
+        Self { inner, sink }
+    }
+
+    /// Execute an embedding call and record it against `(tenant_id, user_id)`.
+    /// Recording failures do not fail the embed — the warning is logged
+    /// so embedding-driven features (memory, harness) never degrade due
+    /// to telemetry issues.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever the inner provider's `embed` call returns when the
+    /// embedding HTTP request fails; sink-write errors are swallowed and
+    /// only logged.
+    pub async fn embed_for(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        text: &str,
+    ) -> AppResult<Vec<f32>> {
+        let vector = self.inner.embed(text).await?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+        let input_tokens = i64::try_from(text.chars().count().div_ceil(4)).unwrap_or(i64::MAX);
+        let cost_usd = (text.chars().count() as f64) / 1000.0 * EMBEDDING_COST_PER_1K_CHARS;
+        let params = InsertEmbeddingUsage {
+            tenant_id,
+            user_id,
+            provider: self.inner.name(),
+            model: self.inner.model(),
+            input_tokens,
+            cost_usd,
+        };
+        if let Err(e) = self.sink.record(&params).await {
+            tracing::warn!(tenant_id, user_id, "Failed to record embedding usage: {e}");
+        }
+        Ok(vector)
+    }
+
+    /// Borrow the wrapped provider to query `name()` / `model()` /
+    /// `dimensions()` without exposing the raw embed path.
+    #[must_use]
+    pub fn inner(&self) -> &dyn EmbeddingProvider {
+        self.inner.as_ref()
+    }
 }
 
 // ============================================================================
@@ -117,6 +200,10 @@ struct GeminiEmbedding {
 impl EmbeddingProvider for GeminiEmbeddingProvider {
     fn name(&self) -> &'static str {
         "gemini"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 
     fn dimensions(&self) -> EmbeddingDim {
