@@ -41,6 +41,76 @@ pub use embacle::types::{
 /// Text-based tool simulation for CLI LLM runners (re-exported from embacle)
 pub use embacle::tool_simulation;
 
+/// Token usage enriched with context-cache metrics.
+///
+/// Embacle's canonical [`TokenUsage`] does not carry a cache-hit count.
+/// `Gemini` reports `cachedContentTokenCount` and `OpenAI` reports
+/// `prompt_tokens_details.cached_tokens`; both are surfaced here so
+/// the billing pipeline can charge cache hits at the discounted rate
+/// (25% of input) without patching the upstream crate.
+///
+/// Providers that do not report cache hits set `cached_tokens` to `0`.
+/// `prompt_tokens` remains the gross value (cached + fresh) — the write
+/// path separates the two when computing cost so aggregate token counts
+/// continue to match provider dashboards.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ExtendedTokenUsage {
+    /// Gross prompt tokens as reported by the provider.
+    pub prompt_tokens: u32,
+    /// Completion tokens as reported by the provider.
+    pub completion_tokens: u32,
+    /// Prompt tokens that were served from the provider's context cache.
+    /// Always `<= prompt_tokens`. Zero when the provider does not report
+    /// cache metrics.
+    pub cached_tokens: u32,
+    /// Total tokens (prompt + completion) as reported by the provider.
+    pub total_tokens: u32,
+}
+
+impl ExtendedTokenUsage {
+    /// Promote a canonical embacle [`TokenUsage`] to the extended form,
+    /// leaving `cached_tokens` at zero. Use this when consuming a provider
+    /// response that does not break cache hits out separately.
+    #[must_use]
+    pub const fn from_base(usage: &TokenUsage) -> Self {
+        Self {
+            prompt_tokens: usage.prompt_tokens,
+            completion_tokens: usage.completion_tokens,
+            cached_tokens: 0,
+            total_tokens: usage.total_tokens,
+        }
+    }
+
+    /// Build an extended usage record directly from provider-reported counts.
+    #[must_use]
+    pub const fn with_cache(
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cached_tokens: u32,
+        total_tokens: u32,
+    ) -> Self {
+        Self {
+            prompt_tokens,
+            completion_tokens,
+            cached_tokens,
+            total_tokens,
+        }
+    }
+
+    /// Project back to the canonical embacle [`TokenUsage`] shape for
+    /// callers that need to hand a plain `TokenUsage` to downstream code.
+    /// Cache information is dropped; use [`Self::cached_tokens`] directly
+    /// when the billing path needs it.
+    #[must_use]
+    pub const fn to_base(&self) -> TokenUsage {
+        TokenUsage {
+            prompt_tokens: self.prompt_tokens,
+            completion_tokens: self.completion_tokens,
+            total_tokens: self.total_tokens,
+        }
+    }
+}
+
 // ============================================================================
 // Platform-Specific Stream Type
 // ============================================================================

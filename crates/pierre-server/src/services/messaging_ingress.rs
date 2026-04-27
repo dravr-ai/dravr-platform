@@ -10,8 +10,7 @@ use pierre_core::models::messaging::{
     CardAction, ChannelConfig, ChannelType, IncomingMessage, MessageContent, OutgoingMessage,
     LINK_CODE_TTL_MINUTES, MAX_OTP_ATTEMPTS, OTP_TTL_MINUTES,
 };
-use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{ConversationTurnId, TenantId, User, TURN_SUMMARY_CALL_TYPE};
+use pierre_core::models::{ConversationTurnId, TenantId, User};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_core::tokens::estimate_chat_tokens;
 use pierre_database::plugins::{
@@ -2213,7 +2212,10 @@ pub(crate) async fn dispatch_and_respond(dispatch: PendingDispatch) {
     );
 
     // Record LLM usage for cost tracking and quota enforcement
-    record_messaging_llm_usage(&dispatch, &dispatch_result, execution_time_ms).await;
+    // Per-LLM-call rows are written inline by the chat pipeline's
+    // `LlmCallRecorder`; the turn-summary marker row has been removed
+    // now that `llm_usage` is a pure per-call ledger.
+    let _ = execution_time_ms;
 
     // Increment usage counters (message count, token count, tool call count)
     increment_messaging_usage_counters(&dispatch, &dispatch_result).await;
@@ -2319,54 +2321,6 @@ fn estimate_or_extract_messaging_tokens(
         },
         |u| (i64::from(u.prompt_tokens), i64::from(u.completion_tokens)),
     )
-}
-
-/// Record the terminal turn-summary row after a messaging dispatch.
-///
-/// Per-LLM-call token counts are already written by the chat pipeline's
-/// [`crate::services::chat_pipeline::UsageRepoCallRecorder`] — this
-/// row carries only the turn-level aggregates (`tool_calls_count`,
-/// `tools_called`, end-to-end `execution_time_ms`) and is tagged with
-/// [`pierre_core::models::TURN_SUMMARY_CALL_TYPE`] so aggregate
-/// analytics can exclude it.
-async fn record_messaging_llm_usage(
-    dispatch: &PendingDispatch,
-    result: &DispatchResult,
-    execution_time_ms: u64,
-) {
-    let tenant_id_str = dispatch.channel_tenant_id.to_string();
-
-    #[allow(clippy::cast_possible_wrap)]
-    let exec_time = execution_time_ms as i64;
-
-    let tools_called_json = serde_json::to_string(&result.tools_called).unwrap_or_else(|e| {
-        error!("Failed to serialize tools_called for messaging, storing empty array: {e}");
-        "[]".to_owned()
-    });
-
-    if let Err(e) = dispatch
-        .resources
-        .repos
-        .llm_usage
-        .insert_llm_usage(&InsertLlmUsage {
-            tenant_id: &tenant_id_str,
-            user_id: &dispatch.session.user_id,
-            conversation_id: Some(&dispatch.session.conversation),
-            turn_id: result.turn_id,
-            provider: &result.provider_name,
-            model: &result.model,
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-            call_type: TURN_SUMMARY_CALL_TYPE,
-            tool_calls_count: i64::from(result.tool_calls_count),
-            tools_called: &tools_called_json,
-            execution_time_ms: Some(exec_time),
-        })
-        .await
-    {
-        error!("Failed to record LLM usage summary for messaging: {e}");
-    }
 }
 
 /// Increment usage counters (messages, tokens, tool calls) after a messaging dispatch

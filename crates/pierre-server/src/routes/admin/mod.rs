@@ -11,6 +11,7 @@
 //! wrappers that delegate business logic to service layers.
 
 mod api_keys;
+mod billing;
 mod claim_verdicts;
 mod coach_followups;
 mod coach_grading;
@@ -170,6 +171,11 @@ impl AdminRoutes {
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
 
+        // Phase 2: admin billing read-side (tenant usage, invoice preview, CSV export).
+        let billing_routes = Self::billing_routes(context.clone()).layer(
+            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+        );
+
         // Memory extraction worker observability routes
         let memory_worker_routes = Self::memory_worker_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
@@ -220,6 +226,7 @@ impl AdminRoutes {
             .merge(coach_note_routes)
             .merge(myth_busting_routes)
             .merge(coach_grading_routes)
+            .merge(billing_routes)
             .merge(setup_routes);
 
         #[cfg(feature = "tools-verification")]
@@ -246,6 +253,19 @@ impl AdminRoutes {
                 "/admin/evals/verdict-stats",
                 get(eval_harness::handle_verdict_stats),
             )
+            .with_state(context)
+    }
+
+    /// Phase 2 billing routes — tenant usage aggregates, monthly invoice
+    /// preview, and CSV/JSON export of recent LLM usage rows.
+    fn billing_routes(context: Arc<AdminApiContext>) -> Router {
+        Router::new()
+            .route("/admin/tenants/{id}/usage", get(billing::get_tenant_usage))
+            .route(
+                "/admin/tenants/{id}/invoice",
+                get(billing::get_tenant_invoice),
+            )
+            .route("/admin/billing/export", get(billing::export_billing))
             .with_state(context)
     }
 

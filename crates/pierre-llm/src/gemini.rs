@@ -42,9 +42,22 @@
 
 use std::env;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
+use std::sync::atomic::AtomicU32;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+
+tokio::task_local! {
+    /// Per-task slot for cached-token counts reported by Gemini's
+    /// `cachedContentTokenCount`. The chat pipeline opens the scope
+    /// before issuing `LlmProvider::complete()` and reads the value
+    /// after the call returns. Because the slot is task-local, multiple
+    /// concurrent chat turns in different tokio tasks do not stomp on
+    /// each other's counts. Wrapped in [`Arc`] so the caller keeps a
+    /// reference across the scope boundary.
+    pub static LAST_CACHED_TOKENS: Arc<AtomicU32>;
+}
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
@@ -232,7 +245,12 @@ struct Candidate {
     finish_reason: Option<String>,
 }
 
-/// Usage metadata from Gemini API response
+/// Usage metadata from Gemini API response.
+///
+/// `cachedContentTokenCount` is surfaced so the billing pipeline can
+/// charge cache hits at the discounted rate. It is a subset of
+/// `promptTokenCount`: the prompt count reported by the API is the
+/// gross token count (cache hits + fresh tokens).
 #[derive(Debug, Deserialize)]
 struct UsageMetadata {
     #[serde(rename = "promptTokenCount")]
@@ -241,6 +259,8 @@ struct UsageMetadata {
     candidates: Option<u32>,
     #[serde(rename = "totalTokenCount")]
     total: Option<u32>,
+    #[serde(rename = "cachedContentTokenCount")]
+    cached: Option<u32>,
 }
 
 /// API error response from Gemini
@@ -671,8 +691,17 @@ impl GeminiProvider {
             .unwrap_or_default()
     }
 
-    /// Convert usage metadata to our token usage format
+    /// Convert usage metadata to our token usage format.
+    ///
+    /// Publishes `cachedContentTokenCount` (if present) into the
+    /// per-task slot [`LAST_CACHED_TOKENS`] so upstream billing code
+    /// running in the same tokio task can read it back without a trait
+    /// expansion across every provider.
     fn convert_usage(metadata: &UsageMetadata) -> TokenUsage {
+        use std::sync::atomic::Ordering;
+        if let Some(cached) = metadata.cached {
+            let _ = LAST_CACHED_TOKENS.try_with(|c| c.store(cached, Ordering::SeqCst));
+        }
         TokenUsage {
             prompt_tokens: metadata.prompt.unwrap_or(0),
             completion_tokens: metadata.candidates.unwrap_or(0),
