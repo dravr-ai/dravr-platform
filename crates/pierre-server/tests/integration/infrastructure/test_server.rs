@@ -127,10 +127,10 @@ impl IntegrationTestServer {
         let client = reqwest::Client::new();
         let url = format!("{}/health", self.base_url());
 
-        // 300 iterations × 100ms = 30 seconds timeout.
+        // 600 iterations × 100ms = 60 seconds timeout.
         // PostgreSQL CI needs more headroom: the PG container + multiple concurrent
-        // test servers under load can exceed 10 seconds.
-        for _ in 0..300 {
+        // test servers under load can exceed 30 seconds (observed on 2026-04-27 main).
+        for _ in 0..600 {
             match client.get(&url).send().await {
                 Ok(response) if response.status().is_success() => return Ok(()),
                 _ => sleep(Duration::from_millis(100)).await,
@@ -138,7 +138,7 @@ impl IntegrationTestServer {
         }
 
         Err(anyhow::anyhow!(
-            "Server failed to become healthy within 30 seconds"
+            "Server failed to become healthy within 60 seconds"
         ))
     }
 
