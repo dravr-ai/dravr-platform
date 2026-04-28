@@ -36,10 +36,13 @@ async fn insert_test_usage(db: &dyn LlmUsageRepository, params: &TestUsageParams
         prompt_tokens: params.prompt_tokens,
         completion_tokens: params.completion_tokens,
         total_tokens: params.prompt_tokens + params.completion_tokens,
+        cached_tokens: 0,
         call_type: params.call_type,
         tool_calls_count: 0,
         tools_called: "[]",
         execution_time_ms: Some(500),
+        cost_usd: 0.0,
+        call_sequence: None,
     };
     db.insert_llm_usage(&insert).await.unwrap();
 }

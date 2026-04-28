@@ -437,22 +437,25 @@ impl MessagingRepository for PostgresDatabase {
         id: &str,
         message_id: &str,
         tenant_id: TenantId,
+        user_id: Option<&str>,
         channel_type: &str,
         payload: &str,
     ) -> AppResult<()> {
         let now = Utc::now();
+        let user_uuid = user_id.and_then(|s| uuid::Uuid::parse_str(s).ok());
 
         sqlx::query(
             r"
             INSERT INTO messaging_outbound_queue
-                (id, message_id, tenant_id, channel_type, payload, status,
+                (id, message_id, tenant_id, user_id, channel_type, payload, status,
                  attempt_count, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, 'pending', 0, $6, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, 'pending', 0, $7, $7)
             ",
         )
         .bind(id)
         .bind(message_id)
         .bind(tenant_id.to_string())
+        .bind(user_uuid)
         .bind(channel_type)
         .bind(payload)
         .bind(now)
@@ -468,7 +471,7 @@ impl MessagingRepository for PostgresDatabase {
 
         let rows = sqlx::query(
             r"
-            SELECT id, message_id, tenant_id, channel_type, payload, status,
+            SELECT id, message_id, tenant_id, user_id, channel_type, payload, status,
                    attempt_count, next_retry_at, created_at, updated_at
             FROM messaging_outbound_queue
             WHERE tenant_id = $1
@@ -494,7 +497,7 @@ impl MessagingRepository for PostgresDatabase {
 
         let rows = sqlx::query(
             r"
-            SELECT id, message_id, tenant_id, channel_type, payload, status,
+            SELECT id, message_id, tenant_id, user_id, channel_type, payload, status,
                    attempt_count, next_retry_at, created_at, updated_at
             FROM messaging_outbound_queue
             WHERE status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= $1)
@@ -1138,11 +1141,13 @@ fn row_to_outbound_json(r: &PgRow) -> Value {
     let next_retry_at: Option<DateTime<Utc>> = r.get("next_retry_at");
     let created_at: DateTime<Utc> = r.get("created_at");
     let updated_at: DateTime<Utc> = r.get("updated_at");
+    let user_id: Option<uuid::Uuid> = r.try_get("user_id").ok();
 
     serde_json::json!({
         "id": r.get::<String, _>("id"),
         "message_id": r.get::<String, _>("message_id"),
         "tenant_id": r.get::<String, _>("tenant_id"),
+        "user_id": user_id.map(|u| u.to_string()),
         "channel_type": r.get::<String, _>("channel_type"),
         "payload": r.get::<String, _>("payload"),
         "status": r.get::<String, _>("status"),

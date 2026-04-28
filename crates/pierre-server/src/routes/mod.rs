@@ -278,7 +278,9 @@ pub use openapi::OpenApiRoutes;
 /// OAuth routes (alias for `OAuthService`)
 pub type OAuthRoutes = OAuthService;
 
-/// Webhook endpoints for provider-pushed health data
+/// Phase 5 Stripe-backed billing routes (checkout, portal, webhook, subscription, invoices).
+pub mod billing;
+/// Provider-pushed health-data webhook routes (WHOOP, Garmin, Oura).
 #[cfg(feature = "health-sync")]
 pub mod webhooks;
 #[cfg(feature = "health-sync")]

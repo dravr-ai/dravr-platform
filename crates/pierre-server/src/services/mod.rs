@@ -86,6 +86,14 @@ pub mod usage_counter;
 /// Background task for periodic pruning of old usage counter records
 pub mod usage_pruning;
 
+/// Bridge adapter so `pierre_llm::InstrumentedEmbeddingProvider` can persist
+/// every embedding call into `embedding_usage` via the shared repository.
+pub mod embedding_sink;
+
+/// Startup hook that loads `cat_llm_pricing` rows from
+/// `admin_config_overrides` into the process-wide pricing registry.
+pub mod pricing_loader;
+
 /// Extension trait for turning `AppError` into a channel-safe reply
 #[cfg(feature = "client-messaging")]
 pub mod channel_error_reply;

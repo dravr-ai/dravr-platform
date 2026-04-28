@@ -69,6 +69,11 @@ struct EntryFields<'a> {
     entry_id: &'a str,
     channel_type_str: &'a str,
     tenant_id_str: &'a str,
+    /// User who originated the outbound message — read from the
+    /// `messaging_outbound_queue.user_id` column. Used as the `PostHog`
+    /// `distinct_id` for delivery + dead-letter analytics so funnels
+    /// stay user-scoped instead of tenant-scoped.
+    user_id: Option<&'a str>,
     payload_str: &'a str,
     attempt_count: i64,
     /// Conversation-turn correlation identifier persisted on the queue row.
@@ -91,6 +96,7 @@ fn parse_entry_fields(entry: &Value) -> EntryFields<'_> {
         entry_id: entry["id"].as_str().unwrap_or_default(),
         channel_type_str: entry["channel_type"].as_str().unwrap_or_default(),
         tenant_id_str: entry["tenant_id"].as_str().unwrap_or_default(),
+        user_id: entry["user_id"].as_str(),
         payload_str: entry["payload"].as_str().unwrap_or("{}"),
         attempt_count: entry["attempt_count"].as_i64().unwrap_or(0),
         turn_id: CanotTurnId::from_uuid(turn_uuid),
@@ -213,9 +219,15 @@ async fn attempt_delivery(
                 channel_message_id = %channel_msg_id,
                 "Outbound retry delivery succeeded"
             );
+            // Prefer hashed user_id as the PostHog distinct_id when the
+            // queue row carries one; fall back to tenant hash for rows
+            // enqueued before user_id became required.
+            let distinct_id = fields
+                .user_id
+                .map_or_else(|| hashed_tenant.clone(), hash_id);
             analytics().track_outbound_delivered(
                 fields.channel_type_str,
-                &hashed_tenant,
+                &distinct_id,
                 fields.attempt_count > 0,
             );
             let _ = db
@@ -234,13 +246,31 @@ async fn attempt_delivery(
                 attempt = fields.attempt_count + 1,
                 "Outbound delivery failed"
             );
-            handle_retry_decision(db, fields.entry_id, fields.attempt_count).await;
+            handle_retry_decision(
+                db,
+                fields.entry_id,
+                fields.attempt_count,
+                fields.user_id,
+                fields.channel_type_str,
+            )
+            .await;
         }
     }
 }
 
-/// Apply retry backoff or dead-letter based on attempt count
-async fn handle_retry_decision(db: &dyn MessagingRepository, entry_id: &str, attempt_count: i64) {
+/// Apply retry backoff or dead-letter based on attempt count.
+///
+/// `user_id` is the originating user from the queue row; when present it
+/// becomes the (hashed) `PostHog` `distinct_id` on the dead-letter analytics
+/// event. Rows that predate the `user_id` column fall back to the
+/// `entry_id` so `PostHog` still receives a stable identifier.
+async fn handle_retry_decision(
+    db: &dyn MessagingRepository,
+    entry_id: &str,
+    attempt_count: i64,
+    user_id: Option<&str>,
+    channel_type: &str,
+) {
     let update = compute_retry_update(i32::try_from(attempt_count).unwrap_or(i32::MAX));
     match update.decision {
         RetryDecision::Retry {
@@ -257,8 +287,8 @@ async fn handle_retry_decision(db: &dyn MessagingRepository, entry_id: &str, att
                 entry_id = %entry_id,
                 "All retries exhausted, moving to dead-letter queue"
             );
-            // Dead-letter analytics: entry_id used as tenant proxy (no tenant in scope)
-            analytics().track_error("unknown", entry_id, "dead_lettered");
+            let distinct_id = user_id.map_or_else(|| entry_id.to_owned(), hash_id);
+            analytics().track_error(channel_type, &distinct_id, "dead_lettered");
             let _ = db
                 .update_outbound_status(entry_id, "dlq", update.attempt_count, None)
                 .await;

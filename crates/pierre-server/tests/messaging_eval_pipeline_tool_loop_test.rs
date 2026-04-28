@@ -268,10 +268,10 @@ mod pipeline_tool_loop {
         (user_id, tenant_id, format!("Bearer {token}"))
     }
 
-    /// Poll the `llm_usage` table until a turn-summary row exists for
-    /// the given tenant. The summary row is the one that carries
-    /// `tools_called` populated by the pipeline; per-call rows appear
-    /// first but are empty until the terminal summary is written.
+    /// Poll the `llm_usage` table until a per-call row carrying
+    /// `tools_called` exists for the given tenant. Phase 1 removed the
+    /// legacy zero-token `turn_summary` writer; the per-call row that
+    /// dispatched a tool now carries `tools_called` directly.
     async fn wait_for_summary_row_turn_id(
         resources: &Arc<ServerResources>,
         tenant_id: TenantId,
@@ -284,7 +284,7 @@ mod pipeline_tool_loop {
 
         for _ in 0..50 {
             let row: Option<(String,)> = sqlx::query_as(
-                "SELECT turn_id FROM llm_usage WHERE tenant_id = ?1 AND call_type = 'turn_summary' LIMIT 1",
+                "SELECT turn_id FROM llm_usage WHERE tenant_id = ?1 AND tools_called IS NOT NULL AND tools_called != '[]' ORDER BY created_at DESC LIMIT 1",
             )
             .bind(&tenant_str)
             .fetch_optional(pool)

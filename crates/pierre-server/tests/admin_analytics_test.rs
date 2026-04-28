@@ -144,10 +144,13 @@ async fn seed_llm_usage(
             prompt_tokens: 100 + (offset * 10),
             completion_tokens: 50 + (offset * 5),
             total_tokens: 150 + (offset * 15),
+            cached_tokens: 0,
             call_type: "chat",
             tool_calls_count: 0,
             tools_called: "[]",
             execution_time_ms: Some(200 + (offset * 50)),
+            cost_usd: 0.0,
+            call_sequence: None,
         };
         resources
             .repos

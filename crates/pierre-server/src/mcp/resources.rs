@@ -62,6 +62,8 @@ use crate::services::commands::{
     status::StatusHandler,
     CommandHandlerRegistry,
 };
+use crate::services::embedding_sink::RepositoryEmbeddingSink;
+use crate::services::pricing_loader;
 use crate::services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
 use crate::sse::SseManager;
@@ -83,6 +85,9 @@ use pierre_database::plugins::StoreListingsRepository;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
+use pierre_llm::embeddings::{
+    EmbeddingProvider, EmbeddingUsageSink, GeminiEmbeddingProvider, InstrumentedEmbeddingProvider,
+};
 use pierre_messaging::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_messaging::ChannelRegistry;
@@ -181,6 +186,14 @@ pub struct ServerResources {
     /// Each field holds `Arc<dyn XRepository>`, constructed once at startup
     /// from whichever backend the database enum wraps.
     pub repos: Arc<RepositoryRegistry>,
+    /// Embedding provider wrapped in [`InstrumentedEmbeddingProvider`] so
+    /// every `embed_for(tenant, user, text)` call writes a row into
+    /// `embedding_usage` via the shared sink. `None` when no embedding
+    /// provider key is configured (e.g. `GEMINI_API_KEY` unset).
+    /// Memory and harness consumers must take this Arc instead of
+    /// constructing `GeminiEmbeddingProvider` directly so embedding
+    /// billing stays accurate.
+    pub embedding_provider: Option<Arc<InstrumentedEmbeddingProvider>>,
     /// Authentication manager for user identity verification
     pub auth_manager: Arc<AuthManager>,
     /// JSON Web Key Set manager for RS256 JWT signing and verification
@@ -573,9 +586,28 @@ impl ServerResources {
             cache_arc.clone(),
         ));
 
+        // Phase 1 → 4: load admin pricing overrides into the process-wide
+        // PricingRegistry before the first chat request can land. Failures
+        // are logged inside the loader; the compile-time PRICING_TABLE
+        // remains the safe fallback when no overrides exist.
+        pricing_loader::load_pricing_overrides(repos.llm_credentials.as_ref()).await;
+
+        // Phase 1 closer: build the instrumented embedding provider so any
+        // future memory/harness consumer takes the wrapped form (which
+        // writes an embedding_usage row per call) instead of constructing
+        // a raw GeminiEmbeddingProvider. Skipped when GEMINI_API_KEY is
+        // unset — embedding-driven features are best-effort.
+        let embedding_provider = env::var("GEMINI_API_KEY").ok().map(|key| {
+            let inner: Box<dyn EmbeddingProvider> = Box::new(GeminiEmbeddingProvider::new(key));
+            let sink: Arc<dyn EmbeddingUsageSink> =
+                Arc::new(RepositoryEmbeddingSink::new(Arc::clone(&repos.llm_usage)));
+            Arc::new(InstrumentedEmbeddingProvider::new(inner, sink))
+        });
+
         Self {
             database: database_arc,
             repos,
+            embedding_provider,
             auth_manager: auth_manager_arc,
             jwks_manager: jwks_manager_arc,
             auth_middleware,

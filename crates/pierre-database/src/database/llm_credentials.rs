@@ -7,6 +7,7 @@
 use super::Database;
 use crate::repositories::LlmCredentialRepository;
 use async_trait::async_trait;
+use pierre_core::admin::models::AdminConfigOverrideRow;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{LlmCredentialRecord, LlmCredentialSummary, TenantId};
 use sqlx::Row;
@@ -217,5 +218,35 @@ impl LlmCredentialRepository for Database {
         .map_err(|e| AppError::database(format!("Failed to get admin config override: {e}")))?;
 
         Ok(row.map(|r| r.get::<String, _>("config_value")))
+    }
+
+    async fn list_admin_config_overrides_by_category(
+        &self,
+        category: &str,
+    ) -> AppResult<Vec<AdminConfigOverrideRow>> {
+        let rows = sqlx::query(
+            r"
+            SELECT config_key, tenant_id, config_value
+            FROM admin_config_overrides
+            WHERE category = ?1
+            ",
+        )
+        .bind(category)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to list admin config overrides for category: {e}"
+            ))
+        })?;
+
+        Ok(rows
+            .iter()
+            .map(|r| AdminConfigOverrideRow {
+                config_key: r.get::<String, _>("config_key"),
+                tenant_id: r.get::<Option<String>, _>("tenant_id"),
+                config_value: r.get::<String, _>("config_value"),
+            })
+            .collect())
     }
 }

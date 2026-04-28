@@ -173,10 +173,13 @@ async fn seed_turn(
             prompt_tokens: 100 + i,
             completion_tokens: 20 + i,
             total_tokens: 120 + (2 * i),
+            cached_tokens: 0,
             call_type: "chat",
             tool_calls_count: 0,
             tools_called: "[]",
             execution_time_ms: Some(500 + i),
+            cost_usd: 0.0,
+            call_sequence: None,
         };
         resources
             .repos
@@ -198,10 +201,13 @@ async fn seed_turn(
         prompt_tokens: 0,
         completion_tokens: 0,
         total_tokens: 0,
+        cached_tokens: 0,
         call_type: TURN_SUMMARY_CALL_TYPE,
         tool_calls_count: 2,
         tools_called: "[\"get_activities\",\"get_training_load\"]",
         execution_time_ms: Some(3912),
+        cost_usd: 0.0,
+        call_sequence: None,
     };
     resources
         .repos
@@ -222,10 +228,13 @@ async fn seed_turn(
         prompt_tokens: 999,
         completion_tokens: 999,
         total_tokens: 1998,
+        cached_tokens: 0,
         call_type: "chat",
         tool_calls_count: 0,
         tools_called: "[]",
         execution_time_ms: Some(42),
+        cost_usd: 0.0,
+        call_sequence: None,
     };
     resources
         .repos
@@ -369,10 +378,13 @@ async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
             prompt_tokens: 77,
             completion_tokens: 11,
             total_tokens: 88,
+            cached_tokens: 0,
             call_type: "chat",
             tool_calls_count: 0,
             tools_called: "[]",
             execution_time_ms: Some(123),
+            cost_usd: 0.0,
+            call_sequence: None,
         })
         .await?;
     resources
@@ -388,10 +400,13 @@ async fn canot_turn_id_bridges_to_platform_and_endpoint() -> Result<()> {
             prompt_tokens: 0,
             completion_tokens: 0,
             total_tokens: 0,
+            cached_tokens: 0,
             call_type: TURN_SUMMARY_CALL_TYPE,
             tool_calls_count: 0,
             tools_called: "[]",
             execution_time_ms: Some(150),
+            cost_usd: 0.0,
+            call_sequence: None,
         })
         .await?;
 

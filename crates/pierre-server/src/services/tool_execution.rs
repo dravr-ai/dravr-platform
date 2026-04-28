@@ -16,10 +16,12 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use pierre_core::llm::tool_simulation;
+use pierre_core::tokens::estimate_chat_tokens;
 use tracing::{info, warn};
 
 use crate::errors::AppError;
@@ -29,6 +31,7 @@ use crate::llm::{
 };
 use crate::models::TenantId;
 use crate::protocols::universal::{UniversalExecutor, UniversalRequest, UniversalResponse};
+use crate::services::analytics::analytics;
 
 // ============================================================================
 // Shared Types
@@ -47,10 +50,24 @@ pub struct LlmCallRecord {
     pub prompt_tokens: i64,
     /// Completion tokens reported by the provider, 0 if unavailable.
     pub completion_tokens: i64,
+    /// Prompt tokens served from the provider's context cache. Zero
+    /// when the provider does not report cache hits.
+    pub cached_tokens: i64,
     /// Wall-clock latency of the provider call (milliseconds).
     pub latency_ms: i64,
     /// Whether the provider returned a non-error response.
     pub success: bool,
+    /// 1-based position of this call within the owning `turn_id`, assigned
+    /// by the tool loop so the persister can preserve call order.
+    pub call_sequence: Option<i64>,
+    /// True when token counts were estimated from character length
+    /// because the provider returned no usage (CLI runners — Claude
+    /// Code, Copilot, Cursor — do this). Persisters append an
+    /// `"_estimated"` suffix to `call_type` so billing can flag the row.
+    pub token_counts_estimated: bool,
+    /// Names of MCP tools dispatched by this LLM call's response. Empty
+    /// when the LLM returned a plain-text answer with no tool calls.
+    pub tools_called: Vec<String>,
 }
 
 /// Sink that receives one [`LlmCallRecord`] per LLM call.
@@ -145,20 +162,36 @@ pub async fn run_api_tool_loop(
             }
         };
         let call_start = Instant::now();
-        let response_result = params
-            .provider
-            .complete_with_tools(&llm_request, Some(vec![params.tools.clone()]))
+        let cached_slot = Arc::new(AtomicU32::new(0));
+        let slot_for_scope = cached_slot.clone();
+        let response_result = pierre_llm::LAST_CACHED_TOKENS
+            .scope(
+                slot_for_scope,
+                params
+                    .provider
+                    .complete_with_tools(&llm_request, Some(vec![params.tools.clone()])),
+            )
             .await;
         let latency_ms = millis_elapsed(call_start);
+        let cached_tokens = i64::from(cached_slot.load(Ordering::SeqCst));
+        let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
             Ok(r) => {
+                let tools_in_response = r
+                    .function_calls
+                    .as_ref()
+                    .map(|fcs| fcs.iter().map(|c| c.name.clone()).collect())
+                    .unwrap_or_default();
                 emit_call_record(
                     params.call_recorder.as_ref(),
                     params.provider.name(),
                     params.model,
                     r.usage.as_ref(),
+                    cached_tokens,
                     latency_ms,
                     true,
+                    call_seq,
+                    tools_in_response,
                 );
                 r
             }
@@ -168,8 +201,11 @@ pub async fn run_api_tool_loop(
                     params.provider.name(),
                     params.model,
                     None,
+                    0,
                     latency_ms,
                     false,
+                    call_seq,
+                    Vec::new(),
                 );
                 return Err(e);
             }
@@ -301,35 +337,49 @@ pub async fn run_cli_tool_loop(
             }
         };
         let call_start = Instant::now();
-        let response_result = params.provider.complete(&llm_request).await;
+        let cached_slot = Arc::new(AtomicU32::new(0));
+        let slot_for_scope = cached_slot.clone();
+        let response_result = pierre_llm::LAST_CACHED_TOKENS
+            .scope(slot_for_scope, params.provider.complete(&llm_request))
+            .await;
         let latency_ms = millis_elapsed(call_start);
+        let cached_tokens = i64::from(cached_slot.load(Ordering::SeqCst));
+        let call_seq = Some(i64::try_from(iteration).unwrap_or(i64::MAX) + 1);
         let response = match response_result {
-            Ok(r) => {
-                emit_call_record(
-                    params.call_recorder.as_ref(),
-                    params.provider.name(),
-                    params.model,
-                    r.usage.as_ref(),
-                    latency_ms,
-                    true,
-                );
-                r
-            }
+            Ok(r) => r,
             Err(e) => {
                 emit_call_record(
                     params.call_recorder.as_ref(),
                     params.provider.name(),
                     params.model,
                     None,
+                    0,
                     latency_ms,
                     false,
+                    call_seq,
+                    Vec::new(),
                 );
                 return Err(e);
             }
         };
 
-        // Parse <tool_call> blocks from the response text (via embacle)
+        // Parse <tool_call> blocks from the response text (via embacle).
+        // Done before `emit_call_record` so the per-call usage row carries
+        // the parsed tool names — the structured `function_calls` field
+        // is absent on this provider's `complete()` return type.
         let embacle_calls = tool_simulation::parse_tool_call_blocks(&response.content);
+        let tools_in_response: Vec<String> = embacle_calls.iter().map(|c| c.name.clone()).collect();
+        emit_call_record(
+            params.call_recorder.as_ref(),
+            params.provider.name(),
+            params.model,
+            response.usage.as_ref(),
+            cached_tokens,
+            latency_ms,
+            true,
+            call_seq,
+            tools_in_response,
+        );
 
         if embacle_calls.is_empty() {
             // No tool calls — this is the final text response
@@ -447,28 +497,86 @@ fn millis_elapsed(start: Instant) -> i64 {
 
 /// Hand one [`LlmCallRecord`] to the optional sink. Centralises token
 /// extraction so the three tool-loop variants can share the same
-/// recording contract.
+/// recording contract. `cached_tokens` is zero unless the provider
+/// wrapped its usage in
+/// [`pierre_core::llm::ExtendedTokenUsage`] and forwarded it through
+/// the caller. `call_sequence` is the 1-based turn-local position of
+/// the call (1, 2, 3, ...).
+#[allow(clippy::too_many_arguments)]
 fn emit_call_record(
     recorder: Option<&Arc<dyn LlmCallRecorder>>,
     provider: &str,
     model: &str,
     usage: Option<&TokenUsage>,
+    cached_tokens: i64,
     latency_ms: i64,
     success: bool,
+    call_sequence: Option<i64>,
+    tools_called: Vec<String>,
+) {
+    emit_call_record_with_text(
+        recorder,
+        provider,
+        model,
+        usage,
+        cached_tokens,
+        latency_ms,
+        success,
+        call_sequence,
+        None,
+        None,
+        tools_called,
+    );
+}
+
+/// Variant of [`emit_call_record`] that estimates token counts from
+/// character-based prompt/completion text when the provider returns
+/// no usage, so CLI runners (Claude Code, Copilot, Cursor, etc.) produce
+/// non-zero usage rows instead of silently dropping.
+#[allow(clippy::too_many_arguments)]
+fn emit_call_record_with_text(
+    recorder: Option<&Arc<dyn LlmCallRecorder>>,
+    provider: &str,
+    model: &str,
+    usage: Option<&TokenUsage>,
+    cached_tokens: i64,
+    latency_ms: i64,
+    success: bool,
+    call_sequence: Option<i64>,
+    prompt_text: Option<&str>,
+    completion_text: Option<&str>,
+    tools_called: Vec<String>,
 ) {
     let Some(recorder) = recorder else {
         return;
     };
-    let (prompt_tokens, completion_tokens) = usage.map_or((0, 0), |u| {
-        (i64::from(u.prompt_tokens), i64::from(u.completion_tokens))
-    });
+    let (prompt_tokens, completion_tokens, estimated) = usage.map_or_else(
+        || match (prompt_text, completion_text) {
+            (Some(p), Some(c)) => {
+                let (est_p, est_c) = estimate_chat_tokens(p, c);
+                (i64::from(est_p), i64::from(est_c), true)
+            }
+            _ => (0, 0, false),
+        },
+        |u| {
+            (
+                i64::from(u.prompt_tokens),
+                i64::from(u.completion_tokens),
+                false,
+            )
+        },
+    );
     recorder.record(LlmCallRecord {
         provider: provider.to_owned(),
         model: model.to_owned(),
         prompt_tokens,
         completion_tokens,
+        cached_tokens,
         latency_ms,
         success,
+        call_sequence,
+        token_counts_estimated: estimated,
+        tools_called,
     });
 }
 
@@ -548,8 +656,20 @@ pub async fn execute_function_calls(
             args = %function_call.args,
             "Executing tool"
         );
+        let tool_start = Instant::now();
         let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
+        let tool_duration_ms = u64::try_from(tool_start.elapsed().as_millis()).unwrap_or(u64::MAX);
         let func_response = build_function_response(function_call, &tool_response);
+
+        // Phase 4: PostHog visibility on every tool dispatch.
+        analytics().track_tool_executed(
+            "chat",
+            &tenant_id.to_string(),
+            user_id,
+            &function_call.name,
+            tool_response.success,
+            tool_duration_ms,
+        );
 
         // Measure serialized response size and estimate token cost
         let serialized = serde_json::to_string(&func_response.response).unwrap_or_default();
@@ -799,15 +919,29 @@ async fn run_headless_tool_loop(
     let call_start = Instant::now();
     let converse_result = headless_runner.converse(&request).await;
     let latency_ms = millis_elapsed(call_start);
+    let last_user_prompt = llm_messages
+        .iter()
+        .rev()
+        .find(|m| matches!(m.role, super::super::llm::MessageRole::User))
+        .map(|m| m.content.as_str())
+        .unwrap_or_default()
+        .to_owned();
     let headless_response = match converse_result {
         Ok(r) => {
-            emit_call_record(
+            let tools_in_response: Vec<String> =
+                r.tool_calls.iter().map(|tc| tc.title.clone()).collect();
+            emit_call_record_with_text(
                 params.call_recorder.as_ref(),
                 params.provider.name(),
                 params.model,
                 r.usage.as_ref(),
+                0,
                 latency_ms,
                 true,
+                Some(1),
+                Some(&last_user_prompt),
+                Some(&r.content),
+                tools_in_response,
             );
             r
         }
@@ -817,8 +951,11 @@ async fn run_headless_tool_loop(
                 params.provider.name(),
                 params.model,
                 None,
+                0,
                 latency_ms,
                 false,
+                Some(1),
+                Vec::new(),
             );
             return Err(AppError::from(e));
         }

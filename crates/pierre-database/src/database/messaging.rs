@@ -489,6 +489,7 @@ impl Database {
         id: &str,
         message_id: &str,
         tenant_id: TenantId,
+        user_id: Option<&str>,
         channel_type: &str,
         payload: &str,
     ) -> AppResult<()> {
@@ -497,14 +498,15 @@ impl Database {
         sqlx::query(
             r"
             INSERT INTO messaging_outbound_queue
-                (id, message_id, tenant_id, channel_type, payload, status,
+                (id, message_id, tenant_id, user_id, channel_type, payload, status,
                  attempt_count, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
             ",
         )
         .bind(id)
         .bind(message_id)
         .bind(tenant_id)
+        .bind(user_id)
         .bind(channel_type)
         .bind(payload)
         .bind(&now)
@@ -530,7 +532,7 @@ impl Database {
 
         let rows = sqlx::query(
             r"
-            SELECT id, message_id, tenant_id, channel_type, payload, status,
+            SELECT id, message_id, tenant_id, user_id, channel_type, payload, status,
                    attempt_count, next_retry_at, created_at, updated_at
             FROM messaging_outbound_queue
             WHERE tenant_id = ?
@@ -553,6 +555,7 @@ impl Database {
                     "id": r.get::<String, _>("id"),
                     "message_id": r.get::<String, _>("message_id"),
                     "tenant_id": r.get::<String, _>("tenant_id"),
+                    "user_id": r.get::<Option<String>, _>("user_id"),
                     "channel_type": r.get::<String, _>("channel_type"),
                     "payload": r.get::<String, _>("payload"),
                     "status": r.get::<String, _>("status"),
@@ -578,7 +581,7 @@ impl Database {
 
         let rows = sqlx::query(
             r"
-            SELECT id, message_id, tenant_id, channel_type, payload, status,
+            SELECT id, message_id, tenant_id, user_id, channel_type, payload, status,
                    attempt_count, next_retry_at, created_at, updated_at
             FROM messaging_outbound_queue
             WHERE status = 'pending' OR (status LIKE 'retrying:%' AND next_retry_at <= ?)
@@ -599,6 +602,7 @@ impl Database {
                     "id": r.get::<String, _>("id"),
                     "message_id": r.get::<String, _>("message_id"),
                     "tenant_id": r.get::<String, _>("tenant_id"),
+                    "user_id": r.get::<Option<String>, _>("user_id"),
                     "channel_type": r.get::<String, _>("channel_type"),
                     "payload": r.get::<String, _>("payload"),
                     "status": r.get::<String, _>("status"),
@@ -1331,10 +1335,11 @@ impl MessagingRepository for Database {
         id: &str,
         message_id: &str,
         tenant_id: TenantId,
+        user_id: Option<&str>,
         channel_type: &str,
         payload: &str,
     ) -> AppResult<()> {
-        self.enqueue_outbound_impl(id, message_id, tenant_id, channel_type, payload)
+        self.enqueue_outbound_impl(id, message_id, tenant_id, user_id, channel_type, payload)
             .await
     }
 
