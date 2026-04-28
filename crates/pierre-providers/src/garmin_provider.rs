@@ -14,7 +14,10 @@ use crate::constants::oauth::GARMIN_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::shared_client;
-use crate::models::{Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats};
+use crate::models::{
+    activity::{Lap, Split},
+    Activity, ActivityBuilder, Athlete, PersonalRecord, SportType, Stats,
+};
 use crate::pagination::{CursorPage, PaginationParams};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -33,24 +36,159 @@ struct GarminAthleteResponse {
     profile_image_url: Option<String>,
 }
 
-/// Garmin API response for activity data
-#[derive(Debug, Deserialize)]
-struct GarminActivityResponse {
-    activity_id: u64,
-    activity_name: String,
-    activity_type: String,
-    start_time_gmt: String,
+/// Garmin Connect API activity-type DTO. Returned at multiple nesting depths
+/// (`activityTypeDTO` on detail; `activityType` on list rows).
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct GarminActivityType {
+    #[serde(rename = "typeKey")]
+    type_key: Option<String>,
+    #[serde(rename = "parentTypeId")]
+    parent_type_id: Option<u32>,
+    #[serde(rename = "typeId")]
+    type_id: Option<u32>,
+}
+
+/// Garmin's `summaryDTO` — top-level summary fields nested inside the
+/// detail response. Numeric durations are seconds (f64); HR/cadence values
+/// are f32 because Garmin's API emits floating-point HR for partial-second
+/// averages.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminSummary {
     distance: Option<f64>,
     duration: Option<f64>,
+    moving_duration: Option<f64>,
+    elapsed_duration: Option<f64>,
     elevation_gain: Option<f64>,
+    elevation_loss: Option<f64>,
     average_speed: Option<f64>,
     max_speed: Option<f64>,
+    average_moving_speed: Option<f64>,
+    #[serde(rename = "averageHR")]
     average_hr: Option<f32>,
+    #[serde(rename = "maxHR")]
     max_hr: Option<f32>,
-    average_running_cadence: Option<f32>,
+    #[serde(rename = "minHR")]
+    min_hr: Option<f32>,
+    average_run_cadence: Option<f32>,
+    average_biking_cadence: Option<f32>,
+    average_power: Option<f32>,
+    max_power: Option<f32>,
+    normalized_power: Option<f32>,
+    calories: Option<f64>,
+    bmr_calories: Option<f64>,
+    average_temperature: Option<f64>,
+    max_temperature: Option<f64>,
+    min_temperature: Option<f64>,
+    avg_elevation: Option<f64>,
+    min_elevation: Option<f64>,
+    max_elevation: Option<f64>,
+    start_latitude: Option<f64>,
+    start_longitude: Option<f64>,
+    end_latitude: Option<f64>,
+    end_longitude: Option<f64>,
+    start_time_gmt: Option<String>,
+    start_time_local: Option<String>,
+    training_effect: Option<f32>,
+    anaerobic_training_effect: Option<f32>,
+    activity_training_load: Option<f32>,
+}
+
+/// One lap from Garmin's `/activity-service/activity/{id}/laps` endpoint.
+/// Field names are camelCase in the source JSON; `serde(rename_all)` maps
+/// them. All metric fields are `Option` because Garmin omits them when the
+/// recording device didn't capture the corresponding sensor.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminLap {
+    lap_index: Option<u32>,
+    message_index: Option<u32>,
+    start_time_gmt: Option<String>,
+    distance: Option<f64>,
+    duration: Option<f64>,
+    elapsed_duration: Option<f64>,
+    moving_duration: Option<f64>,
+    elevation_gain: Option<f64>,
+    elevation_loss: Option<f64>,
+    max_elevation: Option<f64>,
+    min_elevation: Option<f64>,
+    average_speed: Option<f64>,
+    max_speed: Option<f64>,
+    average_moving_speed: Option<f64>,
+    max_vertical_speed: Option<f64>,
+    #[serde(rename = "averageHR")]
+    average_hr: Option<f32>,
+    #[serde(rename = "maxHR")]
+    max_hr: Option<f32>,
+    average_running_cadence_in_steps_per_minute: Option<f32>,
+    average_biking_cadence_in_rev_per_minute: Option<f32>,
     average_power: Option<f32>,
     max_power: Option<f32>,
     calories: Option<f64>,
+    bmr_calories: Option<f64>,
+    average_temperature: Option<f64>,
+    max_temperature: Option<f64>,
+    min_temperature: Option<f64>,
+    start_latitude: Option<f64>,
+    start_longitude: Option<f64>,
+    end_latitude: Option<f64>,
+    end_longitude: Option<f64>,
+}
+
+/// Wrapper for the `/activity/{id}/laps` endpoint response.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminLapsResponse {
+    activity_id: Option<u64>,
+    #[serde(rename = "lapDTOs")]
+    lap_dtos: Vec<GarminLap>,
+}
+
+/// One split from `/activity/{id}/splits` (typically per-km or per-mile slices).
+#[derive(Debug, Deserialize, Default, Clone)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminSplit {
+    message_index: Option<u32>,
+    start_time_gmt: Option<String>,
+    distance: Option<f64>,
+    duration: Option<f64>,
+    moving_duration: Option<f64>,
+    elevation_gain: Option<f64>,
+    elevation_loss: Option<f64>,
+    average_speed: Option<f64>,
+    max_speed: Option<f64>,
+    #[serde(rename = "averageHR")]
+    average_hr: Option<f32>,
+    #[serde(rename = "maxHR")]
+    max_hr: Option<f32>,
+    average_power: Option<f32>,
+    calories: Option<f64>,
+    start_latitude: Option<f64>,
+    start_longitude: Option<f64>,
+}
+
+/// Wrapper for the `/activity/{id}/splits` endpoint response. Garmin returns
+/// a top-level `lapDTOs` array (sic — they reuse the field name) for splits.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct GarminSplitsResponse {
+    #[serde(rename = "lapDTOs")]
+    splits: Vec<GarminSplit>,
+}
+
+/// Top-level Garmin API response for `/activity-service/activity/{id}`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GarminActivityResponse {
+    #[serde(rename = "activityId")]
+    activity_id: u64,
+    #[serde(default, rename = "activityName")]
+    activity_name: Option<String>,
+    #[serde(default, rename = "activityTypeDTO")]
+    activity_type_dto: GarminActivityType,
+    #[serde(default, rename = "summaryDTO")]
+    summary_dto: GarminSummary,
 }
 
 /// Garmin API response for summary stats
@@ -112,6 +250,23 @@ impl GarminProvider {
             // Clone Arc<Client> from shared singleton - cheap reference counting operation
             client: shared_client().clone(),
             token_refresh_callback: OnceLock::new(),
+        }
+    }
+
+    /// Variant of [`api_request`] that returns `None` on any error instead of
+    /// propagating. Used by detail-mode fanout where a missing sibling
+    /// endpoint (e.g. `/laps` for swim activities) shouldn't fail the whole
+    /// operation — we just lose enrichment for that one slice of data.
+    async fn api_request_optional<T>(&self, endpoint: &str) -> Option<T>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        match self.api_request::<T>(endpoint).await {
+            Ok(value) => Some(value),
+            Err(e) => {
+                debug!(endpoint, error = %e, "Optional Garmin API call failed; continuing without it");
+                None
+            }
         }
     }
 
@@ -257,35 +412,132 @@ impl GarminProvider {
     }
 
     /// Convert Garmin activity response to internal Activity model
-    fn convert_garmin_activity(activity: GarminActivityResponse) -> AppResult<Activity> {
-        let start_date = DateTime::parse_from_rfc3339(&activity.start_time_gmt)
-            .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?
-            .with_timezone(&Utc);
+    /// Build an `ActivityBuilder` from a Garmin response without finalizing it.
+    /// Shared by the summary-path conversion and the detailed-path conversion —
+    /// the detailed path layers laps/splits before [`ActivityBuilder::build`].
+    fn garmin_activity_builder(activity: GarminActivityResponse) -> AppResult<ActivityBuilder> {
+        let summary = activity.summary_dto;
+        let activity_type_key = activity
+            .activity_type_dto
+            .type_key
+            .as_deref()
+            .unwrap_or("unknown");
+
+        // Garmin returns timestamps as SQL-style "YYYY-MM-DD HH:MM:SS.f" or
+        // RFC3339 depending on the field. Normalize both shapes.
+        let start_time_str = summary
+            .start_time_gmt
+            .as_deref()
+            .ok_or_else(|| AppError::internal("Garmin activity missing summaryDTO.startTimeGMT"))?;
+        let start_date = parse_garmin_timestamp(start_time_str)
+            .map_err(|e| AppError::internal(format!("Failed to parse activity start date: {e}")))?;
 
         Ok(ActivityBuilder::new(
             activity.activity_id.to_string(),
-            activity.activity_name,
-            Self::parse_sport_type(&activity.activity_type),
+            activity
+                .activity_name
+                .unwrap_or_else(|| "Untitled".to_owned()),
+            Self::parse_sport_type(activity_type_key),
             start_date,
-            activity.duration.map_or(0, utils::conversions::f64_to_u64),
+            summary.duration.map_or(0, utils::conversions::f64_to_u64),
             oauth_providers::GARMIN,
         )
-        .distance_meters_opt(activity.distance)
-        .elevation_gain_opt(activity.elevation_gain)
-        .average_speed_opt(activity.average_speed)
-        .max_speed_opt(activity.max_speed)
-        .average_heart_rate_opt(activity.average_hr.map(utils::conversions::f32_to_u32))
-        .max_heart_rate_opt(activity.max_hr.map(utils::conversions::f32_to_u32))
+        .distance_meters_opt(summary.distance)
+        .elevation_gain_opt(summary.elevation_gain)
+        .average_speed_opt(summary.average_speed)
+        .max_speed_opt(summary.max_speed)
+        .average_heart_rate_opt(summary.average_hr.map(utils::conversions::f32_to_u32))
+        .max_heart_rate_opt(summary.max_hr.map(utils::conversions::f32_to_u32))
         .average_cadence_opt(
-            activity
-                .average_running_cadence
+            summary
+                .average_run_cadence
+                .or(summary.average_biking_cadence)
                 .map(utils::conversions::f32_to_u32),
         )
-        .average_power_opt(activity.average_power.map(utils::conversions::f32_to_u32))
-        .max_power_opt(activity.max_power.map(utils::conversions::f32_to_u32))
-        .calories_opt(activity.calories.map(utils::conversions::f64_to_u32))
-        .build())
+        .average_power_opt(summary.average_power.map(utils::conversions::f32_to_u32))
+        .max_power_opt(summary.max_power.map(utils::conversions::f32_to_u32))
+        .calories_opt(summary.calories.map(utils::conversions::f64_to_u32)))
     }
+
+    fn convert_garmin_activity(activity: GarminActivityResponse) -> AppResult<Activity> {
+        Ok(Self::garmin_activity_builder(activity)?.build())
+    }
+}
+
+/// Parse a Garmin timestamp string. Garmin emits two formats across their
+/// API surface:
+/// - SQL datetime: `"2026-04-27 16:25:47.0"` (assumed UTC, no offset suffix)
+/// - RFC3339: `"2026-04-27T16:25:47.0Z"`
+///
+/// Returns a UTC `DateTime`. Returns an error string if neither shape parses.
+fn parse_garmin_timestamp(s: &str) -> Result<DateTime<Utc>, String> {
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    let trimmed = s.trim_end_matches(".0");
+    let formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%.f",
+    ];
+    for fmt in &formats {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(trimmed, fmt) {
+            return Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc));
+        }
+    }
+    Err(format!("Unrecognized Garmin timestamp format: {s}"))
+}
+
+/// Translate Garmin's camelCase `lapDTO` into cageux's `snake_case` [`Lap`].
+/// Falls back to the slot index when Garmin omits `lapIndex`. Garmin's
+/// running cadence is in steps/min; biking cadence in revs/min — we surface
+/// whichever is present. Returns `None` when distance or duration are absent
+/// — a lap without those two anchors cannot be located on the timeline and
+/// would only add noise to coach reasoning.
+fn convert_garmin_lap(slot: usize, l: &GarminLap) -> Option<Lap> {
+    let distance_meters = l.distance?;
+    let elapsed_time_seconds = utils::conversions::f64_to_u64(l.duration?);
+    Some(Lap {
+        id: None,
+        index: l
+            .lap_index
+            .unwrap_or_else(|| u32::try_from(slot + 1).unwrap_or(u32::MAX)),
+        distance_meters,
+        elapsed_time_seconds,
+        moving_time_seconds: l.moving_duration.map(utils::conversions::f64_to_u64),
+        elevation_gain_meters: l.elevation_gain,
+        average_speed_mps: l.average_speed,
+        max_speed_mps: l.max_speed,
+        average_heart_rate: l.average_hr.map(utils::conversions::f32_to_u32),
+        max_heart_rate: l.max_hr.map(utils::conversions::f32_to_u32),
+        average_cadence: l
+            .average_running_cadence_in_steps_per_minute
+            .or(l.average_biking_cadence_in_rev_per_minute)
+            .map(utils::conversions::f32_to_u32),
+        average_power: l.average_power.map(utils::conversions::f32_to_u32),
+    })
+}
+
+/// Translate Garmin's camelCase split shape into cageux's [`Split`]. Garmin
+/// emits per-km/per-mile splits via the `/splits` endpoint (which uses the
+/// `lapDTOs` JSON key — sic — for the array). Returns `None` for splits
+/// missing distance or duration.
+fn convert_garmin_split(slot: usize, s: &GarminSplit) -> Option<Split> {
+    let distance_meters = s.distance?;
+    let elapsed_time_seconds = utils::conversions::f64_to_u64(s.duration?);
+    Some(Split {
+        index: s
+            .message_index
+            .unwrap_or_else(|| u32::try_from(slot + 1).unwrap_or(u32::MAX)),
+        distance_meters,
+        elapsed_time_seconds,
+        moving_time_seconds: s.moving_duration.map(utils::conversions::f64_to_u64),
+        elevation_difference_meters: s.elevation_gain,
+        average_speed_mps: s.average_speed,
+        average_heart_rate: s.average_hr.map(utils::conversions::f32_to_u32),
+        pace_zone: None,
+    })
 }
 
 impl Default for GarminProvider {
@@ -458,6 +710,51 @@ impl FitnessProvider for GarminProvider {
         let endpoint = format!("activity-service/activity/{id}");
         let garmin_activity: GarminActivityResponse = self.api_request(&endpoint).await?;
         Self::convert_garmin_activity(garmin_activity)
+    }
+
+    /// Detail-mode fetch: main activity + sibling `/laps` and `/splits`
+    /// endpoints folded into the resulting `Activity`.
+    ///
+    /// Garmin Connect splits the per-activity surface across three endpoints
+    /// in the `/app/` redesign. The list endpoint and the bare detail endpoint
+    /// give summary metrics; per-lap and per-split arrays live on the sibling
+    /// paths. We fan out 3 GETs, tolerating per-endpoint failures so a missing
+    /// laps response (e.g. swim activities) doesn't kill the whole fetch.
+    async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        let main_endpoint = format!("activity-service/activity/{id}");
+        let laps_endpoint = format!("activity-service/activity/{id}/laps");
+        let splits_endpoint = format!("activity-service/activity/{id}/splits");
+
+        let main: GarminActivityResponse = self.api_request(&main_endpoint).await?;
+        let laps_result: Option<GarminLapsResponse> =
+            self.api_request_optional(&laps_endpoint).await;
+        let splits_result: Option<GarminSplitsResponse> =
+            self.api_request_optional(&splits_endpoint).await;
+
+        let laps = laps_result.and_then(|laps| {
+            let converted: Vec<Lap> = laps
+                .lap_dtos
+                .iter()
+                .enumerate()
+                .filter_map(|(i, l)| convert_garmin_lap(i, l))
+                .collect();
+            (!converted.is_empty()).then_some(converted)
+        });
+
+        let splits = splits_result.and_then(|splits| {
+            let converted: Vec<Split> = splits
+                .splits
+                .iter()
+                .enumerate()
+                .filter_map(|(i, s)| convert_garmin_split(i, s))
+                .collect();
+            (!converted.is_empty()).then_some(converted)
+        });
+
+        Ok(Self::garmin_activity_builder(main)?
+            .laps_opt(laps)
+            .splits_opt(splits)
+            .build())
     }
 
     #[instrument(skip(self), fields(provider = "garmin", api_call = "get_stats"))]

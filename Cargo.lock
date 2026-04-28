@@ -1338,8 +1338,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "0.5.9"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.9#2e8792ed2ba12ea5f83a56964424258aed971b24"
+version = "0.5.10"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v0.5.10#e5985d8fe1180480d5e8b88f6f56db9af2ba19a6"
 dependencies = [
  "async-trait",
  "base64",
@@ -3107,7 +3107,7 @@ dependencies = [
  "bitflags",
  "chrono",
  "dravr-equilibre 0.2.3",
- "dravr-sciotte 0.5.9",
+ "dravr-sciotte 0.5.10",
  "futures-util",
  "hex",
  "num-traits",
@@ -3150,7 +3150,7 @@ dependencies = [
  "dirs 5.0.1",
  "dravr-enforme",
  "dravr-equilibre 0.2.1",
- "dravr-sciotte 0.5.9",
+ "dravr-sciotte 0.5.10",
  "dravr-tronc",
  "ed25519-dalek",
  "embacle",
