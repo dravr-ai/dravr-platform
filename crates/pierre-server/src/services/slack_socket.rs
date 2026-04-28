@@ -50,7 +50,11 @@ pub fn start_slack_socket_mode(resources: &Arc<ServerResources>) {
         }
     };
 
-    let allowed_bot_ids = parse_allowed_bot_ids();
+    let allowed_bot_ids = env::var("SLACK_ALLOWED_BOT_IDS")
+        .ok()
+        .as_deref()
+        .map(parse_allowed_bot_ids)
+        .unwrap_or_default();
 
     let (tx, rx) = mpsc::channel::<IncomingMessage>(256);
 
@@ -71,15 +75,14 @@ pub fn start_slack_socket_mode(resources: &Arc<ServerResources>) {
     );
 }
 
-/// Parse `SLACK_ALLOWED_BOT_IDS` as a comma-separated list of bot IDs.
+/// Parse a comma-separated list of Slack bot IDs into a clean `Vec`.
 ///
-/// Returns an empty `Vec` when the env var is unset or contains no non-empty
-/// entries. Matches the webhook-side parser in
+/// Returns an empty `Vec` when `raw` contains no non-empty entries. The
+/// caller is responsible for sourcing `raw` (typically from
+/// `SLACK_ALLOWED_BOT_IDS`); accepting a `&str` keeps the function pure
+/// for unit testing. Matches the webhook-side parser in
 /// `routes::messaging::webhooks::enrich_slack_bot_allow_list`.
-fn parse_allowed_bot_ids() -> Vec<String> {
-    let Ok(raw) = env::var("SLACK_ALLOWED_BOT_IDS") else {
-        return Vec::new();
-    };
+pub fn parse_allowed_bot_ids(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -288,7 +291,7 @@ async fn deliver_payload(
 /// Re-serialize the socket payload and hand it to canot's parser. Returns
 /// `None` on any serialize/parse failure (already logged), so the caller
 /// can early-out cleanly.
-async fn parse_socket_payload(
+pub async fn parse_socket_payload(
     payload: &Value,
     allowed_bot_ids: &[String],
 ) -> Option<Vec<IncomingMessage>> {

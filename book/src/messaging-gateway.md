@@ -185,6 +185,25 @@ curl -X PUT http://localhost:8081/api/messaging/channels/slack \
 
 > **Note:** When you set the Request URL in Slack's Event Subscriptions, Slack sends a `url_verification` challenge. Pierre responds automatically — no manual handling needed.
 
+#### Optional: Slack Socket Mode (no public webhook required)
+
+Pierre can receive Slack events over an outbound WebSocket instead of an inbound webhook. Useful when Pierre runs in CI, behind NAT, or anywhere a public URL isn't available. The webhook path stays the default; Socket Mode only activates when `SLACK_APP_TOKEN` is set in the environment.
+
+**Setup steps:**
+
+1. In your Slack app settings, open **Settings → Socket Mode** and toggle it on.
+2. Slack prompts for an **App-Level Token** with the `connections:write` scope. Generate one and copy the value (`xapp-1-...`).
+3. Set it on the Pierre process:
+   ```bash
+   export SLACK_APP_TOKEN="xapp-1-A12345-1234567890-..."
+   ```
+4. (Optional) Set `SLACK_ALLOWED_BOT_IDS=B0ABC123,B0DEF456` to allow specific bot accounts to post into the pipeline as user input. Leave unset in production unless you have a trusted QA driver bot or integration to authorise.
+5. Restart Pierre. Look for `Slack Socket Mode: hello received` in the logs to confirm the WSS handshake.
+
+When Socket Mode is on, Slack stops calling the webhook URL — events are pushed to Pierre over the persistent WebSocket. Same pipeline, same canot parser, same `allowed_bot_ids` semantics.
+
+> **⚠️ Loop prevention:** Never add Pierre's own coach bot ID to `SLACK_ALLOWED_BOT_IDS`. Allow-listed bots are treated as real user input — listing yourself creates a feedback loop where every coach reply triggers a fresh chat turn. Only list trusted external bots (QA drivers, Zapier webhooks, etc.).
+
 ---
 
 ### Discord
