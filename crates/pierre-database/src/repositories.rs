@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
-    AdminToken, AdminTokenUsage, CreateAdminTokenRequest, GeneratedAdminToken,
+    AdminConfigOverrideRow, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
+    GeneratedAdminToken,
 };
 use pierre_core::config::FitnessConfig;
 use pierre_core::errors::AppResult;
@@ -27,7 +28,10 @@ use pierre_core::models::mobility::{
 };
 
 use pierre_core::models::recipes::{MealTiming, Recipe, ValidatedNutrition};
-use pierre_core::models::usage::{InsertLlmUsage, LlmUsageAggregateRow, LlmUsageDailyRow};
+use pierre_core::models::usage::{
+    EmbeddingUsageRecord, InsertEmbeddingUsage, InsertLlmUsage, LlmUsageAggregateRow,
+    LlmUsageDailyRow,
+};
 use pierre_core::models::DataSource;
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, CoachRuntimeContext,
@@ -1261,6 +1265,14 @@ pub trait LlmCredentialRepository: Send + Sync {
         config_key: &str,
         tenant_id: Option<TenantId>,
     ) -> AppResult<Option<String>>;
+
+    /// List every `admin_config_overrides` row for a given category.
+    /// Used by the `PricingRegistry` startup loader to populate
+    /// `cat_llm_pricing` overrides on top of the compile-time table.
+    async fn list_admin_config_overrides_by_category(
+        &self,
+        category: &str,
+    ) -> AppResult<Vec<AdminConfigOverrideRow>>;
 }
 
 /// Provider connection management repository
@@ -1385,6 +1397,14 @@ pub trait ToolSelectionRepository: Send + Sync {
 pub trait LlmUsageRepository: Send + Sync {
     /// Insert a new LLM usage record
     async fn insert_llm_usage(&self, params: &InsertLlmUsage<'_>) -> AppResult<LlmUsageRecord>;
+
+    /// Insert a new embedding-usage record. Embedding calls live in
+    /// their own table so embedding volume never inflates chat-token
+    /// billing aggregates.
+    async fn insert_embedding_usage(
+        &self,
+        params: &InsertEmbeddingUsage<'_>,
+    ) -> AppResult<EmbeddingUsageRecord>;
 
     /// Query aggregated LLM usage grouped by `provider`, `model`, and `call_type`
     async fn get_llm_usage_aggregates(
@@ -2090,6 +2110,7 @@ pub trait MessagingRepository: Send + Sync {
         id: &str,
         message_id: &str,
         tenant_id: TenantId,
+        user_id: Option<&str>,
         channel_type: &str,
         payload: &str,
     ) -> AppResult<()>;

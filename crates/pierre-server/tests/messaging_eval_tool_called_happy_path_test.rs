@@ -120,10 +120,13 @@ mod tool_called_happy_path {
             prompt_tokens: 42,
             completion_tokens: 11,
             total_tokens: 53,
+            cached_tokens: 0,
             call_type: TURN_SUMMARY_CALL_TYPE,
             tool_calls_count: 1,
             tools_called: tools_called_json,
             execution_time_ms: Some(2_400),
+            cost_usd: 0.0,
+            call_sequence: None,
         };
         resources
             .repos

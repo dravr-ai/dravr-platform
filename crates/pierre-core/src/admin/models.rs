@@ -538,3 +538,17 @@ impl ValidatedAdminToken {
         }
     }
 }
+
+/// One row of `admin_config_overrides` returned by the list-by-category repository method.
+///
+/// Plain DTO; consumers (the pricing-registry loader, audit tooling)
+/// parse `config_value` into whatever JSON shape the category dictates.
+#[derive(Debug, Clone)]
+pub struct AdminConfigOverrideRow {
+    /// Identifier of the override row, e.g. `gemini.gemini-2.0-flash`.
+    pub config_key: String,
+    /// Tenant scope. `None` means the override is global (system-wide).
+    pub tenant_id: Option<String>,
+    /// JSON-encoded payload whose schema is category-specific.
+    pub config_value: String,
+}

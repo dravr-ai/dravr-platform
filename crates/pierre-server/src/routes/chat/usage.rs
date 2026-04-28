@@ -6,15 +6,12 @@
 
 use std::sync::Arc;
 
-use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::{ConversationTurnId, TURN_SUMMARY_CALL_TYPE};
 use pierre_core::tokens::estimate_chat_tokens;
 use serde::Deserialize;
 use tracing::{debug, warn};
 
-use crate::llm::{ChatMessage, ChatProvider};
+use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerResources;
-use crate::models::TenantId;
 use crate::services::chat_pipeline;
 use crate::services::usage_counter::UsageCounterService;
 
@@ -111,73 +108,6 @@ pub fn extract_or_estimate_tokens(
         },
         |usage| (Some(usage.prompt_tokens), Some(usage.completion_tokens)),
     )
-}
-
-/// Parameters for the terminal turn-summary `llm_usage` row.
-///
-/// Per-LLM-call token counts are written separately by the tool loop's
-/// [`crate::services::tool_execution::LlmCallRecorder`]; this struct
-/// only carries the turn-level aggregates so the summary row can be
-/// inserted in one call.
-pub struct RecordLlmUsageParams<'a> {
-    /// Tenant this usage belongs to
-    pub tenant_id: TenantId,
-    /// User who initiated the request
-    pub user_id: &'a str,
-    /// Conversation this message belongs to
-    pub conversation_id: &'a str,
-    /// Conversation-turn identifier threaded from the inbound request
-    pub turn_id: ConversationTurnId,
-    /// LLM provider used for this completion
-    pub provider: &'a ChatProvider,
-    /// Model identifier used for this completion
-    pub model: &'a str,
-    /// Number of tool calls executed across the turn
-    pub tool_calls_count: u32,
-    /// MCP tool names invoked during the turn (duplicates preserved in call order)
-    pub tools_called: &'a [String],
-    /// Total wall-clock time for the LLM interaction in milliseconds
-    pub execution_time_ms: u64,
-}
-
-/// Record the terminal turn-summary row after a chat/insight turn.
-///
-/// Token columns are zeroed so the per-call rows and the summary row
-/// don't double-count in the aggregate analytics endpoint, which
-/// filters by [`TURN_SUMMARY_CALL_TYPE`].
-pub async fn record_llm_usage(resources: &Arc<ServerResources>, params: &RecordLlmUsageParams<'_>) {
-    let tenant_id_str = params.tenant_id.to_string();
-
-    #[allow(clippy::cast_possible_wrap)]
-    let exec_time = params.execution_time_ms as i64;
-
-    let tools_called_json = serde_json::to_string(params.tools_called).unwrap_or_else(|e| {
-        warn!("Failed to serialize tools_called, storing empty array: {e}");
-        "[]".to_owned()
-    });
-
-    if let Err(e) = resources
-        .repos
-        .llm_usage
-        .insert_llm_usage(&InsertLlmUsage {
-            tenant_id: &tenant_id_str,
-            user_id: params.user_id,
-            conversation_id: Some(params.conversation_id),
-            turn_id: params.turn_id,
-            provider: params.provider.name(),
-            model: params.model,
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: 0,
-            call_type: TURN_SUMMARY_CALL_TYPE,
-            tool_calls_count: i64::from(params.tool_calls_count),
-            tools_called: &tools_called_json,
-            execution_time_ms: Some(exec_time),
-        })
-        .await
-    {
-        warn!("Failed to record LLM usage summary: {e}");
-    }
 }
 
 /// Increment usage counters after a successful LLM call.

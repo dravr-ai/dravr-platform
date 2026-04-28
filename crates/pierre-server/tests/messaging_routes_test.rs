@@ -569,6 +569,7 @@ mod messaging_routes_tests {
             &queue_id,
             &msg_id,
             tenant_id,
+            None,
             "whatsapp",
             r#"{"messaging_product":"whatsapp","to":"15551234567","type":"text","text":{"body":"retry test message"}}"#,
         )

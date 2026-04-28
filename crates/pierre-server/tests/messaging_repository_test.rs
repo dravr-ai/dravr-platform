@@ -712,12 +712,14 @@ async fn test_enqueue_and_get_pending_outbound() {
     // Create session + message first (FK constraint)
     create_test_message(&db, "msg-q1", "session-q1", tenant_id, &user_id, "CM_Q1").await;
 
+    let user_id = uuid::Uuid::new_v4().to_string();
     db.repositories()
         .messaging
         .enqueue_outbound(
             &queue_id,
             "msg-q1",
             tenant_id,
+            Some(user_id.as_str()),
             "whatsapp",
             r#"{"Body":"Hi"}"#,
         )
@@ -733,6 +735,9 @@ async fn test_enqueue_and_get_pending_outbound() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["channel_type"], "whatsapp");
     assert_eq!(pending[0]["status"], "pending");
+    // Phase 4: user_id round-trips through enqueue + get_pending_outbound
+    // so the dead-letter PostHog distinct_id has a real user to attach to.
+    assert_eq!(pending[0]["user_id"].as_str(), Some(user_id.as_str()));
 }
 
 #[tokio::test]
@@ -751,6 +756,7 @@ async fn test_update_outbound_status() {
             &queue_id,
             "msg-q2",
             tenant_id,
+            None,
             "telegram",
             r#"{"text":"Hi"}"#,
         )
@@ -790,7 +796,14 @@ async fn test_outbound_queue_tenant_isolation() {
 
     db.repositories()
         .messaging
-        .enqueue_outbound(&queue_id, "msg-q3", tenant_a, "slack", r#"{"text":"Hi"}"#)
+        .enqueue_outbound(
+            &queue_id,
+            "msg-q3",
+            tenant_a,
+            None,
+            "slack",
+            r#"{"text":"Hi"}"#,
+        )
         .await
         .unwrap();
 
@@ -821,6 +834,7 @@ async fn test_retry_worker_dead_letters_invalid_tenant() {
             &queue_id,
             "msg-dlq",
             tenant_id,
+            None,
             "whatsapp",
             r#"{"Body":"Hi"}"#,
         )

@@ -28,7 +28,7 @@ pub struct UsageCounterRecord {
 }
 
 /// Record of a single LLM API call for usage tracking
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LlmUsageRecord {
     /// Unique record ID
     pub id: String,
@@ -51,6 +51,10 @@ pub struct LlmUsageRecord {
     pub completion_tokens: i64,
     /// Total tokens (prompt + completion)
     pub total_tokens: i64,
+    /// Prompt tokens served from the provider's context cache. Billed
+    /// at 25% of the model's input rate per Gemini/OpenAI convention.
+    /// Zero when the provider does not report cache metrics.
+    pub cached_tokens: i64,
     /// Type of call (e.g. "chat", "insight", "embedding")
     pub call_type: String,
     /// Number of tool calls in this interaction
@@ -59,6 +63,14 @@ pub struct LlmUsageRecord {
     pub tools_called: String,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
+    /// USD cost of this LLM call, populated at insert time via
+    /// [`pierre_llm::pricing::calculate_cost`]. Zero when pricing data
+    /// for the (provider, model) pair is not known.
+    pub cost_usd: f64,
+    /// 1-based position of this call within the owning `turn_id`. The
+    /// first LLM call of a turn is `1`, the second `2`, and so on.
+    /// Turn-level queries order by this column to reconstruct tool loops.
+    pub call_sequence: Option<i64>,
     /// When the usage was recorded (ISO 8601)
     pub created_at: String,
 }
@@ -234,6 +246,10 @@ pub struct InsertLlmUsage<'a> {
     pub completion_tokens: i64,
     /// Total tokens (prompt + completion)
     pub total_tokens: i64,
+    /// Prompt tokens served from the provider's context cache. Zero
+    /// when the provider did not report cache hits. Cached tokens are
+    /// billed at 25% of the model's input rate.
+    pub cached_tokens: i64,
     /// Type of call (e.g. "chat", "insight", "embedding")
     pub call_type: &'a str,
     /// Number of tool calls in this interaction
@@ -244,6 +260,53 @@ pub struct InsertLlmUsage<'a> {
     pub tools_called: &'a str,
     /// Execution time in milliseconds
     pub execution_time_ms: Option<i64>,
+    /// USD cost of this call (caller must precompute via
+    /// `pierre_llm::pricing::calculate_cost`). Zero for unknown models.
+    pub cost_usd: f64,
+    /// 1-based position of this LLM call inside the owning turn.
+    /// `Some(1)` for the first call, `Some(2)` for the second, etc.
+    /// `None` is permitted only during backfill of pre-Phase-1 rows.
+    pub call_sequence: Option<i64>,
+}
+
+/// Record of a single embedding API call, persisted in the
+/// `embedding_usage` table. Separate from `llm_usage` so that
+/// embedding volume never dilutes chat-token billing aggregates.
+#[derive(Debug, Clone)]
+pub struct EmbeddingUsageRecord {
+    /// Unique record ID
+    pub id: String,
+    /// Tenant that owns the call
+    pub tenant_id: String,
+    /// User that triggered the call
+    pub user_id: String,
+    /// Embedding provider name (e.g. "gemini")
+    pub provider: String,
+    /// Model identifier (e.g. "text-embedding-004")
+    pub model: String,
+    /// Characters-based token estimate for the input text
+    pub input_tokens: i64,
+    /// USD cost of the embedding call
+    pub cost_usd: f64,
+    /// When the call was recorded (ISO 8601)
+    pub created_at: String,
+}
+
+/// Insert parameters for a new `embedding_usage` row.
+#[derive(Debug)]
+pub struct InsertEmbeddingUsage<'a> {
+    /// Tenant that owns the call
+    pub tenant_id: &'a str,
+    /// User that triggered the call
+    pub user_id: &'a str,
+    /// Embedding provider name (e.g. "gemini")
+    pub provider: &'a str,
+    /// Model identifier
+    pub model: &'a str,
+    /// Characters-based token estimate for the input text
+    pub input_tokens: i64,
+    /// USD cost of the embedding call
+    pub cost_usd: f64,
 }
 
 /// Aggregated LLM usage row grouped by provider, model, and call type

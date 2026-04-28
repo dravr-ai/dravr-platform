@@ -29,10 +29,8 @@ use super::common::{authenticate, get_tenant_id};
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
 use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas};
 use super::send_insight::send_insight_message;
-use super::usage::{
-    increment_usage_counters, record_llm_usage, tokens_from_dispatch, RecordLlmUsageParams,
-};
-use super::{get_llm_provider, INSIGHT_PROMPT_PREFIX};
+use super::usage::{increment_usage_counters, tokens_from_dispatch};
+use super::INSIGHT_PROMPT_PREFIX;
 
 /// HTTP header carrying the client surface identifier.
 ///
@@ -228,23 +226,10 @@ pub async fn send_message(
     // when available, fall back to character-based estimation otherwise.
     let (prompt_tokens, completion_tokens) = tokens_from_dispatch(&dispatch, &request.content);
 
-    // Record LLM usage for cost tracking and quota enforcement.
-    let provider = get_llm_provider().await?;
-    record_llm_usage(
-        &resources,
-        &RecordLlmUsageParams {
-            tenant_id,
-            user_id: &user_id_str,
-            conversation_id: &conversation_id,
-            turn_id: dispatch.turn_id,
-            provider: &provider,
-            model: &dispatch.model,
-            tool_calls_count: dispatch.tool_calls_count,
-            tools_called: &dispatch.tools_called,
-            execution_time_ms,
-        },
-    )
-    .await;
+    // Per-call `llm_usage` rows are written inline by the chat pipeline's
+    // `UsageRepoCallRecorder` with real token counts, cost_usd, and
+    // cached_tokens. The zero-token turn_summary marker row is no longer
+    // written — aggregate queries index the per-call rows directly.
 
     let total_tokens_used =
         i64::from(prompt_tokens.unwrap_or(0)) + i64::from(completion_tokens.unwrap_or(0));
