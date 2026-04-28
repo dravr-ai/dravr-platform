@@ -47,6 +47,9 @@ PROMPT_MAP = {
     "recommendation_system.md": "recommendation_system",
     "activity_analysis.md": "activity_analysis",
     "activity_analysis_system.md": "activity_analysis_system",
+    "tool_discipline.md": "tool_discipline",
+    "tool_discipline_messaging.md": "tool_discipline_messaging",
+    "memory_extraction.md": "memory_extraction",
 }
 
 
@@ -136,8 +139,11 @@ def main() -> int:
     manifest = json.loads(base64.b64decode(payload["content"]))
     manifest_file_sha = payload["sha"]
 
+    system_entries = manifest["prompts"]["system"]
     for key, new_sha in changed:
-        manifest["prompts"]["system"][key]["sha256"] = new_sha
+        entry = system_entries.setdefault(key, {})
+        entry["path"] = f"prompts/system/{key}.md"
+        entry["sha256"] = new_sha
 
     manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
     msg = f"sync manifest sha256 from dravr-platform@{platform_sha}"

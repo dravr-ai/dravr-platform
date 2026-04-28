@@ -1174,6 +1174,45 @@ impl ServerResources {
             pierre_llm::prompts::ACTIVITY_ANALYSIS_SYSTEM_PROMPT.to_owned()
         }
     }
+
+    /// Get the mandatory tool-discipline prompt for non-messaging channels.
+    #[must_use]
+    pub fn tool_discipline_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.tool_discipline_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::TOOL_DISCIPLINE_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the mandatory tool-discipline prompt for messaging channels.
+    #[must_use]
+    pub fn tool_discipline_messaging_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.tool_discipline_messaging_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::TOOL_DISCIPLINE_MESSAGING_PROMPT.to_owned()
+        }
+    }
+
+    /// Get the memory extraction system prompt.
+    #[must_use]
+    pub fn memory_extraction_prompt(&self) -> String {
+        #[cfg(feature = "contremaitre")]
+        {
+            self.prompt_registry.memory_extraction_prompt()
+        }
+        #[cfg(not(feature = "contremaitre"))]
+        {
+            pierre_llm::prompts::MEMORY_EXTRACTION_PROMPT.to_owned()
+        }
+    }
 }
 
 /// Builder pattern for `ServerResources` to avoid manual resource assembly anti-patterns
