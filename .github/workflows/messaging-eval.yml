@@ -90,9 +90,15 @@ jobs:
     # because the Slack API has rate limits and the test depends on live
     # LLM latency.
     if: github.event_name != 'push'
+    # Standard 4-vCPU/16 GB ubuntu-latest. Larger GitHub-hosted runners
+    # are paid-plan only (Team/Enterprise) — Free public-repo plans don't
+    # get them. Qwen 2.5 3B on the Q4_K_M quant fits in this footprint
+    # and is meaningfully stronger at scope-refusal than llama3.2:1b
+    # while remaining small enough to prefill Pierre's hardened system
+    # prompt + tool schemas in ~3 min on 4 cores.
     runs-on: ubuntu-latest
     needs: rust-asserters
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
@@ -112,11 +118,16 @@ jobs:
       SLACK_BOT_TOKEN: ${{ secrets.MESSAGING_EVAL_COACH_BOT_TOKEN }}
       SLACK_SIGNING_SECRET: ${{ secrets.MESSAGING_EVAL_COACH_SIGNING_SECRET }}
       SLACK_APP_TOKEN: ${{ secrets.MESSAGING_EVAL_SLACK_APP_TOKEN }}
-      # LLM for the pipeline's chat turn.
-      GEMINI_API_KEY: ${{ secrets.DRAVR_MCP_SERVER_GEMINI_API_KEY }}
       # Admin/JWT bootstrap.
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: AdminPassword123
+      # Pierre's reqwest LLM client default times out at 300s; CPU
+      # prefill of Pierre's hardened 26K-token system + tool-schema
+      # input on a 4-vCPU runner takes longer than that for qwen2.5:3b.
+      # 900s leaves comfortable margin for inference + one tool-loop
+      # iteration without surfacing the test panic as a misleading
+      # "Failed to connect" reqwest error.
+      LLM_REQUEST_TIMEOUT_SECS: "900"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -129,9 +140,120 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build server + CLI
+      - name: Install Ollama
         run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          mkdir -p "$RUNNER_TEMP/ollama-logs"
+          # The installer auto-starts a systemd unit. Bump the default
+          # context window via systemd env override — Pierre's hardened
+          # system prompt is ~6.6 K tokens (logs: shingles=26489), well
+          # over Ollama's 4 K default. With the default the runner
+          # truncates the prompt and the chat call 500s after the model
+          # tries to make sense of a clipped instruction set.
+          sudo mkdir -p /etc/systemd/system/ollama.service.d
+          printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=32768"\nEnvironment="OLLAMA_KEEP_ALIVE=30m"\n' \
+            | sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null
+          sudo systemctl daemon-reload
+          sudo systemctl restart ollama
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
+              echo "Ollama ready after ${i}s (systemd, OLLAMA_CONTEXT_LENGTH=16384)"
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
+            echo "ERROR: Ollama did not respond on :11434 after restart" >&2
+            sudo journalctl -u ollama --no-pager -n 100 || true
+            exit 1
+          fi
+          sudo journalctl -u ollama --no-pager -n 50 \
+            > "$RUNNER_TEMP/ollama-logs/ollama-systemd.log" 2>&1 || true
+
+      - name: Cache Ollama model store
+        uses: actions/cache@v4
+        with:
+          # ~/.ollama/models is where the binary stores blobs + manifests.
+          # Cache key pinned on the model tag so a model bump cleanly busts
+          # the cache.
+          path: ~/.ollama/models
+          key: ollama-qwen2.5-3b-instruct-q4_K_M-v1
+
+      - name: Pull + create dravr-coach (num_thread=4, num_ctx=16384) + warm up
+        run: |
+          ollama pull qwen2.5:3b-instruct-q4_K_M
+          # Bake CPU parallelism + context into a derived tag. num_thread
+          # 4 uses all vCPUs on the standard ubuntu-latest runner;
+          # num_ctx 32768 lets Pierre's full ~26 K-token system prompt +
+          # tool schemas fit without truncation (Qwen 2.5 supports 32 K
+          # native; KV-cache overhead at this size is ~3 GB, comfortable
+          # against the runner's 16 GB).
+          cat > "$RUNNER_TEMP/Modelfile" <<'EOF'
+          FROM qwen2.5:3b-instruct-q4_K_M
+          PARAMETER num_thread 4
+          PARAMETER num_ctx 32768
+          EOF
+          ollama create dravr-coach -f "$RUNNER_TEMP/Modelfile"
+          ollama list
+          # Force a tiny inference so the derived model is mmap'd into RAM
+          # before Pierre's pipeline asks for one.
+          time curl -fsS -X POST http://127.0.0.1:11434/api/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"model":"dravr-coach","stream":false,"messages":[{"role":"user","content":"reply with the word ok"}]}' \
+            | tee "$RUNNER_TEMP/ollama-logs/warmup.json"
+
+      - name: Verify tool-call schema round-trip
+        run: |
+          # Pierre's pipeline always sends a `tools` array on every chat
+          # turn. Llama 3.2 1B is documented as supporting native function
+          # calling, but quantization can scramble the JSON. Issue a tiny
+          # tool-call probe via /v1/chat/completions (same OpenAI-compat
+          # surface Pierre uses) and fail fast if the model can't emit a
+          # well-formed tool_calls payload.
+          response=$(curl -sS -X POST http://127.0.0.1:11434/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "model":"dravr-coach",
+              "stream":false,
+              "messages":[{"role":"user","content":"What is the weather in Paris?"}],
+              "tools":[{
+                "type":"function",
+                "function":{
+                  "name":"get_weather",
+                  "description":"Look up the current weather for a city",
+                  "parameters":{
+                    "type":"object",
+                    "properties":{"city":{"type":"string"}},
+                    "required":["city"]
+                  }
+                }
+              }],
+              "tool_choice":"auto"
+            }')
+          echo "$response" > "$RUNNER_TEMP/ollama-logs/tool-call-probe.json"
+          tool_calls=$(echo "$response" | jq -r '.choices[0].message.tool_calls // empty')
+          if [ -z "$tool_calls" ]; then
+            echo "ERROR: model did not emit tool_calls for an explicit weather prompt." >&2
+            echo "Pierre's pipeline relies on this; refusing to proceed." >&2
+            echo "Response: $response" >&2
+            exit 1
+          fi
+          name=$(echo "$tool_calls" | jq -r '.[0].function.name')
+          args=$(echo "$tool_calls" | jq -r '.[0].function.arguments')
+          echo "Tool-call round-trip OK: name=$name args=$args"
+          if [ "$name" != "get_weather" ]; then
+            echo "ERROR: model called the wrong function: $name" >&2
+            exit 1
+          fi
+
+      - name: Build server + CLI + test binary
+        run: |
+          # Compile the binaries AND the integration test binary up-front so
+          # the test-run step is just execution. Without this, run #1 spent
+          # ~11 of its 25 minutes inside `cargo test --no-run` while the
+          # daemon waited.
           cargo build --release --bin pierre-mcp-server --bin pierre-cli
+          cargo test --release --test messaging_eval_real_slack_test --no-run
 
       - name: Resolve QA driver bot_id + user_id
         id: driver-identity
@@ -202,19 +324,21 @@ jobs:
           PIERRE_MASTER_ENCRYPTION_KEY: ${{ steps.pierre-key.outputs.key }}
           PIERRE_HOST: 127.0.0.1
           PIERRE_PORT: "8081"
-          RUST_LOG: "info,pierre_mcp_server::services::slack_socket=debug"
+          RUST_LOG: "info,pierre_mcp_server::services::slack_socket=debug,pierre_llm=debug,pierre_llm::openai_compatible=trace"
           SLACK_ALLOWED_BOT_IDS: ${{ steps.driver-identity.outputs.bot_id }}
-          # LLM config — messaging_ingress resolves these per session when
-          # constructing the chat turn. `gemini` matches the repo secret we
-          # wire below; `gemini-2.0-flash` is the fast production model.
-          PIERRE_LLM_PROVIDER: gemini
-          PIERRE_LLM_MODEL: gemini-2.0-flash
-          PIERRE_LLM_DEFAULT_MODEL: gemini-2.0-flash
-          # FALLBACK_MODEL is validated unconditionally by the gemini config
-          # loader even when FALLBACK_ENABLED is false; point it at the same
-          # model so the loader accepts it.
-          PIERRE_LLM_FALLBACK_MODEL: gemini-2.0-flash
+          # LLM config — local Ollama server hosts qwen2.5:3b-instruct-q4_K_M.
+          # Pipeline calls Ollama's OpenAI-compatible /v1/chat/completions, so
+          # no API quota and no provider-specific retry behaviour. Pierre's
+          # `local` provider variant in pierre_llm wraps OpenAiCompatibleProvider
+          # with these env vars (see crates/pierre-llm/src/openai_compatible.rs).
+          PIERRE_LLM_PROVIDER: local
+          PIERRE_LLM_MODEL: dravr-coach
+          PIERRE_LLM_DEFAULT_MODEL: dravr-coach
+          PIERRE_LLM_FALLBACK_MODEL: dravr-coach
           PIERRE_LLM_FALLBACK_ENABLED: "false"
+          LOCAL_LLM_BASE_URL: http://127.0.0.1:11434/v1
+          LOCAL_LLM_MODEL: dravr-coach
+          LOCAL_LLM_FALLBACK_MODEL: dravr-coach
           # Sciotte backpressure limiter — required by the pierre-sciotte
           # feature which ships in the default server-full feature set.
           # Low-traffic CI numbers: single concurrent scrape, tiny queue,
@@ -263,10 +387,27 @@ jobs:
             kill "$(cat "$RUNNER_TEMP/pierre.pid")" || true
           fi
 
+      - name: Capture systemd Ollama logs (post-test)
+        if: always()
+        run: |
+          # The Install step captured logs at startup, before any inference
+          # ran. This second capture covers the full test-run window so
+          # Ollama's request/response traces are available for triage.
+          sudo journalctl -u ollama --no-pager --since "10 minutes ago" \
+            > "$RUNNER_TEMP/ollama-logs/ollama-systemd-final.log" 2>&1 || true
+
       - name: Upload Pierre logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pierre-server-logs
           path: ${{ runner.temp }}/pierre-logs/
+          retention-days: 14
+
+      - name: Upload Ollama logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ollama-logs
+          path: ${{ runner.temp }}/ollama-logs/
           retention-days: 14
