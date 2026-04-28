@@ -145,7 +145,7 @@ fn test_manifest_round_trip() {
 fn test_new_registry_has_all_system_prompts() {
     let registry = PromptRegistry::new();
     let prompts = registry.list_system_prompts();
-    assert_eq!(prompts.len(), 9, "expected 9 system prompts");
+    assert_eq!(prompts.len(), 12, "expected 12 system prompts");
 
     let keys: Vec<String> = prompts.iter().map(|(k, _)| k.clone()).collect();
     assert!(keys.contains(&"pierre_system".to_owned()));
@@ -157,15 +157,18 @@ fn test_new_registry_has_all_system_prompts() {
     assert!(keys.contains(&"recommendation_system".to_owned()));
     assert!(keys.contains(&"activity_analysis".to_owned()));
     assert!(keys.contains(&"activity_analysis_system".to_owned()));
+    assert!(keys.contains(&"tool_discipline".to_owned()));
+    assert!(keys.contains(&"tool_discipline_messaging".to_owned()));
+    assert!(keys.contains(&"memory_extraction".to_owned()));
 }
 
 #[test]
 fn test_new_registry_all_compiled_in() {
     let registry = PromptRegistry::new();
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 9);
+    assert_eq!(stats.system_count, 12);
     assert_eq!(stats.coach_count, 0);
-    assert_eq!(stats.compiled_in_count, 9);
+    assert_eq!(stats.compiled_in_count, 12);
     assert_eq!(stats.contremaitre_count, 0);
 }
 
@@ -200,7 +203,7 @@ fn test_update_system_prompt() {
 
     let stats = registry.stats();
     assert_eq!(stats.contremaitre_count, 1);
-    assert_eq!(stats.compiled_in_count, 8);
+    assert_eq!(stats.compiled_in_count, 11);
 }
 
 #[test]
@@ -242,9 +245,9 @@ fn test_stats_counts() {
     registry.update_system_prompt("pierre_system", "override".to_owned(), "sha_o".to_owned());
 
     let stats = registry.stats();
-    assert_eq!(stats.system_count, 9);
+    assert_eq!(stats.system_count, 12);
     assert_eq!(stats.coach_count, 2);
-    assert_eq!(stats.compiled_in_count, 8);
+    assert_eq!(stats.compiled_in_count, 11);
     assert_eq!(stats.contremaitre_count, 3);
 }
 
