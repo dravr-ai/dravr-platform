@@ -211,11 +211,14 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // constraints are the freshest instructions when the model starts
     // generating.
     //
-    // Messaging channels use a prose-only variant that omits the
-    // `<tool_call>` markdown code-fence example, which conflicts with
-    // the plain-text mandate in `messaging_context.md` and biases the
-    // model toward structured output on channels where the user sees
-    // only plain text.
+    // Messaging channels use a stricter prose variant that constrains the
+    // natural-language portion of the reply (no markdown headings, no
+    // bullet lists, no inline JSON) but still teaches the model the
+    // `<tool_call>` invocation syntax: tool-call blocks are required to
+    // actually execute tools and are stripped server-side via
+    // `tool_simulation::strip_tool_call_blocks` before the reply reaches
+    // the user, so they never violate the plain-text mandate from
+    // `messaging_context.md`.
     let tool_discipline_prompt = if profile.channel.is_messaging() {
         resources.tool_discipline_messaging_prompt()
     } else {
