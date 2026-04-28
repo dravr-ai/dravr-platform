@@ -44,6 +44,7 @@ on:
       - "crates/pierre-server/tests/helpers/messaging_eval.rs"
       - "crates/pierre-server/tests/messaging_eval_*.rs"
       - "crates/pierre-server/tests/messaging_rendering_test.rs"
+      - "crates/pierre-server/tests/slack_socket_unit_test.rs"
       - ".github/workflows/messaging-eval.yml"
 
 concurrency:
@@ -82,6 +83,7 @@ jobs:
             --test messaging_eval_tool_called_happy_path_test \
             --test messaging_eval_hallucination_probes_test \
             --test messaging_rendering_test \
+            --test slack_socket_unit_test \
             -- --nocapture
 
   real-slack-socket:
@@ -98,7 +100,15 @@ jobs:
     # prompt + tool schemas in ~3 min on 4 cores.
     runs-on: ubuntu-latest
     needs: rust-asserters
-    timeout-minutes: 60
+    # 120 minutes covers build (~10 min) + Ollama install/pull/warmup
+    # (~3 min) + Pierre boot + 5 ignored tests sharing one warm Ollama:
+    # driver smoke + 4 real LLM probes. The first two probes complete
+    # in ~8-9 min each; probes 3+4 took 12+ min in run #2 (longer
+    # accumulated conversation context plus a model reload when the
+    # original 30m KEEP_ALIVE lapsed). With KEEP_ALIVE bumped to 120m
+    # and the test poll window at 1200s, four 12-min probes ≈ 48 min,
+    # comfortable inside the cap.
+    timeout-minutes: 120
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_GIT_FETCH_WITH_CLI: true
@@ -151,7 +161,7 @@ jobs:
           # truncates the prompt and the chat call 500s after the model
           # tries to make sense of a clipped instruction set.
           sudo mkdir -p /etc/systemd/system/ollama.service.d
-          printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=32768"\nEnvironment="OLLAMA_KEEP_ALIVE=30m"\n' \
+          printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=32768"\nEnvironment="OLLAMA_KEEP_ALIVE=120m"\n' \
             | sudo tee /etc/systemd/system/ollama.service.d/override.conf > /dev/null
           sudo systemctl daemon-reload
           sudo systemctl restart ollama
@@ -179,9 +189,24 @@ jobs:
           path: ~/.ollama/models
           key: ollama-qwen2.5-3b-instruct-q4_K_M-v1
 
-      - name: Pull + create dravr-coach (num_thread=4, num_ctx=16384) + warm up
+      - name: Pull + create dravr-coach (num_thread=4, num_ctx=32768) + warm up
         run: |
-          ollama pull qwen2.5:3b-instruct-q4_K_M
+          # Ollama's registry occasionally drops the connection mid-pull
+          # (observed: "read: connection reset by peer" at 100% download).
+          # `ollama pull` is idempotent and resumes via the layer cache,
+          # so retry up to 4 times before giving up.
+          for attempt in 1 2 3 4; do
+            if ollama pull qwen2.5:3b-instruct-q4_K_M; then
+              echo "pull succeeded on attempt $attempt"
+              break
+            fi
+            echo "pull failed on attempt $attempt; retrying in 10s..."
+            sleep 10
+            if [ "$attempt" = "4" ]; then
+              echo "ERROR: model pull exhausted retries" >&2
+              exit 1
+            fi
+          done
           # Bake CPU parallelism + context into a derived tag. num_thread
           # 4 uses all vCPUs on the standard ubuntu-latest runner;
           # num_ctx 32768 lets Pierre's full ~26 K-token system prompt +
@@ -374,8 +399,17 @@ jobs:
           tail -200 "$RUNNER_TEMP/pierre-logs/server.log" || true
           exit 1
 
-      - name: Run real-Slack round trip
+      - name: Run real-Slack probe suite
         run: |
+          # Runs the four real-Slack probes serially against one warm
+          # Ollama: 3 off-topic refusal probes (food pricing, medical
+          # diagnosis, financial advice) + 1 in-domain positive control
+          # (tempo-run explanation). Plus the driver-layer smoke. They
+          # share the same messaging session and same Pierre process —
+          # no cross-test isolation needed because each probe is a
+          # standalone Q without follow-up. --test-threads=1 keeps the
+          # ordering deterministic and prevents two probes from posting
+          # to Slack simultaneously.
           cargo test --release \
             --test messaging_eval_real_slack_test \
             -- --ignored --nocapture --test-threads=1
