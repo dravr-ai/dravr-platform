@@ -21,7 +21,6 @@ use std::sync::{Arc, LazyLock};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{HarnessMemoryRepository, UpsertUserFactParams};
-use pierre_llm::prompts::get_memory_extraction_prompt;
 use pierre_llm::{ChatMessage, ChatRequest, LlmProvider};
 use pierre_memory::{FactKind, MemoryScope, UserFact};
 use serde::Deserialize;
@@ -94,12 +93,20 @@ pub struct ExtractionOutcome {
 pub async fn extract_and_persist<R>(
     repo: &R,
     provider: &ChatProvider,
+    system_prompt: &str,
     req: &ExtractionRequest<'_>,
 ) -> AppResult<ExtractionOutcome>
 where
     R: HarnessMemoryRepository + ?Sized,
 {
-    let raw = match run_llm_extraction(provider, req.user_message, req.assistant_reply).await {
+    let raw = match run_llm_extraction(
+        provider,
+        system_prompt,
+        req.user_message,
+        req.assistant_reply,
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => {
             error!(error = %e, "memory extraction LLM call failed");
@@ -182,6 +189,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
 /// Call the extraction LLM and parse the response into [`RawFact`] records.
 async fn run_llm_extraction(
     provider: &ChatProvider,
+    system_prompt: &str,
     user_message: &str,
     assistant_reply: &str,
 ) -> AppResult<Vec<RawFact>> {
@@ -194,7 +202,7 @@ async fn run_llm_extraction(
     // lenient `parse_raw_facts` helper instead of going through
     // `judge::ask_for_json` (which deserializes a top-level JSON object).
     let request_messages = vec![
-        ChatMessage::system(get_memory_extraction_prompt()),
+        ChatMessage::system(system_prompt),
         ChatMessage::user(&user_payload),
     ];
     let request = ChatRequest::new(request_messages).with_temperature(0.1);
@@ -300,7 +308,15 @@ pub fn spawn_extract_for_turn(resources: Arc<ServerResources>, req: SpawnedExtra
             assistant_reply: &req.assistant_reply,
             source_msg_id: req.source_msg_id.as_deref(),
         };
-        match extract_and_persist(resources.repos.memory.as_ref(), &provider, &request).await {
+        let system_prompt = resources.memory_extraction_prompt();
+        match extract_and_persist(
+            resources.repos.memory.as_ref(),
+            &provider,
+            &system_prompt,
+            &request,
+        )
+        .await
+        {
             Ok(outcome) => debug!(
                 raw = outcome.raw_count,
                 persisted = outcome.persisted.len(),

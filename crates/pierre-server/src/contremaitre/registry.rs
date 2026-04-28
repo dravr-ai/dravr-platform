@@ -11,8 +11,9 @@ use std::sync::{PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use chrono::{DateTime, Utc};
 use pierre_llm::prompts::{
     ACTIVITY_ANALYSIS_PROMPT, ACTIVITY_ANALYSIS_SYSTEM_PROMPT, COACH_GENERATION_PROMPT,
-    INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT, MESSAGING_CONTEXT_PROMPT,
-    PIERRE_SYSTEM_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT, RECOMMENDATION_SYSTEM_PROMPT,
+    INSIGHT_GENERATION_PROMPT, INSIGHT_VALIDATION_PROMPT, MEMORY_EXTRACTION_PROMPT,
+    MESSAGING_CONTEXT_PROMPT, PIERRE_SYSTEM_PROMPT, RECOMMENDATION_ANALYSIS_PROMPT,
+    RECOMMENDATION_SYSTEM_PROMPT, TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT,
 };
 
 /// Origin of a prompt entry in the registry.
@@ -87,6 +88,9 @@ impl PromptRegistry {
             ("recommendation_system", RECOMMENDATION_SYSTEM_PROMPT),
             ("activity_analysis", ACTIVITY_ANALYSIS_PROMPT),
             ("activity_analysis_system", ACTIVITY_ANALYSIS_SYSTEM_PROMPT),
+            ("tool_discipline", TOOL_DISCIPLINE_PROMPT),
+            ("tool_discipline_messaging", TOOL_DISCIPLINE_MESSAGING_PROMPT),
+            ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
         ];
 
         for (key, content) in compiled_in_prompts {
@@ -153,6 +157,21 @@ impl PromptRegistry {
     /// Get the activity analysis system prompt.
     pub fn activity_analysis_system_prompt(&self) -> String {
         self.get_system_prompt("activity_analysis_system")
+    }
+
+    /// Get the mandatory tool-discipline prompt for non-messaging channels.
+    pub fn tool_discipline_prompt(&self) -> String {
+        self.get_system_prompt("tool_discipline")
+    }
+
+    /// Get the mandatory tool-discipline prompt for messaging channels.
+    pub fn tool_discipline_messaging_prompt(&self) -> String {
+        self.get_system_prompt("tool_discipline_messaging")
+    }
+
+    /// Get the memory extraction system prompt.
+    pub fn memory_extraction_prompt(&self) -> String {
+        self.get_system_prompt("memory_extraction")
     }
 
     // ── Generic accessors ──────────────────────────────────────────────
@@ -309,6 +328,9 @@ impl PromptRegistry {
             "recommendation_system" => RECOMMENDATION_SYSTEM_PROMPT,
             "activity_analysis" => ACTIVITY_ANALYSIS_PROMPT,
             "activity_analysis_system" => ACTIVITY_ANALYSIS_SYSTEM_PROMPT,
+            "tool_discipline" => TOOL_DISCIPLINE_PROMPT,
+            "tool_discipline_messaging" => TOOL_DISCIPLINE_MESSAGING_PROMPT,
+            "memory_extraction" => MEMORY_EXTRACTION_PROMPT,
             _ => "",
         }
     }

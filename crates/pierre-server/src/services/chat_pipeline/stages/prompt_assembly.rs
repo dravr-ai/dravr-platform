@@ -10,8 +10,6 @@ use pierre_core::models::coaches::CoachCategory;
 use pierre_core::models::CoachRuntimeContext;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_llm::prompts::{TOOL_DISCIPLINE_MESSAGING_PROMPT, TOOL_DISCIPLINE_PROMPT};
-
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
     KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
@@ -219,9 +217,9 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     // model toward structured output on channels where the user sees
     // only plain text.
     let tool_discipline_prompt = if profile.channel.is_messaging() {
-        TOOL_DISCIPLINE_MESSAGING_PROMPT
+        resources.tool_discipline_messaging_prompt()
     } else {
-        TOOL_DISCIPLINE_PROMPT
+        resources.tool_discipline_prompt()
     };
     let raw_system_prompt = format!("{raw_system_prompt}\n\n{tool_discipline_prompt}");
 
