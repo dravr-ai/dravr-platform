@@ -46,6 +46,15 @@ on:
       - "crates/pierre-server/tests/messaging_rendering_test.rs"
       - "crates/pierre-server/tests/slack_socket_unit_test.rs"
       - ".github/workflows/messaging-eval.yml"
+  # Cross-repo trigger fired by dravr-contremaitre when its prompt or
+  # strings files change. Lets a coach prompt regression flow through to
+  # this workflow within minutes instead of waiting for the next 04:00
+  # UTC nightly. The dispatching workflow lives at
+  # dravr-contremaitre/.github/workflows/notify-pierre.yml and posts to
+  # /repos/dravr-ai/dravr-platform/dispatches with a fine-grained PAT
+  # scoped to actions:write on this repo (PIERRE_DISPATCH_TOKEN).
+  repository_dispatch:
+    types: [contremaitre-prompt-changed]
 
 concurrency:
   group: messaging-eval-${{ github.ref }}
