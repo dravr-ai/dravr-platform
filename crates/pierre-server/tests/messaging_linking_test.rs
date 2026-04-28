@@ -19,7 +19,7 @@
 
 use chrono::{Duration, Utc};
 use pierre_database::{
-    plugins::{factory::Database, CreateChannelLinkParams, CreateLinkStateParams},
+    backends::{factory::Database, CreateChannelLinkParams, CreateLinkStateParams},
     DatabaseProvider,
 };
 #[cfg(feature = "postgresql")]

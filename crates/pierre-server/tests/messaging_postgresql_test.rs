@@ -9,7 +9,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{Duration, Utc};
-use pierre_database::plugins::{
+use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
 };
 use pierre_mcp_server::{

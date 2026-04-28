@@ -149,8 +149,8 @@ mod common;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 use pierre_mcp_server::{
     config::environment::{

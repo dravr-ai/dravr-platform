@@ -678,12 +678,6 @@ impl From<ProtocolError> for AppError {
             ProtocolError::Database { source } => {
                 Self::internal(format!("Database error: {source}"))
             }
-            ProtocolError::PluginNotFound { plugin_id } => {
-                Self::not_found(format!("plugin '{plugin_id}'"))
-            }
-            ProtocolError::PluginError { plugin_id, details } => {
-                Self::internal(format!("Plugin '{plugin_id}' error: {details}"))
-            }
             ProtocolError::InvalidSchema { entity, reason } => {
                 Self::invalid_input(format!("Invalid schema for {entity}: {reason}"))
             }

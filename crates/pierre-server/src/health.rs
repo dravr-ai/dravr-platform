@@ -37,8 +37,8 @@ use crate::constants::{
 };
 use crate::errors::AppResult;
 use crate::utils::http_client::get_health_check_timeout_secs;
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::{ApiKeyRepository, UserRepository};
+use pierre_database::backends::factory::Database;
+use pierre_database::backends::{ApiKeyRepository, UserRepository};
 
 /// Errors that can occur during health probe operations
 #[derive(Debug)]

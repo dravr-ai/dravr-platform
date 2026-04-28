@@ -143,7 +143,6 @@ impl From<&ServerResources> for ServerContext {
         );
 
         let extension = ExtensionContext::new(
-            resources.plugin_executor.clone(),
             resources.sampling_peer.clone(),
             resources.progress_notification_sender.clone(),
             resources.cancellation_registry.clone(),

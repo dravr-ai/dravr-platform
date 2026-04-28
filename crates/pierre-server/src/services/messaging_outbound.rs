@@ -11,7 +11,7 @@ use std::time::Duration;
 use pierre_core::errors::AppError;
 use pierre_core::models::messaging::{ChannelConfig, ChannelType};
 use pierre_core::models::TenantId;
-use pierre_database::plugins::MessagingRepository;
+use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use pierre_messaging::retry::{compute_retry_update, RetryDecision};

@@ -10,8 +10,8 @@
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
 use pierre_database::{
+    backends::{A2ARepository, ApiKeyRepository, UserRepository},
     database::{a2a::A2AUsage, Database},
-    plugins::{A2ARepository, ApiKeyRepository, UserRepository},
 };
 use pierre_mcp_server::{
     a2a::{

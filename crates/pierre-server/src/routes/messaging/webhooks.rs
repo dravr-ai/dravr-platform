@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use pierre_core::models::messaging::{ChannelType, IncomingMessage};
 use pierre_core::models::TenantId;
-use pierre_database::plugins::MessagingRepository;
+use pierre_database::backends::MessagingRepository;
 use pierre_messaging::channel::MessagingChannel;
 use pierre_messaging::factory::create_adapter_from_config;
 use serde::Deserialize;

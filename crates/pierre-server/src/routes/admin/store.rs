@@ -20,7 +20,7 @@ use crate::{
     errors::{AppError, AppResult},
     models::TenantId,
 };
-use pierre_database::plugins::StoreListingsRepository;
+use pierre_database::backends::StoreListingsRepository;
 
 use super::api_keys::json_response;
 use super::types::{CoachReviewQuery, ListPendingCoachesQuery, RejectCoachRequest};

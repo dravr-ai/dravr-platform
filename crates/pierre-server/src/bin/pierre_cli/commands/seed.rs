@@ -6,7 +6,7 @@
 
 use clap::Subcommand;
 use pierre_core::redaction::redact_url;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::errors::AppResult;
 use pierre_mcp_server::seeders;
 use tracing::info;

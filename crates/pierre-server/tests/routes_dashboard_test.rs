@@ -158,7 +158,7 @@ use pierre_auth::{
     auth::{AuthMethod, AuthResult},
     rate_limiting::UnifiedRateLimitInfo,
 };
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig, CorsConfig, DatabaseConfig,

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::PostgresDatabase;
-use crate::plugins::shared::encryption::HasEncryption;
+use crate::backends::shared::encryption::HasEncryption;
 use pierre_core::errors::{AppError, AppResult};
 
 // Implement encryption support for PostgreSQL (harmonize with SQLite security)

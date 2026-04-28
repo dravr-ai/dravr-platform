@@ -13,7 +13,7 @@ mod common;
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     models::{User, UserStatus, UserTier},

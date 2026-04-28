@@ -8,7 +8,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use pierre_database::plugins::shared::transactions::{retry_transaction, SqliteTransactionGuard};
+use pierre_database::backends::shared::transactions::{retry_transaction, SqliteTransactionGuard};
 use pierre_mcp_server::errors::AppError;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::Row;

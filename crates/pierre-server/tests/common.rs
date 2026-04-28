@@ -27,10 +27,10 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::AuthManager;
 use pierre_core::llm::LlmProvider;
-use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
-use pierre_database::plugins::DatabaseProvider;
+use pierre_database::backends::DatabaseProvider;
+use pierre_database::database::generate_encryption_key;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{

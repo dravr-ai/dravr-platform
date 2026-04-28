@@ -14,7 +14,7 @@ use crate::intelligence::ActivityAnalyzer;
 use crate::mcp::schema::{JsonSchema, ToolSchema};
 use crate::protocols::universal::{UniversalRequest, UniversalToolExecutor};
 use crate::types::TenantId;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;

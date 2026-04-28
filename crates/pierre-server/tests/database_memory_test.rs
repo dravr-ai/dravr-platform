@@ -10,8 +10,8 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::models::User;

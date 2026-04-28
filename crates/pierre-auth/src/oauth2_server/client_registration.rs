@@ -14,7 +14,7 @@ use argon2::{
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::OAuth2ServerRepository;
+use pierre_database::backends::OAuth2ServerRepository;
 use ring::rand::{SecureRandom, SystemRandom};
 use std::env;
 use std::sync::Arc;

@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_database::plugins::factory::{detect_database_type, DatabaseType};
+use pierre_database::backends::factory::{detect_database_type, DatabaseType};
 
 #[test]
 fn test_detect_database_type() {

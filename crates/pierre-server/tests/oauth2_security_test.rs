@@ -12,8 +12,8 @@ use pierre_auth::oauth2_server::{
     client_registration::ClientRegistrationManager, models::ClientRegistrationRequest,
 };
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

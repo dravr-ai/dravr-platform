@@ -20,7 +20,7 @@
 //! ## Example Usage
 //!
 //! ```text
-//! use pierre_database::plugins::shared::transactions::TransactionGuard;
+//! use pierre_database::backends::shared::transactions::TransactionGuard;
 //!
 //! async fn create_user_with_profile(pool: &SqlitePool) -> AppResult<()> {
 //!     let tx = pool.begin().await?;
@@ -42,7 +42,7 @@
 //! combine `TransactionGuard` with `retry_transaction`:
 //!
 //! ```text
-//! use pierre_database::plugins::shared::transactions::{
+//! use pierre_database::backends::shared::transactions::{
 //!     TransactionGuard, retry_transaction
 //! };
 //!
@@ -102,7 +102,7 @@ use pierre_core::errors::{AppError, AppResult};
 ///
 /// # Examples
 /// ```text
-/// use pierre_database::plugins::shared::transactions::retry_transaction;
+/// use pierre_database::backends::shared::transactions::retry_transaction;
 ///
 /// let result = retry_transaction(
 ///     || async {

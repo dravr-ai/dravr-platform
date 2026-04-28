@@ -6,7 +6,7 @@
 
 use super::super::RecipeRepository;
 use super::PostgresDatabase;
-use crate::plugins::shared::transactions::PostgresTransactionGuard;
+use crate::backends::shared::transactions::PostgresTransactionGuard;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};

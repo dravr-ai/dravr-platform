@@ -9,8 +9,8 @@
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest};
+use pierre_database::backends::factory::Database;
 use pierre_database::database::test_utils::create_test_db;
-use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::models::{User, UserStatus, UserTier};
 use uuid::Uuid;
 

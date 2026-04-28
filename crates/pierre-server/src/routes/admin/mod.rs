@@ -54,7 +54,7 @@ use crate::{
     tools::registry::ToolRegistry,
 };
 use pierre_auth::auth::AuthManager;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 
 /// Admin API context shared across all endpoints

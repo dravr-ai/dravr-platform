@@ -24,7 +24,7 @@ mod conversation_turn_e2e_tests {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_database::plugins::{
+    use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerResources;

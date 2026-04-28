@@ -54,7 +54,7 @@ mod pipeline_tool_loop {
         ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
         TokenUsage,
     };
-    use pierre_database::plugins::{
+    use pierre_database::backends::{
         CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerResources;

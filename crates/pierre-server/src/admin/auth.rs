@@ -26,7 +26,7 @@ use crate::admin::{
 };
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::utils::auth::extract_bearer_token_owned;
-use pierre_database::plugins::AdminRepository;
+use pierre_database::backends::AdminRepository;
 
 /// Admin authentication service
 #[derive(Clone)]

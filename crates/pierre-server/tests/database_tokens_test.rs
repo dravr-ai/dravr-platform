@@ -7,8 +7,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_database::backends::{OAuthTokenRepository, UserRepository};
 use pierre_database::database::Database;
-use pierre_database::plugins::{OAuthTokenRepository, UserRepository};
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_mcp_server::models::{
     DecryptedToken, TenantId, User, UserOAuthToken, UserStatus, UserTier,

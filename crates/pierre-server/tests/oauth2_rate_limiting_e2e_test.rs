@@ -16,8 +16,8 @@ use pierre_auth::{
     rate_limiting::OAuth2RateLimitConfig,
 };
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

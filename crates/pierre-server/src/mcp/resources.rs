@@ -47,7 +47,6 @@ use crate::middleware::provider_link_token::{
 };
 use crate::middleware::redaction::RedactionConfig;
 use crate::middleware::{CsrfMiddleware, McpAuthMiddleware};
-use crate::plugins::executor::PluginToolExecutor;
 use crate::protocols::universal::types::CancellationToken;
 use crate::providers::ProviderRegistry;
 use crate::services::commands::{
@@ -77,11 +76,11 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::tenant::{oauth_manager::TenantOAuthManager, TenantOAuthClient};
+use pierre_database::backends::factory::Database;
+use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
 };
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::StoreListingsRepository;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::strategies::tier::tier_strategy_for;
@@ -237,8 +236,6 @@ pub struct ServerResources {
     pub oauth_notification_sender: Option<broadcast::Sender<OAuthCompletedNotification>>,
     /// Cache layer for performance optimization
     pub cache: Arc<Cache>,
-    /// Optional plugin executor for custom tool implementations
-    pub plugin_executor: Option<Arc<PluginToolExecutor>>,
     /// Configuration for PII redaction in logs and responses
     pub redaction_config: Arc<RedactionConfig>,
     /// Rate limiter for `OAuth2` endpoints
@@ -628,7 +625,6 @@ impl ServerResources {
             a2a_system_user_service,
             oauth_notification_sender: None,
             cache: cache_arc,
-            plugin_executor: None,
             redaction_config,
             oauth2_rate_limiter,
             csrf_manager,
@@ -944,11 +940,6 @@ impl ServerResources {
         sender: broadcast::Sender<OAuthCompletedNotification>,
     ) {
         self.oauth_notification_sender = Some(sender);
-    }
-
-    /// Set the plugin executor after `ServerResources` is wrapped in Arc
-    pub fn set_plugin_executor(&mut self, executor: Arc<PluginToolExecutor>) {
-        self.plugin_executor = Some(executor);
     }
 
     /// Set the sampling peer for server-initiated LLM requests (stdio transport only)

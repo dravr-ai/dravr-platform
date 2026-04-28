@@ -155,7 +155,7 @@ use pierre_auth::{
     admin::jwks::JwksManager,
     auth::{AuthManager, JwtValidationError},
 };
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
     constants::oauth_providers,

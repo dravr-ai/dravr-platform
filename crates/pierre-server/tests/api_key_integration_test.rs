@@ -1,5 +1,8 @@
 // ABOUTME: Integration tests for API key authentication and MCP workflows
 // ABOUTME: Tests API key creation, validation, rate limiting, and MCP protocol integration
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 #![allow(
@@ -7,9 +10,6 @@
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap
 )]
-//
-// SPDX-License-Identifier: MIT OR Apache-2.0
-// Copyright (c) 2026 dravr.ai
 
 mod common;
 
@@ -18,7 +18,7 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, ApiKeyUsage, CreateApiKeyRequest},
     auth::{AuthManager, AuthMethod},
 };
-use pierre_database::{database::generate_encryption_key, plugins::factory::Database};
+use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{

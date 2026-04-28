@@ -10,7 +10,7 @@
 use crate::constants::get_server_config;
 use crate::errors::{AppError, AppResult};
 use crate::models::User;
-use pierre_database::plugins::UserRepository;
+use pierre_database::backends::UserRepository;
 use std::sync::Arc;
 use tracing::{debug, info};
 use uuid::Uuid;

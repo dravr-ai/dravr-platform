@@ -30,7 +30,7 @@ use crate::mcp::resources::ServerResources;
 use crate::mcp::tool_selection::ToolSelectionService;
 use crate::models::User;
 use crate::providers::ProviderRegistry;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 
 /// How the user authenticated for this request.
 ///

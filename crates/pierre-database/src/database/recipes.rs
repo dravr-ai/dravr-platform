@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::plugins::shared::transactions::SqliteTransactionGuard;
+use crate::backends::shared::transactions::SqliteTransactionGuard;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::recipes::{

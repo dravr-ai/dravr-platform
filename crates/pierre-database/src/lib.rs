@@ -28,7 +28,7 @@ pub mod seed_models;
 pub mod database;
 
 /// Database backend plugins (factory, shared utilities, `PostgreSQL`)
-pub mod plugins;
+pub mod backends;
 
 /// Trait-object registry for repository access without runtime enum dispatch
 pub mod repository_registry;

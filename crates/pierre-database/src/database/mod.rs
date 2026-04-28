@@ -105,7 +105,7 @@ pub use user_mcp_tokens::{
 };
 pub use user_oauth_tokens::OAuthTokenData;
 
-use crate::plugins::{shared, DatabaseProvider};
+use crate::backends::{shared, DatabaseProvider};
 use base64::engine::general_purpose::{self, STANDARD};
 use base64::Engine;
 use chrono::{DateTime, Utc};

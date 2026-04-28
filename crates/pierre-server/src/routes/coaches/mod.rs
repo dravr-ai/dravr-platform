@@ -26,8 +26,8 @@ use axum::{
 };
 use chrono::Utc;
 use pierre_auth::auth::AuthResult;
+use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::CoachesRepository;
-use pierre_database::plugins::StoreListingsRepository;
 use std::sync::Arc;
 
 pub use types::{

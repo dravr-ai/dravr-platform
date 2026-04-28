@@ -34,8 +34,8 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::Database as SqliteBackend;
-use pierre_database::plugins::factory::Database;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::VerificationConfig;

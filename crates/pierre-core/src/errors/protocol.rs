@@ -1,5 +1,8 @@
 // ABOUTME: Protocol error types for MCP and A2A protocol operations
 // ABOUTME: Defines ProtocolType enum and ProtocolError with structured context
+//
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 dravr.ai
 
 use std::error::Error;
 
@@ -88,22 +91,6 @@ pub enum ProtocolError {
         /// Underlying database error
         #[from]
         source: DatabaseError,
-    },
-
-    /// Plugin not found
-    #[error("Plugin '{plugin_id}' not found")]
-    PluginNotFound {
-        /// ID of the plugin that was not found
-        plugin_id: String,
-    },
-
-    /// Plugin execution error
-    #[error("Plugin '{plugin_id}' error: {details}")]
-    PluginError {
-        /// ID of the plugin
-        plugin_id: String,
-        /// Error details
-        details: String,
     },
 
     /// Invalid schema

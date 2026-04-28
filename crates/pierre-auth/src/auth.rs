@@ -37,7 +37,7 @@ use pierre_core::constants::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{AuthRequest, AuthResponse, User, UserSession};
 use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::plugins::UserRepository;
+use pierre_database::backends::UserRepository;
 
 /// Response for checking system setup status
 ///

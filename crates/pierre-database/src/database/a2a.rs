@@ -7,8 +7,8 @@
 use std::fmt::Write;
 
 use super::Database;
-use crate::plugins::shared::transactions::SqliteTransactionGuard;
-use crate::plugins::shared::{enums, mappers};
+use crate::backends::shared::transactions::SqliteTransactionGuard;
+use crate::backends::shared::{enums, mappers};
 use crate::repositories::A2ARepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};

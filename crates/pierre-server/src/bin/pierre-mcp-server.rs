@@ -16,7 +16,7 @@ use clap::{error::ErrorKind, Parser};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::key_management::KeyManager;
 use pierre_core::redaction::redact_url;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "provider-synthetic")]
 use pierre_mcp_server::providers::set_synthetic_database_pool;
@@ -34,7 +34,6 @@ use pierre_mcp_server::{
         resources::{ServerResources, ServerResourcesOptions},
         transport_manager::TransportManager,
     },
-    plugins::executor::PluginToolExecutor,
     utils::{http_client::initialize_http_clients, route_timeout::initialize_route_timeouts},
 };
 
@@ -557,7 +556,7 @@ async fn create_server(
         info!("Synthetic provider database pool initialized");
     }
 
-    let resources = initialize_plugins_and_workers(resources_instance);
+    let resources = spawn_background_workers(resources_instance);
 
     // Initialize ops notifier (Slack or noop) and send deploy notification
     pierre_mcp_server::init_ops_notifier();
@@ -569,23 +568,8 @@ async fn create_server(
     MultiTenantMcpServer::new(resources)
 }
 
-/// Initialize plugin system and background workers, returning the finalized resources
-fn initialize_plugins_and_workers(mut resources_instance: ServerResources) -> Arc<ServerResources> {
-    // Wrap in Arc for plugin executor initialization
-    let resources_arc = Arc::new(resources_instance.clone());
-
-    // Initialize plugin system with resources
-    let plugin_executor = PluginToolExecutor::new(resources_arc);
-    info!(
-        "Plugin system initialized: {} core tools, {} plugin tools",
-        plugin_executor.get_statistics().core_tools,
-        plugin_executor.get_statistics().plugin_tools
-    );
-
-    // Set plugin executor back on resources
-    resources_instance.set_plugin_executor(Arc::new(plugin_executor));
-
-    // Use the updated resources instance
+/// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
+fn spawn_background_workers(resources_instance: ServerResources) -> Arc<ServerResources> {
     let resources = Arc::new(resources_instance);
 
     // Start messaging outbound retry worker (polls queue every 5 seconds)

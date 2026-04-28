@@ -14,7 +14,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{

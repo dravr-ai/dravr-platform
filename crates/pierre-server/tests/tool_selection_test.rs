@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::ToolSelectionConfig,
     mcp::tool_selection::ToolSelectionService,

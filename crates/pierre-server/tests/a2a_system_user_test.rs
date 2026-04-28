@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_database::plugins::{factory::Database, DatabaseProvider, UserRepository};
+use pierre_database::backends::{factory::Database, DatabaseProvider, UserRepository};
 use pierre_mcp_server::a2a::system_user::A2ASystemUserService;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

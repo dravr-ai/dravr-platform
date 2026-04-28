@@ -9,7 +9,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::Utc;
-use pierre_database::{database::AddMessageParams, plugins::factory::Database};
+use pierre_database::{backends::factory::Database, database::AddMessageParams};
 use pierre_mcp_server::{
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
     permissions::UserRole,

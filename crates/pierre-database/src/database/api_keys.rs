@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
-use crate::plugins::ApiKeyRepository;
+use crate::backends::ApiKeyRepository;
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};

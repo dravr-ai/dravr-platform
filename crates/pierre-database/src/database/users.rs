@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use super::Database;
-use crate::plugins::shared;
+use crate::backends::shared;
 use crate::repositories::{ProfileRepository, UserRepository};
 use async_trait::async_trait;
 use pierre_core::errors::{AppError, AppResult};

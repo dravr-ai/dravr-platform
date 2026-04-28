@@ -27,7 +27,7 @@ mod messaging_e2e_tests {
     use axum::http::StatusCode;
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
-    use pierre_database::plugins::{
+    use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::mcp::resources::ServerResources;

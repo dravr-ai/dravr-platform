@@ -28,7 +28,7 @@ use pierre_auth::tenant::llm_manager::{
     CredentialSource, LlmCredentials, LlmProvider, StoreLlmCredentialsRequest, TenantLlmManager,
 };
 use pierre_core::models::LlmCredentialSummary;
-use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
+use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 
 /// Request to save LLM credentials
 #[derive(Debug, Deserialize)]
