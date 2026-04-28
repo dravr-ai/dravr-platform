@@ -6,10 +6,6 @@
 
 use std::sync::Arc;
 
-use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::CoachRuntimeContext;
-use pierre_core::uuid_utils::parse_uuid;
-use pierre_database::database::{ConversationRecord, MessageRecord};
 use crate::contremaitre::messaging_strings::{
     DEFAULT_LOCALE, KEY_CAPABILITY_REFUSAL, KEY_COACH_SCOPE_CARVE_OUT_NUTRITION,
     KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_SCOPE_REFUSAL,
@@ -18,6 +14,10 @@ use crate::errors::AppResult;
 use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerResources;
 use crate::services::prompt_leak;
+use pierre_core::models::coaches::CoachCategory;
+use pierre_core::models::CoachRuntimeContext;
+use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::database::{ConversationRecord, MessageRecord};
 
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;

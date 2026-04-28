@@ -89,7 +89,10 @@ impl PromptRegistry {
             ("activity_analysis", ACTIVITY_ANALYSIS_PROMPT),
             ("activity_analysis_system", ACTIVITY_ANALYSIS_SYSTEM_PROMPT),
             ("tool_discipline", TOOL_DISCIPLINE_PROMPT),
-            ("tool_discipline_messaging", TOOL_DISCIPLINE_MESSAGING_PROMPT),
+            (
+                "tool_discipline_messaging",
+                TOOL_DISCIPLINE_MESSAGING_PROMPT,
+            ),
             ("memory_extraction", MEMORY_EXTRACTION_PROMPT),
         ];
 
