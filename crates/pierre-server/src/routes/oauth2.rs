@@ -32,8 +32,8 @@ use pierre_auth::oauth2_server::{
     },
     rate_limiting::OAuth2RateLimiter,
 };
+use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
-use pierre_database::plugins::{factory::Database, OAuth2ServerRepository};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,

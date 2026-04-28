@@ -163,7 +163,7 @@ When a service is configured in `.mcp.json`, **always use its MCP tools first** 
 
 ## Rust Workspace Architecture
 
-The backend is a Cargo workspace with 9 crates under `crates/`. Leaf crates are independent, reusable modules — none depend on `pierre_mcp_server`.
+The backend is a Cargo workspace with 14 crates under `crates/`. Leaf crates are independent, reusable modules — none depend on `pierre_mcp_server`. Tool extensibility lives in `pierre-server`'s `tools::ToolRegistry` (implement `McpTool` and register in `register_builtin_tools`).
 
 ### Test Location
 All integration tests live in `crates/pierre-server/tests/` (234 files). Doc tests compile per-crate. No `#[cfg(test)]` in `src/` — tests are external only.

@@ -14,7 +14,7 @@ use pierre_core::permissions::UserRole;
 /// # Examples
 /// ```
 /// use pierre_core::models::UserTier;
-/// use pierre_database::plugins::shared::enums::user_tier_to_str;
+/// use pierre_database::backends::shared::enums::user_tier_to_str;
 ///
 /// assert_eq!(user_tier_to_str(&UserTier::Starter), "starter");
 /// assert_eq!(user_tier_to_str(&UserTier::Professional), "professional");
@@ -37,7 +37,7 @@ pub const fn user_tier_to_str(tier: &UserTier) -> &'static str {
 /// # Examples
 /// ```
 /// use pierre_core::models::UserTier;
-/// use pierre_database::plugins::shared::enums::str_to_user_tier;
+/// use pierre_database::backends::shared::enums::str_to_user_tier;
 ///
 /// assert_eq!(str_to_user_tier("professional"), UserTier::Professional);
 /// assert_eq!(str_to_user_tier("unknown"), UserTier::Starter); // Default
@@ -56,7 +56,7 @@ pub fn str_to_user_tier(s: &str) -> UserTier {
 /// # Examples
 /// ```
 /// use pierre_core::models::UserStatus;
-/// use pierre_database::plugins::shared::enums::user_status_to_str;
+/// use pierre_database::backends::shared::enums::user_status_to_str;
 ///
 /// assert_eq!(user_status_to_str(&UserStatus::Active), "active");
 /// assert_eq!(user_status_to_str(&UserStatus::Pending), "pending");
@@ -79,7 +79,7 @@ pub const fn user_status_to_str(status: &UserStatus) -> &'static str {
 /// # Examples
 /// ```
 /// use pierre_core::models::UserStatus;
-/// use pierre_database::plugins::shared::enums::str_to_user_status;
+/// use pierre_database::backends::shared::enums::str_to_user_status;
 ///
 /// assert_eq!(str_to_user_status("pending"), UserStatus::Pending);
 /// assert_eq!(str_to_user_status("suspended"), UserStatus::Suspended);
@@ -99,7 +99,7 @@ pub fn str_to_user_status(s: &str) -> UserStatus {
 /// # Examples
 /// ```
 /// use pierre_core::models::a2a::TaskStatus;
-/// use pierre_database::plugins::shared::enums::task_status_to_str;
+/// use pierre_database::backends::shared::enums::task_status_to_str;
 ///
 /// assert_eq!(task_status_to_str(&TaskStatus::Pending), "pending");
 /// assert_eq!(task_status_to_str(&TaskStatus::Running), "running");
@@ -127,7 +127,7 @@ pub fn task_status_to_str(status: &TaskStatus) -> &'static str {
 /// # Examples
 /// ```
 /// use pierre_core::models::a2a::TaskStatus;
-/// use pierre_database::plugins::shared::enums::str_to_task_status;
+/// use pierre_database::backends::shared::enums::str_to_task_status;
 ///
 /// assert_eq!(str_to_task_status("running"), TaskStatus::Running);
 /// assert_eq!(str_to_task_status("completed"), TaskStatus::Completed);
@@ -149,7 +149,7 @@ pub fn str_to_task_status(s: &str) -> TaskStatus {
 /// # Examples
 /// ```
 /// use pierre_core::permissions::UserRole;
-/// use pierre_database::plugins::shared::enums::user_role_to_str;
+/// use pierre_database::backends::shared::enums::user_role_to_str;
 ///
 /// assert_eq!(user_role_to_str(&UserRole::SuperAdmin), "super_admin");
 /// assert_eq!(user_role_to_str(&UserRole::Admin), "admin");
@@ -168,7 +168,7 @@ pub const fn user_role_to_str(role: &UserRole) -> &'static str {
 /// # Examples
 /// ```
 /// use pierre_core::permissions::UserRole;
-/// use pierre_database::plugins::shared::enums::str_to_user_role;
+/// use pierre_database::backends::shared::enums::str_to_user_role;
 ///
 /// assert_eq!(str_to_user_role("super_admin"), UserRole::SuperAdmin);
 /// assert_eq!(str_to_user_role("admin"), UserRole::Admin);

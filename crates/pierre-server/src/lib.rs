@@ -148,9 +148,6 @@ pub mod pagination;
 /// Role-based permission system with `super_admin`, `admin`, `user` hierarchy
 pub mod permissions;
 
-/// Compile-time plugin system for extensible tool architecture
-pub mod plugins;
-
 /// Universal protocol support for MCP and A2A
 pub mod protocols;
 

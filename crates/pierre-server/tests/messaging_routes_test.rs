@@ -310,7 +310,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_slack_webhook_challenge_response() {
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -378,7 +378,7 @@ mod messaging_routes_tests {
     #[tokio::test]
     async fn test_discord_webhook_ping_response() {
         use ed25519_dalek::Signer;
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use rand::RngCore;
         use uuid::Uuid;
 
@@ -444,7 +444,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_unlinked_user_webhook_returns_link_url() {
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -517,7 +517,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_send_failure_enqueues_for_retry() {
-        use pierre_database::plugins::{
+        use pierre_database::backends::{
             CreateSessionParams, InsertMessageParams, MessagingRepository,
         };
         use uuid::Uuid;
@@ -596,7 +596,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_upsert_with_verify_token_roundtrips() {
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -647,7 +647,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_meta_verify_prefers_verify_token_over_webhook_secret() {
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();
@@ -707,7 +707,7 @@ mod messaging_routes_tests {
 
     #[tokio::test]
     async fn test_meta_verify_falls_back_to_webhook_secret_when_no_verify_token() {
-        use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+        use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
         let resources = create_test_server_resources().await.unwrap();

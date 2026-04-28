@@ -13,7 +13,7 @@ use crate::tenant::TenantContext;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::models::TenantOAuthCredentials;
-use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
+use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
 use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;

@@ -13,7 +13,7 @@ use pierre_core::models::messaging::{
 use pierre_core::models::{ConversationTurnId, TenantId, User};
 use pierre_core::safety::{scan as scan_for_injection, SanitizationOutcome};
 use pierre_core::tokens::estimate_chat_tokens;
-use pierre_database::plugins::{
+use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, InsertMessageParams,
     MessagingRepository, TenantRepository, UserRepository,
 };

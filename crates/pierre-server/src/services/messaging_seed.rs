@@ -7,7 +7,7 @@
 use std::env;
 
 use pierre_core::models::TenantId;
-use pierre_database::plugins::UpsertChannelConfigParams;
+use pierre_database::backends::UpsertChannelConfigParams;
 use pierre_database::repositories::MessagingRepository;
 use pierre_database::RepositoryRegistry;
 use tracing::{info, warn};

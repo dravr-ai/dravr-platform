@@ -11,7 +11,7 @@ use crate::protocols::universal::{UniversalResponse, UniversalToolExecutor};
 use crate::providers::core::FitnessProvider;
 use crate::providers::{OAuth2Credentials, ProviderRegistry};
 use pierre_auth::tenant::TenantOAuthClient;
-use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
+use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;

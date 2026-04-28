@@ -18,7 +18,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::{Duration, Utc};
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_database::plugins::{OAuth2ServerRepository, TenantRepository, UserRepository};
+use pierre_database::backends::{OAuth2ServerRepository, TenantRepository, UserRepository};
 use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;

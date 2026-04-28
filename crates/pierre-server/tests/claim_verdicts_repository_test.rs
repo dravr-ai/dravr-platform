@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::factory::Database;
 use pierre_database::repositories::InsertClaimVerdictParams;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

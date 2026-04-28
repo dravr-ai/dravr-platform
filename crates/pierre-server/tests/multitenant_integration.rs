@@ -146,8 +146,8 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::auth::AuthManager;
+use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::factory::Database;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},
     config::environment::{

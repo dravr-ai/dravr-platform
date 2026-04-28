@@ -22,7 +22,7 @@
 mod common;
 
 use anyhow::Result;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     constants::tools::PUBLIC_DISCOVERY_TOOLS, mcp::resources::ServerResources,
     tools::registry::ToolRegistry,

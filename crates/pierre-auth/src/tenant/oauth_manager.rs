@@ -13,7 +13,7 @@ use pierre_core::constants::rate_limits::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{TenantId, TenantOAuthCredentials};
-use pierre_database::plugins::{OAuthTokenRepository, TenantRepository};
+use pierre_database::backends::{OAuthTokenRepository, TenantRepository};
 use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;

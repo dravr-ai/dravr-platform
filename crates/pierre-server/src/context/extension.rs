@@ -1,30 +1,27 @@
-// ABOUTME: Extension context for dependency injection of plugin and protocol services
-// ABOUTME: Contains plugin executor, sampling peer, and progress notification channels for MCP extensions
+// ABOUTME: Extension context for dependency injection of MCP protocol services
+// ABOUTME: Contains sampling peer and progress notification channels for MCP extensions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use crate::mcp::sampling_peer::SamplingPeer;
 use crate::mcp::schema::ProgressNotification;
-use crate::plugins::executor::PluginToolExecutor;
 use crate::protocols::universal::types::CancellationToken;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
-/// Extension context containing plugin and protocol dependencies
+/// Extension context containing protocol-extension dependencies
 ///
-/// This context provides all extension-related dependencies needed for
-/// plugin execution, server-initiated LLM requests, and progress tracking.
+/// Provides MCP-extension dependencies for server-initiated LLM requests
+/// and progress tracking.
 ///
 /// # Dependencies
-/// - `plugin_executor`: Optional plugin executor for custom tool implementations
 /// - `sampling_peer`: Optional sampling peer for server-initiated LLM requests (stdio transport only)
 /// - `progress_notification_sender`: Optional channel for progress notifications (stdio transport only)
 /// - `cancellation_registry`: Registry mapping progress tokens to cancellation tokens
 #[derive(Clone)]
 pub struct ExtensionContext {
-    plugin_executor: Option<Arc<PluginToolExecutor>>,
     sampling_peer: Option<Arc<SamplingPeer>>,
     progress_notification_sender: Option<mpsc::UnboundedSender<ProgressNotification>>,
     cancellation_registry: Arc<RwLock<HashMap<String, CancellationToken>>>,
@@ -34,23 +31,15 @@ impl ExtensionContext {
     /// Create new extension context
     #[must_use]
     pub const fn new(
-        plugin_executor: Option<Arc<PluginToolExecutor>>,
         sampling_peer: Option<Arc<SamplingPeer>>,
         progress_notification_sender: Option<mpsc::UnboundedSender<ProgressNotification>>,
         cancellation_registry: Arc<RwLock<HashMap<String, CancellationToken>>>,
     ) -> Self {
         Self {
-            plugin_executor,
             sampling_peer,
             progress_notification_sender,
             cancellation_registry,
         }
-    }
-
-    /// Get plugin executor for custom tool implementations
-    #[must_use]
-    pub const fn plugin_executor(&self) -> &Option<Arc<PluginToolExecutor>> {
-        &self.plugin_executor
     }
 
     /// Get sampling peer for server-initiated LLM requests

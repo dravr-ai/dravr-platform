@@ -13,11 +13,11 @@ mod helpers;
 use anyhow::Result;
 use helpers::axum_test::AxumTestRequest;
 use pierre_database::{
+    backends::factory::Database,
     database::coaches::{
         CoachCategory, CoachVisibility, CoachesManager, CreateSystemCoachRequest, PublishStatus,
     },
     database::{Coach, StoreListingsManager},
-    plugins::factory::Database,
 };
 use pierre_mcp_server::{
     admin::{

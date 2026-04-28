@@ -11,7 +11,7 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::key_management::KeyManager;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::admin::{jwt::AdminJwtManager, models::CreateAdminTokenRequest};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

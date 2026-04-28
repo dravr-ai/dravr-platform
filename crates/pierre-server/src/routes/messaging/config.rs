@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::{MessagingRepository, UpsertChannelConfigParams};
+use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;

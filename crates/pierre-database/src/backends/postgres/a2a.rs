@@ -6,8 +6,8 @@
 
 use super::super::A2ARepository;
 use super::PostgresDatabase;
+use crate::backends::shared;
 use crate::database::{A2AUsage, A2AUsageStats};
-use crate::plugins::shared;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};

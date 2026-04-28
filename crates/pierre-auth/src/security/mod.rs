@@ -15,7 +15,7 @@
 use crate::security::key_rotation::KeyVersion;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::plugins::SecurityRepository;
+use pierre_database::backends::SecurityRepository;
 use ring::{
     aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM},
     hkdf::{Salt, HKDF_SHA256},

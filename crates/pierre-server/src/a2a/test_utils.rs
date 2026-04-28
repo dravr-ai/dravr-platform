@@ -7,7 +7,7 @@
 //!
 //! Common functions to reduce code duplication in A2A tests
 
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use std::sync::Arc;
 
 

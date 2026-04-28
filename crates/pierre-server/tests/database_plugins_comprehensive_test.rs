@@ -16,8 +16,8 @@ use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier, ApiKeyUsage};
 use pierre_core::models::JwtUsage;
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

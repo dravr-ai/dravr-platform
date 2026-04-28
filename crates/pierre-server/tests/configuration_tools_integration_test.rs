@@ -14,7 +14,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::{admin::jwks::JwksManager, auth::AuthManager};
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     mcp::{
         multitenant::{McpRequest, McpResponse, MultiTenantMcpServer},

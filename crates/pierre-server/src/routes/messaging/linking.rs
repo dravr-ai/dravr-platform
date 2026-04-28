@@ -12,7 +12,7 @@ use chrono::{Duration, Utc};
 use pierre_core::errors::messaging::MessagingError;
 use pierre_core::models::messaging::{ChannelType, LinkingMethod, LINK_CODE_TTL_MINUTES};
 use pierre_core::models::{TenantId, User};
-use pierre_database::plugins::{
+use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
     UserRepository,
 };

@@ -6,7 +6,7 @@
 
 use super::super::{ProfileRepository, UserRepository};
 use super::PostgresDatabase;
-use crate::plugins::shared;
+use crate::backends::shared;
 use async_trait::async_trait;
 use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};

@@ -27,7 +27,7 @@ use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::models::usage::InsertLlmUsage;
 use pierre_core::models::ConversationTurnId;
-use pierre_database::plugins::NotificationRepository;
+use pierre_database::backends::NotificationRepository;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
 use std::fmt::Write;

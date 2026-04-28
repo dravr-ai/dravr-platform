@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 
 use crate::config::admin::service::AdminConfigService;
 use crate::services::usage_counter::UsageCounterService;
-use pierre_database::plugins::UsageCounterRepository;
+use pierre_database::backends::UsageCounterRepository;
 
 /// Number of seconds in one hour
 const HOUR_SECONDS: u64 = 3_600;

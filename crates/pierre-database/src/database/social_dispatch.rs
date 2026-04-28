@@ -14,7 +14,7 @@ use pierre_core::models::{
 };
 
 #[cfg(feature = "postgresql")]
-use crate::plugins::social_postgres::PostgresSocialManager;
+use crate::backends::social_postgres::PostgresSocialManager;
 
 /// Backend-agnostic social manager that dispatches to either `SQLite` or `PostgreSQL`
 ///

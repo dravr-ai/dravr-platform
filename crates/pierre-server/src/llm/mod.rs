@@ -27,7 +27,7 @@ use crate::errors::AppError;
 use pierre_auth::tenant::llm_manager::{
     LlmCredentials, LlmProvider as TenantLlmProvider, TenantLlmManager,
 };
-use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
+use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 
 /// Create a `ChatProvider` for a specific tenant and user
 ///

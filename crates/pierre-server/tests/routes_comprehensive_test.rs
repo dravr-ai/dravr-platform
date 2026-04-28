@@ -13,7 +13,7 @@
 
 use anyhow::Result;
 use pierre_auth::tenant::TenantOAuthCredentials;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, CacheConfig as EnvCacheConfig, CorsConfig,

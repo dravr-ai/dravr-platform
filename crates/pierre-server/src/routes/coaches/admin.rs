@@ -16,8 +16,8 @@ use axum::{
 };
 use pierre_core::models::coaches::Coach;
 use pierre_core::models::coaches::UpdateCoachRequest;
+use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::store_listings::CoachWithListing;
-use pierre_database::plugins::StoreListingsRepository;
 use std::sync::Arc;
 
 #[cfg(feature = "client-notifications")]

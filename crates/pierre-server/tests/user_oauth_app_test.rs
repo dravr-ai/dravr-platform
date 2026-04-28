@@ -18,8 +18,8 @@ use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;

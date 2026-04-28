@@ -16,8 +16,8 @@ use pierre_auth::{
     tenant::TenantOAuthCredentials,
 };
 use pierre_database::{
+    backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
-    plugins::{factory::Database, DatabaseProvider},
 };
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig as MemoryCacheConfig},

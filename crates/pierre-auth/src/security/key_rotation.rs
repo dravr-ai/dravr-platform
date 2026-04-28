@@ -16,7 +16,7 @@ use chrono::{Duration as ChronoDuration, Timelike, Utc};
 use pierre_core::constants::time;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::{SecurityRepository, TenantRepository};
+use pierre_database::backends::{SecurityRepository, TenantRepository};
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
 use tokio::{

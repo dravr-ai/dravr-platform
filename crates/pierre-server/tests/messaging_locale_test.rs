@@ -17,7 +17,7 @@ mod common;
 use std::sync::Arc;
 
 use chrono::Utc;
-use pierre_database::plugins::CreateChannelLinkParams;
+use pierre_database::backends::CreateChannelLinkParams;
 use pierre_mcp_server::contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_CAPABILITY_REFUSAL, KEY_COACH_ASSIGN_FORBIDDEN,
     KEY_COACH_SCOPE_CARVE_OUT_NUTRITION, KEY_COACH_SCOPE_CARVE_OUT_RECIPES, KEY_GROUP_LIST_EMPTY,

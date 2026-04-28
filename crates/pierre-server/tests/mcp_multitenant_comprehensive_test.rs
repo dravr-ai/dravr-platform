@@ -12,7 +12,7 @@
 #![allow(missing_docs)]
 
 use anyhow::Result;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     mcp::multitenant::{McpRequest, MultiTenantMcpServer},
     models::{Tenant, User},

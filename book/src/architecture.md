@@ -96,7 +96,7 @@ Pierre Fitness Platform is a multi-protocol fitness data platform that connects 
 ### Database (`src/database/`)
 - **repository pattern**: focused repositories following SOLID principles
 - repositories constructed via `RepositoryImpl::new(db)` pattern
-- pluggable backend (sqlite, postgresql) via `src/database_plugins/`
+- pluggable backend (sqlite, postgresql) via `crates/pierre-database/`
 - encrypted token storage
 - multi-tenant isolation
 
@@ -126,8 +126,8 @@ The database layer implements the repository pattern with focused, cohesive repo
 
 **repository construction pattern** (`src/database/repositories/`):
 ```rust
-use crate::database::repositories::{UserRepository, UserRepositoryImpl};
-use crate::database_plugins::factory::Database;
+use pierre_database::repositories::UserRepository;
+use pierre_database::backends::factory::Database;
 
 // Construct repository with database connection
 let db: Database = /* ... */;
@@ -313,7 +313,7 @@ Business logic in `protocols::universal` works for both mcp and a2a. Write once,
 ### Pluggable Architecture
 - database: sqlite (dev) or postgresql (prod)
 - cache: in-memory lru or redis (distributed caching)
-- tools: compile-time plugin system via `linkme`
+- tools: `tools::ToolRegistry` (`McpTool` trait, registered in `register_builtin_tools`)
 
 ### Runtime SQL Queries
 
@@ -323,13 +323,13 @@ The codebase uses `sqlx::query()` (runtime validation) exclusively, not `sqlx::q
 - **Multi-database support**: SQLite and PostgreSQL have different SQL dialects (`?1` vs `$1`). Compile-time macros lock to one database.
 - **No build-time database**: `query!` macros require `DATABASE_URL` at compile time. Runtime queries allow building without a database.
 - **CI simplicity**: No need for `sqlx prepare` or database containers during builds.
-- **Plugin architecture**: `DatabaseProvider` trait enables runtime database selection.
+- **Backend abstraction**: `DatabaseProvider` trait enables runtime database selection.
 
 **Trade-off:**
 - No compile-time SQL validation - typos caught at runtime, not build time
 - Mitigated by comprehensive integration tests against both databases
 
-Implementation: `src/database_plugins/mod.rs` (trait), `src/database_plugins/postgres.rs`, `src/database/`
+Implementation: `crates/pierre-database/src/backends/mod.rs` (trait), `crates/pierre-database/src/backends/postgres/`, `crates/pierre-database/src/database/`
 
 ### SDK Architecture
 
@@ -376,20 +376,28 @@ Usage: `npm run generate-types` (requires running server on port 8081)
 
 ## Workspace Architecture
 
-Pierre is a Rust workspace with 7 crates for parallel compilation and modularity:
+Pierre is a Rust workspace with 14 crates for parallel compilation and modularity:
 
 | Crate | Path | Description |
 |-------|------|-------------|
-| `pierre_mcp_server` | `src/` | Main binary: routes, MCP protocol, tools, database |
-| `pierre-core` | `crates/pierre-core/` | Shared types, errors, pagination, constants, redaction |
-| `pierre-intelligence` | `crates/pierre-intelligence/` | Sports science algorithms (VDOT, TSS, TRIMP, FTP) |
-| `pierre-providers` | `crates/pierre-providers/` | Fitness provider integrations (Strava, Garmin, etc.) |
-| `pierre-database` | `crates/pierre-database/` | Repository trait definitions |
-| `pierre-llm` | `crates/pierre-llm/` | LLM provider integrations (Gemini, Groq, Ollama) |
-| `pierre-cache` | `crates/pierre-cache/` | Pluggable cache layer (in-memory LRU + Redis) |
+| `pierre_mcp_server` | `crates/pierre-server/` | Main binary: routes, MCP protocol, tools, transports, orchestration |
+| `pierre-database` | `crates/pierre-database/` | Database abstraction with repository traits and SQLite/PostgreSQL backends |
+| `pierre-core` | `crates/pierre-core/` | Core types, errors, pagination, redaction, constants |
+| `pierre-providers` | `crates/pierre-providers/` | Fitness provider integrations (Strava, Garmin, Fitbit, WHOOP, COROS, Terra) |
+| `pierre-auth` | `crates/pierre-auth/` | Authentication, authorization, JWT, OAuth2 server, CSRF |
+| `pierre-llm` | `crates/pierre-llm/` | LLM provider abstraction (Gemini, Groq, OpenAI-compatible, Ollama) |
+| `pierre-evals` | `crates/pierre-evals/` | Coach evaluation harness (golden sets, LLM-as-judge, deterministic checks) |
+| `pierre-groups` | `crates/pierre-groups/` | Group coaching business logic |
+| `pierre-cache` | `crates/pierre-cache/` | Cache abstraction with tenant isolation (in-memory LRU + Redis) |
 | `pierre-a2a` | `crates/pierre-a2a/` | A2A protocol types and agent card (feature-gated) |
+| `pierre-memory` | `crates/pierre-memory/` | Coaching harness memory (facts, compaction, sessions, notes, followups) |
+| `pierre-intelligence` | `crates/pierre-intelligence/` | Bridge re-exporting `dravr-cageux` fitness intelligence |
+| `pierre-messaging` | `crates/pierre-messaging/` | Bridge re-exporting `dravr-canot` multi-channel messaging |
+| `pierre-notifications` | `crates/pierre-notifications/` | Bridge re-exporting `dravr-commere` push notifications |
 
 The main crate (`pierre_mcp_server`) depends on all library crates. Library crates can depend on `pierre-core` but not on each other or on the main crate. `pierre-a2a` is optional, gated behind the `protocol-a2a` feature flag.
+
+Tool extensibility is provided by `pierre-server`'s `tools::ToolRegistry`: implement the `McpTool` trait under `crates/pierre-server/src/tools/implementations/<category>/` and register the impl in `ToolRegistry::register_builtin_tools`.
 
 ## File Structure
 
@@ -419,7 +427,7 @@ src/
 ├── database/                  # repository pattern (18 focused repositories)
 │   ├── repositories/          # repository trait definitions and implementations
 │   └── ...                    # user, oauth token, api key management modules
-├── database_plugins/          # database backends (sqlite, postgresql)
+│                              # (database backends live in crates/pierre-database/src/backends/)
 ├── admin/                     # admin authentication
 ├── context/                   # focused di contexts (auth, data, config, notification)
 ├── auth.rs                    # authentication
@@ -469,26 +477,17 @@ Stateless server design. Scale by adding instances behind load balancer. Shared 
 - distributed cache: redis support for multi-instance deployments
 - in-memory fallback: lru cache with automatic eviction
 
-## Plugin Lifecycle
+## Tool Extensibility
 
-Compile-time plugin system using `linkme` crate for intelligence modules.
+Tool dispatch is driven by `tools::ToolRegistry` in `crates/pierre-server/src/tools/`.
+Tools implement the `McpTool` trait (one impl per tool, executed by `McpTool::execute`)
+and are registered through `ToolRegistry::register_builtin_tools`. Capability flags
+on each impl drive admin/user filtering at list time, and feature flags
+(`tools-data`, `tools-analytics`, `tools-coaches`, …) gate categories at compile time.
 
-Plugins stored in `src/intelligence/plugins/`:
-- zone-based intensity analysis
-- training recommendations
-- performance trend detection
-- goal feasibility analysis
-
-Lifecycle hooks:
-- `init()` - plugin initialization
-- `execute()` - tool execution
-- `validate()` - parameter validation
-- `cleanup()` - resource cleanup
-
-Plugins registered at compile time via `#[distributed_slice(PLUGINS)]` attribute.
-No runtime loading, zero overhead plugin discovery.
-
-Implementation: `src/intelligence/plugins/mod.rs`, `src/lifecycle/`
+Implementation: `crates/pierre-server/src/tools/registry.rs` (registry),
+`crates/pierre-server/src/tools/traits.rs` (`McpTool` + `ToolCapabilities`),
+`crates/pierre-server/src/tools/implementations/` (per-category tool bodies).
 
 ## Algorithm Dependency Injection
 
@@ -679,7 +678,7 @@ Endpoints using cursor pagination:
 - `GET /admin/users/pending?cursor=<cursor>&limit=20`
 - `GET /admin/users/active?cursor=<cursor>&limit=20`
 
-Implementation: `src/pagination/`, `src/database/users.rs:668-737`, `src/database_plugins/postgres.rs:378-420`
+Implementation: `crates/pierre-core/src/pagination/`, `crates/pierre-database/src/database/users.rs`, `crates/pierre-database/src/backends/postgres/`
 
 ## Monitoring
 

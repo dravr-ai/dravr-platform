@@ -12,7 +12,7 @@ mod common;
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::key_management::KeyManager;
-use pierre_database::plugins::{factory::Database, DatabaseProvider};
+use pierre_database::backends::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
 use pierre_mcp_server::{

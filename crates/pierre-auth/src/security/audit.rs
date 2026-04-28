@@ -14,7 +14,7 @@
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use pierre_database::plugins::SecurityRepository;
+use pierre_database::backends::SecurityRepository;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;

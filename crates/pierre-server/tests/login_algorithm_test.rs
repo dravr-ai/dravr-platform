@@ -21,7 +21,7 @@ mod helpers;
 
 use chrono::{Timelike, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,

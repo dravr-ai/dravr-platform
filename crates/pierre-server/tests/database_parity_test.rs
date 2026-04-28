@@ -10,7 +10,8 @@
 
 use chrono::Utc;
 use pierre_database::{
-    database::AddMessageParams, plugins::factory::Database, repository_registry::RepositoryRegistry,
+    backends::factory::Database, database::AddMessageParams,
+    repository_registry::RepositoryRegistry,
 };
 use pierre_mcp_server::{
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},

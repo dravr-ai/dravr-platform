@@ -25,7 +25,7 @@ mod coverage {
     };
     use axum::http::StatusCode;
     use chrono::Utc;
-    use pierre_database::plugins::{
+    use pierre_database::backends::{
         CreateChannelLinkParams, CreateSessionParams, MessagingRepository,
         UpsertChannelConfigParams,
     };

@@ -17,7 +17,7 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
 };
-use pierre_database::plugins::{factory::Database, DatabaseProvider};
+use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_mcp_server::{
     config::environment::{
         AppBehaviorConfig, AuthConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment,

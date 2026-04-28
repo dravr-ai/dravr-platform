@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 // Import necessary modules from the main crate
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::*,
     constants::oauth_providers,

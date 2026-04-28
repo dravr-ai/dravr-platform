@@ -14,7 +14,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::plugins::{LlmCredentialRepository, SecurityRepository};
+use pierre_database::backends::{LlmCredentialRepository, SecurityRepository};
 use pierre_llm::config::LlmProviderType;
 
 /// Environment variable names for LLM provider API keys

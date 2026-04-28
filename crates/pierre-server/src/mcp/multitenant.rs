@@ -40,7 +40,7 @@ use pierre_auth::auth::{AuthManager, AuthResult};
 use pierre_auth::security::headers::SecurityConfig;
 use pierre_auth::tenant::oauth_client::StoreCredentialsRequest;
 use pierre_auth::tenant::{TenantContext, TenantOAuthClient};
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 // Trait methods dispatched through repos.notifications / repos.oauth_tokens
 use serde_json::Value;
 use std::fmt::Write;
@@ -62,7 +62,7 @@ use crate::routes::oauth2::OAuth2Context;
 use axum::middleware;
 #[cfg(feature = "oauth")]
 use pierre_auth::oauth2_server::OAuth2RateLimiter;
-use pierre_database::plugins::UsageRepository;
+use pierre_database::backends::UsageRepository;
 use pierre_database::RepositoryRegistry;
 use tokio::net::TcpListener;
 use tower::layer::util::Identity;

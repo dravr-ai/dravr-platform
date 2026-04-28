@@ -7,7 +7,7 @@
 use crate::cache::factory::Cache;
 use crate::intelligence::ActivityIntelligence;
 use crate::providers::ProviderRegistry;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use std::sync::Arc;
 

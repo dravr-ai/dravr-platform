@@ -6,7 +6,7 @@
 
 use super::super::{NotificationRepository, SecurityRepository};
 use super::PostgresDatabase;
-use crate::plugins::shared;
+use crate::backends::shared;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::admin::AdminJwtManager;

@@ -50,29 +50,46 @@ See [Build Configuration](https://async-io.github.io/pierre_mcp_server/build.htm
 
 ## Workspace Architecture
 
-Pierre is a Rust workspace with 7 crates for parallel compilation and modularity:
+Pierre is a Rust workspace with 14 crates for parallel compilation and modularity:
 
 | Crate | Description | LOC |
 |-------|-------------|-----|
-| `pierre_mcp_server` | Main binary: routes, MCP protocol, tools, database | ~150K |
-| `pierre-core` | Shared types, errors, pagination, constants | ~3K |
-| `pierre-intelligence` | Fitness algorithms (VDOT, TSS, TRIMP, FTP) | ~12K |
-| `pierre-providers` | Fitness provider integrations (Strava, Garmin, etc.) | ~8K |
-| `pierre-database` | Repository trait definitions | ~2K |
-| `pierre-llm` | LLM provider integrations (Gemini, Groq, Ollama) | ~4K |
-| `pierre-cache` | Pluggable cache layer (in-memory + Redis) | ~1.3K |
-| `pierre-a2a` | A2A protocol types and agent card | ~3K |
+| `pierre_mcp_server` | Main binary: routes, MCP protocol, tools, transports, orchestration | ~136K |
+| `pierre-database` | Database abstraction with repository traits and SQLite/PostgreSQL backends | ~53K |
+| `pierre-core` | Core types, errors, pagination, redaction, constants | ~14K |
+| `pierre-providers` | Fitness data providers (Strava, Garmin, Fitbit, WHOOP, COROS, Terra) | ~12K |
+| `pierre-auth` | Authentication, authorization, JWT, OAuth2 server, CSRF | ~11K |
+| `pierre-llm` | LLM provider abstraction (Gemini, Groq, OpenAI-compatible, Ollama) | ~5.5K |
+| `pierre-evals` | Coaching evaluation harness (golden sets, LLM-as-judge, deterministic checks) | ~2.6K |
+| `pierre-groups` | Group coaching business logic for multi-person AI coaching | ~1.7K |
+| `pierre-cache` | Cache abstraction with tenant isolation (in-memory LRU + Redis) | ~1.1K |
+| `pierre-a2a` | A2A protocol types, agent card, client data structures | ~1K |
+| `pierre-memory` | Coaching harness memory (facts, compaction, sessions, notes, followups) | ~0.9K |
+| `pierre-intelligence` | Bridge re-exporting `dravr-cageux` fitness intelligence | <0.2K |
+| `pierre-messaging` | Bridge re-exporting `dravr-canot` multi-channel messaging | <0.1K |
+| `pierre-notifications` | Bridge re-exporting `dravr-commere` push notifications | <0.1K |
 
 ```
 crates/
-├── pierre-core/          # Foundation: errors, models, config, redaction
-├── pierre-intelligence/  # Sports science algorithms and metrics
-├── pierre-providers/     # Fitness data providers (Strava, Garmin, etc.)
-├── pierre-database/      # Repository trait definitions
-├── pierre-llm/           # LLM providers (Gemini, Groq, OpenAI-compatible)
-├── pierre-cache/         # Cache backends (memory LRU, Redis)
-└── pierre-a2a/           # A2A protocol types (feature-gated: protocol-a2a)
+├── pierre-server/         # Main binary + orchestration (routes, tools, MCP, transports)
+├── pierre-database/       # Database abstraction + SQLite/PostgreSQL backends
+├── pierre-core/           # Errors, models, redaction, constants
+├── pierre-providers/      # Fitness providers (Strava, Garmin, Fitbit, WHOOP, COROS, Terra)
+├── pierre-auth/           # Auth, JWT, OAuth2 server, CSRF middleware
+├── pierre-llm/            # LLM providers (Gemini, Groq, OpenAI-compatible, Ollama)
+├── pierre-evals/          # Coach evaluation harness
+├── pierre-groups/         # Group coaching logic
+├── pierre-cache/          # Cache backends (memory LRU + Redis)
+├── pierre-a2a/            # A2A protocol types (feature-gated: protocol-a2a)
+├── pierre-memory/         # Coaching harness memory primitives
+├── pierre-intelligence/   # Bridge → dravr-cageux
+├── pierre-messaging/      # Bridge → dravr-canot
+└── pierre-notifications/  # Bridge → dravr-commere
 ```
+
+Tool extensibility is provided by `pierre-server`'s `tools::ToolRegistry`
+(see `crates/pierre-server/src/tools/`); new tools implement the `McpTool`
+trait and register through `ToolRegistry::register_builtin_tools`.
 
 ## Modular Architecture
 

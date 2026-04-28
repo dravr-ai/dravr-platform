@@ -170,9 +170,9 @@ impl SocialRoutes {
     pub(crate) fn get_social_manager(
         resources: &Arc<ServerResources>,
     ) -> Result<SocialManagerBackend, AppError> {
-        use pierre_database::database::social::SocialManager;
         #[cfg(feature = "postgresql")]
-        use pierre_database::plugins::social_postgres::PostgresSocialManager;
+        use pierre_database::backends::social_postgres::PostgresSocialManager;
+        use pierre_database::database::social::SocialManager;
 
         // Try SQLite first (most common in development)
         if let Some(pool) = resources.database.sqlite_pool() {

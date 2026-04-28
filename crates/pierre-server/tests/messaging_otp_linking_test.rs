@@ -27,7 +27,7 @@ mod messaging_otp_linking_tests {
     use axum::http::StatusCode;
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
-    use pierre_database::plugins::{
+    use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
     use pierre_mcp_server::email::ResendEmailService;
@@ -841,7 +841,7 @@ mod messaging_otp_linking_tests {
 
     #[tokio::test]
     async fn test_linked_user_bypasses_otp_flow() {
-        use pierre_database::plugins::CreateChannelLinkParams;
+        use pierre_database::backends::CreateChannelLinkParams;
 
         let mut resources = create_test_server_resources().await.unwrap();
         inject_dummy_email_service(&mut resources);

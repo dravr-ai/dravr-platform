@@ -8,7 +8,7 @@ use super::super::{
     FitnessConfigRepository, LlmCredentialRepository, TenantRepository, ToolSelectionRepository,
 };
 use super::PostgresDatabase;
-use crate::plugins::shared::encryption::HasEncryption;
+use crate::backends::shared::encryption::HasEncryption;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::admin::models::AdminConfigOverrideRow;

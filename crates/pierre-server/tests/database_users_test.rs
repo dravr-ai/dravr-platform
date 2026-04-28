@@ -9,8 +9,8 @@
 
 use chrono::Utc;
 use pierre_database::{
+    backends::{OAuthTokenRepository, ProfileRepository, UserRepository},
     database::Database,
-    plugins::{OAuthTokenRepository, ProfileRepository, UserRepository},
 };
 use pierre_mcp_server::{
     models::{TenantId, User, UserStatus, UserTier},

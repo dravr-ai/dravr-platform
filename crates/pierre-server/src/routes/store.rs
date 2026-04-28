@@ -32,8 +32,8 @@ use crate::{
     services::coach_grading::{compute_coach_grades, rerank_by_grade, DEFAULT_VERDICT_LIMIT},
 };
 use pierre_auth::auth::AuthResult;
+use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::{CoachCategory, CoachWithListing, PublishStatus};
-use pierre_database::plugins::StoreListingsRepository;
 
 /// Query parameters for browsing published coaches
 #[derive(Debug, Deserialize)]

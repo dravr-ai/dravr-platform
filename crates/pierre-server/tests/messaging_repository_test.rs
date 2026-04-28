@@ -19,7 +19,7 @@
 
 use chrono::Utc;
 use pierre_database::{
-    plugins::{
+    backends::{
         factory::Database, CreateSessionParams, InsertMessageParams, UpsertChannelConfigParams,
     },
     DatabaseProvider,

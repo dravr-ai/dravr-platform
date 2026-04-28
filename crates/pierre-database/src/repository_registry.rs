@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
-use crate::database::Database as SqliteDatabase;
 #[cfg(feature = "postgresql")]
-use crate::plugins::postgres::PostgresDatabase;
+use crate::backends::postgres::PostgresDatabase;
+use crate::database::Database as SqliteDatabase;
 use crate::repositories::{
     A2ARepository, AdminRepository, ApiKeyRepository, ChatRepository, ClaimVerdictRepository,
     CoachesRepository, CoachingGroupRepository, DataSourceRepository, FitnessConfigRepository,

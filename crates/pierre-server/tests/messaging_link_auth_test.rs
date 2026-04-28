@@ -22,7 +22,7 @@ mod helpers;
 
 use chrono::{Duration, Utc};
 use helpers::axum_test::AxumTestRequest;
-use pierre_database::plugins::{CreateLinkStateParams, MessagingRepository};
+use pierre_database::backends::{CreateLinkStateParams, MessagingRepository};
 use pierre_mcp_server::mcp::resources::ServerResources;
 use pierre_mcp_server::models::{Tenant, TenantId, User};
 use pierre_mcp_server::routes::messaging::MessagingRoutes;

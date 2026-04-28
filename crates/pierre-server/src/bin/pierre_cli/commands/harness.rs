@@ -19,7 +19,7 @@ use clap::Subcommand;
 use tracing::info;
 
 use pierre_core::models::TenantId;
-use pierre_database::plugins::factory::Database;
+use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_evals::VerificationConfig;
 use pierre_mcp_server::errors::{AppError, AppResult};

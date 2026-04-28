@@ -13,9 +13,9 @@ use rand::RngCore;
 use tracing::info;
 
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::backends::factory::Database;
+use pierre_database::backends::SecurityRepository;
 use pierre_database::database::generate_encryption_key;
-use pierre_database::plugins::factory::Database;
-use pierre_database::plugins::SecurityRepository;
 
 /// Master Encryption Key (MEK) - Tier 1
 /// Loaded from environment variable or external key management system

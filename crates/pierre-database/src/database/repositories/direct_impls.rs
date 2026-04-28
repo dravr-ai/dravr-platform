@@ -8,6 +8,7 @@ use super::{
     CoachesRepository, MobilityRepository, RecipeRepository, SocialRepository,
     StoreListingsRepository,
 };
+use crate::backends::shared::transactions::SqliteTransactionGuard;
 use crate::database::coaches::{
     compute_content_hash, compute_request_hash, row_to_coach, row_to_coach_list_item,
     row_to_coach_version,
@@ -24,7 +25,6 @@ use crate::database::store_listings::{
     COACH_COLUMNS_ALIASED, LISTING_COLUMNS_ALIASED,
 };
 use crate::database::Database;
-use crate::plugins::shared::transactions::SqliteTransactionGuard;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
