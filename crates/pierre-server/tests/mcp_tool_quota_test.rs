@@ -147,8 +147,9 @@ async fn test_mcp_tool_blocked_at_daily_limit() -> Result<()> {
     let (server, client, tenant_id, user_id) =
         setup_quota_test("quota-block-daily@test.local").await?;
 
-    // Default daily_tool_calls limit is 100, burst multiplier 1.5x = 150 hard limit.
-    // Pre-seed counter to 150 so the next check_limit returns allowed=false.
+    // Test user is Professional tier (test_server.rs:175): daily_tool_calls = 2000,
+    // burst multiplier 1.5x = 3000 hard limit. Pre-seed to 3000 so the next
+    // check_limit returns allowed=false.
     server
         .resources()
         .repos
@@ -158,7 +159,7 @@ async fn test_mcp_tool_blocked_at_daily_limit() -> Result<()> {
             &user_id,
             "daily_tool_calls",
             &current_daily_period(),
-            150,
+            3000,
         )
         .await?;
 
@@ -236,8 +237,9 @@ async fn test_mcp_tool_blocked_at_weekly_limit() -> Result<()> {
 async fn test_shared_budget_chat_and_mcp() -> Result<()> {
     let (server, client, tenant_id, user_id) = setup_quota_test("shared-budget@test.local").await?;
 
-    // Simulate chat usage that brought the daily counter near the hard limit (150).
-    // Pre-seed to 149 — one more MCP call should succeed, then the next should be blocked.
+    // Test user is Professional (daily_tool_calls = 2000, hard limit 3000).
+    // Simulate chat usage that brought the daily counter near the hard limit.
+    // Pre-seed to 2999 — one more MCP call should succeed, then the next should be blocked.
     server
         .resources()
         .repos
@@ -247,18 +249,18 @@ async fn test_shared_budget_chat_and_mcp() -> Result<()> {
             &user_id,
             "daily_tool_calls",
             &current_daily_period(),
-            149,
+            2999,
         )
         .await?;
 
-    // First MCP call should succeed (counter goes to 150 after execution)
+    // First MCP call should succeed (counter goes to 3000 after execution)
     let response1 = call_tool_raw_response(&client, "get_activities").await?;
     assert!(
         response1.get("result").is_some(),
-        "First call should succeed with counter at 149"
+        "First call should succeed with counter at 2999"
     );
 
-    // Second MCP call should be blocked (counter is now 150, which equals hard limit)
+    // Second MCP call should be blocked (counter is now 3000, which equals hard limit)
     let response2 = call_tool_raw_response(&client, "get_activities").await?;
     let error = response2
         .get("error")
@@ -384,7 +386,7 @@ async fn test_mcp_tool_creates_usage_record() -> Result<()> {
 async fn test_quota_error_response_format() -> Result<()> {
     let (server, client, tenant_id, user_id) = setup_quota_test("error-format@test.local").await?;
 
-    // Pre-seed to exceed hard limit
+    // Pre-seed to exceed Professional hard limit (2000 × 1.5 = 3000).
     server
         .resources()
         .repos
@@ -394,7 +396,7 @@ async fn test_quota_error_response_format() -> Result<()> {
             &user_id,
             "daily_tool_calls",
             &current_daily_period(),
-            150,
+            3000,
         )
         .await?;
 
