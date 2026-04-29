@@ -91,13 +91,13 @@ pub async fn require_admin(
     Ok(user)
 }
 
-/// Axum middleware that gates web admin routes behind cookie/session auth
-/// plus an `is_admin` check. Used by the human-facing admin tabs mounted at
-/// `/api/admin/...` so the same routes that programmatic clients hit at
-/// `/admin/...` (with admin-token JWT) are reachable from a logged-in admin
-/// in the browser without a separate token.
+/// Axum middleware that gates web admin routes behind cookie/session auth.
 ///
-/// Returns 401 if no valid session is found, 403 if the user is not an admin.
+/// Used by the human-facing admin tabs mounted at `/api/admin/...` so the
+/// same routes that programmatic clients hit at `/admin/...` (with
+/// admin-token JWT) are reachable from a logged-in admin in the browser
+/// without a separate token. Returns 401 if no valid session is found,
+/// 403 if the user is not an admin.
 ///
 /// # Errors
 ///
