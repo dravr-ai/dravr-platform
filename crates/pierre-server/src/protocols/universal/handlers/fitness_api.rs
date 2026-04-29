@@ -785,7 +785,13 @@ fn filter_activities_by_sport_type(
     let normalised_filter = normalise_sport_string(filter);
     activities
         .into_iter()
-        .filter(|a| sport_type_matches(a.sport_type(), canonical_filter.as_ref(), &normalised_filter))
+        .filter(|a| {
+            sport_type_matches(
+                a.sport_type(),
+                canonical_filter.as_ref(),
+                &normalised_filter,
+            )
+        })
         .collect()
 }
 
