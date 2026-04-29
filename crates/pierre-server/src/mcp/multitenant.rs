@@ -1060,7 +1060,7 @@ impl MultiTenantMcpServer {
             admin_context
                 .frontend_url
                 .clone_from(&resources.config.frontend_url);
-            let admin_routes = AdminRoutes::routes(admin_context);
+            let admin_routes = AdminRoutes::routes(admin_context, Arc::clone(resources));
 
             let admin_config_routes = resources.admin_config.as_ref().map_or_else(
                 || {

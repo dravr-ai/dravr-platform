@@ -125,12 +125,13 @@ export default function ClaimVerdictsTab() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-on-surface">
-              Tier 5.5 — Claim verdicts
+              Claim verdicts
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Every claim emitted by a coach persona that runs through the bullshit
-              detector ends up here. Filter, drill in, and course-correct coaches
-              that ship unsupported or contradicted claims.
+              Every claim a coach makes is evaluated by the claim verifier and
+              recorded here. Filter, drill into the source message, and
+              course-correct coaches that ship unsupported or contradicted
+              claims.
             </p>
           </div>
           <Button onClick={() => refetch()} variant="secondary">
@@ -227,8 +228,8 @@ export default function ClaimVerdictsTab() {
               No claim verdicts matching these filters.
             </p>
             <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-              Verdicts are written when a coach reply passes through the Tier 5.5
-              detector pipeline with claims that need verification.
+              Verdicts are written when a coach reply passes through the claim
+              verifier and produces claims that need evidence.
             </p>
           </div>
         ) : (

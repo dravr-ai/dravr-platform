@@ -483,7 +483,7 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
           Verdict calibration
         </h3>
         <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-          Log in as a tenant admin to load Tier 5.5 calibration stats.
+          Log in as a tenant admin to load claim-verifier calibration stats.
         </p>
       </Card>
     );
@@ -529,8 +529,8 @@ function CalibrationPanel({ stats, isLoading, isError, hasTenant }: CalibrationP
             Verdict calibration
           </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Tier 5.5 claim verifier mix over the last {stats.window_days} days. Pass
-            rate excludes rhetorical and unverifiable claims.
+            Claim-verifier verdict mix over the last {stats.window_days} days.
+            Pass rate excludes rhetorical and unverifiable claims.
           </p>
         </div>
         <div className="text-right">

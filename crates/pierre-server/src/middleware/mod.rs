@@ -29,6 +29,8 @@ pub mod tracing;
 
 // Admin authorization guard
 
+/// Cookie/session-auth + `is_admin` middleware for `/api/admin/...` routes
+pub use admin_guard::cookie_admin_middleware;
 /// Require admin privileges for a user
 pub use admin_guard::require_admin;
 
