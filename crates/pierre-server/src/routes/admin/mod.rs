@@ -126,28 +126,21 @@ impl AdminApiContext {
 pub struct AdminRoutes;
 
 impl AdminRoutes {
-    /// Create all admin routes (Axum).
+    /// Programmatic admin routes mounted at `/admin/...` behind admin-token
+    /// JWT auth.
     ///
-    /// Two distinct surfaces by design:
-    /// 1. **Programmatic admin** at `/admin/...` — Bearer admin-token JWT auth.
-    ///    Used by `pierre-cli` and B2B partners for API key provisioning,
-    ///    admin token mint/rotate, and initial setup.
-    /// 2. **Human admin** at `/api/admin/...` — session cookie + `is_admin`.
-    ///    Used by the admin web UI (Claim Verdicts, Coach Grades, Myth Busting,
-    ///    Memory Worker, Coach Followups, Coach Notes Audit, Eval Harness,
-    ///    Harness Config). Single mount, single auth — no parallel mounts.
-    ///
-    /// Routes that exist in [`crate::routes::web_admin::WebAdminRoutes`]
-    /// (user management, tokens, tool selection, settings auto-approval &
-    /// social-insights, billing usage) are NOT remounted here.
-    pub fn routes(context: AdminApiContext, resources: Arc<ServerResources>) -> Router {
+    /// Used by `pierre-cli` and B2B partners for API key provisioning, admin
+    /// token mint/rotate, and initial setup. The human-facing admin web UI
+    /// (Claim Verdicts, Coach Grades, Myth Busting, Memory Worker, Coach
+    /// Followups, Coach Notes Audit, Eval Harness, Harness Config) is mounted
+    /// separately at `/api/admin/...` via [`Self::cookie_admin_routes`].
+    pub fn routes(context: AdminApiContext) -> Router {
         let auth_service = context.auth_service.clone();
         let tool_selection_context = ToolSelectionContext {
             tool_selection: context.tool_selection.clone(),
         };
         let context = Arc::new(context);
 
-        // ─── Programmatic admin (Bearer admin-token JWT, /admin/...) ───────
         let api_key_routes = Self::api_key_routes(context.clone()).layer(
             middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
         );
@@ -174,42 +167,11 @@ impl AdminRoutes {
         );
 
         let diagnostics_routes = Self::diagnostics_routes(context.clone()).layer(
-            middleware::from_fn_with_state(auth_service.clone(), admin_auth_middleware),
+            middleware::from_fn_with_state(auth_service, admin_auth_middleware),
         );
 
         // Setup routes are public (no auth required for initial setup)
-        let setup_routes = Self::setup_routes(context.clone());
-
-        // ─── Human admin (session cookie + is_admin, /api/admin/...) ───────
-        let cookie_layer =
-            middleware::from_fn_with_state(Arc::clone(&resources), cookie_admin_middleware);
-
-        let claim_verdict_routes = Self::claim_verdict_routes(context.clone());
-        let memory_worker_routes = Self::memory_worker_routes(context.clone());
-        let coach_followup_routes = Self::coach_followup_routes(context.clone());
-        let coach_note_routes = Self::coach_note_routes(context.clone());
-        let myth_busting_routes = Self::myth_busting_routes(context.clone());
-        let coach_grading_routes = Self::coach_grading_routes(context.clone());
-        let harness_config_routes = Self::harness_config_routes(context.clone());
-
-        let mut human_admin = Router::new()
-            .merge(claim_verdict_routes)
-            .merge(memory_worker_routes)
-            .merge(coach_followup_routes)
-            .merge(coach_note_routes)
-            .merge(myth_busting_routes)
-            .merge(coach_grading_routes)
-            .merge(harness_config_routes);
-
-        #[cfg(feature = "tools-verification")]
-        {
-            let _ = &auth_service;
-            human_admin = human_admin.merge(Self::eval_harness_routes(context.clone()));
-        }
-        #[cfg(not(feature = "tools-verification"))]
-        let _ = &auth_service;
-
-        let human_admin = human_admin.layer(cookie_layer);
+        let setup_routes = Self::setup_routes(context);
 
         Router::new()
             .merge(api_key_routes)
@@ -220,7 +182,47 @@ impl AdminRoutes {
             .merge(store_review_routes)
             .merge(diagnostics_routes)
             .merge(setup_routes)
-            .merge(human_admin)
+    }
+
+    /// Human-admin routes mounted at `/api/admin/...` behind cookie/session
+    /// auth + `is_admin` check.
+    ///
+    /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
+    /// (Claim Verdicts, Coach Grades, Myth Busting, Memory Worker, Coach
+    /// Followups, Coach Notes Audit, Eval Harness, Harness Config). Single
+    /// mount, single auth: there is no parallel `/admin/...` mount with
+    /// admin-token auth for these routes.
+    pub fn cookie_admin_routes(
+        context: AdminApiContext,
+        resources: &Arc<ServerResources>,
+    ) -> Router {
+        let context = Arc::new(context);
+        let cookie_layer =
+            middleware::from_fn_with_state(Arc::clone(resources), cookie_admin_middleware);
+
+        let claim_verdict_routes = Self::claim_verdict_routes(context.clone());
+        let memory_worker_routes = Self::memory_worker_routes(context.clone());
+        let coach_followup_routes = Self::coach_followup_routes(context.clone());
+        let coach_note_routes = Self::coach_note_routes(context.clone());
+        let myth_busting_routes = Self::myth_busting_routes(context.clone());
+        let coach_grading_routes = Self::coach_grading_routes(context.clone());
+        let harness_config_routes = Self::harness_config_routes(context.clone());
+
+        let human_admin = Router::new()
+            .merge(claim_verdict_routes)
+            .merge(memory_worker_routes)
+            .merge(coach_followup_routes)
+            .merge(coach_note_routes)
+            .merge(myth_busting_routes)
+            .merge(coach_grading_routes)
+            .merge(harness_config_routes);
+
+        #[cfg(feature = "tools-verification")]
+        let human_admin = human_admin.merge(Self::eval_harness_routes(context));
+        #[cfg(not(feature = "tools-verification"))]
+        let _ = context;
+
+        human_admin.layer(cookie_layer)
     }
 
     /// Eval harness fixture browser + CRUD + calibration routes (cookie auth, gated on tools-verification)

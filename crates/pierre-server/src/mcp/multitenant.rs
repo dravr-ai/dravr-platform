@@ -1060,7 +1060,9 @@ impl MultiTenantMcpServer {
             admin_context
                 .frontend_url
                 .clone_from(&resources.config.frontend_url);
-            let admin_routes = AdminRoutes::routes(admin_context, Arc::clone(resources));
+            let cookie_admin_routes =
+                AdminRoutes::cookie_admin_routes(admin_context.clone(), resources);
+            let admin_routes = AdminRoutes::routes(admin_context);
 
             let admin_config_routes = resources.admin_config.as_ref().map_or_else(
                 || {
@@ -1079,6 +1081,7 @@ impl MultiTenantMcpServer {
             );
 
             app.merge(admin_routes)
+                .merge(cookie_admin_routes)
                 .nest("/api/admin/config", admin_config_routes)
         };
 
