@@ -184,6 +184,91 @@ export const adminApi = {
     return response.data.data;
   },
 
+  // ==================== PER-USER BILLING USAGE ====================
+  async getUserUsage(userId: string, fromIso?: string): Promise<{
+    user_id: string;
+    from: string;
+    by_model: Array<{
+      provider: string;
+      model: string;
+      call_type: string;
+      total_tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      calls: number;
+    }>;
+    daily: Array<{
+      date: string;
+      tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      calls: number;
+    }>;
+  }> {
+    const qs = fromIso ? `?from=${encodeURIComponent(fromIso)}` : '';
+    const response = await axios.get(`/api/admin/users/${userId}/usage${qs}`);
+    return response.data;
+  },
+
+  async getUserCostTimeseries(userId: string, fromIso?: string): Promise<{
+    user_id: string;
+    from: string;
+    daily: Array<{
+      date: string;
+      tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      calls: number;
+    }>;
+  }> {
+    const qs = fromIso ? `?from=${encodeURIComponent(fromIso)}` : '';
+    const response = await axios.get(`/api/admin/users/${userId}/cost-timeseries${qs}`);
+    return response.data;
+  },
+
+  async setUserTier(userId: string, tier: 'starter' | 'professional' | 'enterprise'): Promise<{
+    user_id: string;
+    email: string;
+    tier: string;
+  }> {
+    const response = await axios.post(`/api/admin/users/${userId}/tier`, { tier });
+    return response.data.data;
+  },
+
+  async exportBillingCsv(period: string, format: 'csv' | 'json' = 'csv', limit = 1000): Promise<Blob | unknown> {
+    const response = await axios.get(`/api/admin/billing/export`, {
+      params: { period, format, limit },
+      responseType: format === 'csv' ? 'blob' : 'json',
+    });
+    return response.data;
+  },
+
+  async getTenantInvoicePreview(tenantId: string, period: string): Promise<{
+    tenant_id: string;
+    period: string;
+    by_model: Array<{
+      provider: string;
+      model: string;
+      call_type: string;
+      total_tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      calls: number;
+    }>;
+    daily: Array<{
+      date: string;
+      tokens: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+      calls: number;
+    }>;
+  }> {
+    const response = await axios.get(`/api/admin/tenants/${tenantId}/invoice`, {
+      params: { period },
+    });
+    return response.data;
+  },
+
   // ==================== ADMIN SETTINGS ====================
   async getAutoApprovalSetting(): Promise<{ enabled: boolean; description: string }> {
     const response = await axios.get('/api/admin/settings/auto-approval');

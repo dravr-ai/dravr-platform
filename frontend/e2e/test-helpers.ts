@@ -275,8 +275,12 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     });
   });
 
-  // Mock notifications (needed by sidebar NotificationBell)
-  await page.route('**/api/notifications/**', async (route) => {
+  // Mock notifications (needed by sidebar NotificationBell + feed dropdown).
+  // Pattern uses `notifications**` (no slash before **) so it also matches the
+  // bare `/api/notifications?limit=10` feed query — the slash variant excluded
+  // it and a 401 from the dev server fired the auth-failure event, logging the
+  // user back out mid-test.
+  await page.route('**/api/notifications**', async (route) => {
     const url = route.request().url();
     if (url.includes('unread-count')) {
       await route.fulfill({
@@ -288,7 +292,7 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ notifications: [], total: 0, unread_count: 0 }),
+        body: JSON.stringify({ data: [], total: 0, unread_count: 0 }),
       });
     }
   });

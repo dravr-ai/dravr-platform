@@ -79,6 +79,25 @@ function RootLayoutNav() {
     }
   }, [isLoading, fontsLoaded]);
 
+  // Boot/teardown PostHog in lockstep with analytics_consent. Default
+  // is opt-out so this is a no-op until the user enables it under
+  // Privacy & Data on the web settings (mobile reads the same flag).
+  React.useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const mod = await import('../src/services/analytics');
+      if (cancelled) return;
+      if (user && user.analytics_consent === true) {
+        await mod.bootMobileAnalytics(user.id, true);
+      } else {
+        mod.shutdownMobileAnalytics();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.analytics_consent]);
+
   React.useEffect(() => {
     if (isLoading) return;
 

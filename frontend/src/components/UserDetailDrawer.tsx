@@ -61,6 +61,12 @@ export default function UserDetailDrawer({
     enabled: !!user && isOpen,
   });
 
+  const { data: usage, isLoading: usageLoading } = useQuery({
+    queryKey: ['adminUsers', 'usage', user?.id],
+    queryFn: () => user ? adminApi.getUserUsage(user.id) : null,
+    enabled: !!user && isOpen,
+  });
+
   if (!isOpen || !user) return null;
 
   const formatDate = (dateString: string) => {
@@ -268,6 +274,63 @@ export default function UserDetailDrawer({
               </div>
             ) : (
               <p className="text-sm text-on-surface-variant">Unable to load activity data</p>
+            )}
+          </Card>
+
+          {/* Usage Card — Phase 2 per-user billing surface */}
+          <Card variant="dark" className="p-4">
+            <h4 className="text-sm font-semibold text-on-surface mb-4 flex items-center">
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3v18h18M7 14l4-4 4 4 5-5" />
+              </svg>
+              Usage (Month-to-Date)
+            </h4>
+            {usageLoading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-4 bg-surface-container-high rounded w-2/3"></div>
+                <div className="h-4 bg-surface-container-high rounded w-1/2"></div>
+                <div className="h-4 bg-surface-container-high rounded w-3/4"></div>
+              </div>
+            ) : usage && Array.isArray(usage.by_model) && usage.by_model.length > 0 ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-on-surface-variant">Total Tokens</span>
+                  <span className="text-2xl font-bold text-on-surface">
+                    {usage.by_model
+                      .reduce((acc, m) => acc + m.total_tokens, 0)
+                      .toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-on-surface-variant">Total Calls</span>
+                  <span className="font-medium text-on-surface">
+                    {usage.by_model.reduce((acc, m) => acc + m.calls, 0).toLocaleString()}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-sm text-on-surface-variant">By Model</span>
+                  <div className="mt-2 space-y-2">
+                    {usage.by_model.slice(0, 5).map((row) => (
+                      <div
+                        key={`${row.provider}/${row.model}/${row.call_type}`}
+                        className="flex items-center justify-between"
+                      >
+                        <span className="text-sm font-medium text-on-surface">
+                          {row.provider}/{row.model}
+                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-on-surface-variant">
+                            {row.total_tokens.toLocaleString()} tok
+                          </span>
+                          <span className="text-xs text-outline">({row.calls} calls)</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">No LLM activity this month</p>
             )}
           </Card>
 

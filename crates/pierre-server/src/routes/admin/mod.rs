@@ -256,16 +256,25 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// Phase 2 billing routes — tenant usage aggregates, monthly invoice
-    /// preview, and CSV/JSON export of recent LLM usage rows.
+    /// Phase 2 billing routes — tenant + per-user usage aggregates,
+    /// monthly invoice preview, and CSV/JSON export of recent LLM
+    /// usage rows.
     fn billing_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
-            .route("/admin/tenants/{id}/usage", get(billing::get_tenant_usage))
             .route(
-                "/admin/tenants/{id}/invoice",
+                "/api/admin/tenants/{id}/usage",
+                get(billing::get_tenant_usage),
+            )
+            .route(
+                "/api/admin/tenants/{id}/invoice",
                 get(billing::get_tenant_invoice),
             )
-            .route("/admin/billing/export", get(billing::export_billing))
+            .route("/api/admin/users/{id}/usage", get(billing::get_user_usage))
+            .route(
+                "/api/admin/users/{id}/cost-timeseries",
+                get(billing::get_user_cost_timeseries),
+            )
+            .route("/api/admin/billing/export", get(billing::export_billing))
             .with_state(context)
     }
 
@@ -373,6 +382,10 @@ impl AdminRoutes {
                 get(users::handle_get_user_activity),
             )
             .route("/admin/users/{user_id}", delete(users::handle_delete_user))
+            .route(
+                "/admin/users/{user_id}/tier",
+                post(users::handle_set_user_tier),
+            )
             .with_state(context)
     }
 

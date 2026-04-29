@@ -693,6 +693,100 @@ impl LlmUsageRepository for PostgresDatabase {
             .collect())
     }
 
+    async fn get_llm_usage_aggregates_by_user(
+        &self,
+        user_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>> {
+        let rows = sqlx::query_as::<_, (String, String, String, i64, i64, i64, i64)>(
+            r"
+            SELECT provider, model, call_type,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as total_tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE user_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
+            GROUP BY provider, model, call_type
+            ORDER BY total_tokens DESC
+            ",
+        )
+        .bind(user_id)
+        .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!("Failed to query LLM usage aggregates by user: {e}"))
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(
+                    provider,
+                    model,
+                    call_type,
+                    total_tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                )| LlmUsageAggregateRow {
+                    provider,
+                    model,
+                    call_type,
+                    total_tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                },
+            )
+            .collect())
+    }
+
+    async fn get_llm_usage_daily_series_by_user(
+        &self,
+        user_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>> {
+        let rows = sqlx::query_as::<_, (String, i64, i64, i64, i64)>(
+            r"
+            SELECT TO_CHAR(created_at::DATE, 'YYYY-MM-DD') as date,
+                   COALESCE(SUM(total_tokens), 0)::BIGINT as tokens,
+                   COALESCE(SUM(prompt_tokens), 0)::BIGINT as prompt_tokens,
+                   COALESCE(SUM(completion_tokens), 0)::BIGINT as completion_tokens,
+                   COUNT(*)::BIGINT as calls
+            FROM llm_usage
+            WHERE user_id = $1 AND created_at >= $2::timestamptz AND call_type != $3
+            GROUP BY created_at::DATE
+            ORDER BY date ASC
+            ",
+        )
+        .bind(user_id)
+        .bind(since)
+        .bind(TURN_SUMMARY_CALL_TYPE)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| {
+            AppError::database(format!(
+                "Failed to query LLM usage daily series by user: {e}"
+            ))
+        })?;
+
+        Ok(rows
+            .into_iter()
+            .map(
+                |(date, tokens, prompt_tokens, completion_tokens, calls)| LlmUsageDailyRow {
+                    date,
+                    tokens,
+                    prompt_tokens,
+                    completion_tokens,
+                    calls,
+                },
+            )
+            .collect())
+    }
+
     async fn get_recent_llm_calls_admin(&self, limit: i64) -> AppResult<Vec<LlmUsageRecord>> {
         fetch_llm_usage_rows(
             &self.pool,
@@ -754,6 +848,30 @@ impl LlmUsageRepository for PostgresDatabase {
             move |q| q.bind(turn_uuid),
         )
         .await
+    }
+
+    async fn sum_cost_usd_for_tenant_period(
+        &self,
+        tenant_id: TenantId,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<f64> {
+        let total: Option<f64> = sqlx::query_scalar(
+            r"
+            SELECT COALESCE(SUM(cost_usd), 0.0)
+            FROM llm_usage
+            WHERE tenant_id = $1
+              AND created_at >= $2
+              AND created_at < $3
+            ",
+        )
+        .bind(tenant_id.to_string())
+        .bind(start)
+        .bind(end)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to sum cost_usd: {e}")))?;
+        Ok(total.unwrap_or(0.0))
     }
 }
 

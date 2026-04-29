@@ -7,7 +7,7 @@
 use super::Database;
 use crate::repositories::TenantRepository;
 use async_trait::async_trait;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_core::models::{OAuthApp, Tenant, TenantOAuthCredentials};
 use uuid::Uuid;
@@ -56,5 +56,24 @@ impl TenantRepository for Database {
     }
     async fn get_user_role(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<String>> {
         Self::get_user_tenant_role_impl(self, user_id, tenant_id).await
+    }
+    async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant> {
+        let result = sqlx::query(
+            r"
+            UPDATE tenants SET plan = ?1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?2
+            ",
+        )
+        .bind(plan)
+        .bind(tenant_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set tenant plan: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("Tenant {tenant_id}")));
+        }
+
+        Self::get_tenant_by_id_impl(self, tenant_id).await
     }
 }

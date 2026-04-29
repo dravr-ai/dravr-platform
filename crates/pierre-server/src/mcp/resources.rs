@@ -76,6 +76,7 @@ use pierre_auth::auth::AuthManager;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_auth::tenant::{oauth_manager::TenantOAuthManager, TenantOAuthClient};
+use pierre_core::billing::{dummy::DummyProvider, BillingProvider};
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::StoreListingsRepository;
 use pierre_database::database::repositories::{
@@ -309,6 +310,14 @@ pub struct ServerResources {
     /// Cache-backed rate limiter for link-token minting
     #[cfg(feature = "provider-sciotte")]
     pub mint_rate_limiter: Arc<MintRateLimiter>,
+    /// Pluggable billing provider (Stripe / `RevenueCat` / Dummy / …).
+    ///
+    /// The platform binary picks one impl at startup and routes every
+    /// `/api/billing/*` + `/webhooks/{provider}` call through it.
+    /// Defaults to the in-tree [`DummyProvider`] when no real provider
+    /// is wired — production binaries override this from a `dravr-*`
+    /// vendor crate.
+    pub billing_provider: Arc<dyn BillingProvider>,
 }
 
 /// Initialize prompt, tool description, and evidence registries and sync
@@ -669,6 +678,10 @@ impl ServerResources {
             nonce_store,
             #[cfg(feature = "provider-sciotte")]
             mint_rate_limiter,
+            // Default to the in-tree DummyProvider so platform binaries
+            // compile and run without a vendor crate. Production binaries
+            // override via ServerResourcesBuilder::with_billing_provider.
+            billing_provider: Arc::new(DummyProvider::new()) as Arc<dyn BillingProvider>,
         }
     }
 

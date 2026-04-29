@@ -163,6 +163,10 @@ pub mod usage;
 /// Tier-keyed quota configuration (Starter / Professional / Enterprise).
 pub mod tier_quota;
 pub use tier_quota::{TierQuotaConfig, ENTERPRISE, PROFESSIONAL, STARTER};
+
+/// Stripe-backed subscription domain model.
+pub mod subscription;
+pub use subscription::{Subscription, SubscriptionStatus};
 pub use usage::{
     ConversationTurnLlmCall, ConversationTurnSummary, EmbeddingUsageRecord, InsertEmbeddingUsage,
     InsertLlmUsage, JwtUsage, LlmUsageAggregateRow, LlmUsageDailyRow, LlmUsageRecord, RequestLog,

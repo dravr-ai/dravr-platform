@@ -13,7 +13,7 @@ use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
 use pierre_core::models::default_locale;
-use pierre_core::models::{TenantId, User, UserStatus};
+use pierre_core::models::{TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
@@ -1036,6 +1036,34 @@ impl Database {
             .ok_or_else(|| AppError::not_found("User after display name update"))
     }
 
+    /// Set the user's billing tier and return the refreshed row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user is not found or the underlying CHECK
+    /// constraint rejects the tier string.
+    pub async fn set_user_tier_impl(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET tier = ?1, last_active = CURRENT_TIMESTAMP
+            WHERE id = ?2
+            ",
+        )
+        .bind(tier.as_str())
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set user tier: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        self.get_user_global_impl(user_id)
+            .await?
+            .ok_or_else(|| AppError::not_found("User after tier update"))
+    }
+
     /// Update user's analytics consent preference
     ///
     /// # Errors
@@ -1230,6 +1258,9 @@ impl UserRepository for Database {
     }
     async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()> {
         Self::set_default_coach_impl(self, user_id, coach_id).await
+    }
+    async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
+        Self::set_user_tier_impl(self, user_id, tier).await
     }
 }
 

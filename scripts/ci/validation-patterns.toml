@@ -428,8 +428,9 @@ max_magic_input_antipatterns = 0  # ZERO TOLERANCE: tools must require explicit 
 # Files permitted to have #[ignore] tests with justification
 # These require external infrastructure that CI cannot provide
 files = [
-    "llm_local_integration_test.rs",   # Requires Ollama/vLLM server with downloaded models
-    "llm_openai_compatible_test.rs",   # Requires running Ollama server for API tests
+    "llm_local_integration_test.rs",     # Requires Ollama/vLLM server with downloaded models
+    "llm_openai_compatible_test.rs",     # Requires running Ollama server for API tests
+    "messaging_eval_real_slack_test.rs", # Requires MESSAGING_EVAL_SLACK_* credentials + live Slack workspace
 ]
 
 [ci_continue_on_error_allowlist]

@@ -60,6 +60,8 @@ pub mod social;
 pub mod social_dispatch;
 /// Store listings for coach publishing workflow
 pub mod store_listings;
+/// Stripe-backed subscription persistence (Phase 5 billing)
+pub mod subscriptions;
 /// Synthetic provider activities storage
 pub mod synthetic_activities;
 /// System settings for admin-configurable options

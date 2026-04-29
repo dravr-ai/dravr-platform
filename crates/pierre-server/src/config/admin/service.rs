@@ -2674,4 +2674,41 @@ impl AdminConfigService {
 
         Ok(None)
     }
+
+    /// Read an explicit override (cache + `admin_config_overrides` row)
+    /// without falling back to the parameter definition's default.
+    ///
+    /// Returns `Ok(None)` when no override exists, so the caller can
+    /// resolve a domain-specific default (e.g.
+    /// [`pierre_core::models::TierQuotaConfig`]) instead of the
+    /// catalog's flat default. This is the canonical entry point for
+    /// quota lookups — the [`Self::get_value`] flat-default behaviour
+    /// would otherwise mask tier-keyed caps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if reading from the database fails.
+    pub async fn get_override_value(
+        &self,
+        key: &str,
+        tenant_id: Option<&str>,
+    ) -> AppResult<Option<serde_json::Value>> {
+        {
+            let cache = self.cache.read().await;
+            if let Some(val) = cache.get(key) {
+                return Ok(Some(val.clone()));
+            }
+        }
+        let definitions = self.definitions.read().await;
+        let category = match definitions.get(key) {
+            Some(def) => def.category.clone(),
+            None => return Ok(None),
+        };
+        drop(definitions);
+        let override_row = self
+            .manager
+            .get_effective_override(&category, key, tenant_id)
+            .await?;
+        Ok(override_row.map(|o| o.config_value))
+    }
 }
