@@ -26,7 +26,7 @@ use pierre_auth::auth::AuthMethod as AuthResultMethod;
 use pierre_auth::auth::AuthResult;
 use pierre_auth::tenant::TenantContext;
 use pierre_core::models::usage::InsertLlmUsage;
-use pierre_core::models::ConversationTurnId;
+use pierre_core::models::{ConversationTurnId, UserTier};
 use pierre_database::backends::NotificationRepository;
 // Other trait methods dispatched through repos.tenants / repos.llm_usage / repos.users
 use serde_json::{json, Value};
@@ -596,6 +596,7 @@ impl ToolHandlers {
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
+        let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
         let usage_svc =
             UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
@@ -606,6 +607,7 @@ impl ToolHandlers {
                 &tenant_id_str,
                 &user_id_str,
                 counter_type,
+                &tier,
                 request_id.clone(),
             )
             .await
@@ -617,16 +619,28 @@ impl ToolHandlers {
         None
     }
 
+    /// Resolve the user's tier from the `users` row. Falls back to
+    /// [`UserTier::Starter`] when the row cannot be loaded so the
+    /// least-permissive defaults apply when the user has been deleted
+    /// out from under an in-flight tool call.
+    async fn resolve_user_tier(resources: &Arc<ServerResources>, user_id: Uuid) -> UserTier {
+        match resources.repos.users.get_global(user_id).await {
+            Ok(Some(user)) => user.tier,
+            _ => UserTier::Starter,
+        }
+    }
+
     /// Check a single quota counter and return an error response if exceeded
     async fn check_single_quota(
         usage_svc: &UsageCounterService<'_>,
         tenant_id: &str,
         user_id: &str,
         counter_type: &str,
+        tier: &UserTier,
         request_id: Option<Value>,
     ) -> Option<McpResponse> {
         match usage_svc
-            .check_limit(tenant_id, user_id, counter_type)
+            .check_limit_for_tier(tenant_id, user_id, counter_type, tier)
             .await
         {
             Ok(check) if !check.allowed => {
@@ -709,6 +723,7 @@ impl ToolHandlers {
 
         let tenant_id_str = tenant_context.tenant_id.to_string();
         let user_id_str = auth_result.user_id.to_string();
+        let tier = Self::resolve_user_tier(resources, auth_result.user_id).await;
         let usage_svc =
             UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
@@ -725,6 +740,7 @@ impl ToolHandlers {
                 &tenant_id_str,
                 &user_id_str,
                 counter_type,
+                &tier,
                 request_id.clone(),
             )
             .await
