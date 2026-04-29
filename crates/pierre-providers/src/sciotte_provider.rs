@@ -78,13 +78,13 @@ impl SciotteProvider {
     }
 }
 
-/// Direct sciotte → cageux SportType conversion. Both enums share variant
+/// Direct sciotte → cageux `SportType` conversion. Both enums share variant
 /// names (sciotte mirrors cageux's canonical set), so a 1:1 match is
 /// bulletproof; the previous round-trip via `display_name()` →
 /// `from_internal_string()` was lossy because `display_name` returns
 /// human-readable Title-Case-with-spaces ("Cross-Country Skiing") while
-/// `from_internal_string` expects the snake_case serde form
-/// ("cross_country_skiing"), so every non-trivial variant fell through to
+/// `from_internal_string` expects the `snake_case` serde form
+/// ("`cross_country_skiing`"), so every non-trivial variant fell through to
 /// `Other(<display_name>)` and broke filter / serialization.
 fn convert_sport_type(s: &SciotteSportType) -> SportType {
     match s {
