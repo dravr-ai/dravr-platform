@@ -10,7 +10,7 @@ region       = "northamerica-northeast1"
 service_name = "dravr-mcp-server"
 
 enable_database = true
-enable_cache    = false
+enable_cache    = true
 enable_frontend = true
 
 # Frontend public URL (nginx proxies API traffic to backend; used for OAuth callbacks)
