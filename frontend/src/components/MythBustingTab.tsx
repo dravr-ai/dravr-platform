@@ -54,7 +54,7 @@ export default function MythBustingTab() {
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Pattern view over the latest{' '}
               <span className="font-medium">{data?.verdicts_scanned ?? '—'}</span>{' '}
-              Tier 5.5 verdicts. Highlights the recurring unsupported and
+              claim verdicts. Highlights the recurring unsupported and
               contradicted claims, the coaches that emit them, and the
               categories most likely to need myth-busting.
             </p>
@@ -111,8 +111,8 @@ export default function MythBustingTab() {
             No unsupported or contradicted claims in the latest scan window.
           </p>
           <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-            Either coaches are well-behaved, or the Tier 5.5 detector
-            classified everything as supported / rhetorical.
+            Either coaches are well-behaved, or the claim verifier classified
+            everything as supported or rhetorical.
           </p>
         </Card>
       ) : data ? (

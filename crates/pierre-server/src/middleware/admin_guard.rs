@@ -27,7 +27,15 @@
 //! }
 //! ```
 
+use crate::admin::models::{AdminPermissions, ValidatedAdminToken};
 use crate::errors::{AppError, ErrorCode};
+use crate::mcp::resources::ServerResources;
+use crate::middleware::extractors::extract_auth_from_headers;
+use axum::body::Body;
+use axum::extract::State;
+use axum::http::{HeaderMap, Request};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use pierre_core::models::User;
 use pierre_database::database::repositories::UserRepository;
 use std::sync::Arc;
@@ -81,4 +89,46 @@ pub async fn require_admin(
     }
 
     Ok(user)
+}
+
+/// Axum middleware that gates web admin routes behind cookie/session auth
+/// plus an `is_admin` check. Used by the human-facing admin tabs mounted at
+/// `/api/admin/...` so the same routes that programmatic clients hit at
+/// `/admin/...` (with admin-token JWT) are reachable from a logged-in admin
+/// in the browser without a separate token.
+///
+/// Returns 401 if no valid session is found, 403 if the user is not an admin.
+///
+/// # Errors
+///
+/// Returns the inner `AppError` rendered as an HTTP response when:
+/// - The session token is missing, invalid, or expired
+/// - The looked-up user is not present
+/// - The user's role is not `admin` or `super_admin`
+pub async fn cookie_admin_middleware(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    mut request: Request<Body>,
+    next: Next,
+) -> Result<Response, Response> {
+    let auth = extract_auth_from_headers(&headers, &resources)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let user = require_admin(auth.user_id, &resources.repos.users)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    // Synthesize a `ValidatedAdminToken` so handlers downstream that
+    // expect `Extension<ValidatedAdminToken>` (set by the programmatic
+    // `admin_auth_middleware`) work identically when the request comes
+    // through cookie auth. Web admins always get full permissions —
+    // the gate is the `is_admin` check above.
+    request.extensions_mut().insert(ValidatedAdminToken {
+        token_id: format!("cookie:{}", user.id),
+        service_name: user.email.clone(),
+        permissions: AdminPermissions::super_admin(),
+        is_super_admin: true,
+        tenant_id: auth.active_tenant_id.map(|t| t.to_string()),
+        user_info: None,
+    });
+    Ok(next.run(request).await)
 }

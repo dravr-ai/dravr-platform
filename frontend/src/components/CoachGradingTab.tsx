@@ -60,9 +60,9 @@ export default function CoachGradingTab() {
               Coach content grades
             </h2>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Per-coach quality scores derived from Tier 5.5 verdict
-              history. Higher scores rank higher in the store. Worst-graded
-              coaches appear first so admins can review or unpublish them.
+              Per-coach quality scores derived from claim-verdict history.
+              Higher scores rank higher in the store. Worst-graded coaches
+              appear first so admins can review or unpublish them.
             </p>
           </div>
           <Button
@@ -118,8 +118,8 @@ export default function CoachGradingTab() {
               No coach grades available yet.
             </p>
             <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
-              Coaches need at least a few Tier 5.5 verdicts before they can
-              be graded.
+              Coaches need at least a few claim verdicts before they can be
+              graded.
             </p>
           </div>
         ) : (
