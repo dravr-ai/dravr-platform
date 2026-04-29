@@ -14,7 +14,7 @@ use crate::intelligence::physiological_constants::api_limits::{
     DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
-use crate::models::{Activity, Athlete, SportType, Stats, TenantId};
+use crate::models::{resolve_sport_type, Activity, Athlete, SportType, Stats, TenantId};
 use crate::protocols::universal::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::providers::core::{ActivityQueryParams, FitnessProvider};
@@ -766,14 +766,14 @@ async fn cache_activities_result(
 /// `ski de fond`, or `cross_country_skiing`. The filter resolves the input
 /// to a canonical [`SportType`] via
 /// [`pierre_core::models::resolve_sport_type`] and compares enum-to-enum
-/// against each activity's sport_type — so all of those inputs match
+/// against each activity's `sport_type` — so all of those inputs match
 /// [`SportType::CrossCountrySkiing`] without requiring per-call alias logic
 /// in the prompt or upstream callers.
 ///
 /// When the input doesn't resolve to a known variant, falls back to a
 /// normalised string compare (separator-insensitive, lowercase) against the
-/// activity's serialised sport_type — preserves the previous behaviour for
-/// unknown / custom Other(...) values.
+/// activity's serialised `sport_type` — preserves the previous behaviour for
+/// unknown / custom `Other(...)` values.
 fn filter_activities_by_sport_type(
     activities: Vec<Activity>,
     sport_type_filter: Option<&str>,
@@ -781,7 +781,7 @@ fn filter_activities_by_sport_type(
     let Some(filter) = sport_type_filter else {
         return activities;
     };
-    let canonical_filter = pierre_core::models::resolve_sport_type(filter);
+    let canonical_filter = resolve_sport_type(filter);
     let normalised_filter = normalise_sport_string(filter);
     activities
         .into_iter()
@@ -815,13 +815,16 @@ fn sport_type_matches(
     let activity_str = to_value(activity_sport).map_or_else(
         |_| String::new(),
         |v| {
-            v.as_str().map(str::to_owned).unwrap_or_else(|| {
-                v.as_object()
-                    .and_then(|obj| obj.get("other"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_owned)
-                    .unwrap_or_default()
-            })
+            v.as_str().map_or_else(
+                || {
+                    v.as_object()
+                        .and_then(|obj| obj.get("other"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned)
+                        .unwrap_or_default()
+                },
+                str::to_owned,
+            )
         },
     );
     normalise_sport_string(&activity_str) == normalised_filter
