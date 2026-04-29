@@ -26,6 +26,8 @@ use crate::{
     services::tenant_admin as tenant_admin_service,
 };
 use pierre_auth::rate_limiting::UnifiedRateLimitCalculator;
+use pierre_core::models::UserTier;
+use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_database::RepositoryRegistry;
 
 use super::api_keys::json_response;
@@ -794,6 +796,87 @@ pub(super) async fn handle_get_user_activity(
                 "period_days": days,
                 "total_requests": total_requests,
                 "top_tools": top_tools,
+            }))
+            .ok(),
+        },
+        StatusCode::OK,
+    ))
+}
+
+/// Body for [`handle_set_user_tier`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub(super) struct SetUserTierRequest {
+    /// `"starter"`, `"professional"`, or `"enterprise"`. Anything else
+    /// returns 400 — silent fallback to Starter would mask typos.
+    pub tier: String,
+}
+
+/// Admin: change a user's billing tier (Starter / Professional /
+/// Enterprise).
+///
+/// Restricted to super-admin tokens because the tier write is
+/// orthogonal to `ManageUsers` — Stripe webhook drives Stripe-paid
+/// upgrades; this route is the human-operator backdoor for QA, comp
+/// accounts, and overrides outside the Stripe loop. Auditable via
+/// the existing `tracing::info` on the path.
+pub(super) async fn handle_set_user_tier(
+    State(context): State<Arc<AdminApiContext>>,
+    Extension(admin_token): Extension<ValidatedAdminToken>,
+    Path(user_id): Path<String>,
+    Json(request): Json<SetUserTierRequest>,
+) -> AppResult<impl IntoResponse> {
+    if !admin_token.is_super_admin {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: "Permission denied: super-admin token required".to_owned(),
+                data: None,
+            },
+            StatusCode::FORBIDDEN,
+        ));
+    }
+
+    let user_uuid = Uuid::parse_str(&user_id)
+        .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
+
+    let new_tier = match request.tier.to_ascii_lowercase().as_str() {
+        "starter" => UserTier::Starter,
+        "professional" => UserTier::Professional,
+        "enterprise" => UserTier::Enterprise,
+        other => {
+            return Err(AppError::invalid_input(format!(
+                "Unknown tier '{other}' — expected starter, professional, or enterprise",
+            )));
+        }
+    };
+
+    let updated = context
+        .repos
+        .users
+        .set_tier(user_uuid, new_tier.clone())
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to set user tier: {e}")))?;
+
+    info!(
+        target_user_id = %user_uuid,
+        target_user_email = %updated.email,
+        new_tier = user_tier_to_str(&new_tier),
+        admin_service = %admin_token.service_name,
+        "Admin tier change applied"
+    );
+
+    Ok(json_response(
+        AdminResponse {
+            success: true,
+            message: format!(
+                "User {} tier set to {}",
+                updated.email,
+                user_tier_to_str(&new_tier)
+            ),
+            data: to_value(json!({
+                "user_id": user_uuid.to_string(),
+                "email": updated.email,
+                "tier": user_tier_to_str(&new_tier),
             }))
             .ok(),
         },

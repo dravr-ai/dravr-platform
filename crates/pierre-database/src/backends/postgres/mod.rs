@@ -44,6 +44,8 @@ pub mod seeder;
 pub mod social;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
+/// Stripe-backed subscription persistence (Phase 5 billing)
+pub mod subscriptions;
 /// Tenant, tool selection, LLM credential, and fitness config repositories
 pub mod tenant;
 /// Usage tracking repository implementations

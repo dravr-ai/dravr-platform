@@ -45,6 +45,8 @@ const StoreScreen = lazy(() => import('./StoreScreen'));
 const FriendsTab = lazy(() => import('./social/FriendsTab'));
 const SocialFeedTab = lazy(() => import('./social/SocialFeedTab'));
 const LlmConsumptionPanel = lazy(() => import('./LlmConsumptionPanel'));
+const BillingTab = lazy(() => import('./BillingTab'));
+const BillingPage = lazy(() => import('./BillingPage'));
 const NotificationsPanel = lazy(() => import('./notifications/NotificationsPanel'));
 const GroupManagement = lazy(() => import('./groups/GroupManagement'));
 const GroupDetail = lazy(() => import('./groups/GroupDetail'));
@@ -232,6 +234,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ) },
+    { id: 'billing', name: 'Billing', section: 'Platform', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+      </svg>
+    ) },
   ], [pendingUsersCount, storeStatsPendingCount, notificationUnreadCount]);
 
   // Super admin tabs extend admin tabs with admin token management
@@ -276,6 +283,11 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ), badge: notificationUnreadCount > 0 ? notificationUnreadCount : undefined },
+    { id: 'my-billing', name: 'Billing', icon: (
+      <svg className="w-5 h-5" aria-hidden="true" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h2m-2 4h2m4-4h6m-6 4h6M5 5h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
+      </svg>
+    ) },
   ], [notificationUnreadCount]);
 
   // For admin users, use sidebar tabs
@@ -534,6 +546,16 @@ export default function Dashboard({ pendingInviteCode, onInviteCodeConsumed }: D
               <LlmConsumptionPanel />
             </Suspense>
           </div>
+        )}
+        {activeTab === 'billing' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <BillingTab />
+          </Suspense>
+        )}
+        {activeTab === 'my-billing' && (
+          <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>
+            <BillingPage />
+          </Suspense>
         )}
         {activeTab === 'activity' && (
           <Suspense fallback={<div className="flex justify-center py-8"><div className="pierre-spinner"></div></div>}>

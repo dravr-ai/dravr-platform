@@ -27,9 +27,9 @@ use pierre_notifications::triggers as notification_triggers;
 
 use super::common::{authenticate, get_tenant_id};
 use super::dto::{ChatCompletionResponse, ChatMessageAction, MessageResponse, SendMessageRequest};
-use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas};
+use super::quotas::{apply_usage_warning_headers, check_pre_chat_quotas_scoped, PreChatScope};
 use super::send_insight::send_insight_message;
-use super::usage::{increment_usage_counters, tokens_from_dispatch};
+use super::usage::{increment_usage_counters_scoped, tokens_from_dispatch, UsageIncrementScope};
 use super::INSIGHT_PROMPT_PREFIX;
 
 /// HTTP header carrying the client surface identifier.
@@ -115,13 +115,31 @@ pub async fn send_message(
     let user_id_str = auth.user_id.to_string();
     let tenant_id_str = tenant_id.to_string();
 
-    // Pre-chat quota check: verify message and token quotas before LLM dispatch.
-    let usage_warning = check_pre_chat_quotas(
+    // Resolve the conversation row once so the per-conversation and
+    // per-coach scoped caps fire in the same call as the global daily/
+    // weekly caps. A missing conversation is fine — the user might be
+    // creating a new one — so we silently degrade to global-only.
+    let conversation_row = resources
+        .repos
+        .chat
+        .get_conversation(&conversation_id, &user_id_str, tenant_id)
+        .await
+        .ok()
+        .flatten();
+    let scope_coach_id = conversation_row.as_ref().and_then(|c| c.coach_id.clone());
+    let pre_scope = PreChatScope {
+        conversation_id: Some(conversation_id.as_str()),
+        coach_id: scope_coach_id.as_deref(),
+    };
+
+    // Pre-chat quota check: verify message, token, per-conversation,
+    // and per-coach quotas before LLM dispatch.
+    let usage_warning = check_pre_chat_quotas_scoped(
         &resources,
         &tenant_id_str,
         &user_id_str,
         auth.user_id,
-        tenant_id,
+        &pre_scope,
     )
     .await?;
 
@@ -233,12 +251,17 @@ pub async fn send_message(
 
     let total_tokens_used =
         i64::from(prompt_tokens.unwrap_or(0)) + i64::from(completion_tokens.unwrap_or(0));
-    increment_usage_counters(
+    let inc_scope = UsageIncrementScope {
+        conversation_id: Some(conversation_id.as_str()),
+        coach_id: scope_coach_id.as_deref(),
+    };
+    increment_usage_counters_scoped(
         &resources,
         &tenant_id_str,
         &user_id_str,
         total_tokens_used,
         dispatch.tool_calls_count,
+        &inc_scope,
     )
     .await;
 

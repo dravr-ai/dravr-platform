@@ -17,9 +17,9 @@ use crate::repositories::{
     NotificationRepository, OAuth2ServerRepository, OAuthClientStateRepository,
     OAuthTokenRepository, PasswordResetRepository, ProfileRepository, ProviderConnectionRepository,
     RecipeRepository, RecoveryRepository, SecurityRepository, SeederRepository, SleepRepository,
-    SocialRepository, StoreListingsRepository, SyncCursorRepository, TenantRepository,
-    ToolSelectionRepository, UsageCounterRepository, UsageRepository, UserMcpTokenRepository,
-    UserRepository,
+    SocialRepository, StoreListingsRepository, SubscriptionsRepository, SyncCursorRepository,
+    TenantRepository, ToolSelectionRepository, UsageCounterRepository, UsageRepository,
+    UserMcpTokenRepository, UserRepository,
 };
 
 /// Holds one `Arc<dyn Repository>` per domain trait.
@@ -104,6 +104,8 @@ pub struct RepositoryRegistry {
     pub memory: Arc<dyn HarnessMemoryRepository>,
     /// Tier 5.5 claim verdicts from the bullshit detector pipeline
     pub claim_verdicts: Arc<dyn ClaimVerdictRepository>,
+    /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
+    pub subscriptions: Arc<dyn SubscriptionsRepository>,
 }
 
 impl RepositoryRegistry {
@@ -151,7 +153,8 @@ impl RepositoryRegistry {
             health_snapshots: db.clone(),
             sync_cursors: db.clone(),
             memory: db.clone(),
-            claim_verdicts: db,
+            claim_verdicts: db.clone(),
+            subscriptions: db,
         }
     }
 
@@ -197,7 +200,8 @@ impl RepositoryRegistry {
             health_snapshots: db.clone(),
             sync_cursors: db.clone(),
             memory: db.clone(),
-            claim_verdicts: db,
+            claim_verdicts: db.clone(),
+            subscriptions: db,
         }
     }
 }

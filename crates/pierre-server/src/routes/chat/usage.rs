@@ -110,6 +110,22 @@ pub fn extract_or_estimate_tokens(
     )
 }
 
+/// Per-turn dimensions that drive the scoped (per-conversation,
+/// per-coach) counter increments. Mirrors
+/// [`crate::routes::chat::quotas::PreChatScope`] on the read side so
+/// pre-check and post-increment stay in lockstep.
+#[derive(Debug, Default, Clone)]
+pub struct UsageIncrementScope<'a> {
+    /// `conversations.id` — drives the lifetime per-conversation
+    /// message counter that the pre-chat check enforces against
+    /// `max_messages_per_conversation`.
+    pub conversation_id: Option<&'a str>,
+    /// `coaches.id` — drives the daily per-coach message counter
+    /// that the pre-chat check enforces against
+    /// `max_messages_per_coach_per_day`.
+    pub coach_id: Option<&'a str>,
+}
+
 /// Increment usage counters after a successful LLM call.
 ///
 /// Tracks daily/weekly messages, tokens, and tool calls. Failures are
@@ -122,13 +138,54 @@ pub async fn increment_usage_counters(
     total_tokens: i64,
     tool_calls_count: u32,
 ) {
+    increment_usage_counters_scoped(
+        resources,
+        tenant_id,
+        user_id,
+        total_tokens,
+        tool_calls_count,
+        &UsageIncrementScope::default(),
+    )
+    .await;
+}
+
+/// Scoped variant of [`increment_usage_counters`] that additionally
+/// bumps the per-conversation and per-coach counters when their ids
+/// are present in [`UsageIncrementScope`]. The same dimension keys
+/// the pre-chat check reads (`conversation_messages:<conv>`,
+/// `daily_coach_messages:<coach>`) are written here.
+pub async fn increment_usage_counters_scoped(
+    resources: &Arc<ServerResources>,
+    tenant_id: &str,
+    user_id: &str,
+    total_tokens: i64,
+    tool_calls_count: u32,
+    scope: &UsageIncrementScope<'_>,
+) {
     let Some(ref admin_config) = resources.admin_config else {
         return;
     };
 
     let usage_svc = UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
-    // Build list of (counter_type, amount) pairs to increment
+    increment_base_counters(
+        &usage_svc,
+        tenant_id,
+        user_id,
+        total_tokens,
+        tool_calls_count,
+    )
+    .await;
+    increment_scoped_counters(&usage_svc, tenant_id, user_id, scope).await;
+}
+
+async fn increment_base_counters(
+    usage_svc: &UsageCounterService<'_>,
+    tenant_id: &str,
+    user_id: &str,
+    total_tokens: i64,
+    tool_calls_count: u32,
+) {
     let mut counters: Vec<(&str, i64)> = vec![("daily_messages", 1), ("weekly_messages", 1)];
     if total_tokens > 0 {
         counters.push(("daily_tokens", total_tokens));
@@ -146,6 +203,31 @@ pub async fn increment_usage_counters(
             .await
         {
             warn!("Failed to increment {counter_type} counter: {e}");
+        }
+    }
+}
+
+async fn increment_scoped_counters(
+    usage_svc: &UsageCounterService<'_>,
+    tenant_id: &str,
+    user_id: &str,
+    scope: &UsageIncrementScope<'_>,
+) {
+    if let Some(conv_id) = scope.conversation_id {
+        if let Err(e) = usage_svc
+            .increment_with_dimension(tenant_id, user_id, "conversation_messages", conv_id, 1)
+            .await
+        {
+            warn!("Failed to increment conversation_messages:{conv_id} counter: {e}");
+        }
+    }
+
+    if let Some(coach_id) = scope.coach_id {
+        if let Err(e) = usage_svc
+            .increment_with_dimension(tenant_id, user_id, "daily_coach_messages", coach_id, 1)
+            .await
+        {
+            warn!("Failed to increment daily_coach_messages:{coach_id} counter: {e}");
         }
     }
 }

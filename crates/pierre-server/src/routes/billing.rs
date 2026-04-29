@@ -1,98 +1,37 @@
-// ABOUTME: Phase 5 Stripe-backed billing routes — checkout, portal, webhook, subscription, invoices
-// ABOUTME: Talks to Stripe REST API directly via reqwest; signs/verifies webhooks per Stripe Sigv1
-//
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+// ABOUTME: Provider-agnostic billing routes — checkout, portal, webhook, subscription, invoices, quota
+// ABOUTME: Dispatches via Arc<dyn BillingProvider>; concrete impls live in dravr-{stripe,revenuecat,...} repos
+
+use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{Json as AxumJson, State};
+use axum::extract::{Json as AxumJson, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use hmac::{Hmac, Mac};
+use chrono::{DateTime, Utc};
+use pierre_core::billing::{
+    BillingEvent, CheckoutRequest, CheckoutResponse, Invoice, PortalRequest, PortalResponse,
+    SubscriptionEventPayload, WebhookPayload,
+};
 use pierre_core::errors::{AppError, AppResult};
-use serde::{Deserialize, Serialize};
-use sha2::Sha256;
-use std::env;
+use pierre_core::models::{Subscription, SubscriptionStatus, TenantId, UserTier};
+use serde::Serialize;
+use uuid::Uuid;
 
 use crate::mcp::resources::ServerResources;
+use crate::middleware::extractors::AuthenticatedUser;
 
-const STRIPE_API_BASE: &str = "https://api.stripe.com/v1";
-
-/// Maximum age (seconds) accepted for a Stripe webhook signature timestamp
-/// before we reject the call as a replay.
-const STRIPE_WEBHOOK_MAX_AGE_SECS: i64 = 300;
-
-/// Tier names accepted by the checkout endpoint. Mirrors the
-/// `plan_tier` CHECK constraint on the `subscriptions` table.
-fn price_id_for_tier(tier: &str) -> AppResult<String> {
-    let var = match tier {
-        "starter" => "STRIPE_PRICE_ID_STARTER",
-        "professional" => "STRIPE_PRICE_ID_PROFESSIONAL",
-        "enterprise" => "STRIPE_PRICE_ID_ENTERPRISE",
-        other => {
-            return Err(AppError::invalid_input(format!(
-                "unknown plan tier: {other}"
-            )));
-        }
-    };
-    env::var(var).map_err(|_| AppError::config(format!("{var} is not set in the environment")))
-}
-
-fn stripe_secret_key() -> AppResult<String> {
-    env::var("STRIPE_SECRET_KEY")
-        .map_err(|_| AppError::config("STRIPE_SECRET_KEY is not set in the environment"))
-}
-
-fn stripe_webhook_secret() -> AppResult<String> {
-    env::var("STRIPE_WEBHOOK_SECRET")
-        .map_err(|_| AppError::config("STRIPE_WEBHOOK_SECRET is not set in the environment"))
-}
-
-/// Inputs for `POST /api/billing/checkout`.
-#[derive(Debug, Deserialize)]
-pub struct CheckoutRequest {
-    /// Plan tier the user wants to upgrade to.
-    pub tier: String,
-    /// Tenant the subscription will attach to (per Locked Decision #5).
-    pub tenant_id: String,
-    /// User initiating the upgrade.
-    pub user_id: String,
-    /// Where Stripe should redirect on success.
-    pub success_url: String,
-    /// Where Stripe should redirect on cancel.
-    pub cancel_url: String,
-}
-
-/// `POST /api/billing/checkout` response — just the Stripe-hosted URL.
+/// `GET /api/billing/subscription` view returned to the frontend.
+///
+/// Mirrors the row shape but exposes only string-typed fields the UI
+/// needs to render the Current Plan card.
 #[derive(Debug, Serialize)]
-pub struct CheckoutResponse {
-    /// URL the client opens in a new tab to complete payment.
-    pub checkout_url: String,
-}
-
-/// Inputs for `POST /api/billing/portal`.
-#[derive(Debug, Deserialize)]
-pub struct PortalRequest {
-    /// Stripe customer id (`subscriptions.stripe_customer_id`).
-    pub stripe_customer_id: String,
-    /// Where Stripe should redirect when the user finishes in the portal.
-    pub return_url: String,
-}
-
-/// `POST /api/billing/portal` response.
-#[derive(Debug, Serialize)]
-pub struct PortalResponse {
-    /// URL the client opens in a new tab to manage their subscription.
-    pub portal_url: String,
-}
-
-/// `GET /api/billing/subscription?tenant_id=...` response shape mirrors
-/// the `subscriptions` table row that we keep in sync with Stripe.
-#[derive(Debug, Serialize, Deserialize)]
 pub struct SubscriptionView {
     /// Subscription row id.
     pub id: String,
@@ -100,279 +39,443 @@ pub struct SubscriptionView {
     pub tenant_id: String,
     /// User who initiated the upgrade.
     pub user_id: String,
-    /// Stripe customer id.
-    pub stripe_customer_id: String,
-    /// Stripe subscription id (when one exists).
-    pub stripe_subscription_id: Option<String>,
-    /// Subscription status mirrored from Stripe.
+    /// Provider slug (`stripe`, `revenuecat`, `dummy`, …).
+    pub provider: String,
+    /// Provider-side customer identifier.
+    pub provider_customer_id: String,
+    /// Provider-side subscription identifier (when one exists).
+    pub provider_subscription_id: Option<String>,
+    /// Lifecycle status mirrored from the provider.
     pub status: String,
-    /// Plan tier — `starter`, `professional`, or `enterprise`.
+    /// Plan tier — `starter`, `professional`, `enterprise`.
     pub plan_tier: String,
     /// Period start (RFC3339).
     pub current_period_start: Option<String>,
     /// Period end (RFC3339).
     pub current_period_end: Option<String>,
-    /// True when the user has scheduled cancellation at the period end.
+    /// True when cancellation is scheduled at the period end.
     pub cancel_at_period_end: bool,
 }
 
-/// Container response for the invoices listing.
+/// Container for `GET /api/billing/invoices`.
 #[derive(Debug, Serialize)]
 pub struct InvoicesResponse {
-    /// Stripe invoice rows for the customer, newest first.
-    pub invoices: Vec<serde_json::Value>,
+    /// Invoice rows for the customer, newest first.
+    pub invoices: Vec<Invoice>,
 }
 
 /// Build the billing router.
 ///
-/// Every endpoint requires a logged-in user whose `tenant_id` matches
-/// the request body — the auth check happens in the surrounding pipeline
-/// middleware; this router is registered only after the auth layer has
-/// been applied to the parent router.
+/// Every endpoint requires a logged-in user whose tenant matches the
+/// request body — the auth check happens in surrounding pipeline
+/// middleware; this router is registered only after the auth layer
+/// has been applied to the parent router.
 pub fn billing_routes() -> Router<Arc<ServerResources>> {
     Router::new()
         .route("/api/billing/checkout", post(checkout))
         .route("/api/billing/portal", post(portal))
         .route("/api/billing/subscription", get(get_subscription))
         .route("/api/billing/invoices", get(list_invoices))
-        .route("/webhooks/stripe", post(webhook))
+        .route("/api/users/me/quota", get(get_my_quota))
+        .route("/webhooks/{provider}", post(webhook))
 }
 
-/// `POST /api/billing/checkout` — create a Stripe Checkout Session.
+/// `POST /api/billing/checkout` — create a hosted-checkout session.
 async fn checkout(
-    State(_resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerResources>>,
     AxumJson(req): AxumJson<CheckoutRequest>,
 ) -> AppResult<Json<CheckoutResponse>> {
-    let secret = stripe_secret_key()?;
-    let price_id = price_id_for_tier(&req.tier)?;
-    let client = reqwest::Client::new();
-    let form = [
-        ("mode", "subscription"),
-        ("success_url", req.success_url.as_str()),
-        ("cancel_url", req.cancel_url.as_str()),
-        ("line_items[0][price]", price_id.as_str()),
-        ("line_items[0][quantity]", "1"),
-        ("client_reference_id", req.tenant_id.as_str()),
-        ("metadata[tenant_id]", req.tenant_id.as_str()),
-        ("metadata[user_id]", req.user_id.as_str()),
-        ("metadata[plan_tier]", req.tier.as_str()),
-    ];
-    let resp = client
-        .post(format!("{STRIPE_API_BASE}/checkout/sessions"))
-        .basic_auth(&secret, None::<&str>)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| {
-            AppError::external_service("stripe", format!("checkout request failed: {e}"))
-        })?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::external_service(
-            "stripe",
-            format!("checkout returned {status}: {body}"),
-        ));
-    }
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::external_service("stripe", format!("checkout decode: {e}")))?;
-    let checkout_url = body
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AppError::external_service("stripe", "checkout response missing 'url'"))?
-        .to_owned();
-    Ok(Json(CheckoutResponse { checkout_url }))
+    let resp = resources.billing_provider.start_checkout(&req).await?;
+    Ok(Json(resp))
 }
 
-/// `POST /api/billing/portal` — return a Stripe Customer Portal link.
+/// `POST /api/billing/portal` — create a hosted-portal session.
 async fn portal(
-    State(_resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerResources>>,
     AxumJson(req): AxumJson<PortalRequest>,
 ) -> AppResult<Json<PortalResponse>> {
-    let secret = stripe_secret_key()?;
-    let client = reqwest::Client::new();
-    let form = [
-        ("customer", req.stripe_customer_id.as_str()),
-        ("return_url", req.return_url.as_str()),
-    ];
-    let resp = client
-        .post(format!("{STRIPE_API_BASE}/billing_portal/sessions"))
-        .basic_auth(&secret, None::<&str>)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| AppError::external_service("stripe", format!("portal request failed: {e}")))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::external_service(
-            "stripe",
-            format!("portal returned {status}: {body}"),
-        ));
-    }
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::external_service("stripe", format!("portal decode: {e}")))?;
-    let portal_url = body
-        .get("url")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| AppError::external_service("stripe", "portal response missing 'url'"))?
-        .to_owned();
-    Ok(Json(PortalResponse { portal_url }))
+    let resp = resources.billing_provider.open_portal(&req).await?;
+    Ok(Json(resp))
 }
 
-/// `GET /api/billing/subscription` — current authenticated user/tenant
-/// reads its `subscriptions` row. Stub: returns 404 when no row exists
-/// rather than fabricating a free-tier shell, so the frontend can drive
-/// the upgrade flow off a clean signal.
+/// `GET /api/billing/subscription` — current authenticated user reads
+/// its `subscriptions` row. Returns 404 when no row exists rather than
+/// fabricating a free-tier shell, so the frontend can drive the upgrade
+/// flow off a clean signal.
 async fn get_subscription(
-    State(_resources): State<Arc<ServerResources>>,
+    State(resources): State<Arc<ServerResources>>,
+    auth: AuthenticatedUser,
 ) -> AppResult<Json<SubscriptionView>> {
-    Err(AppError::not_found(
-        "no subscription record yet — run /api/billing/checkout to create one",
-    ))
+    let row = resources
+        .repos
+        .subscriptions
+        .get_subscription_by_user(auth.user_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::not_found(
+                "no subscription record yet — run /api/billing/checkout to create one",
+            )
+        })?;
+    Ok(Json(SubscriptionView {
+        id: row.id.to_string(),
+        tenant_id: row.tenant_id.to_string(),
+        user_id: row.user_id.to_string(),
+        provider: row.provider,
+        provider_customer_id: row.provider_customer_id,
+        provider_subscription_id: row.provider_subscription_id,
+        status: row.status.as_str().to_owned(),
+        plan_tier: row.plan_tier.as_str().to_owned(),
+        current_period_start: row.current_period_start.map(|d| d.to_rfc3339()),
+        current_period_end: row.current_period_end.map(|d| d.to_rfc3339()),
+        cancel_at_period_end: row.cancel_at_period_end,
+    }))
 }
 
-/// `GET /api/billing/invoices` — list Stripe invoices for the current
-/// customer. Requires `?customer_id=<stripe_customer_id>` for now;
-/// session-level lookup lands when the subscriptions repository is wired
-/// into `ServerResources`.
+/// `GET /api/billing/invoices` — proxy through to the provider's invoice
+/// listing for the customer attached to the user's subscription row.
 async fn list_invoices(
-    State(_resources): State<Arc<ServerResources>>,
-    headers: HeaderMap,
+    State(resources): State<Arc<ServerResources>>,
+    auth: AuthenticatedUser,
 ) -> AppResult<Json<InvoicesResponse>> {
-    let customer_id = headers
-        .get("x-stripe-customer-id")
-        .and_then(|v| v.to_str().ok())
+    let row = resources
+        .repos
+        .subscriptions
+        .get_subscription_by_user(auth.user_id)
+        .await?
         .ok_or_else(|| {
-            AppError::invalid_input("missing X-Stripe-Customer-Id header for invoice listing")
-        })?
-        .to_owned();
-    let secret = stripe_secret_key()?;
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(format!(
-            "{STRIPE_API_BASE}/invoices?customer={customer_id}&limit=20"
-        ))
-        .basic_auth(&secret, None::<&str>)
-        .send()
-        .await
-        .map_err(|e| {
-            AppError::external_service("stripe", format!("invoices request failed: {e}"))
+            AppError::not_found(
+                "no subscription on file — invoices are only available after a successful checkout",
+            )
         })?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::external_service(
-            "stripe",
-            format!("invoices returned {status}: {body}"),
-        ));
-    }
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| AppError::external_service("stripe", format!("invoices decode: {e}")))?;
-    let invoices = body
-        .get("data")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let invoices = resources
+        .billing_provider
+        .list_invoices(&row.provider_customer_id)
+        .await?;
     Ok(Json(InvoicesResponse { invoices }))
 }
 
-/// `POST /webhooks/stripe` — Stripe webhook receiver. Validates the
-/// `Stripe-Signature` header against `STRIPE_WEBHOOK_SECRET` per the
-/// Stripe v1 signature scheme (timestamp + signed payload, HMAC-SHA256).
-async fn webhook(headers: HeaderMap, body: Bytes) -> AppResult<Response> {
-    let signature_header = headers
-        .get("stripe-signature")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| AppError::invalid_input("missing Stripe-Signature header"))?;
-    let secret = stripe_webhook_secret()?;
-    verify_stripe_signature(signature_header, &body, &secret)?;
+/// `POST /webhooks/{provider}` — provider-agnostic webhook receiver.
+///
+/// Routes the raw body to the active [`BillingProvider`] for signature
+/// verification + payload normalization, then applies the resulting
+/// [`BillingEvent`] to the repositories. Idempotency is enforced via
+/// the `billing_events` table keyed on `(provider, event_id)`.
+async fn webhook(
+    State(resources): State<Arc<ServerResources>>,
+    Path(provider_slug): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> AppResult<Response> {
+    let expected = resources.billing_provider.name();
+    if provider_slug != expected {
+        return Err(AppError::not_found(format!(
+            "no billing provider matches webhook slug '{provider_slug}'",
+        )));
+    }
 
-    let event: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| AppError::invalid_input(format!("invalid webhook body: {e}")))?;
-    let event_type = event
-        .get("type")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown");
-    tracing::info!(stripe_webhook = event_type, "received Stripe webhook");
+    let header_map: HashMap<String, String> = headers
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.as_str().to_ascii_lowercase(),
+                String::from_utf8_lossy(v.as_bytes()).into_owned(),
+            )
+        })
+        .collect();
 
-    // Status-change handling, downgrade-on-failure, and audit-log writes
-    // hook into `ServerResources` once the subscriptions repository is
-    // registered there. Surfacing a 200 here keeps Stripe from retrying
-    // while the consumer wires it up.
+    let envelope = resources
+        .billing_provider
+        .parse_webhook(WebhookPayload {
+            headers: &header_map,
+            body: &body,
+        })
+        .await?;
+
+    let repos = resources.repos.as_ref();
+    if repos
+        .subscriptions
+        .is_billing_event_processed(expected, &envelope.event_id)
+        .await?
+    {
+        tracing::info!(
+            billing_provider = expected,
+            event_id = envelope.event_id,
+            event_type = envelope.event_type,
+            "skipping replay of already-processed billing event",
+        );
+        return Ok((StatusCode::OK, "ok").into_response());
+    }
+
+    tracing::info!(
+        billing_provider = expected,
+        event_id = envelope.event_id,
+        event_type = envelope.event_type,
+        "dispatching billing webhook",
+    );
+
+    dispatch_billing_event(repos, expected, &envelope.event).await?;
+
+    repos
+        .subscriptions
+        .mark_billing_event_processed(expected, &envelope.event_id, &envelope.event_type)
+        .await?;
+
     Ok((StatusCode::OK, "ok").into_response())
 }
 
-/// Verify the `Stripe-Signature` header against the raw body using the
-/// webhook signing secret. Rejects timestamps older than
-/// [`STRIPE_WEBHOOK_MAX_AGE_SECS`] to defeat replay attacks.
-fn verify_stripe_signature(header: &str, body: &[u8], secret: &str) -> AppResult<()> {
-    let mut ts: Option<i64> = None;
-    let mut sigs: Vec<&str> = Vec::new();
-    for part in header.split(',') {
-        let mut kv = part.splitn(2, '=');
-        let k = kv.next().unwrap_or_default().trim();
-        let v = kv.next().unwrap_or_default().trim();
-        match k {
-            "t" => ts = v.parse().ok(),
-            "v1" => sigs.push(v),
-            _ => {}
+/// Apply a normalized [`BillingEvent`] to the repositories.
+///
+/// Public so integration tests can drive the dispatch path without
+/// reconstructing the signed-webhook layer (signature verification is
+/// the [`BillingProvider`] impl's responsibility, not the platform's).
+///
+/// # Errors
+///
+/// Returns an error if any underlying repository write fails or the
+/// event references a subscription row that does not exist.
+pub async fn dispatch_billing_event(
+    repos: &pierre_database::RepositoryRegistry,
+    provider: &str,
+    event: &BillingEvent,
+) -> AppResult<()> {
+    match event {
+        BillingEvent::SubscriptionUpserted(payload) => {
+            handle_subscription_upsert(repos, provider, payload).await
         }
+        BillingEvent::SubscriptionCanceled {
+            provider_subscription_id,
+            canceled_at,
+        } => {
+            handle_subscription_canceled(repos, provider, provider_subscription_id, *canceled_at)
+                .await
+        }
+        BillingEvent::PaymentFailed {
+            provider_subscription_id,
+        } => handle_payment_failed(repos, provider, provider_subscription_id).await,
+        BillingEvent::Ignored => Ok(()),
     }
-    let timestamp = ts.ok_or_else(|| {
-        AppError::invalid_input("Stripe-Signature header missing 't' timestamp component")
-    })?;
-    if sigs.is_empty() {
-        return Err(AppError::invalid_input(
-            "Stripe-Signature header missing v1 signature",
-        ));
-    }
-    let now = chrono::Utc::now().timestamp();
-    if (now - timestamp).abs() > STRIPE_WEBHOOK_MAX_AGE_SECS {
-        return Err(AppError::invalid_input(
-            "Stripe-Signature timestamp outside the accepted age window",
-        ));
-    }
-    let signed_payload = format!("{timestamp}.{}", String::from_utf8_lossy(body));
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(secret.as_bytes())
-        .map_err(|e| AppError::internal(format!("HMAC init failed: {e}")))?;
-    mac.update(signed_payload.as_bytes());
-    let computed = mac.finalize().into_bytes();
-    let computed_hex = hex_encode(&computed);
-    if !sigs
-        .iter()
-        .any(|s| constant_time_eq(s.as_bytes(), computed_hex.as_bytes()))
-    {
-        return Err(AppError::auth_invalid(
-            "Stripe webhook signature did not verify",
-        ));
+}
+
+async fn handle_subscription_upsert(
+    repos: &pierre_database::RepositoryRegistry,
+    provider: &str,
+    payload: &SubscriptionEventPayload,
+) -> AppResult<()> {
+    let tenant_id = TenantId::from_str(&payload.tenant_id)
+        .map_err(|e| AppError::invalid_input(format!("invalid tenant_id metadata: {e}")))?;
+    let user_id = Uuid::parse_str(&payload.user_id)
+        .map_err(|e| AppError::invalid_input(format!("invalid user_id metadata: {e}")))?;
+    let plan_tier = UserTier::from_str(&payload.plan_tier)
+        .map_err(|e| AppError::invalid_input(format!("invalid plan_tier metadata: {e}")))?;
+    let status =
+        SubscriptionStatus::from_str(&payload.status).unwrap_or(SubscriptionStatus::Incomplete);
+
+    let now = Utc::now();
+    let sub = Subscription {
+        id: Uuid::new_v4(),
+        tenant_id,
+        user_id,
+        provider: provider.to_owned(),
+        provider_customer_id: payload.provider_customer_id.clone(),
+        provider_subscription_id: payload.provider_subscription_id.clone(),
+        status,
+        plan_tier,
+        current_period_start: payload.current_period_start,
+        current_period_end: payload.current_period_end,
+        cancel_at_period_end: payload.cancel_at_period_end,
+        canceled_at: payload.canceled_at,
+        trial_end: payload.trial_end,
+        metadata: payload.metadata.clone(),
+        created_at: now,
+        updated_at: now,
+    };
+    let stored = repos.subscriptions.upsert_subscription(&sub).await?;
+
+    if stored.is_entitled() {
+        repos
+            .users
+            .set_tier(stored.user_id, stored.plan_tier.clone())
+            .await?;
+        repos
+            .tenants
+            .set_plan(stored.tenant_id, stored.plan_tier.as_str())
+            .await?;
+        tracing::info!(
+            billing_provider = provider,
+            user_id = %stored.user_id,
+            tenant_id = %stored.tenant_id,
+            tier = stored.plan_tier.as_str(),
+            "billing webhook applied tier change",
+        );
+    } else {
+        tracing::info!(
+            billing_provider = provider,
+            user_id = %stored.user_id,
+            status = stored.status.as_str(),
+            "billing webhook updated subscription status without tier flip",
+        );
     }
     Ok(())
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        out.push(char::from(TABLE[(b >> 4) as usize]));
-        out.push(char::from(TABLE[(b & 0x0f) as usize]));
-    }
-    out
+async fn handle_subscription_canceled(
+    repos: &pierre_database::RepositoryRegistry,
+    provider: &str,
+    provider_subscription_id: &str,
+    canceled_at: Option<DateTime<Utc>>,
+) -> AppResult<()> {
+    let mut existing = repos
+        .subscriptions
+        .get_subscription_by_provider_subscription_id(provider, provider_subscription_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::not_found(format!(
+                "subscription {provider_subscription_id} not found for cancel event",
+            ))
+        })?;
+    existing.status = SubscriptionStatus::Canceled;
+    existing.canceled_at = canceled_at
+        .or(existing.canceled_at)
+        .or_else(|| Some(Utc::now()));
+    existing.updated_at = Utc::now();
+    let stored = repos.subscriptions.upsert_subscription(&existing).await?;
+    repos
+        .users
+        .set_tier(stored.user_id, UserTier::Starter)
+        .await?;
+    repos
+        .tenants
+        .set_plan(stored.tenant_id, UserTier::Starter.as_str())
+        .await?;
+    tracing::info!(
+        billing_provider = provider,
+        user_id = %stored.user_id,
+        tenant_id = %stored.tenant_id,
+        "billing subscription canceled — downgraded to starter",
+    );
+    Ok(())
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
+async fn handle_payment_failed(
+    repos: &pierre_database::RepositoryRegistry,
+    provider: &str,
+    provider_subscription_id: &str,
+) -> AppResult<()> {
+    let mut existing = repos
+        .subscriptions
+        .get_subscription_by_provider_subscription_id(provider, provider_subscription_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::not_found(format!(
+                "subscription {provider_subscription_id} not found for payment_failed event",
+            ))
+        })?;
+    existing.status = SubscriptionStatus::PastDue;
+    existing.updated_at = Utc::now();
+    repos.subscriptions.upsert_subscription(&existing).await?;
+    tracing::warn!(
+        billing_provider = provider,
+        provider_subscription_id,
+        user_id = %existing.user_id,
+        "billing payment failed — subscription marked past_due",
+    );
+    Ok(())
+}
+
+// ----- /api/users/me/quota -----------------------------------------------
+
+/// Per-counter snapshot exposed to the frontend so the user can see
+/// where they sit against each tier-keyed cap.
+#[derive(Debug, Serialize)]
+pub struct QuotaCounter {
+    /// Counter key — `daily_messages`, `daily_tokens`, `weekly_tokens`,
+    /// `daily_tool_calls`, etc.
+    pub counter_type: String,
+    /// Current value within the active period.
+    pub current: i64,
+    /// Tier-keyed soft limit (post admin-config override).
+    pub limit: i64,
+    /// `true` when consumption has crossed the warning threshold.
+    pub warning: bool,
+    /// `true` when consumption is in the burst zone (between soft and
+    /// hard limit).
+    pub burst_zone: bool,
+    /// ISO-8601 timestamp when the counter resets.
+    pub resets_at: String,
+}
+
+/// `GET /api/users/me/quota` response.
+#[derive(Debug, Serialize)]
+pub struct MyQuotaResponse {
+    /// Currently effective tier — drives the default caps below.
+    pub tier: String,
+    /// Snapshots for every quota the chat write path checks.
+    pub counters: Vec<QuotaCounter>,
+}
+
+/// `GET /api/users/me/quota` — return the authenticated user's
+/// current quota usage and limits across the tier-keyed counters
+/// the chat write path enforces.
+async fn get_my_quota(
+    State(resources): State<Arc<ServerResources>>,
+    auth: AuthenticatedUser,
+) -> AppResult<Json<MyQuotaResponse>> {
+    let admin_config = resources.admin_config.as_ref().ok_or_else(|| {
+        AppError::config("admin_config service not initialised — cannot resolve tier-keyed quotas")
+    })?;
+
+    let user = resources
+        .repos
+        .users
+        .get_global(auth.user_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("authenticated user row missing"))?;
+
+    let tenant_id_str = if let Some(t) = auth.active_tenant_id {
+        t.to_string()
+    } else {
+        let rows = resources
+            .repos
+            .tenants
+            .list_for_user(auth.user_id)
+            .await
+            .map_err(|e| AppError::internal(format!("tenant lookup failed: {e}")))?;
+        rows.first()
+            .map(|t| t.id.to_string())
+            .ok_or_else(|| AppError::not_found("user has no active tenant"))?
+    };
+    let user_id_str = auth.user_id.to_string();
+
+    let usage_svc = crate::services::usage_counter::UsageCounterService::new(
+        resources.repos.usage_counters.as_ref(),
+        admin_config,
+    );
+
+    let counters_to_check = [
+        "daily_messages",
+        "daily_tokens",
+        "weekly_tokens",
+        "daily_tool_calls",
+        "daily_conversations",
+        "active_coaches",
+    ];
+    let mut counters = Vec::with_capacity(counters_to_check.len());
+    for counter_type in counters_to_check {
+        let check = usage_svc
+            .check_limit_for_tier(&tenant_id_str, &user_id_str, counter_type, &user.tier)
+            .await?;
+        counters.push(QuotaCounter {
+            counter_type: counter_type.to_owned(),
+            current: check.current,
+            limit: check.limit,
+            warning: check.warning,
+            burst_zone: check.burst_zone,
+            resets_at: check.resets_at,
+        });
     }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
+
+    Ok(Json(MyQuotaResponse {
+        tier: user.tier.as_str().to_owned(),
+        counters,
+    }))
 }

@@ -17,6 +17,7 @@ use tracing::debug;
 
 use crate::config::admin::service::AdminConfigService;
 use crate::errors::AppResult;
+use pierre_core::models::{TierQuotaConfig, UserTier};
 use pierre_database::database::repositories::UsageCounterRepository;
 
 /// Result of a limit check against a usage counter
@@ -94,10 +95,10 @@ impl<'a> UsageCounterService<'a> {
 
     /// Check whether a counter is within its configured limits
     ///
-    /// Uses the admin config to look up:
-    /// - The soft limit for this counter type
-    /// - The burst multiplier (hard limit = soft limit * multiplier)
-    /// - The warning threshold percentage
+    /// Defaults to `UserTier::Starter` for the tier-based fallback —
+    /// least-permissive choice when the caller doesn't have the tier
+    /// resolved. Use [`Self::check_limit_for_tier`] to pass the
+    /// caller's actual tier through.
     ///
     /// # Errors
     /// Returns an error if repository operations fail.
@@ -107,11 +108,29 @@ impl<'a> UsageCounterService<'a> {
         user_id: &str,
         counter_type: &str,
     ) -> AppResult<LimitCheckResult> {
+        self.check_limit_for_tier(tenant_id, user_id, counter_type, &UserTier::Starter)
+            .await
+    }
+
+    /// Tier-aware limit check. Phase 3 chat write paths that have
+    /// already resolved the user's [`UserTier`] should always go
+    /// through this variant so [`TierQuotaConfig`] caps apply before
+    /// any global admin-config fallback.
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
+    pub async fn check_limit_for_tier(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        counter_type: &str,
+        tier: &UserTier,
+    ) -> AppResult<LimitCheckResult> {
         let config_key = counter_type_to_config_key(counter_type);
         let limit = self
-            .read_config_i64(&config_key, Some(tenant_id))
+            .read_limit_override_i64(&config_key, Some(tenant_id))
             .await?
-            .unwrap_or_else(|| default_limit(counter_type));
+            .unwrap_or_else(|| default_limit(counter_type, tier));
 
         let warning_pct = self
             .read_config_i64("usage_quotas.warning_threshold_percent", Some(tenant_id))
@@ -158,6 +177,99 @@ impl<'a> UsageCounterService<'a> {
         })
     }
 
+    /// Tier-aware limit check scoped to a sub-dimension (per
+    /// conversation, per coach, per tool).
+    ///
+    /// The counter is stored under a synthetic `counter_type` of the
+    /// form `<base>:<dimension>` so each scope is tracked
+    /// independently while still sharing the tier-keyed default cap
+    /// of `<base>`. Period and reset semantics follow `<base>`'s
+    /// daily/weekly prefix.
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
+    pub async fn check_limit_with_dimension_for_tier(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        base_counter_type: &str,
+        dimension: &str,
+        tier: &UserTier,
+    ) -> AppResult<LimitCheckResult> {
+        let scoped_counter_type = format!("{base_counter_type}:{dimension}");
+        let config_key = counter_type_to_config_key(base_counter_type);
+        let limit = self
+            .read_config_i64(&config_key, Some(tenant_id))
+            .await?
+            .unwrap_or_else(|| default_limit(base_counter_type, tier));
+
+        let warning_pct = self
+            .read_config_i64("usage_quotas.warning_threshold_percent", Some(tenant_id))
+            .await?
+            .unwrap_or(80);
+
+        let burst_multiplier = self
+            .read_config_f64("usage_quotas.burst_multiplier", Some(tenant_id))
+            .await?
+            .unwrap_or(1.5);
+
+        let current = self
+            .get_current(tenant_id, user_id, &scoped_counter_type)
+            .await?;
+
+        #[allow(clippy::cast_precision_loss)]
+        let hard_limit = (limit as f64 * burst_multiplier) as i64;
+        #[allow(clippy::cast_precision_loss)]
+        let warning_threshold = (limit as f64 * warning_pct as f64 / 100.0) as i64;
+
+        let allowed = current < hard_limit;
+        let burst_zone = current >= limit;
+        let warning = current >= warning_threshold;
+
+        let resets_at = next_reset_time(base_counter_type);
+
+        debug!(
+            tenant_id,
+            user_id,
+            base_counter_type,
+            dimension,
+            current,
+            limit,
+            hard_limit,
+            allowed,
+            burst_zone,
+            "Scoped usage limit check"
+        );
+
+        Ok(LimitCheckResult {
+            allowed,
+            current,
+            limit,
+            warning,
+            burst_zone,
+            resets_at,
+        })
+    }
+
+    /// Increment a scoped counter (per conversation / coach / tool)
+    /// using the same `<base>:<dimension>` synthetic `counter_type` the
+    /// dimensioned limit check inspects.
+    ///
+    /// # Errors
+    /// Returns an error if repository operations fail.
+    pub async fn increment_with_dimension(
+        &self,
+        tenant_id: &str,
+        user_id: &str,
+        base_counter_type: &str,
+        dimension: &str,
+        amount: i64,
+    ) -> AppResult<i64> {
+        let scoped_counter_type = format!("{base_counter_type}:{dimension}");
+        self.increment(tenant_id, user_id, &scoped_counter_type, amount)
+            .await
+    }
+
     /// Delete counters older than the given number of days
     ///
     /// Computes a cutoff date and removes all counter records with periods before it.
@@ -171,7 +283,8 @@ impl<'a> UsageCounterService<'a> {
         Ok(deleted)
     }
 
-    /// Read an integer config value
+    /// Read an integer config value (falls back to parameter
+    /// definition default when no override exists).
     async fn read_config_i64(&self, key: &str, tenant_id: Option<&str>) -> AppResult<Option<i64>> {
         Ok(self
             .config
@@ -180,7 +293,25 @@ impl<'a> UsageCounterService<'a> {
             .and_then(|v| v.as_i64()))
     }
 
-    /// Read a float config value
+    /// Read an explicit integer override only — returns `None` when
+    /// no admin override is set so the caller can fall back to the
+    /// tier-keyed default in [`pierre_core::models::TierQuotaConfig`].
+    /// The flat catalog default (e.g. `usage_quotas.daily_message_cap
+    /// = 50`) would otherwise shadow Professional / Enterprise caps.
+    async fn read_limit_override_i64(
+        &self,
+        key: &str,
+        tenant_id: Option<&str>,
+    ) -> AppResult<Option<i64>> {
+        Ok(self
+            .config
+            .get_override_value(key, tenant_id)
+            .await?
+            .and_then(|v| v.as_i64()))
+    }
+
+    /// Read a float config value (falls back to parameter definition
+    /// default when no override exists).
     async fn read_config_f64(&self, key: &str, tenant_id: Option<&str>) -> AppResult<Option<f64>> {
         Ok(self
             .config
@@ -225,17 +356,30 @@ fn counter_type_to_config_key(counter_type: &str) -> String {
     format!("usage_quotas.{param}")
 }
 
-/// Default limits when config has no value for a counter type
-fn default_limit(counter_type: &str) -> i64 {
+/// Default limits when config has no value for a counter type.
+///
+/// Tier-keyed counters resolve through [`TierQuotaConfig::for_tier`] so
+/// Starter / Professional / Enterprise defaults stay in lockstep with
+/// the single source of truth in `pierre_core::models::tier_quota`.
+/// Counter types not yet represented in [`TierQuotaConfig`] keep their
+/// historical defaults so admin overrides remain the only knob.
+fn default_limit(counter_type: &str, tier: &UserTier) -> i64 {
+    let q = TierQuotaConfig::for_tier(tier);
     match counter_type {
-        "daily_messages" => 50,
+        "daily_messages" => q.daily_messages,
+        "daily_tokens" => q.daily_tokens,
+        "weekly_tokens" => q.weekly_tokens,
+        "monthly_tokens" => q.monthly_tokens,
+        "daily_tool_calls" => q.daily_tool_calls,
+        "daily_conversations" => q.max_conversations_per_day,
+        "conversation_messages" => q.max_messages_per_conversation,
+        "daily_coach_messages" => q.max_messages_per_coach_per_day,
+        "active_coaches" => q.max_active_coaches,
+        // Counter types we have not yet keyed to tier fall back to the
+        // historical defaults; admins can override via admin_config.
         "weekly_messages" => 250,
         "weekly_tool_calls" | "weekly_activity_summary" => 500,
-        "daily_tokens" => 500_000,
-        "weekly_tokens" => 2_000_000,
         "daily_activity_detailed" => 20,
-        // daily_tool_calls, daily_activity_summary, weekly_activity_detailed,
-        // and unrecognized counter types default to 100
         _ => 100,
     }
 }

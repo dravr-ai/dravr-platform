@@ -32,6 +32,8 @@ export { a2aApi } from './a2a';
 export { adminApi } from './admin';
 export { usageApi } from './usage';
 export { messagingApi } from './messaging';
+export { billingApi } from './billing';
+export type { SubscriptionView, InvoicesResponse, QuotaCounter, MyQuotaResponse } from './billing';
 
 // Export types from shared package
 export type { Coach, StoreCoach } from '@pierre/shared-types';

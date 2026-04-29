@@ -69,6 +69,84 @@ pub struct ExportQuery {
     pub limit: Option<i64>,
 }
 
+/// Per-user usage response — same shape as the tenant variant so the
+/// admin UI can render either with one component.
+#[derive(Debug, Serialize)]
+pub struct UserUsageResponse {
+    /// User UUID.
+    pub user_id: String,
+    /// Window start (`RFC3339`).
+    pub from: String,
+    /// Per-(provider, model, `call_type`) rollup.
+    pub by_model: Vec<LlmUsageAggregateRow>,
+    /// Daily time series over the window.
+    pub daily: Vec<LlmUsageDailyRow>,
+}
+
+/// Per-user cost time series, daily granularity. Used by the admin
+/// `UserDetail` "Usage" tab to render a daily cost gauge alongside the
+/// token series. The daily rows already carry token counts; this
+/// endpoint exists so the frontend can ask for the cost view
+/// independently of the full aggregate response.
+#[derive(Debug, Serialize)]
+pub struct UserCostTimeseriesResponse {
+    /// User UUID.
+    pub user_id: String,
+    /// Window start (`RFC3339`).
+    pub from: String,
+    /// Daily time series points.
+    pub daily: Vec<LlmUsageDailyRow>,
+}
+
+/// `GET /api/admin/users/{id}/usage?from=<rfc3339>` — per-user
+/// aggregates + daily series. Powers the admin UI Usage tab.
+pub async fn get_user_usage(
+    State(ctx): State<Arc<AdminApiContext>>,
+    Path(user_id): Path<String>,
+    Query(q): Query<UsageRangeQuery>,
+) -> AppResult<Json<UserUsageResponse>> {
+    let from = resolve_start(q.from.as_deref())?.to_rfc3339();
+    let by_model = ctx
+        .repos
+        .llm_usage
+        .get_llm_usage_aggregates_by_user(&user_id, &from)
+        .await?;
+    let daily = ctx
+        .repos
+        .llm_usage
+        .get_llm_usage_daily_series_by_user(&user_id, &from)
+        .await?;
+    Ok(Json(UserUsageResponse {
+        user_id,
+        from,
+        by_model,
+        daily,
+    }))
+}
+
+/// `GET /api/admin/users/{id}/cost-timeseries?from=<rfc3339>` —
+/// per-user daily cost time series. Same data path as
+/// [`get_user_usage`] but trimmed to the daily series alone so the
+/// frontend can render the cost gauge independently of the full
+/// usage panel.
+pub async fn get_user_cost_timeseries(
+    State(ctx): State<Arc<AdminApiContext>>,
+    Path(user_id): Path<String>,
+    Query(q): Query<UsageRangeQuery>,
+) -> AppResult<Json<UserCostTimeseriesResponse>> {
+    let from = resolve_start(q.from.as_deref())?.to_rfc3339();
+    let daily = ctx
+        .repos
+        .llm_usage
+        .get_llm_usage_daily_series_by_user(&user_id, &from)
+        .await?;
+    Ok(Json(UserCostTimeseriesResponse {
+        user_id,
+        from,
+        daily,
+    }))
+}
+
 /// `GET /api/admin/tenants/{id}/usage?from=<rfc3339>`
 pub async fn get_tenant_usage(
     State(ctx): State<Arc<AdminApiContext>>,

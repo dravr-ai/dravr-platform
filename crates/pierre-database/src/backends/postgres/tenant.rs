@@ -562,6 +562,25 @@ impl TenantRepository for PostgresDatabase {
         Ok(row.map(|r| r.0))
     }
 
+    async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant> {
+        let result = sqlx::query(
+            r"
+            UPDATE tenants SET plan = $1, updated_at = NOW() WHERE id = $2
+            ",
+        )
+        .bind(plan)
+        .bind(tenant_id.0)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set tenant plan: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("Tenant {tenant_id}")));
+        }
+
+        self.get_by_id(tenant_id).await
+    }
+
     // ================================
     // Fitness Configuration Management
     // ================================

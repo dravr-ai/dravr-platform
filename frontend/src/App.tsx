@@ -60,6 +60,25 @@ function AppContent() {
   const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
   const localQueryClient = useQueryClient();
 
+  // Boot/teardown PostHog analytics in lockstep with the user's
+  // analytics_consent flag. Default is opt-out so this is a no-op
+  // until the user enables it under Privacy & Data.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const mod = await import('./services/analytics');
+      if (cancelled) return;
+      if (user && user.analytics_consent === true) {
+        mod.bootAnalytics(user.id, true);
+      } else {
+        mod.shutdownAnalytics();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.analytics_consent]);
+
   // Check for OAuth callback params on mount
   useEffect(() => {
     const params = getOAuthCallbackParams();

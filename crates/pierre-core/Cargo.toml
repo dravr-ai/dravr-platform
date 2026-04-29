@@ -16,6 +16,9 @@ default = []
 # LLM provider trait and types (async-trait, tokio-stream for ChatStream)
 llm = ["dep:async-trait", "dep:tokio-stream", "dep:embacle"]
 
+# Pluggable billing provider trait + DummyProvider (async-trait)
+billing = ["dep:async-trait"]
+
 # HTTP response support (IntoResponse for AppError)
 http-response = ["dep:axum", "dep:http"]
 
@@ -92,7 +95,7 @@ embacle = { git = "https://github.com/dravr-ai/dravr-embacle.git", tag = "v0.15.
 
 # Standalone messaging types and channel adapters (dravr-canot)
 # pierre-core only re-exports types/errors — channel adapters enabled via pierre-messaging
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.9" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.4.11" }
 
 # Standalone sports science intelligence engine (dravr-cageux)
 # pierre-core re-exports Activity, SportType, and intelligence types
@@ -119,6 +122,10 @@ sha2 = "0.10"
 # Optional: Admin JWT utilities
 rand = { version = "0.9", optional = true }
 bcrypt = { version = "0.16", optional = true }
+
+[dev-dependencies]
+# Used by the in-tree DummyProvider unit tests under `billing::dummy::tests`.
+tokio = { version = "1.48", features = ["macros", "rt"] }
 
 [lints]
 workspace = true

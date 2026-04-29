@@ -4,16 +4,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::env;
 use std::sync::Arc;
 
 use axum::http::HeaderValue;
 use axum::response::Response;
+use pierre_core::models::UserTier;
 use tracing::debug;
 use uuid::Uuid;
 
 use crate::errors::AppError;
 use crate::mcp::resources::ServerResources;
-use crate::models::TenantId;
 use crate::services::usage_counter::{LimitCheckResult, UsageCounterService};
 
 /// Outcome of the pre-chat quota check that the response-building code
@@ -21,44 +22,88 @@ use crate::services::usage_counter::{LimitCheckResult, UsageCounterService};
 /// `(level, current, limit, resets_at)`.
 pub type UsageWarning = Option<(&'static str, i64, i64, String)>;
 
+/// Env var holding a comma-separated list of user UUIDs that bypass
+/// quota enforcement. Reserved for emergency on-call overrides; the
+/// canonical bypass path is to elevate the user to `Enterprise` tier
+/// via `POST /api/admin/users/{id}/tier` (Enterprise caps are
+/// `i64::MAX` so quotas effectively never trip).
+const QUOTA_BYPASS_USER_IDS_ENV: &str = "QUOTA_BYPASS_USER_IDS";
+
+/// Resolve the user's tier from the `users` row, falling back to
+/// `Starter` when the row cannot be loaded (multi-tenant `get_global`
+/// here because quotas key on the user, not on a single tenant
+/// membership).
+async fn resolve_user_tier(resources: &Arc<ServerResources>, user_id: Uuid) -> UserTier {
+    match resources.repos.users.get_global(user_id).await {
+        Ok(Some(user)) => user.tier,
+        _ => UserTier::Starter,
+    }
+}
+
+/// Returns `true` when the user's UUID is listed in
+/// `QUOTA_BYPASS_USER_IDS`.
+fn is_quota_bypass_user(user_id: Uuid) -> bool {
+    let raw = env::var(QUOTA_BYPASS_USER_IDS_ENV).unwrap_or_default();
+    if raw.is_empty() {
+        return false;
+    }
+    let needle = user_id.to_string();
+    raw.split(',')
+        .map(str::trim)
+        .any(|candidate| candidate.eq_ignore_ascii_case(&needle))
+}
+
+/// Optional scope hint passed through to the chat write path so
+/// conversation- and coach-keyed caps fire in the same call as the
+/// global daily/weekly caps.
+#[derive(Debug, Default, Clone)]
+pub struct PreChatScope<'a> {
+    /// Conversation row id (`conversations.id`). When present, the
+    /// `conversation_messages` per-conversation cap from
+    /// [`pierre_core::models::TierQuotaConfig`] is enforced.
+    pub conversation_id: Option<&'a str>,
+    /// Coach id (`coaches.id`). When present, the
+    /// `daily_coach_messages` cap from
+    /// [`pierre_core::models::TierQuotaConfig`] is enforced.
+    pub coach_id: Option<&'a str>,
+}
+
 /// Check pre-chat quotas and return an optional usage warning for
 /// response headers.
 ///
-/// Checks daily messages (with burst), weekly tokens (hard cap), and
-/// daily tokens (with burst). Returns `Err` with 429 if any hard limit
-/// is exceeded. Admin role bypasses quota enforcement entirely; owners
-/// remain subject to quotas as cost control.
-pub async fn check_pre_chat_quotas(
+/// Enforces daily messages (with burst), weekly tokens (hard cap),
+/// daily tokens (with burst), and the per-conversation /
+/// per-coach caps when the relevant ids are present in
+/// [`PreChatScope`]. Returns `Err` with 429 if any hard limit is
+/// exceeded. The user's [`UserTier`] is resolved from the `users`
+/// row so per-tier defaults from
+/// [`pierre_core::models::TierQuotaConfig`] apply before any
+/// admin-config override. Bypass is restricted to UUIDs explicitly
+/// listed in `QUOTA_BYPASS_USER_IDS`; admin role no longer bypasses
+/// quotas — promote the user to `Enterprise` tier instead.
+pub async fn check_pre_chat_quotas_scoped(
     resources: &Arc<ServerResources>,
     tenant_id: &str,
     user_id: &str,
     user_uuid: Uuid,
-    tenant_uuid: TenantId,
+    scope: &PreChatScope<'_>,
 ) -> Result<UsageWarning, AppError> {
     let Some(ref admin_config) = resources.admin_config else {
         debug!("Admin config not available, skipping quota check");
         return Ok(None);
     };
 
-    // Admin role bypasses quota enforcement for debugging and testing.
-    // Owners (tenant creators) remain subject to quotas as cost control.
-    if let Ok(Some(role)) = resources
-        .repos
-        .tenants
-        .get_user_role(user_uuid, tenant_uuid)
-        .await
-    {
-        if role == "admin" {
-            debug!("Skipping quota check for admin user {user_id}");
-            return Ok(None);
-        }
+    if is_quota_bypass_user(user_uuid) {
+        debug!("Skipping quota check for user {user_id} via QUOTA_BYPASS_USER_IDS allow-list",);
+        return Ok(None);
     }
 
+    let tier = resolve_user_tier(resources, user_uuid).await;
     let usage_svc = UsageCounterService::new(resources.repos.usage_counters.as_ref(), admin_config);
 
-    // Check daily message quota (allows 1.5x burst)
+    // Daily message cap (allows 1.5x burst).
     let daily_msg_check = usage_svc
-        .check_limit(tenant_id, user_id, "daily_messages")
+        .check_limit_for_tier(tenant_id, user_id, "daily_messages", &tier)
         .await?;
     if !daily_msg_check.allowed {
         return Err(AppError::quota_exceeded(
@@ -69,9 +114,9 @@ pub async fn check_pre_chat_quotas(
         ));
     }
 
-    // Check weekly token budget (hard cap, no burst allowed)
+    // Weekly token budget (hard cap, no burst allowed).
     let weekly_token_check = usage_svc
-        .check_limit(tenant_id, user_id, "weekly_tokens")
+        .check_limit_for_tier(tenant_id, user_id, "weekly_tokens", &tier)
         .await?;
     if weekly_token_check.current >= weekly_token_check.limit {
         return Err(AppError::quota_exceeded(
@@ -82,9 +127,9 @@ pub async fn check_pre_chat_quotas(
         ));
     }
 
-    // Check daily token budget (allows 1.5x burst)
+    // Daily token budget (allows 1.5x burst).
     let daily_token_check = usage_svc
-        .check_limit(tenant_id, user_id, "daily_tokens")
+        .check_limit_for_tier(tenant_id, user_id, "daily_tokens", &tier)
         .await?;
     if !daily_token_check.allowed {
         return Err(AppError::quota_exceeded(
@@ -95,7 +140,50 @@ pub async fn check_pre_chat_quotas(
         ));
     }
 
-    // Track the most restrictive warning/burst state for response headers
+    // Per-conversation lifetime message cap (hard cap, no burst).
+    if let Some(conv_id) = scope.conversation_id {
+        let conv_check = usage_svc
+            .check_limit_with_dimension_for_tier(
+                tenant_id,
+                user_id,
+                "conversation_messages",
+                conv_id,
+                &tier,
+            )
+            .await?;
+        if conv_check.current >= conv_check.limit {
+            return Err(AppError::quota_exceeded(
+                "conversation_messages",
+                conv_check.current,
+                conv_check.limit,
+                &conv_check.resets_at,
+            ));
+        }
+    }
+
+    // Per-coach daily message cap (allows 1.5x burst — coaches are
+    // already individually rate-limited at the model layer).
+    if let Some(coach_id) = scope.coach_id {
+        let coach_check = usage_svc
+            .check_limit_with_dimension_for_tier(
+                tenant_id,
+                user_id,
+                "daily_coach_messages",
+                coach_id,
+                &tier,
+            )
+            .await?;
+        if !coach_check.allowed {
+            return Err(AppError::quota_exceeded(
+                "daily_coach_messages",
+                coach_check.current,
+                coach_check.limit,
+                &coach_check.resets_at,
+            ));
+        }
+    }
+
+    // Track the most restrictive warning/burst state for response headers.
     Ok(select_usage_warning(
         &daily_msg_check,
         &daily_token_check,

@@ -1193,8 +1193,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-canot"
-version = "0.4.9"
-source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.9#79d9666ae191dc7366529d08c75c1da9f78e5581"
+version = "0.4.11"
+source = "git+https://github.com/dravr-ai/dravr-canot.git?tag=v0.4.11#87dfc617630e3db7cc2bb48dd91cf69a21aa90e2"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2976,6 +2976,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "thiserror 2.0.18",
+ "tokio",
  "tokio-stream",
  "toon-format",
  "tracing",
@@ -5523,7 +5524,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

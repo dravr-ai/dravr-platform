@@ -68,6 +68,11 @@ pub mod markdown;
 #[cfg(feature = "llm")]
 pub mod llm;
 
+/// Pluggable billing provider trait + value types — concrete impls
+/// (Stripe, RevenueCat, …) live in their own dravr-* repos.
+#[cfg(feature = "billing")]
+pub mod billing;
+
 /// Shared HTTP client singletons with connection pooling for outbound requests
 #[cfg(feature = "http-client")]
 pub mod http_client;

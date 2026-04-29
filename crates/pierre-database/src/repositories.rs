@@ -40,15 +40,15 @@ use pierre_core::models::{
     OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
     ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride, ToolCatalogEntry,
     ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp,
-    UserOAuthToken, UserSocialSettings, UserStatus,
+    UserOAuthToken, UserSocialSettings, UserStatus, UserTier,
 };
 use pierre_core::models::{
     AddMessageParams, ConversationTurnId, JwtUsage, LlmUsageRecord, RequestLog, ToolUsage,
     UsageCounterRecord,
 };
 use pierre_core::models::{
-    AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, TenantId,
-    TenantOAuthCredentials,
+    AuditEvent, KeyVersion, LlmCredentialRecord, LlmCredentialSummary, MessageRecord, Subscription,
+    SubscriptionStatus, TenantId, TenantOAuthCredentials,
 };
 use pierre_core::models::{StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession};
 use pierre_core::pagination::{CursorPage, PaginationParams, StoreSortOrder};
@@ -185,6 +185,12 @@ pub trait UserRepository: Send + Sync {
     /// `coaches(id)` with `ON DELETE SET NULL`, so a deleted coach cleanly
     /// detaches instead of orphaning the user row.
     async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()>;
+    /// Set the user's billing tier (Starter / Professional / Enterprise).
+    ///
+    /// Called by Stripe webhook handlers on `customer.subscription.updated`
+    /// and by the admin `POST /api/admin/users/{id}/tier` route. The CHECK
+    /// constraint on `users.tier` is enforced at write time.
+    async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User>;
 }
 
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)
@@ -544,6 +550,12 @@ pub trait TenantRepository: Send + Sync {
     async fn get_all(&self) -> AppResult<Vec<Tenant>>;
     /// Get user role for a specific tenant
     async fn get_user_role(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<String>>;
+    /// Set the tenant's billing plan (Starter / Professional / Enterprise).
+    ///
+    /// Called by Stripe webhook handlers when a subscription state change
+    /// implies a plan-tier flip on the tenant. Owner-driven plan changes
+    /// always cascade through this method so audit logging stays uniform.
+    async fn set_plan(&self, tenant_id: TenantId, plan: &str) -> AppResult<Tenant>;
 }
 
 /// OAuth 2.0 server repository (RFC 7591)
@@ -1275,6 +1287,57 @@ pub trait LlmCredentialRepository: Send + Sync {
     ) -> AppResult<Vec<AdminConfigOverrideRow>>;
 }
 
+/// Provider-agnostic subscription persistence.
+///
+/// Webhook handlers upsert by `(provider, provider_customer_id)`;
+/// read paths query by user, tenant, or `(provider, *)` identifier.
+#[async_trait]
+pub trait SubscriptionsRepository: Send + Sync {
+    /// Insert a new subscription row or update the existing row that
+    /// shares its `(provider, provider_customer_id)` key. Returns the
+    /// freshly written row.
+    async fn upsert_subscription(&self, subscription: &Subscription) -> AppResult<Subscription>;
+    /// Look up the most recently updated subscription for a user.
+    async fn get_subscription_by_user(&self, user_id: Uuid) -> AppResult<Option<Subscription>>;
+    /// Look up the most recently updated subscription for a tenant.
+    async fn get_subscription_by_tenant(
+        &self,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<Subscription>>;
+    /// Look up a subscription by its provider-side subscription identifier.
+    async fn get_subscription_by_provider_subscription_id(
+        &self,
+        provider: &str,
+        provider_subscription_id: &str,
+    ) -> AppResult<Option<Subscription>>;
+    /// Look up a subscription by its provider-side customer identifier.
+    async fn get_subscription_by_provider_customer_id(
+        &self,
+        provider: &str,
+        provider_customer_id: &str,
+    ) -> AppResult<Option<Subscription>>;
+    /// List every subscription with the given lifecycle status.
+    /// Used by admin filter views and the dunning sweep.
+    async fn list_subscriptions_by_status(
+        &self,
+        status: SubscriptionStatus,
+    ) -> AppResult<Vec<Subscription>>;
+
+    /// Returns true when the given `(provider, event_id)` has already
+    /// been processed. The webhook handler skips dispatch on `true`,
+    /// making the entire pipeline safe against provider retries.
+    async fn is_billing_event_processed(&self, provider: &str, event_id: &str) -> AppResult<bool>;
+    /// Mark a `(provider, event_id)` as processed. Call this AFTER the
+    /// event dispatch path succeeds — never before — so a partial failure
+    /// allows the webhook to retry with the full body.
+    async fn mark_billing_event_processed(
+        &self,
+        provider: &str,
+        event_id: &str,
+        event_type: &str,
+    ) -> AppResult<()>;
+}
+
 /// Provider connection management repository
 #[async_trait]
 pub trait ProviderConnectionRepository: Send + Sync {
@@ -1420,6 +1483,25 @@ pub trait LlmUsageRepository: Send + Sync {
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>>;
 
+    /// Per-user variant of [`Self::get_llm_usage_aggregates`].
+    /// Drives the admin `GET /api/admin/users/{id}/usage` endpoint
+    /// so per-user billing surfaces (Usage tab, invoice preview)
+    /// don't have to sum tenant aggregates client-side.
+    async fn get_llm_usage_aggregates_by_user(
+        &self,
+        user_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageAggregateRow>>;
+
+    /// Per-user variant of [`Self::get_llm_usage_daily_series`].
+    /// Drives the admin `GET /api/admin/users/{id}/cost-timeseries`
+    /// endpoint that the Usage tab uses to render daily cost gauges.
+    async fn get_llm_usage_daily_series_by_user(
+        &self,
+        user_id: &str,
+        since: &str,
+    ) -> AppResult<Vec<LlmUsageDailyRow>>;
+
     /// Get the most recent LLM usage records across all tenants (admin view)
     ///
     /// Returns the last `limit` LLM calls ordered by creation time descending.
@@ -1442,6 +1524,15 @@ pub trait LlmUsageRepository: Send + Sync {
         &self,
         turn_id: ConversationTurnId,
     ) -> AppResult<Vec<LlmUsageRecord>>;
+
+    /// Sum `cost_usd` for a tenant over an inclusive period. Used by the
+    /// monthly overage cron to drive Stripe Meter event reporting.
+    async fn sum_cost_usd_for_tenant_period(
+        &self,
+        tenant_id: TenantId,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<f64>;
 }
 
 /// Usage counter repository for rate limiting and quota enforcement

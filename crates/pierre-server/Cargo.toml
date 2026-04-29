@@ -185,7 +185,7 @@ openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-swagger-ui", "pierre-cor
 
 [dependencies]
 # Workspace crates (sibling crates under crates/)
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon", "http-client"] }
+pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "toon", "http-client", "billing"] }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-intelligence = { version = "0.3.0", path = "../pierre-intelligence" }
