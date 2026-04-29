@@ -123,7 +123,10 @@ mod tests {
         assert_eq!(resolve_sport_type("vélo"), Some(SportType::Ride));
         assert_eq!(resolve_sport_type("randonnée"), Some(SportType::Hike));
         assert_eq!(resolve_sport_type("vtt"), Some(SportType::MountainBike));
-        assert_eq!(resolve_sport_type("muscu"), Some(SportType::StrengthTraining));
+        assert_eq!(
+            resolve_sport_type("muscu"),
+            Some(SportType::StrengthTraining)
+        );
     }
 
     #[test]
