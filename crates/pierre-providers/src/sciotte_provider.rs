@@ -17,7 +17,7 @@ use dravr_sciotte::cache::CachedScraper;
 use dravr_sciotte::config::{CacheConfig, ScraperConfig};
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityParams, AuthSession, Lap as SciotteLap,
-    Split as SciotteSplit,
+    Split as SciotteSplit, SportType as SciotteSportType,
 };
 use dravr_sciotte::provider::ProviderConfig as SciotteProviderConfig;
 use dravr_sciotte::scraper::ChromeScraper;
@@ -78,9 +78,58 @@ impl SciotteProvider {
     }
 }
 
+/// Direct sciotte → cageux SportType conversion. Both enums share variant
+/// names (sciotte mirrors cageux's canonical set), so a 1:1 match is
+/// bulletproof; the previous round-trip via `display_name()` →
+/// `from_internal_string()` was lossy because `display_name` returns
+/// human-readable Title-Case-with-spaces ("Cross-Country Skiing") while
+/// `from_internal_string` expects the snake_case serde form
+/// ("cross_country_skiing"), so every non-trivial variant fell through to
+/// `Other(<display_name>)` and broke filter / serialization.
+fn convert_sport_type(s: &SciotteSportType) -> SportType {
+    match s {
+        SciotteSportType::Run => SportType::Run,
+        SciotteSportType::Ride => SportType::Ride,
+        SciotteSportType::Swim => SportType::Swim,
+        SciotteSportType::Walk => SportType::Walk,
+        SciotteSportType::Hike => SportType::Hike,
+        SciotteSportType::VirtualRide => SportType::VirtualRide,
+        SciotteSportType::VirtualRun => SportType::VirtualRun,
+        SciotteSportType::Workout => SportType::Workout,
+        SciotteSportType::Yoga => SportType::Yoga,
+        SciotteSportType::EbikeRide => SportType::EbikeRide,
+        SciotteSportType::MountainBike => SportType::MountainBike,
+        SciotteSportType::GravelRide => SportType::GravelRide,
+        SciotteSportType::CrossCountrySkiing => SportType::CrossCountrySkiing,
+        SciotteSportType::AlpineSkiing => SportType::AlpineSkiing,
+        SciotteSportType::Snowboarding => SportType::Snowboarding,
+        SciotteSportType::Snowshoe => SportType::Snowshoe,
+        SciotteSportType::IceSkating => SportType::IceSkating,
+        SciotteSportType::BackcountrySkiing => SportType::BackcountrySkiing,
+        SciotteSportType::Kayaking => SportType::Kayaking,
+        SciotteSportType::Canoeing => SportType::Canoeing,
+        SciotteSportType::Rowing => SportType::Rowing,
+        SciotteSportType::Paddleboarding => SportType::Paddleboarding,
+        SciotteSportType::Surfing => SportType::Surfing,
+        SciotteSportType::Kitesurfing => SportType::Kitesurfing,
+        SciotteSportType::StrengthTraining => SportType::StrengthTraining,
+        SciotteSportType::Crossfit => SportType::Crossfit,
+        SciotteSportType::Pilates => SportType::Pilates,
+        SciotteSportType::RockClimbing => SportType::RockClimbing,
+        SciotteSportType::TrailRunning => SportType::TrailRunning,
+        SciotteSportType::Soccer => SportType::Soccer,
+        SciotteSportType::Basketball => SportType::Basketball,
+        SciotteSportType::Tennis => SportType::Tennis,
+        SciotteSportType::Golf => SportType::Golf,
+        SciotteSportType::Skateboarding => SportType::Skateboarding,
+        SciotteSportType::InlineSkating => SportType::InlineSkating,
+        SciotteSportType::Other(s) => SportType::Other(s.clone()),
+    }
+}
+
 /// Convert a sciotte `Activity` to a Pierre `Activity`
 fn convert_activity(sciotte: &SciotteActivity) -> Activity {
-    let sport_type = SportType::from_internal_string(sciotte.sport_type.display_name());
+    let sport_type = convert_sport_type(&sciotte.sport_type);
 
     let splits = sciotte
         .splits

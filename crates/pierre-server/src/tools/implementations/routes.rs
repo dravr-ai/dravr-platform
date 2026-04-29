@@ -328,26 +328,11 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
 /// and a handful of common aliases so the LLM's tool-call args don't have to
 /// match the enum exactly. Unknown values fall back to [`SportType::Run`]
 /// in the caller — we return `None` here so the caller can apply its default.
+/// Thin wrapper around [`pierre_core::models::resolve_sport_type`] —
+/// the canonical resolver covers route-relevant variants plus EN/FR
+/// aliases, so this tool reuses it instead of duplicating a partial map.
 fn parse_sport_type(raw: &str) -> Option<SportType> {
-    match raw.trim().to_lowercase().as_str() {
-        "run" | "running" => Some(SportType::Run),
-        "trail_running" | "trail_run" | "trailrun" => Some(SportType::TrailRunning),
-        "ride" | "cycling" | "bike" | "bicycle" => Some(SportType::Ride),
-        "mountain_bike" | "mtb" | "mountainbike" => Some(SportType::MountainBike),
-        "gravel_ride" | "gravel" => Some(SportType::GravelRide),
-        "ebike_ride" | "ebike" => Some(SportType::EbikeRide),
-        "hike" | "hiking" => Some(SportType::Hike),
-        "walk" | "walking" => Some(SportType::Walk),
-        "cross_country_skiing" | "xc_ski" | "nordic_skiing" | "nordic" => {
-            Some(SportType::CrossCountrySkiing)
-        }
-        "alpine_skiing" | "downhill_skiing" | "downhill" => Some(SportType::AlpineSkiing),
-        "backcountry_skiing" | "backcountry" | "skitour" | "ski_tour" => {
-            Some(SportType::BackcountrySkiing)
-        }
-        "snowshoe" | "snowshoeing" => Some(SportType::Snowshoe),
-        _ => None,
-    }
+    pierre_core::models::resolve_sport_type(raw)
 }
 
 /// Human-readable label for a [`SportType`], used in log lines and in the

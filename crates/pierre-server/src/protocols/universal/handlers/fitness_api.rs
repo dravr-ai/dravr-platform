@@ -760,42 +760,65 @@ async fn cache_activities_result(
     }
 }
 
-/// Filter activities by sport type (case-insensitive)
-/// Handles both standard sport types (serialized as strings like "run")
-/// and Other variants (serialized as {"other":"NordicSki"})
+/// Filter activities by sport type, using alias-aware enum matching.
+///
+/// The LLM (or a UI) passes a free-form string like `nordicski`, `xc_ski`,
+/// `ski de fond`, or `cross_country_skiing`. The filter resolves the input
+/// to a canonical [`SportType`] via
+/// [`pierre_core::models::resolve_sport_type`] and compares enum-to-enum
+/// against each activity's sport_type — so all of those inputs match
+/// [`SportType::CrossCountrySkiing`] without requiring per-call alias logic
+/// in the prompt or upstream callers.
+///
+/// When the input doesn't resolve to a known variant, falls back to a
+/// normalised string compare (separator-insensitive, lowercase) against the
+/// activity's serialised sport_type — preserves the previous behaviour for
+/// unknown / custom Other(...) values.
 fn filter_activities_by_sport_type(
     activities: Vec<Activity>,
     sport_type_filter: Option<&str>,
 ) -> Vec<Activity> {
-    match sport_type_filter {
-        Some(filter) => {
-            let filter_lower = filter.to_lowercase();
-            activities
-                .into_iter()
-                .filter(|a| {
-                    // Serialize sport_type to JSON and compare case-insensitively
-                    let Ok(v) = to_value(a.sport_type()) else {
-                        return false;
-                    };
+    let Some(filter) = sport_type_filter else {
+        return activities;
+    };
+    let canonical_filter = pierre_core::models::resolve_sport_type(filter);
+    let normalised_filter = normalise_sport_string(filter);
+    activities
+        .into_iter()
+        .filter(|a| sport_type_matches(a.sport_type(), canonical_filter.as_ref(), &normalised_filter))
+        .collect()
+}
 
-                    // Standard sport types serialize as simple strings (e.g., "run", "ride")
-                    if let Some(s) = v.as_str() {
-                        return s.to_lowercase() == filter_lower;
-                    }
+/// Lower-case and strip separator characters so that
+/// `"Cross-Country Skiing"`, `"cross_country_skiing"`, and
+/// `"crosscountryskiing"` collapse to the same comparison key.
+fn normalise_sport_string(s: &str) -> String {
+    s.trim().to_lowercase().replace(['_', '-', ' ', '\''], "")
+}
 
-                    // Other(String) variants serialize as {"other":"value"}
-                    if let Some(obj) = v.as_object() {
-                        if let Some(other_value) = obj.get("other").and_then(|v| v.as_str()) {
-                            return other_value.to_lowercase() == filter_lower;
-                        }
-                    }
-
-                    false
-                })
-                .collect()
-        }
-        None => activities,
+/// Compare an activity's [`SportType`] against the canonical-or-fallback
+/// filter pair produced by [`filter_activities_by_sport_type`].
+fn sport_type_matches(
+    activity_sport: &SportType,
+    canonical_filter: Option<&SportType>,
+    normalised_filter: &str,
+) -> bool {
+    if let Some(canonical) = canonical_filter {
+        return activity_sport == canonical;
     }
+    let activity_str = to_value(activity_sport).map_or_else(
+        |_| String::new(),
+        |v| {
+            v.as_str().map(str::to_owned).unwrap_or_else(|| {
+                v.as_object()
+                    .and_then(|obj| obj.get("other"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_default()
+            })
+        },
+    );
+    normalise_sport_string(&activity_str) == normalised_filter
 }
 
 /// Build metadata for activities response
