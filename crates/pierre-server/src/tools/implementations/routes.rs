@@ -14,7 +14,7 @@ use crate::errors::AppResult;
 use crate::intelligence::location::{ForwardGeocodeResult, LocationService};
 use crate::intelligence::{DiscoveredRoute, RouteDiscoveryService};
 use crate::mcp::schema::{JsonSchema, PropertySchema, ToolAnnotations};
-use crate::models::SportType;
+use crate::models::{resolve_sport_type, SportType};
 use crate::tools::context::ToolExecutionContext;
 use crate::tools::result::ToolResult;
 use crate::tools::traits::{McpTool, ToolCapabilities};
@@ -332,7 +332,7 @@ fn discovered_route_to_json(route: &DiscoveredRoute) -> Value {
 /// the canonical resolver covers route-relevant variants plus EN/FR
 /// aliases, so this tool reuses it instead of duplicating a partial map.
 fn parse_sport_type(raw: &str) -> Option<SportType> {
-    pierre_core::models::resolve_sport_type(raw)
+    resolve_sport_type(raw)
 }
 
 /// Human-readable label for a [`SportType`], used in log lines and in the
