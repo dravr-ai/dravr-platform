@@ -54,6 +54,9 @@ pub use dravr_cageux::models::activity::{
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;
 
+mod sport_type_alias;
+pub use sport_type_alias::resolve_sport_type;
+
 // Sleep domain
 pub use sleep::{SleepSession, SleepStage, SleepStageType};
 
