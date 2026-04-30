@@ -78,6 +78,14 @@ pub struct ActivitySummary {
     /// perceived exertion grounded in HR-in-zone time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suffer_score: Option<u32>,
+    /// Average ambient temperature in Celsius when the provider reports it.
+    /// Outdoor activities from Strava and Garmin OAuth surface this when the
+    /// recording device captured ambient temp; Coros does too if its watch
+    /// reported it. Whoop / Fitbit / Terra don't expose ambient temperature
+    /// on workouts (skin temp on Whoop Recovery is recorded separately, on
+    /// the recovery record, not the activity).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
 }
 
 impl From<&Activity> for ActivitySummary {
@@ -96,6 +104,7 @@ impl From<&Activity> for ActivitySummary {
             average_cadence: activity.average_cadence(),
             average_power: activity.average_power(),
             suffer_score: activity.suffer_score(),
+            temperature: activity.temperature(),
         }
     }
 }
@@ -160,6 +169,12 @@ fn format_activities_as_list(activities: &[Activity]) -> String {
         }
         if let Some(calories) = activity.calories() {
             let _ = write!(extras, " - {calories} kcal");
+        }
+        if let Some(temp) = activity.temperature() {
+            // Round to whole degrees — sub-degree precision is meaningless to
+            // the coach reasoning loop and the providers report 1-decimal at
+            // best. The leading sign survives `{:.0}` for sub-zero readings.
+            let _ = write!(extras, " - {temp:.0}°C");
         }
 
         lines.push(format!(
