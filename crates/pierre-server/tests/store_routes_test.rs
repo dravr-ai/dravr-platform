@@ -229,8 +229,12 @@ async fn test_browse_store_with_cursor_pagination() {
         .first()
         .map_or_else(|| TenantId::from(user_id), |t| t.id);
 
-    // Create 5 coaches with small delays to ensure unique published_at timestamps
-    // This is necessary because cursor pagination uses timestamp as primary sort key
+    // Create 5 coaches with delays to ensure unique published_at timestamps.
+    // The cursor encodes published_at at millisecond precision; two coaches
+    // landing in the same millisecond breaks the (ts < $1 OR ts = $1 AND id < $2)
+    // page boundary because the cursor's id slot only carries the *last* row.
+    // 10ms collapsed under cargo test --test-threads=4 on the PG runner; 50ms
+    // gives comfortable margin against scheduler jitter on loaded CI hosts.
     for i in 1..=5 {
         create_published_coach(
             &resources,
@@ -240,8 +244,7 @@ async fn test_browse_store_with_cursor_pagination() {
             CoachCategory::Training,
         )
         .await;
-        // Small delay ensures distinct timestamps for reliable cursor ordering
-        sleep(Duration::from_millis(10)).await;
+        sleep(Duration::from_millis(50)).await;
     }
 
     let token = generate_test_token(&resources, &user).await;
