@@ -456,7 +456,12 @@ impl GarminProvider {
         )
         .average_power_opt(summary.average_power.map(utils::conversions::f32_to_u32))
         .max_power_opt(summary.max_power.map(utils::conversions::f32_to_u32))
-        .calories_opt(summary.calories.map(utils::conversions::f64_to_u32)))
+        .calories_opt(summary.calories.map(utils::conversions::f64_to_u32))
+        .temperature_opt(
+            summary
+                .average_temperature
+                .map(utils::conversions::f64_to_f32),
+        ))
     }
 
     fn convert_garmin_activity(activity: GarminActivityResponse) -> AppResult<Activity> {

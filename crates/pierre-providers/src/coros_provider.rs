@@ -116,6 +116,10 @@ struct CorosWorkout {
     avg_power: Option<u32>,
     /// Training load/stress score
     training_load: Option<f32>,
+    /// Average ambient temperature in Celsius (outdoor workouts only).
+    /// COROS reports this when the watch's onboard sensor recorded
+    /// environmental temperature for the session.
+    temperature: Option<f64>,
 }
 
 /// COROS sleep session response
@@ -405,6 +409,7 @@ impl CorosProvider {
         .average_cadence_opt(workout.avg_cadence)
         .average_power_opt(workout.avg_power)
         .training_stress_score_opt(workout.training_load)
+        .temperature_opt(workout.temperature.map(|t| t as f32))
         .sport_type_detail_opt(Some(format!("coros_sport_{}", workout.sport_type)))
         .build())
     }

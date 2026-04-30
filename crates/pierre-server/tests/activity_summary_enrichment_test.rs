@@ -39,6 +39,7 @@ fn build_sensor_rich_activity() -> Activity {
     .average_cadence(174)
     .average_power(220)
     .suffer_score(47)
+    .temperature(5.0)
     .build()
 }
 
@@ -73,6 +74,10 @@ fn summary_preserves_scalar_sensor_fields_when_present() {
     assert_eq!(summary.average_cadence, Some(174));
     assert_eq!(summary.average_power, Some(220));
     assert_eq!(summary.suffer_score, Some(47));
+    // Ambient temperature: ski-de-fond "10 plus froides" coach query exposed
+    // that every OAuth provider was dropping the field on the floor; pin it
+    // here so a future refactor can't quietly strip it again.
+    assert_eq!(summary.temperature, Some(5.0));
 }
 
 #[test]
@@ -98,6 +103,7 @@ fn summary_serializes_without_null_noise_when_fields_absent() {
     assert!(json.get("average_cadence").is_none());
     assert!(json.get("average_power").is_none());
     assert!(json.get("suffer_score").is_none());
+    assert!(json.get("temperature").is_none());
 }
 
 #[test]

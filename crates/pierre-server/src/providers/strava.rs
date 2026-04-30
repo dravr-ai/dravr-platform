@@ -714,6 +714,10 @@ struct StravaActivity {
     calories: Option<f32>,
     suffer_score: Option<u32>,
 
+    // Environmental conditions — Strava reports degrees Celsius for outdoor
+    // activities recorded with a compatible head unit / paired weather feed.
+    average_temp: Option<f32>,
+
     // Segment data
     segment_efforts: Option<Vec<StravaSegmentEffort>>,
 }
@@ -828,7 +832,7 @@ impl From<StravaActivity> for Activity {
             max_cadence: None,
             hrv_score: None,
             recovery_heart_rate: None,
-            temperature: None,
+            temperature: strava.average_temp,
             humidity: None,
             average_altitude: None,
             wind_speed: None,

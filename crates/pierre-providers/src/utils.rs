@@ -87,6 +87,21 @@ pub mod conversions {
         }
         t.to_u32().map_or(u32::MAX, |v| v)
     }
+
+    /// Convert f64 to f32 for fields whose dynamic range fits f32.
+    ///
+    /// Used for ambient temperature in Celsius and other values where the
+    /// source API's precision (typically 1 decimal) is well within f32.
+    /// `NaN` collapses to 0.0; oversized values saturate to f32 infinities
+    /// rather than panicking. Precision loss is acceptable for display.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn f64_to_f32(value: f64) -> f32 {
+        if value.is_nan() {
+            return 0.0;
+        }
+        value as f32
+    }
 }
 
 /// Result of checking if a response should be retried
