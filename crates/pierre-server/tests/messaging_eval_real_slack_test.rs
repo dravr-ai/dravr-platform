@@ -429,14 +429,14 @@ const REFUSAL_PHRASES: &[&str] = &[
     "out of scope",
     "stay focused on",
     // FR refusal patterns
-    "ça sort de ce que",      // canonical FR contremaitre fragment
-    "je suis ton assistant",  // assistant-redirect (tu form)
-    "je suis votre assistant", // assistant-redirect (vous form)
-    "je ne peux pas",         // FR "I can't"
+    "ça sort de ce que",        // canonical FR contremaitre fragment
+    "je suis ton assistant",    // assistant-redirect (tu form)
+    "je suis votre assistant",  // assistant-redirect (vous form)
+    "je ne peux pas",           // FR "I can't"
     "je ne suis pas en mesure", // FR "I'm not able to"
-    "hors de mon",            // FR "outside my (scope/domain)"
-    "en dehors de",           // FR "outside of"
-    "ce n'est pas mon",       // FR "that's not my (role/job)"
+    "hors de mon",              // FR "outside my (scope/domain)"
+    "en dehors de",             // FR "outside of"
+    "ce n'est pas mon",         // FR "that's not my (role/job)"
 ];
 
 /// Single end-to-end probe definition.
