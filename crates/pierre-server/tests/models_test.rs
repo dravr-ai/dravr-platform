@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::models::{
     Activity, ActivityBuilder, Athlete, AuthorizationCode, EncryptedToken, HeartRateZone,
     PersonalRecord, PowerZone, PrMetric, SegmentEffort, SportType, Stats, Tenant, TenantId, User,
@@ -303,6 +304,8 @@ fn test_user_creation_with_required_fields() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     assert_eq!(user.id, user_id);
@@ -349,6 +352,8 @@ fn test_user_serialization_roundtrip() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     let json = serde_json::to_string(&original_user).unwrap();
@@ -519,6 +524,8 @@ fn test_user_with_encrypted_tokens() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     // Verify tokens are present

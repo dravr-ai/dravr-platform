@@ -148,6 +148,7 @@
 mod common;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -478,6 +479,8 @@ async fn test_oauth_callback_error_handling() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let admin_id = database
         .repositories()
@@ -527,6 +530,8 @@ async fn test_oauth_callback_error_handling() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let test_user_id = database
         .repositories()
@@ -785,6 +790,8 @@ async fn test_oauth_state_csrf_protection() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let admin_id = database
         .repositories()

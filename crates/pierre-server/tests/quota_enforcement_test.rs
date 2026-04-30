@@ -12,6 +12,7 @@
 )]
 
 use chrono::Utc;
+use pierre_core::models::CoachingPersona;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier, PROFESSIONAL, STARTER};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::test_utils::create_test_db;
@@ -48,6 +49,8 @@ async fn build_user(
         analytics_consent_at: None,
         locale: "en".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     repos.users.create(&user).await.unwrap();
     let tenant = Tenant {

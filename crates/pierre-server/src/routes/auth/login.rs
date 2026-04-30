@@ -23,7 +23,7 @@ use crate::{
     errors::{AppError, ErrorCode},
     mcp::resources::ServerResources,
     middleware::extract_auth_from_headers,
-    models::UserStatus,
+    models::{CoachingPersona, UserStatus},
     utils::auth::extract_bearer_token_owned,
 };
 use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csrf_cookie};
@@ -31,8 +31,8 @@ use pierre_auth::security::cookies::{clear_auth_cookie, set_auth_cookie, set_csr
 use super::types::{
     AnalyticsConsentRequest, ChangePasswordRequest, CompleteResetRequest, FirebaseLoginRequest,
     LoginRequest, OAuth2ErrorResponse, OAuth2TokenRequest, OAuth2TokenResponse,
-    RefreshTokenRequest, RegisterRequest, SessionResponse, UpdateLocaleRequest,
-    UpdateProfileRequest, UpdateProfileResponse, UserInfo, UserStatsResponse,
+    RefreshTokenRequest, RegisterRequest, SessionResponse, UpdateCoachingPersonaRequest,
+    UpdateLocaleRequest, UpdateProfileRequest, UpdateProfileResponse, UserInfo, UserStatsResponse,
 };
 
 use crate::services::analytics::{analytics, hash_id};
@@ -421,6 +421,8 @@ pub(super) async fn handle_session(
             tenant_id: tenant_id_for_response,
             created_at: user.created_at.to_rfc3339(),
             locale: user.locale,
+            coaching_persona: user.coaching_persona.as_str().to_owned(),
+            manages_roster: user.manages_roster,
         },
         access_token: jwt_token,
         csrf_token,
@@ -478,6 +480,8 @@ pub(super) async fn handle_update_profile(
             tenant_id: None,
             created_at: updated_user.created_at.to_rfc3339(),
             locale: updated_user.locale,
+            coaching_persona: updated_user.coaching_persona.as_str().to_owned(),
+            manages_roster: updated_user.manages_roster,
         },
     };
 
@@ -958,6 +962,43 @@ pub(super) async fn handle_update_locale(
     Ok((
         StatusCode::OK,
         Json(json!({ "message": "Locale updated", "locale": locale })),
+    )
+        .into_response())
+}
+
+/// Handle coaching-persona update for authenticated users.
+///
+/// Persists the user's chosen output-format / cadence preference on the
+/// `users` table. Validates against the [`pierre_core::models::CoachingPersona`]
+/// enum's `FromStr`, so unknown values surface as `400 Bad Request` with
+/// the canonical error rather than silently writing a value that won't
+/// resolve to a persona block at chat time.
+pub(super) async fn handle_update_coaching_persona(
+    State(resources): State<Arc<ServerResources>>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateCoachingPersonaRequest>,
+) -> Result<Response, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let user_id = auth.user_id;
+
+    let raw = request.persona.trim();
+    let persona = raw.parse::<CoachingPersona>().map_err(|_| {
+        AppError::invalid_input(format!(
+            "Unsupported coaching persona: {raw}. Supported: casual, enthusiast, power_athlete, coach"
+        ))
+    })?;
+
+    resources
+        .repos
+        .users
+        .set_coaching_persona(user_id, persona)
+        .await?;
+
+    info!(user_id = %user_id, persona = persona.as_str(), "User coaching persona updated");
+
+    Ok((
+        StatusCode::OK,
+        Json(json!({ "message": "Coaching persona updated", "persona": persona.as_str() })),
     )
         .into_response())
 }

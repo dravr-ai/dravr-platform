@@ -15,9 +15,11 @@ use crate::llm::ChatMessage;
 use crate::mcp::resources::ServerResources;
 use crate::services::prompt_leak;
 use pierre_core::models::coaches::CoachCategory;
-use pierre_core::models::CoachRuntimeContext;
+use pierre_core::models::{CoachRuntimeContext, CoachingPersona};
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::database::repositories::UserRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_llm::prompts::get_coaching_persona_prompt;
 
 use super::super::channel_profile::ChannelProfile;
 use super::super::turn::TurnInput;
@@ -52,7 +54,7 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 
 /// Rewrite the prompt-template placeholders with their runtime values.
 ///
-/// Handles three placeholders:
+/// Handles four placeholders:
 ///
 /// - `{{SCOPE_REFUSAL}}` → canonical off-scope refusal sentence
 /// - `{{CAPABILITY_REFUSAL}}` → canonical missing-capability refusal sentence
@@ -61,6 +63,10 @@ const fn coach_scope_carve_out_key(category: CoachCategory) -> Option<&'static s
 ///   the "food/meal finders" out-of-scope rule for meal-planning
 ///   questions). Empty string when the coach's category does not need a
 ///   carve-out or when no coach is attached to the conversation.
+/// - `{{COACHING_PERSONA_RULES}}` → output-format/cadence block keyed off
+///   the user's selected [`CoachingPersona`]. Persona is orthogonal to
+///   the chosen coach personality — it controls structure / citation
+///   density / verbosity, not voice or domain.
 ///
 /// Returns the prompt unchanged when none of the placeholders are
 /// present.
@@ -68,12 +74,14 @@ fn interpolate_prompt_placeholders(
     resources: &Arc<ServerResources>,
     input: &TurnInput,
     coach_ctx: Option<&CoachRuntimeContext>,
+    persona: CoachingPersona,
     prompt: &str,
 ) -> String {
     let has_scope = prompt.contains("{{SCOPE_REFUSAL}}");
     let has_capability = prompt.contains("{{CAPABILITY_REFUSAL}}");
     let has_carve_out = prompt.contains("{{COACH_SCOPE_CARVE_OUT}}");
-    if !has_scope && !has_capability && !has_carve_out {
+    let has_persona = prompt.contains("{{COACHING_PERSONA_RULES}}");
+    if !has_scope && !has_capability && !has_carve_out && !has_persona {
         return prompt.to_owned();
     }
     let locale = input.locale.as_deref().unwrap_or(DEFAULT_LOCALE);
@@ -83,10 +91,31 @@ fn interpolate_prompt_placeholders(
     let carve_out = coach_ctx
         .and_then(|c| coach_scope_carve_out_key(c.category))
         .map_or_else(String::new, |key| registry.get(key, locale));
+    let persona_block = get_coaching_persona_prompt(persona);
     prompt
         .replace("{{SCOPE_REFUSAL}}", &scope)
         .replace("{{CAPABILITY_REFUSAL}}", &capability)
         .replace("{{COACH_SCOPE_CARVE_OUT}}", &carve_out)
+        .replace("{{COACHING_PERSONA_RULES}}", persona_block)
+}
+
+/// Look up the user's selected coaching persona, falling back to the
+/// default ([`CoachingPersona::Casual`]) when the user row cannot be
+/// resolved.
+///
+/// We never block prompt assembly on the user lookup: an unknown user,
+/// a malformed `user_id`, or a transient repository error all collapse to
+/// the default persona so chat continues to flow. Persona is a UX
+/// preference, not a security boundary.
+async fn resolve_user_persona(resources: &Arc<ServerResources>, user_id: &str) -> CoachingPersona {
+    let Some(user_uuid) = parse_uuid(user_id).ok() else {
+        return CoachingPersona::default();
+    };
+    let users: &dyn UserRepository = resources.repos.users.as_ref();
+    match users.get_global(user_uuid).await {
+        Ok(Some(user)) => user.coaching_persona,
+        Ok(None) | Err(_) => CoachingPersona::default(),
+    }
 }
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -120,13 +149,15 @@ pub(in crate::services::chat_pipeline) async fn assemble_prompt_and_messages(
     );
 
     // Stage 7a.1: Resolve `{{SCOPE_REFUSAL}}` / `{{CAPABILITY_REFUSAL}}` /
-    // `{{COACH_SCOPE_CARVE_OUT}}` placeholders to runtime values from the
-    // messaging registry. Refusals are per-locale canonical strings;
-    // the carve-out is per-(coach-category, locale) and relaxes the
-    // generic scope list for categories whose core purpose would
-    // otherwise be blocked (e.g. Nutrition coaches answering dinner
-    // questions).
-    let base_prompt = interpolate_prompt_placeholders(resources, input, coach_ctx, &base_prompt);
+    // `{{COACH_SCOPE_CARVE_OUT}}` / `{{COACHING_PERSONA_RULES}}`
+    // placeholders to runtime values. Refusals and the carve-out come
+    // from the per-locale messaging registry; the persona block comes
+    // from the user's `coaching_persona` column and controls output
+    // format (structure, citation density, length) orthogonally to the
+    // coach personality.
+    let persona = resolve_user_persona(resources, &input.user_id).await;
+    let base_prompt =
+        interpolate_prompt_placeholders(resources, input, coach_ctx, persona, &base_prompt);
 
     // Stage 7a.2: Append the runtime-generated "Available Tools" section.
     // Both the default Pierre system prompt and every coach's custom

@@ -14,6 +14,7 @@ import { Card, Button, Badge, ConfirmDialog, Input, Modal, ModalActions } from '
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
+import CoachingPersonaTab from './CoachingPersonaTab';
 import LlmSettingsTab from './LlmSettingsTab';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
@@ -85,7 +86,7 @@ function formatResetTime(isoString: string): string {
   }
 }
 
-type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'messaging' | 'memory' | 'privacy' | 'about' | 'account';
+type SettingsTab = 'profile' | 'connections' | 'tokens' | 'llm' | 'coaching' | 'messaging' | 'memory' | 'privacy' | 'about' | 'account';
 
 const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] = [
   {
@@ -121,6 +122,15 @@ const SETTINGS_TABS: { id: SettingsTab; name: string; icon: React.ReactNode }[] 
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'coaching',
+    name: 'Coaching style',
+    icon: (
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
       </svg>
     ),
   },
@@ -1165,6 +1175,8 @@ Authorization: Bearer <your-token-here>`}
 
         {/* AI Settings Tab */}
         {activeTab === 'llm' && <LlmSettingsTab />}
+
+        {activeTab === 'coaching' && <CoachingPersonaTab />}
 
         {activeTab === 'messaging' && <MessagingSettingsTab />}
 

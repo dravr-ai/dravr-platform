@@ -7,6 +7,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -70,6 +71,8 @@ async fn create_test_user(db: &Database) -> Uuid {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     db.repositories()
@@ -362,6 +365,8 @@ async fn test_database_trait_abstraction() {
                 analytics_consent_at: None,
                 locale: "fr".to_owned(),
                 default_coach_id: None,
+                coaching_persona: CoachingPersona::Casual,
+                manages_roster: false,
             };
 
             db_clone.repositories().users.create(&user).await
@@ -416,6 +421,8 @@ async fn test_system_stats() {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::Casual,
+            manages_roster: false,
         };
 
         db.repositories()

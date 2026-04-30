@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::{OAuthTokenRepository, UserRepository};
 use pierre_database::database::Database;
 use pierre_mcp_server::constants::oauth_providers;
@@ -45,6 +46,8 @@ async fn test_strava_token_storage() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     UserRepository::create(&db, &user)
@@ -150,6 +153,8 @@ async fn test_fitbit_token_storage() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     UserRepository::create(&db, &user)

@@ -13,7 +13,7 @@ use crate::{
     constants::{error_messages, limits, tiers},
     context::{AuthContext, ConfigContext, DataContext},
     errors::{AppError, AppResult},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
+    models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
     utils::errors::{auth_error, user_state_error, validation_error},
 };
@@ -234,6 +234,8 @@ impl AuthService {
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
+                coaching_persona: user.coaching_persona.as_str().to_owned(),
+                manages_roster: user.manages_roster,
             },
         })
     }
@@ -499,6 +501,8 @@ impl AuthService {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::default(),
+            manages_roster: false,
         };
 
         self.data.repos().users.create(&new_user).await?;
@@ -594,6 +598,8 @@ impl AuthService {
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
+                coaching_persona: user.coaching_persona.as_str().to_owned(),
+                manages_roster: user.manages_roster,
             },
         })
     }
@@ -675,6 +681,8 @@ impl AuthService {
                 tenant_id: tenant_id_for_response,
                 created_at: user.created_at.to_rfc3339(),
                 locale: user.locale.clone(),
+                coaching_persona: user.coaching_persona.as_str().to_owned(),
+                manages_roster: user.manages_roster,
             },
         })
     }

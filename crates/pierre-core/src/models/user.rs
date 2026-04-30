@@ -128,6 +128,76 @@ impl Display for UserStatus {
     }
 }
 
+/// Coaching persona controlling the format, cadence, and data-density of
+/// coach output for this user.
+///
+/// Persona is **orthogonal** to coach choice: a user with persona
+/// [`CoachingPersona::Casual`] talking to the marathon-coach gets the same
+/// coach voice as a [`CoachingPersona::PowerAthlete`] talking to the
+/// marathon-coach — only the level of structure, citation, and proactive
+/// notification cadence changes.
+///
+/// - [`Self::Casual`] — friendly prose, no framework citations, weekly digest
+///   only, P0-only unsolicited push.
+/// - [`Self::Enthusiast`] — mixed prose + selective data, framework citations
+///   on disagreement or "why?", P0/P1 push.
+/// - [`Self::PowerAthlete`] — Section 11 discipline: line-by-line, framework
+///   citations on every numeric claim, full P0/P1/P2 push ladder.
+/// - [`Self::Coach`] — Power-athlete voice + roster tools (paired with
+///   [`User::manages_roster`] for permission gating).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CoachingPersona {
+    /// Friendly prose, no jargon, weekly digest only, P0-only unsolicited push.
+    #[default]
+    Casual,
+    /// Mixed prose + data, citations on request, P0/P1 push.
+    Enthusiast,
+    /// Section 11 discipline — line-by-line, framework citations everywhere,
+    /// full P0/P1/P2 push ladder.
+    PowerAthlete,
+    /// Power-athlete voice + roster management tools. Paired with
+    /// [`User::manages_roster`] for permission gating.
+    Coach,
+}
+
+impl CoachingPersona {
+    /// Canonical string representation used for database storage and prompt
+    /// placeholder lookup. Matches the [`serde(rename_all = "snake_case")`]
+    /// representation.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Casual => "casual",
+            Self::Enthusiast => "enthusiast",
+            Self::PowerAthlete => "power_athlete",
+            Self::Coach => "coach",
+        }
+    }
+}
+
+impl Display for CoachingPersona {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for CoachingPersona {
+    type Err = AppError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "casual" => Ok(Self::Casual),
+            "enthusiast" => Ok(Self::Enthusiast),
+            "power_athlete" => Ok(Self::PowerAthlete),
+            "coach" => Ok(Self::Coach),
+            _ => Err(AppError::invalid_input(format!(
+                "Invalid coaching persona: {s}"
+            ))),
+        }
+    }
+}
+
 /// Represents a user in the multi-tenant system
 ///
 /// Users are authenticated through `OAuth` providers and have encrypted tokens
@@ -189,6 +259,21 @@ pub struct User {
     /// ON DELETE SET NULL so the user can reselect.
     #[serde(default)]
     pub default_coach_id: Option<String>,
+    /// Coach output persona controlling format / citation density /
+    /// notification cadence. Defaults to [`CoachingPersona::Casual`] for
+    /// new users; users opt up via the post-auth onboarding prompt or
+    /// the Settings UI. Persisted serde-side as `snake_case` (`"casual"`,
+    /// `"enthusiast"`, `"power_athlete"`, `"coach"`).
+    #[serde(default)]
+    pub coaching_persona: CoachingPersona,
+    /// Whether this user has access to the Coach-tier roster UI (manage
+    /// other athletes). Independent from [`Self::coaching_persona`]:
+    /// a user can pick the [`CoachingPersona::Coach`] voice without
+    /// `manages_roster=true` (they get the voice but not the tools), and
+    /// vice versa (admin-granted roster access without picking the
+    /// Coach persona).
+    #[serde(default)]
+    pub manages_roster: bool,
 }
 
 /// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
@@ -230,6 +315,8 @@ impl User {
             analytics_consent_at: None,
             locale: default_locale(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::default(),
+            manages_roster: false,
         }
     }
 

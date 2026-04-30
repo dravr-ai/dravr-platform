@@ -11,7 +11,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::{
     constants::tiers,
     errors::{AppError, AppResult},
-    models::{Tenant, TenantId, User, UserStatus, UserTier},
+    models::{CoachingPersona, Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
 };
 
@@ -110,6 +110,8 @@ async fn update_existing_admin_user(
         analytics_consent_at: existing_user.analytics_consent_at,
         locale: existing_user.locale,
         default_coach_id: existing_user.default_coach_id.clone(),
+        coaching_persona: existing_user.coaching_persona,
+        manages_roster: existing_user.manages_roster,
     };
 
     repos.users.create(&updated_user).await?;
@@ -222,6 +224,8 @@ fn build_admin_user(
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::default(),
+        manages_roster: false,
     }
 }
 

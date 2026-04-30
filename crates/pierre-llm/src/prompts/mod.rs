@@ -9,6 +9,8 @@
 //! This module provides system prompts for LLM interactions.
 //! Prompts are loaded at compile time from markdown files for easy maintenance.
 
+use pierre_core::models::CoachingPersona;
+
 /// Pierre Fitness Intelligence Assistant system prompt
 ///
 /// Contains instructions for the AI assistant including:
@@ -90,6 +92,20 @@ pub const ACTIVITY_ANALYSIS_SYSTEM_PROMPT: &str = include_str!("activity_analysi
 /// of `Fact` objects describing durable claims the user made about
 /// themselves (preferences, physiology, injuries, goals, schedule, equipment).
 pub const MEMORY_EXTRACTION_PROMPT: &str = include_str!("memory_extraction.md");
+
+/// Casual coaching persona block — friend-texting tone, prose, sub-150 words.
+pub const CASUAL_PERSONA_PROMPT: &str = include_str!("personas/casual.md");
+
+/// Enthusiast coaching persona block — prose with optional data citations.
+pub const ENTHUSIAST_PERSONA_PROMPT: &str = include_str!("personas/enthusiast.md");
+
+/// Power-athlete coaching persona block — Section 11 discipline, line-by-line
+/// per-activity reports, framework citations on every numeric claim, P0–P3 ladder.
+pub const POWER_ATHLETE_PERSONA_PROMPT: &str = include_str!("personas/power_athlete.md");
+
+/// Coach coaching persona block — inherits Power-athlete plus roster framing
+/// and tenant-scoped athlete reports.
+pub const COACH_PERSONA_PROMPT: &str = include_str!("personas/coach.md");
 
 /// Get the system prompt for the Pierre fitness assistant
 ///
@@ -182,4 +198,20 @@ pub const fn get_activity_analysis_system_prompt() -> &'static str {
 #[must_use]
 pub const fn get_memory_extraction_prompt() -> &'static str {
     MEMORY_EXTRACTION_PROMPT
+}
+
+/// Get the persona-specific block to substitute for `{{COACHING_PERSONA_RULES}}`
+/// in [`PIERRE_SYSTEM_PROMPT`].
+///
+/// Persona is orthogonal to the chosen coach personality — it controls output
+/// format (structure, citation density, length) and notification cadence, not
+/// voice or domain.
+#[must_use]
+pub const fn get_coaching_persona_prompt(persona: CoachingPersona) -> &'static str {
+    match persona {
+        CoachingPersona::Casual => CASUAL_PERSONA_PROMPT,
+        CoachingPersona::Enthusiast => ENTHUSIAST_PERSONA_PROMPT,
+        CoachingPersona::PowerAthlete => POWER_ATHLETE_PERSONA_PROMPT,
+        CoachingPersona::Coach => COACH_PERSONA_PROMPT,
+    }
 }

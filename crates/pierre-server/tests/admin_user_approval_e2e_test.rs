@@ -13,6 +13,7 @@ mod helpers;
 use anyhow::Result;
 use helpers::axum_test::AxumTestRequest;
 use pierre_auth::auth::AuthManager;
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -131,6 +132,8 @@ async fn test_complete_admin_user_approval_workflow() -> Result<()> {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     let user_id = database.repositories().users.create(&test_user).await?;
@@ -530,6 +533,8 @@ async fn create_test_pending_user(database: &Database) -> Result<uuid::Uuid> {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     database.repositories().users.create(&test_user).await?;
     Ok(test_user_id)

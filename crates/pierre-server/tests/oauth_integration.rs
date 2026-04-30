@@ -12,6 +12,7 @@
 mod common;
 
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -264,6 +265,8 @@ async fn test_oauth_authorization_url_generation() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let admin_id = database
         .repositories()
@@ -767,6 +770,8 @@ async fn test_connection_status_no_providers() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     database.repositories().users.create(&user).await.unwrap();
 
@@ -1238,6 +1243,8 @@ async fn test_disconnect_provider() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     server_context
         .data()
@@ -1330,6 +1337,8 @@ async fn test_oauth_urls_contain_required_parameters() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let admin_id = database
         .repositories()

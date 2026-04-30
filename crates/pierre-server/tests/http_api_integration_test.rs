@@ -15,6 +15,7 @@ use pierre_auth::{
     auth::AuthManager,
     tenant::TenantOAuthCredentials,
 };
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -90,6 +91,8 @@ async fn setup_test_environment() -> Result<(Arc<Database>, AuthService, OAuthSe
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let admin_id = database.repositories().users.create(&admin_user).await?;
 

@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use chrono::Utc;
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{OAuthTokenRepository, ProfileRepository, UserRepository},
     database::Database,
@@ -46,6 +47,8 @@ async fn test_create_and_get_user() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     // Create user
@@ -102,6 +105,8 @@ async fn test_last_active_update() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     UserRepository::create(&db, &user)
@@ -155,6 +160,8 @@ fn create_test_user(email: &str, display_name: Option<String>) -> User {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 

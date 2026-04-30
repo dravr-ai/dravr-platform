@@ -13,6 +13,7 @@ mod common;
 use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use pierre_auth::auth::AuthManager;
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::factory::Database;
 use pierre_mcp_server::{
     config::environment::RateLimitConfig,
@@ -127,6 +128,8 @@ impl TestServer {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::Casual,
+            manages_roster: false,
         };
 
         self.database.repositories().users.create(&user).await?;

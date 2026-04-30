@@ -24,6 +24,7 @@ use pierre_auth::{
         TenantOAuthClient, TenantRole,
     },
 };
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -102,6 +103,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     let beta_admin = User {
@@ -126,6 +129,8 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     database.repositories().users.create(&acme_admin).await?;
@@ -469,6 +474,8 @@ async fn setup_multitenant_scenario(
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     database.repositories().users.create(&user).await?;

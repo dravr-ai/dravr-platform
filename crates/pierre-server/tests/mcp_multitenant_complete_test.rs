@@ -13,6 +13,7 @@ mod common;
 
 use anyhow::Result;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
+use pierre_core::models::CoachingPersona;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig},
@@ -239,6 +240,8 @@ impl MultiTenantMcpClient {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::Casual,
+            manages_roster: false,
         };
         let repos = database.repositories();
         repos.users.create(&test_user).await?;

@@ -14,6 +14,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "postgresql")]
 use pierre_mcp_server::config::environment::PostgresPoolConfig;
@@ -252,6 +253,8 @@ async fn test_database_operation_instrumentation() -> Result<(), Box<dyn Error>>
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     // Test instrumented database operation (has #[tracing::instrument])

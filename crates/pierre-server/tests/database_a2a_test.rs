@@ -9,6 +9,7 @@
 
 use chrono::Utc;
 use pierre_auth::api_keys::{ApiKey, ApiKeyTier};
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{A2ARepository, ApiKeyRepository, UserRepository},
     database::{a2a::A2AUsage, Database},
@@ -51,6 +52,8 @@ async fn create_test_client(db: &Database) -> (A2AClient, Uuid) {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     UserRepository::create(db, &user)
         .await

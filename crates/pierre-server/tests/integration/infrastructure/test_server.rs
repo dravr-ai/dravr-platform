@@ -9,6 +9,7 @@
 #![allow(dead_code)]
 
 use anyhow::Result;
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::{
     cache::{factory::Cache, CacheConfig, CacheTtlConfig},
     config::environment::{
@@ -189,6 +190,8 @@ impl IntegrationTestServer {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::Casual,
+            manages_roster: false,
         };
 
         let repos = self.resources.database.repositories();
@@ -255,6 +258,8 @@ impl IntegrationTestServer {
             analytics_consent_at: None,
             locale: "fr".to_owned(),
             default_coach_id: None,
+            coaching_persona: CoachingPersona::Casual,
+            manages_roster: false,
         };
 
         let repos = self.resources.database.repositories();
