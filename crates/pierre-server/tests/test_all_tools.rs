@@ -9,6 +9,7 @@
 
 use anyhow::Result;
 use base64::prelude::*;
+use pierre_core::models::CoachingPersona;
 use rand::Rng;
 use serde_json::json;
 use serial_test::serial;
@@ -341,6 +342,8 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     executor.resources.repos.users.create(&user).await?;

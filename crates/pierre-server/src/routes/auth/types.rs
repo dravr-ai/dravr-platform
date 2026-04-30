@@ -78,6 +78,14 @@ pub struct UserInfo {
     /// BCP-47 locale preference (fr/en/es/de/pt). Consumed by the web and
     /// mobile Settings UIs so the picker starts at the user's current value.
     pub locale: String,
+    /// Coaching persona — output format / cadence preference. Serialized
+    /// as `snake_case` enum text so the frontend can drive its persona
+    /// picker without translating between `camelCase` and `snake_case`.
+    pub coaching_persona: String,
+    /// Coach-tier roster access flag — toggled when the user buys / is
+    /// granted the Coach persona tier. Surfaces in the Settings UI to
+    /// show/hide roster-management screens.
+    pub manages_roster: bool,
 }
 
 /// User login response
@@ -127,6 +135,18 @@ pub struct AnalyticsConsentRequest {
 pub struct UpdateLocaleRequest {
     /// Desired user locale.
     pub locale: String,
+}
+
+/// Coaching persona update request.
+///
+/// Accepts the `snake_case` enum variant — `"casual"`, `"enthusiast"`,
+/// `"power_athlete"`, or `"coach"`. Anything outside this set is rejected
+/// with a 400 so the frontend surfaces a clear error rather than silently
+/// writing a value that won't match any persona block in the LLM prompt.
+#[derive(Debug, Deserialize)]
+pub struct UpdateCoachingPersonaRequest {
+    /// Desired coaching persona.
+    pub persona: String,
 }
 
 /// Change password request for authenticated users

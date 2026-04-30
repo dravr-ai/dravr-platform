@@ -17,6 +17,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use pierre_auth::tenant::oauth_manager::{CredentialConfig, TenantOAuthManager};
+use pierre_core::models::CoachingPersona;
 use pierre_database::{
     backends::{factory::Database, DatabaseProvider},
     database::generate_encryption_key,
@@ -77,6 +78,8 @@ async fn create_test_user(database: &Database, email: &str) -> Result<Uuid> {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     database.repositories().users.create(&user).await?;
     Ok(user_id)

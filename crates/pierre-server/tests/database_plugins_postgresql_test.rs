@@ -9,6 +9,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::Utc;
+use pierre_core::models::CoachingPersona;
 use pierre_database::{backends::factory::Database, database::AddMessageParams};
 use pierre_mcp_server::{
     models::{Tenant, TenantId, TenantPlan, ToolCategory, User, UserStatus, UserTier},
@@ -705,6 +706,8 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
 
     db.repositories()

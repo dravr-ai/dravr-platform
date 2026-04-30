@@ -15,6 +15,7 @@ use pierre_auth::{
         TENANT_ENTERPRISE_LIMIT, TENANT_PROFESSIONAL_LIMIT, TENANT_STARTER_LIMIT,
     },
 };
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::{
     models::{Tenant, TenantId, User, UserStatus, UserTier},
     permissions::UserRole,
@@ -81,6 +82,8 @@ fn create_test_user(tier: UserTier) -> User {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 

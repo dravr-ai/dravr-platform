@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use crate::models::{User, UserStatus, UserTier};
+use crate::models::{CoachingPersona, User, UserStatus, UserTier};
 use crate::permissions::UserRole;
 use chrono::Utc;
 use uuid::Uuid;
@@ -34,6 +34,8 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 
@@ -62,6 +64,8 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 
@@ -90,6 +94,8 @@ pub fn create_test_pending_user(email: &str, display_name: Option<String>) -> Us
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 
@@ -133,5 +139,7 @@ pub fn create_test_user_with_fields(
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }

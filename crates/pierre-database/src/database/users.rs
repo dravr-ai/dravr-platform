@@ -13,7 +13,7 @@ use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
 use pierre_core::models::default_locale;
-use pierre_core::models::{TenantId, User, UserStatus, UserTier};
+use pierre_core::models::{CoachingPersona, TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
@@ -79,8 +79,9 @@ impl Database {
                     id, email, display_name, password_hash, tier,
                     is_active, user_status, is_admin, role, approved_by, approved_at,
                     created_at, last_active, firebase_uid, auth_provider,
-                    analytics_consent, analytics_consent_at, locale, default_coach_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+                    analytics_consent, analytics_consent_at, locale, default_coach_id,
+                    coaching_persona, manages_roster
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
                 ",
             )
             .bind(user.id.to_string())
@@ -102,6 +103,8 @@ impl Database {
             .bind(user.analytics_consent_at)
             .bind(&user.locale)
             .bind(&user.default_coach_id)
+            .bind(user.coaching_persona.as_str())
+            .bind(user.manages_roster)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -134,7 +137,8 @@ impl Database {
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier,
                    u.is_active, u.user_status, u.is_admin, u.role, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
-                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id
+                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                   u.coaching_persona, u.manages_roster
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -194,7 +198,8 @@ impl Database {
             SELECT id, email, display_name, password_hash, tier,
                    is_active, user_status, is_admin, role, approved_by, approved_at,
                    created_at, last_active, firebase_uid, auth_provider,
-                   analytics_consent, analytics_consent_at, locale, default_coach_id, default_coach_id
+                   analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster
             FROM users WHERE {field} = $1
             "
         );
@@ -245,6 +250,15 @@ impl Database {
         let locale: String = row.try_get("locale").ok().unwrap_or_else(default_locale);
         // default_coach_id is nullable; try_get returns Option<Option<_>>.
         let default_coach_id: Option<String> = row.try_get("default_coach_id").ok().flatten();
+        // Coaching persona — defaults to Casual when column is absent
+        // (pre-migration DBs) or carries an unrecognised value.
+        let coaching_persona: CoachingPersona = row
+            .try_get::<String, _>("coaching_persona")
+            .ok()
+            .and_then(|s| s.parse::<CoachingPersona>().ok())
+            .unwrap_or_default();
+        // manages_roster — defaults to false when column is absent.
+        let manages_roster: bool = row.try_get("manages_roster").ok().unwrap_or(false);
 
         // Derive role from explicit role column if present, otherwise from is_admin.
         // If is_admin is true but role says 'user' (e.g. seeder omitted role column
@@ -299,6 +313,8 @@ impl Database {
             analytics_consent_at,
             locale,
             default_coach_id,
+            coaching_persona,
+            manages_roster,
         })
     }
 
@@ -1150,6 +1166,38 @@ impl Database {
         Ok(())
     }
 
+    /// Set the user's coaching persona (output format / cadence preference).
+    ///
+    /// Persisted as `snake_case` enum text — the column has
+    /// `NOT NULL DEFAULT 'casual'` and the application-side `CoachingPersona`
+    /// enum is the source of truth for the allowed value set.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the user is not found or database update fails.
+    pub async fn set_coaching_persona_impl(
+        &self,
+        user_id: Uuid,
+        persona: CoachingPersona,
+    ) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET coaching_persona = ?1 WHERE id = ?2
+            ",
+        )
+        .bind(persona.as_str())
+        .bind(user_id.to_string())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        Ok(())
+    }
+
     /// Update user's password hash
     ///
     /// # Errors
@@ -1258,6 +1306,9 @@ impl UserRepository for Database {
     }
     async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()> {
         Self::set_default_coach_impl(self, user_id, coach_id).await
+    }
+    async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()> {
+        Self::set_coaching_persona_impl(self, user_id, persona).await
     }
     async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User> {
         Self::set_user_tier_impl(self, user_id, tier).await

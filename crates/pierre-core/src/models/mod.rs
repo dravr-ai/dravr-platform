@@ -91,7 +91,9 @@ pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 pub use athlete::{Athlete, PersonalRecord, PrMetric, Stats};
 
 // User domain
-pub use user::{default_locale, User, UserPhysiologicalProfile, UserStatus, UserTier};
+pub use user::{
+    default_locale, CoachingPersona, User, UserPhysiologicalProfile, UserStatus, UserTier,
+};
 
 // OAuth domain
 pub use oauth::{

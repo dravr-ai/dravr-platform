@@ -5,11 +5,17 @@
 // ABOUTME: Handles user account management and settings
 
 import type { AxiosInstance } from 'axios';
-import type { User, McpToken, OAuthApp, OAuthAppCredentials } from '@pierre/shared-types';
+import type {
+  CoachingPersona,
+  McpToken,
+  OAuthApp,
+  OAuthAppCredentials,
+  User,
+} from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
-export type { User, McpToken };
+export type { CoachingPersona, McpToken, User };
 
 // Types - aligned with actual backend responses
 
@@ -125,6 +131,24 @@ export function createUserApi(axios: AxiosInstance) {
       const response = await axios.put<{ message: string; enabled: boolean }>(
         ENDPOINTS.USER.ANALYTICS_CONSENT,
         { enabled }
+      );
+      return response.data;
+    },
+
+    // ==================== COACHING PERSONA ====================
+
+    /**
+     * Update the user's coaching persona — output format / citation
+     * density / notification cadence preference. Persona is orthogonal to
+     * the chosen coach personality; the same coach speaks differently
+     * to a Casual user versus a PowerAthlete user.
+     */
+    async setCoachingPersona(
+      persona: CoachingPersona,
+    ): Promise<{ message: string; persona: CoachingPersona }> {
+      const response = await axios.put<{ message: string; persona: CoachingPersona }>(
+        ENDPOINTS.USER.COACHING_PERSONA,
+        { persona },
       );
       return response.data;
     },

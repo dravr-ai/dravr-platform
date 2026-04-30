@@ -84,6 +84,7 @@ export type {
   UserRole,
   UserStatus,
   UserTier,
+  CoachingPersona,
   User,
   AdminUser,
   LoginResponse,

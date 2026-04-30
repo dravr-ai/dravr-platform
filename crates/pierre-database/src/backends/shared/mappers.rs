@@ -15,6 +15,7 @@ use pierre_core::admin::models::{AdminAction, AdminPermissions, AdminToken, Admi
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::A2ATask;
 use pierre_core::models::default_locale;
+use pierre_core::models::CoachingPersona;
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_core::permissions::UserRole;
@@ -131,6 +132,15 @@ where
         locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
         // default_coach_id is nullable; try_get returns Option<Option<String>>.
         default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+        // Coaching persona — defaults to Casual when column is absent
+        // (pre-migration DBs) or carries an unrecognised value.
+        coaching_persona: row
+            .try_get::<String, _>("coaching_persona")
+            .ok()
+            .and_then(|s| s.parse::<CoachingPersona>().ok())
+            .unwrap_or_default(),
+        // manages_roster — defaults to false when column is absent.
+        manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
     })
 }
 

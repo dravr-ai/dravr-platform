@@ -35,9 +35,9 @@ use pierre_core::models::usage::{
 use pierre_core::models::DataSource;
 use pierre_core::models::{
     AdaptedInsight, ApiKey, ApiKeyUsage, ApiKeyUsageStats, AuthorizationCode, CoachRuntimeContext,
-    ConnectionType, ConversationRecord, ConversationSummary, CreateUserMcpTokenRequest,
-    FriendConnection, FriendStatus, InsightReaction, OAuth2AuthCode, OAuth2Client,
-    OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
+    CoachingPersona, ConnectionType, ConversationRecord, ConversationSummary,
+    CreateUserMcpTokenRequest, FriendConnection, FriendStatus, InsightReaction, OAuth2AuthCode,
+    OAuth2Client, OAuth2RefreshToken, OAuth2State, OAuthApp, OAuthClientState, OAuthNotification,
     ProviderConnection, SharedInsight, Tenant, TenantPlan, TenantToolOverride, ToolCatalogEntry,
     ToolCategory, User, UserMcpToken, UserMcpTokenCreated, UserMcpTokenInfo, UserOAuthApp,
     UserOAuthToken, UserSocialSettings, UserStatus, UserTier,
@@ -185,6 +185,13 @@ pub trait UserRepository: Send + Sync {
     /// `coaches(id)` with `ON DELETE SET NULL`, so a deleted coach cleanly
     /// detaches instead of orphaning the user row.
     async fn set_default_coach(&self, user_id: Uuid, coach_id: Option<&str>) -> AppResult<()>;
+    /// Set the user's coaching persona (output-format / cadence preference).
+    ///
+    /// Called by the post-auth onboarding screen and the Settings UI. The
+    /// `coaching_persona` column has `NOT NULL DEFAULT 'casual'` so an
+    /// unmigrated user always resolves to the least-restrictive style;
+    /// this method overrides that default with an explicit choice.
+    async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()>;
     /// Set the user's billing tier (Starter / Professional / Enterprise).
     ///
     /// Called by Stripe webhook handlers on `customer.subscription.updated`

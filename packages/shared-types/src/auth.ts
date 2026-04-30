@@ -12,6 +12,20 @@ export type UserStatus = 'pending' | 'active' | 'suspended';
 /** User subscription tier */
 export type UserTier = 'starter' | 'professional' | 'enterprise';
 
+/**
+ * Coaching persona — orthogonal to the chosen coach personality.
+ *
+ * Controls output format / citation density / notification cadence:
+ * - `casual` — friend-texting prose, no jargon, P0-only push
+ * - `enthusiast` — prose with optional data citations, P0/P1 push
+ * - `power_athlete` — Section 11 discipline, line-by-line numeric reports,
+ *   framework citations on every numeric claim, full P0/P1/P2 push
+ * - `coach` — inherits power_athlete + roster framing for managing other athletes
+ *
+ * Persisted as snake_case on the backend.
+ */
+export type CoachingPersona = 'casual' | 'enthusiast' | 'power_athlete' | 'coach';
+
 /** A user in the system */
 export interface User {
   /** Primary user identifier */
@@ -41,6 +55,10 @@ export interface User {
   analytics_consent?: boolean;
   /** When the user last updated their analytics consent preference */
   analytics_consent_at?: string;
+  /** Output-format / cadence preference. Defaults to `casual` for new users. */
+  coaching_persona?: CoachingPersona;
+  /** True when the user has access to the Coach-tier roster UI. */
+  manages_roster?: boolean;
 }
 
 /** Extended user for admin views (deprecated: use User directly) */

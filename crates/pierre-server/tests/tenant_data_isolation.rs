@@ -17,6 +17,7 @@ use pierre_auth::{
     api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest},
     auth::AuthManager,
 };
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_mcp_server::{
     config::environment::{
@@ -182,6 +183,8 @@ async fn create_test_tenant_user(database: &Database, email: &str, tier: UserTie
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     database
         .repositories()

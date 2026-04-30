@@ -16,6 +16,7 @@
 )]
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use pierre_core::models::CoachingPersona;
 use pierre_database::database::Database;
 use pierre_mcp_server::models::{User, UserStatus, UserTier};
 use pierre_mcp_server::pagination::{PaginationDirection, PaginationParams};
@@ -56,6 +57,8 @@ fn generate_test_user() -> User {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     }
 }
 

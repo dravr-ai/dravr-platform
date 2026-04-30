@@ -13,6 +13,7 @@
 
 use chrono::Utc;
 use pierre_core::billing::{BillingEvent, SubscriptionEventPayload};
+use pierre_core::models::CoachingPersona;
 use pierre_core::models::{SubscriptionStatus, Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::Database;
@@ -74,6 +75,8 @@ async fn seed_starter_user_and_tenant(db: &Database) -> (Uuid, TenantId) {
         analytics_consent_at: None,
         locale: "en".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     repos.users.create(&user).await.unwrap();
 

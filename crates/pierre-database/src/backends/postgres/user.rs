@@ -12,7 +12,7 @@ use pierre_core::constants::tiers;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::default_locale;
 use pierre_core::models::TenantId;
-use pierre_core::models::{User, UserStatus, UserTier};
+use pierre_core::models::{CoachingPersona, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, CursorPage, PaginationParams};
 use pierre_core::permissions::UserRole;
 use serde_json::Value;
@@ -25,8 +25,8 @@ impl UserRepository for PostgresDatabase {
     async fn create(&self, user: &User) -> AppResult<Uuid> {
         sqlx::query(
             r"
-            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            INSERT INTO users (id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin, role, user_status, approved_by, approved_at, created_at, last_active, firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id, coaching_persona, manages_roster)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
             ",
         )
         .bind(user.id)
@@ -49,6 +49,8 @@ impl UserRepository for PostgresDatabase {
         .bind(user.analytics_consent_at)
         .bind(&user.locale)
         .bind(&user.default_coach_id)
+        .bind(user.coaching_persona.as_str())
+        .bind(user.manages_roster)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to create user: {e}")))?;
@@ -62,7 +64,8 @@ impl UserRepository for PostgresDatabase {
             SELECT u.id, u.email, u.display_name, u.password_hash, u.tier, u.tenant_id,
                    u.is_active, u.is_admin, u.role, u.user_status, u.approved_by, u.approved_at,
                    u.created_at, u.last_active, u.firebase_uid, u.auth_provider,
-                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id
+                   u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                   u.coaching_persona, u.manages_roster
             FROM users u
             INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
             WHERE u.id = $1
@@ -114,6 +117,12 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                     default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                    coaching_persona: row
+                        .try_get::<String, _>("coaching_persona")
+                        .ok()
+                        .and_then(|s| s.parse::<CoachingPersona>().ok())
+                        .unwrap_or_default(),
+                    manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 }))
             },
         )
@@ -124,7 +133,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster
             FROM users
             WHERE id = $1
             ",
@@ -174,6 +184,12 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                     default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                    coaching_persona: row
+                        .try_get::<String, _>("coaching_persona")
+                        .ok()
+                        .and_then(|s| s.parse::<CoachingPersona>().ok())
+                        .unwrap_or_default(),
+                    manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 }))
             },
         )
@@ -184,7 +200,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster
             FROM users
             WHERE email = $1
             ",
@@ -234,6 +251,12 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                     default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                    coaching_persona: row
+                        .try_get::<String, _>("coaching_persona")
+                        .ok()
+                        .and_then(|s| s.parse::<CoachingPersona>().ok())
+                        .unwrap_or_default(),
+                    manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 }))
             },
         )
@@ -250,7 +273,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster
             FROM users
             WHERE is_admin = true
             ORDER BY created_at ASC
@@ -301,6 +325,12 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                     default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                    coaching_persona: row
+                        .try_get::<String, _>("coaching_persona")
+                        .ok()
+                        .and_then(|s| s.parse::<CoachingPersona>().ok())
+                        .unwrap_or_default(),
+                    manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 }))
             },
         )
@@ -311,7 +341,8 @@ impl UserRepository for PostgresDatabase {
             r"
             SELECT id, email, display_name, password_hash, tier, tenant_id, is_active, is_admin,
                    role, user_status, approved_by, approved_at, created_at, last_active,
-                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id
+                   firebase_uid, auth_provider, analytics_consent, analytics_consent_at, locale, default_coach_id,
+                   coaching_persona, manages_roster
             FROM users
             WHERE firebase_uid = $1
             ",
@@ -361,6 +392,12 @@ impl UserRepository for PostgresDatabase {
                     analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                     locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                     default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                    coaching_persona: row
+                        .try_get::<String, _>("coaching_persona")
+                        .ok()
+                        .and_then(|s| s.parse::<CoachingPersona>().ok())
+                        .unwrap_or_default(),
+                    manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
                 }))
             },
         )
@@ -418,7 +455,8 @@ impl UserRepository for PostgresDatabase {
                        COALESCE(u.user_status, 'active') as user_status,
                        u.approved_by, u.approved_at, u.created_at, u.last_active,
                        u.firebase_uid, u.auth_provider,
-                       u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id
+                       u.analytics_consent, u.analytics_consent_at, u.locale, u.default_coach_id,
+                   u.coaching_persona, u.manages_roster
                 FROM users u
                 INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
                 WHERE COALESCE(u.user_status, 'active') = $1
@@ -493,6 +531,12 @@ impl UserRepository for PostgresDatabase {
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                coaching_persona: row
+                    .try_get::<String, _>("coaching_persona")
+                    .ok()
+                    .and_then(|s| s.parse::<CoachingPersona>().ok())
+                    .unwrap_or_default(),
+                manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
             });
         }
 
@@ -787,6 +831,12 @@ impl UserRepository for PostgresDatabase {
                 analytics_consent_at: row.try_get("analytics_consent_at").ok().flatten(),
                 locale: row.try_get("locale").ok().unwrap_or_else(default_locale),
                 default_coach_id: row.try_get("default_coach_id").ok().flatten(),
+                coaching_persona: row
+                    .try_get::<String, _>("coaching_persona")
+                    .ok()
+                    .and_then(|s| s.parse::<CoachingPersona>().ok())
+                    .unwrap_or_default(),
+                manages_roster: row.try_get("manages_roster").ok().unwrap_or(false),
             });
         }
 
@@ -918,6 +968,25 @@ impl UserRepository for PostgresDatabase {
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::database(format!("Failed to set default coach: {e}")))?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::not_found(format!("User with ID: {user_id}")));
+        }
+
+        Ok(())
+    }
+
+    async fn set_coaching_persona(&self, user_id: Uuid, persona: CoachingPersona) -> AppResult<()> {
+        let result = sqlx::query(
+            r"
+            UPDATE users SET coaching_persona = $1 WHERE id = $2
+            ",
+        )
+        .bind(persona.as_str())
+        .bind(user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to set coaching persona: {e}")))?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::not_found(format!("User with ID: {user_id}")));

@@ -150,6 +150,7 @@
 mod common;
 
 use pierre_auth::auth::AuthManager;
+use pierre_core::models::CoachingPersona;
 use pierre_database::{backends::factory::Database, database::generate_encryption_key};
 use pierre_mcp_server::{
     config::environment::{
@@ -584,6 +585,8 @@ async fn test_get_activities_with_expired_token() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -675,6 +678,8 @@ async fn test_connection_status_with_oauth_manager() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -755,6 +760,8 @@ async fn test_analyze_activity_token_refresh() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -855,6 +862,8 @@ async fn test_concurrent_token_operations() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();
@@ -939,6 +948,8 @@ async fn test_oauth_provider_init_failure() {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     let repos = database.repositories();
     repos.users.create(&user).await.unwrap();

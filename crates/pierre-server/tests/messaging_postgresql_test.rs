@@ -9,6 +9,7 @@
 #![cfg(feature = "postgresql")]
 
 use chrono::{Duration, Utc};
+use pierre_core::models::CoachingPersona;
 use pierre_database::backends::{
     factory::Database, CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams,
 };
@@ -48,6 +49,8 @@ async fn seed_pg_user(db: &Database) -> Uuid {
         analytics_consent_at: None,
         locale: "fr".to_owned(),
         default_coach_id: None,
+        coaching_persona: CoachingPersona::Casual,
+        manages_roster: false,
     };
     db.repositories()
         .users

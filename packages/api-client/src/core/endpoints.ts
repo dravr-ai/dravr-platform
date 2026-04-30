@@ -238,6 +238,8 @@ export const ENDPOINTS = {
     CHANGE_PASSWORD: '/api/user/change-password',
     /** Analytics consent */
     ANALYTICS_CONSENT: '/api/user/analytics-consent',
+    /** Coaching persona (output format / cadence) */
+    COACHING_PERSONA: '/api/user/coaching-persona',
     /** LLM settings */
     LLM_SETTINGS: '/api/user/llm-settings',
     /** Validate LLM settings */
