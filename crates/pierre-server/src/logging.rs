@@ -36,8 +36,6 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
-// OpenTelemetry support disabled temporarily due to version compatibility issues
-
 /// Log output options for controlling what information is included
 #[derive(Debug, Clone, Copy)]
 pub struct LogOutputOptions {
@@ -371,18 +369,6 @@ impl LoggingConfig {
         );
 
         Some(ErrorNotificationLayer::new(config, slack, email))
-    }
-
-    /// Create `OpenTelemetry` layer for distributed tracing
-    ///
-    /// Currently disabled due to dependency version conflicts with tokio-tungstenite.
-    /// `OpenTelemetry` requires specific versions that conflict with `WebSocket` dependencies.
-    #[allow(dead_code, clippy::unused_self, clippy::unnecessary_wraps)]
-    fn create_telemetry_layer(&self) -> AppResult<()> {
-        // OpenTelemetry integration disabled due to version compatibility issues
-        // Can be enabled once dependency conflicts are resolved
-        info!("`OpenTelemetry` layer creation requested but disabled due to dependency conflicts");
-        Ok(())
     }
 
     /// Create GCP optimized logging configuration

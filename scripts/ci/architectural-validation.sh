@@ -184,8 +184,13 @@ PRODUCTION_MOCKS=$(rg "mock_|get_mock|return.*mock|demo purposes|for demo|stub i
 MAGIC_INPUT_ANTIPATTERNS=$(rg "SyntheticProvider::new\(\)|SyntheticProvider::from_seed|generate_.*_data\(|create_synthetic_|if.*provider.*==.*\"synthetic\"|match.*provider.*synthetic" crates/pierre-server/src/tools/ crates/pierre-server/src/protocols/universal/handlers/ -g "!*synthetic_provider.rs" -g "!*registry.rs" -g "!*spi.rs" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
 PROBLEMATIC_UNDERSCORE_NAMES=$(rg "fn _|let _[a-zA-Z]|struct _|enum _" crates/pierre-server/src/ | rg -v "let _[[:space:]]*=" | rg -v "let _result|let _response|let _output" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
 CFG_TEST_IN_SRC=$(rg "#\[cfg\(test\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
-CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(clippy::" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' | rg -v "cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self" | wc -l 2>/dev/null | tr -d ' ' || echo 0)
-DEAD_CODE=$(rg "#\[allow\(dead_code\)\]" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+CLIPPY_ALLOWS_PROBLEMATIC=$(rg "#!?\[allow\(" crates/pierre-server/src/ -g '!crates/pierre-server/src/routes/openapi.rs' -o -r '$0' --no-line-number 2>/dev/null \
+    | sed -E 's/^.*#!?\[allow\(//; s/\)\].*$//' \
+    | tr ',' '\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
+    | grep '^clippy::' \
+    | grep -v -E "^clippy::(cast_possible_truncation|cast_sign_loss|cast_precision_loss|cast_possible_wrap|struct_excessive_bools|too_many_lines|let_unit_value|option_if_let_else|cognitive_complexity|bool_to_int_with_if|type_complexity|too_many_arguments|use_self)$" \
+    | wc -l 2>/dev/null | tr -d ' ' || echo 0)
+DEAD_CODE=$(rg "#\[allow\([^)]*\bdead_code\b" crates/pierre-server/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 TEMP_SOLUTIONS=$(rg "\bhack\b|\bworkaround\b|\bquick.*fix\b|future.*implementation|temporary.*solution|temp.*fix" crates/pierre-server/src/ --count-matches 2>/dev/null | cut -d: -f2 | python3 -c "import sys; lines = sys.stdin.readlines(); print(sum(int(x.strip()) for x in lines) if lines else 0)" 2>/dev/null || echo 0)
 # Ignored tests detection - matches both #[ignore] and #[ignore = "reason"]
 # Allowlist is defined in validation-patterns.toml [ignored_tests_allowlist]
@@ -289,6 +294,32 @@ if [ "$PG_FACTORY_STUBS" -gt 0 ]; then
     echo -e "${RED}❌ Found $PG_FACTORY_STUBS PostgreSQL factory stubs (return Err instead of real implementation)${NC}"
     rg -U 'PostgreSQL\(_\w+\)\s*=>\s*Err\(' crates/*/src/ -n | head -10
     fail_validation "PostgreSQL factory arms must have real implementations, not error stubs"
+fi
+
+# Structural check: dead-code function suppression
+# A function annotated with #[allow(dead_code)] is, by the compiler's own admission, uncalled.
+# Either delete it or wire it up — never both keep it AND silence the warning.
+# Combined-form (#[allow(dead_code, clippy::xxx)]) is the typical disguise, so we use a
+# tokenizing regex rather than the strict #\[allow\(dead_code\)\] form.
+echo -e "${BLUE}Checking for #[allow(dead_code)] on functions in src/...${NC}"
+DEAD_CODE_FNS=$(rg "#\[allow\([^)]*\bdead_code\b" crates/*/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$DEAD_CODE_FNS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $DEAD_CODE_FNS #[allow(dead_code)] suppressions in production code${NC}"
+    rg "#\[allow\([^)]*\bdead_code\b" crates/*/src/ -n 2>/dev/null | head -10
+    fail_validation "Dead code must be deleted, not suppressed — the compiler is telling you nothing calls it"
+fi
+
+# Structural check: stub-function signature
+# A function carrying both #[allow(clippy::unused_self)] and #[allow(clippy::unnecessary_wraps)]
+# is a method that doesn't use self AND a Result-returning function that never fails — the
+# textbook signature of a fake function pretending to be an implementation. No legitimate
+# code needs both lints suppressed at once.
+echo -e "${BLUE}Checking for stub-function clippy-allow signature...${NC}"
+STUB_SIGNATURE_FNS=$(rg -U --multiline '#\[allow\([^)]*(unused_self[^)]*unnecessary_wraps|unnecessary_wraps[^)]*unused_self)' crates/*/src/ --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+if [ "$STUB_SIGNATURE_FNS" -gt 0 ]; then
+    echo -e "${RED}❌ Found $STUB_SIGNATURE_FNS function(s) with stub-disguise signature (unused_self + unnecessary_wraps)${NC}"
+    rg -U --multiline '#\[allow\([^)]*(unused_self[^)]*unnecessary_wraps|unnecessary_wraps[^)]*unused_self)' crates/*/src/ -n 2>/dev/null | head -10
+    fail_validation "Functions that don't use self AND never fail are stubs — implement them or delete them"
 fi
 
 # Placeholder test bodies in JS/TS test files
@@ -793,6 +824,22 @@ if [ "$JS_PLACEHOLDER_TESTS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "No JS/TS placeholder tests"
 else
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "Replace placeholder tests"
+fi
+
+printf "│ %-35s │ %5d │ " "#[allow(dead_code)] in src" "$DEAD_CODE_FNS"
+if [ "$DEAD_CODE_FNS" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "No dead-code suppressions"
+else
+    FIRST_DEAD_CODE=$(get_first_location 'rg "#\[allow\([^)]*\bdead_code\b" crates/*/src/ -n')
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_DEAD_CODE"
+fi
+
+printf "│ %-35s │ %5d │ " "Stub-function signatures" "$STUB_SIGNATURE_FNS"
+if [ "$STUB_SIGNATURE_FNS" -eq 0 ]; then
+    printf "$(format_status "✅ PASS")│ %-39s │\n" "No unused_self + unnecessary_wraps"
+else
+    FIRST_STUB=$(get_first_location 'rg -U --multiline "#\[allow\([^)]*(unused_self[^)]*unnecessary_wraps|unnecessary_wraps[^)]*unused_self)" crates/*/src/ -n')
+    printf "$(format_status "❌ FAIL")│ %-39s │\n" "$FIRST_STUB"
 fi
 
 printf "│ %-35s │ %5d │ " "Empty source modules" "$EMPTY_MODULES"
