@@ -223,15 +223,14 @@ async fn test_configuration_tools_count_in_total() {
         6,
         "Expected exactly 6 configuration tools"
     );
-    // Post-2026-04-18 tool-registry unification: 6 tools that previously
-    // existed only as UniversalExecutor handlers (generate_recommendations,
-    // predict_performance, get_sleep_sessions, get_recovery_metrics,
-    // get_health_snapshots, list_data_sources) gained McpTool impls and are
-    // now visible to MCP clients via the shared registry — bringing the
-    // non-config count from 75 to 81 and the total to 87.
+    // 2026-04-18: tool-registry unification gave 6 HANDLER_ONLY tools their
+    // McpTool impls (75→81). 2026-04-30 endurance feat (fa2db720) added the
+    // Section 11 endurance compute surface — latest/dossier/history/intervals
+    // /routes JSON tools and the workout-template/prescribed-workout pair —
+    // bringing the non-config count from 81 to 90 and total to 96.
     assert_eq!(
-        fitness_tools, 81,
-        "Expected exactly 81 non-configuration tools"
+        fitness_tools, 90,
+        "Expected exactly 90 non-configuration tools"
     );
-    assert_eq!(tools.len(), 87, "Expected total of 87 tools"); // 81 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 96, "Expected total of 96 tools"); // 90 non-configuration + 6 configuration
 }
