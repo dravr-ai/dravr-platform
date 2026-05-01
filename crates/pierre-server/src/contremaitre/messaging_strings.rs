@@ -610,6 +610,8 @@ pub(crate) const ES_LINK_SESSION_EXPIRED: &str =
     "Tu sesión de vinculación ha expirado. Envía un mensaje para empezar de nuevo.";
 pub(crate) const ES_LINK_SUCCESS: &str = "¡Tu cuenta se ha vinculado correctamente! Ya puedes hablar con Dravr desde este canal.\n\nEscribe «logout» en cualquier momento para desconectar.";
 
+pub(crate) const ES_PROVIDER_REAUTH_REQUIRED: &str = "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. Vuelve a conectar tu cuenta aquí (enlace válido durante 20 minutos):\n\n{1}\n\nUna vez reconectado, vuelve a preguntarme.";
+
 pub(crate) const ES_STATUS_HEADER: &str = "Tu estado en Dravr:\n";
 pub(crate) const ES_STATUS_PROVIDERS_NONE: &str = "\nProveedores: ninguno conectado";
 pub(crate) const ES_STATUS_PROVIDERS_LABEL: &str = "\nProveedores: {0}";
@@ -731,6 +733,8 @@ pub(crate) const DE_LINK_OTP_PROMPT: &str = "Tippe den 6-stelligen Code, den wir
 pub(crate) const DE_LINK_SESSION_EXPIRED: &str =
     "Deine Verknüpfungssitzung ist abgelaufen. Schreib eine Nachricht, um neu zu beginnen.";
 pub(crate) const DE_LINK_SUCCESS: &str = "Dein Konto ist jetzt verknüpft! Du kannst über diesen Kanal mit Dravr chatten.\n\nTippe jederzeit „logout\", um dich abzumelden.";
+
+pub(crate) const DE_PROVIDER_REAUTH_REQUIRED: &str = "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. Verbinde dein Konto hier neu (Link 20 Minuten gültig):\n\n{1}\n\nFrag mich nach der erneuten Verbindung noch einmal.";
 
 pub(crate) const DE_STATUS_HEADER: &str = "Dein Dravr-Status:\n";
 pub(crate) const DE_STATUS_PROVIDERS_NONE: &str = "\nAnbieter: keine verbunden";
@@ -854,6 +858,8 @@ pub(crate) const PT_LINK_OTP_PROMPT: &str =
 pub(crate) const PT_LINK_SESSION_EXPIRED: &str =
     "A tua sessão de ligação expirou. Envia uma mensagem para começar de novo.";
 pub(crate) const PT_LINK_SUCCESS: &str = "A tua conta foi ligada com sucesso! Já podes falar com o Dravr através deste canal.\n\nEscreve «logout» a qualquer momento para desligar.";
+
+pub(crate) const PT_PROVIDER_REAUTH_REQUIRED: &str = "A tua ligação ao {0} expirou — não consigo aceder aos teus dados de momento. Liga novamente a tua conta aqui (link válido por 20 minutos):\n\n{1}\n\nDepois de te reconectares, volta a perguntar-me.";
 
 pub(crate) const PT_STATUS_HEADER: &str = "O teu estado no Dravr:\n";
 pub(crate) const PT_STATUS_PROVIDERS_NONE: &str = "\nFornecedores: nenhum ligado";
@@ -1146,6 +1152,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "es", ES_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "es", ES_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "es", ES_LINK_SUCCESS),
+    (KEY_PROVIDER_REAUTH_REQUIRED, "es", ES_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "es", ES_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "es", ES_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "es", ES_STATUS_PROVIDERS_LABEL),
@@ -1236,6 +1243,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "de", DE_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "de", DE_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "de", DE_LINK_SUCCESS),
+    (KEY_PROVIDER_REAUTH_REQUIRED, "de", DE_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "de", DE_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "de", DE_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "de", DE_STATUS_PROVIDERS_LABEL),
@@ -1326,6 +1334,7 @@ const COMPILED_IN: &[(&str, &str, &str)] = &[
     (KEY_LINK_OTP_PROMPT, "pt", PT_LINK_OTP_PROMPT),
     (KEY_LINK_SESSION_EXPIRED, "pt", PT_LINK_SESSION_EXPIRED),
     (KEY_LINK_SUCCESS, "pt", PT_LINK_SUCCESS),
+    (KEY_PROVIDER_REAUTH_REQUIRED, "pt", PT_PROVIDER_REAUTH_REQUIRED),
     (KEY_STATUS_HEADER, "pt", PT_STATUS_HEADER),
     (KEY_STATUS_PROVIDERS_NONE, "pt", PT_STATUS_PROVIDERS_NONE),
     (KEY_STATUS_PROVIDERS_LABEL, "pt", PT_STATUS_PROVIDERS_LABEL),
